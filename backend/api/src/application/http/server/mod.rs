@@ -788,9 +788,12 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Points endpoints - flexible authentication (session or API key),
-        // plus the same admin-console credential gate as every other admin
-        // router: a CustomUserUi token must not reach points.manage surfaces.
+        // Points admin endpoints - the flexible auth layer authenticates
+        // Bearer or API-key credentials, then the same admin-console
+        // credential gate as every other admin router rejects API-key and
+        // CustomUserUi identities: only first-party admin-console Bearer
+        // tokens reach these handlers. Third-party API keys use
+        // /api/ext/points/*.
         .nest(
             "/api/points/{realmId}",
             routes::points_router()
