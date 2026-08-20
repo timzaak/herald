@@ -51,9 +51,12 @@ pub async fn delete_api_key(
         ApiError::internal("Failed to delete API key")
     })?;
 
-    // Note: Cache invalidation is not possible here because the cache key
-    // is the plaintext API key (which we don't have). The cached entry will
-    // expire via TTL (300s) automatically.
+    // The API-key cache is keyed by the key's SHA-256 digest, which the DB
+    // record carries — evict it so the deleted key stops authenticating
+    // immediately instead of living out the cache TTL.
+    if let Err(e) = state.api_key_cache.delete(&api_key.api_key_hash).await {
+        tracing::warn!("Failed to evict deleted API key from cache: {e}");
+    }
 
     Ok(ApiResult::no_content())
 }

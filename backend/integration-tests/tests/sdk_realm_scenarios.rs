@@ -480,14 +480,17 @@ async fn test_scenario_sdk_realm_detail_cross_realm_forbidden(ctx: &mut SchemaTe
 // ---------------------------------------------------------------------------
 
 // User Story: docs/user-stories/16-sdk-user-stories.md - US-TP-012 Scenario 5
-// Covers: Non-existent realm -> 404
+// Covers: Non-existent realm -> blocked by the realm-boundary check. There is
+// no cross-realm super-admin: the membership check runs before any existence
+// lookup, and returning 404 here would leak realm existence to foreign-realm
+// callers, so a realm outside the caller's own (existent or not) is 403.
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
 async fn test_scenario_sdk_realm_detail_not_found(ctx: &mut SchemaTestContext) {
     ensure_admin_realm(ctx).await;
 
-    // Given: admin-realm API key with realm.manage (cross-realm viewing requires realm.manage)
+    // Given: admin-realm API key with realm.manage
     let (api_key, _, _) =
         setup_api_key_with_permissions(ctx, "admin", &ctx._client_id, &[("realm", "manage")]).await;
 
@@ -498,11 +501,11 @@ async fn test_scenario_sdk_realm_detail_not_found(ctx: &mut SchemaTestContext) {
     let nonexistent_id = Uuid::now_v7().to_string();
     let result = client.get_realm(&nonexistent_id).await;
 
-    // Then: returns 404 Not Found
+    // Then: returns 403 Forbidden (cross-realm boundary precedes existence)
     assert!(result.is_err(), "Non-existent realm should return error");
     match result.unwrap_err() {
-        Error::NotFound(_) => {}
-        other => panic!("Expected NotFound, got: {:?}", other),
+        Error::Forbidden(_) => {}
+        other => panic!("Expected Forbidden, got: {:?}", other),
     }
 
     handle.abort();

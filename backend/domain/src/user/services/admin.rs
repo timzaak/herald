@@ -308,7 +308,8 @@ where
         // realm-admin (privilege escalation) or a foreign realm's role id.
         require_roles_in_realm(&*self.role_policy_repository, realm_id, &request.role_ids).await?;
         // Hierarchy check (same rule as RoleAssignmentService::can_assign_roles):
-        // without roles.manage a caller may only grant the plain "user" role.
+        // without roles.manage a caller may grant no roles (the SDK ext API
+        // always creates role-less users) or only the plain "user" role.
         let principal = identity.principal_ref();
         let can_manage_roles = self
             .permission_checker
@@ -322,14 +323,15 @@ where
             .await
             .unwrap_or(false);
         if !can_manage_roles {
-            let only_plain_user_role = request.role_ids.len() == 1
-                && self
-                    .role_policy_repository
-                    .get_roles_by_ids(&request.role_ids)
-                    .await?
-                    .first()
-                    .is_some_and(|role| role.name == "user");
-            if !only_plain_user_role {
+            let no_or_plain_user_role = request.role_ids.is_empty()
+                || (request.role_ids.len() == 1
+                    && self
+                        .role_policy_repository
+                        .get_roles_by_ids(&request.role_ids)
+                        .await?
+                        .first()
+                        .is_some_and(|role| role.name == "user"));
+            if !no_or_plain_user_role {
                 return Err(UserAdminError::PermissionDenied(
                     "Cannot assign these roles without roles.manage permission".to_string(),
                 ));

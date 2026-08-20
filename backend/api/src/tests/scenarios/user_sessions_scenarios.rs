@@ -1,5 +1,5 @@
 // =============================================================================
-// User Sessions Management Scenario Tests (kickoff-user feature)
+// User Sessions Management Scenario Tests
 // =============================================================================
 //
 // End-to-end HTTP scenario tests for the admin session management endpoints:
@@ -9,20 +9,11 @@
 // and the Forbidden-status side-effect (PUT /api/users/{realmId}/{userId}) that
 // revokes all of a user's active sessions.
 //
-// Covers design `.ai/design/kickoff-user.md` §6.1, and user stories:
+// Covers user stories in docs/user-stories/core/realm-admin.md:
 //   - US-RA-020 (list / revoke single / revoke all / permissions / realm /
 //     cross-user / 404 / concurrent no-op)
 //   - US-RA-021 (Forbidden linkage revocation)
 //
-// Authored by BE-T01 (backend-test authoring slot). Execution is delegated to
-// BE-T02 (runner); this item only requires `cargo check --tests` to pass.
-//
-// Reference scenarios used as patterns:
-//   - account_self_delete_scenarios.rs (post-revoke 401 assertion,
-//     `protected_endpoint_status`, `create_extra_session`, login flow)
-//   - api_keys_permission_scenarios.rs (`grant_single_permission`,
-//     view/manage permission split)
-//   - realm_isolation_scenarios.rs (cross-realm 403)
 // =============================================================================
 
 use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
@@ -1137,11 +1128,12 @@ async fn test_update_user_to_normal_does_not_revoke(ctx: &mut TestContext) {
 }
 
 /// ============================================================================
-/// User Story: US-RA-021
-/// Covers: Design §5.3 — re-saving a Forbidden user as Forbidden (idempotent)
-///         does NOT re-revoke; an existing session created via the back door
-///         (bypassing the login gate) stays valid. The linkage fires only on a
-///         transition INTO Forbidden.
+/// User Story: docs/user-stories/core/realm-admin.md - US-RA-021
+/// Covers: re-saving a Forbidden user as Forbidden (idempotent) does NOT
+///         re-revoke; an existing session created via the back door
+///         (bypassing the login gate) stays unrevoked at the token-family
+///         level (bearer auth rejects Forbidden users regardless). The
+///         linkage fires only on a transition INTO Forbidden.
 /// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
@@ -1164,15 +1156,30 @@ async fn test_update_user_keep_forbidden_no_revoke(ctx: &mut TestContext) {
         Some("203.0.113.15".into()),
     )
     .await;
-    assert_eq!(protected_endpoint_status(ctx, &token).await, StatusCode::OK);
+    // Bearer auth rejects Forbidden users regardless of session state
+    // (defense in depth), so "session alive" must be observed at the token
+    // family level: the access token stays resolvable in Redis until the
+    // family is revoked.
+    let browser_tokens = RedisBrowserTokenService::new(ctx.app_state.redis_manager.clone());
+    assert!(
+        browser_tokens
+            .lookup_access_token(&token)
+            .await
+            .unwrap()
+            .is_some(),
+        "back-door session must start unrevoked"
+    );
 
     // PUT status=2 (Forbidden again) — idempotent, no transition INTO Forbidden.
     let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    assert_eq!(
-        protected_endpoint_status(ctx, &token).await,
-        StatusCode::OK,
-        "token must remain valid when re-saving Forbidden as Forbidden (no re-revoke)"
+    assert!(
+        browser_tokens
+            .lookup_access_token(&token)
+            .await
+            .unwrap()
+            .is_some(),
+        "token family must stay unrevoked when re-saving Forbidden as Forbidden (no re-revoke)"
     );
 }

@@ -338,17 +338,17 @@ pub async fn disable_api_key(ctx: &TestContext, api_key_id: &str, api_key_plaint
         .await
         .expect("Failed to disable API key");
 
-    // 删除缓存（使用明文 API key 作为缓存 key）
-    // 添加调试日志
+    // 删除缓存（缓存 key 是 API key 的 SHA-256 摘要，与认证中间件一致）
     tracing::debug!(
         api_key_id = %api_key_id,
         api_key_length = api_key_plaintext.len(),
         "Disabling API key and deleting from cache"
     );
 
+    let cache_key = ClientApiKeyService::hash_api_key(api_key_plaintext);
     ctx._app_state
         .api_key_cache
-        .delete(api_key_plaintext)
+        .delete(&cache_key)
         .await
         .expect("Failed to delete API key from cache");
 
@@ -381,10 +381,11 @@ pub async fn delete_api_key_with_plaintext(
         .await
         .expect("Failed to delete API key");
 
-    // 删除缓存（使用明文 API key 作为缓存 key）
+    // 删除缓存（缓存 key 是 API key 的 SHA-256 摘要，与认证中间件一致）
+    let cache_key = ClientApiKeyService::hash_api_key(api_key_plaintext);
     ctx._app_state
         .api_key_cache
-        .delete(api_key_plaintext)
+        .delete(&cache_key)
         .await
         .expect("Failed to delete API key from cache");
 }

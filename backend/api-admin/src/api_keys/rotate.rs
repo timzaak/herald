@@ -51,10 +51,13 @@ pub async fn rotate_api_key(
         return Err(ApiError::not_found("API key not found"));
     }
 
-    // Note: Old cache entry cannot be invalidated because the cache key is
-    // the plaintext API key (which we don't have). The old cached entry will
-    // expire via TTL (300s). Rotation generates a new hash, so lookups using
-    // the new hash will miss the cache and fetch fresh data from DB.
+    // The API-key cache is keyed by the key's SHA-256 digest, which the DB
+    // record carries — evict the old digest so the rotated-out key stops
+    // authenticating immediately instead of living out the cache TTL. The
+    // new digest has never been cached.
+    if let Err(e) = state.api_key_cache.delete(&api_key.api_key_hash).await {
+        tracing::warn!("Failed to evict rotated API key from cache: {e}");
+    }
 
     // Generate new key and hash
     let plaintext_key = ClientApiKeyService::generate_api_key();
