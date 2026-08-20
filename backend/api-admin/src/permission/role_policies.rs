@@ -87,7 +87,7 @@ pub async fn get_role_policies(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, role_id = %role_uuid, "Failed to query role");
-            ApiError::internal(format!("Failed to query role: {}", e))
+            ApiError::internal("Failed to query role")
         })?
         .ok_or_else(|| ApiError::not_found("Role not found"))?;
 
@@ -102,7 +102,7 @@ pub async fn get_role_policies(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, role_id = %role_uuid, "Failed to query role policies");
-            ApiError::internal(format!("Failed to query role policies: {}", e))
+            ApiError::internal("Failed to query role policies")
         })?;
 
     let policies: Vec<PolicyResponse> = policies
@@ -159,7 +159,7 @@ pub async fn add_policy_to_role(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, role_id = %role_id, "Failed to query role");
-            ApiError::internal(format!("Failed to query role: {}", e))
+            ApiError::internal("Failed to query role")
         })?
         .ok_or_else(|| ApiError::not_found("Role not found"))?;
 
@@ -205,7 +205,7 @@ pub async fn add_policy_to_role(
             return ApiError::conflict("Policy already exists for this role");
         }
 
-        ApiError::internal(format!("Failed to add policy: {}", e))
+        ApiError::internal("Failed to add policy")
     })?;
 
     // Invalidate role policy cache
@@ -263,7 +263,7 @@ pub async fn remove_policy_from_role(
                 policy_id = %policy_id,
                 "Failed to query policy"
             );
-            ApiError::internal(format!("Failed to query policy: {}", e))
+            ApiError::internal("Failed to query policy")
         })?;
 
     let realm_id = policy
@@ -286,7 +286,7 @@ pub async fn remove_policy_from_role(
                 policy_id = %policy_id,
                 "Failed to remove policy"
             );
-            ApiError::internal(format!("Failed to remove policy: {}", e))
+            ApiError::internal("Failed to remove policy")
         })?;
 
     if result.rows_affected == 0 {

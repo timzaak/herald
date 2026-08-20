@@ -23,7 +23,9 @@ use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{CredentialClass, Identity, TokenCredentialContext};
 use herald_core::domain::client_api_keys::services::ClientApiKeyService;
+use herald_core::entity::client_app;
 use herald_core::infrastructure::client_api_keys::cache::ApiKeyCacheValue;
+use sea_orm::EntityTrait;
 use std::collections::HashSet;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -88,6 +90,45 @@ async fn try_api_key_auth(
                 status.to_error_code().as_str(),
                 status.to_error_code().to_string(),
             ));
+        }
+
+        // Check the associated Client App live, even on cache hit, so disabling
+        // a Client App immediately blocks its API keys (parity with the
+        // api-ext `api_key_auth_middleware`).
+        if let Some(app_id) = cached.client_app_id {
+            match client_app::Entity::find_by_id(app_id)
+                .one(state.db.as_ref())
+                .await
+            {
+                Ok(Some(app)) if app.enabled => {}
+                Ok(Some(_)) => {
+                    warn!(
+                        "API key's Client App is disabled (cache path): {:?}",
+                        cached.id
+                    );
+                    return Err(ApiError::with_error_code(
+                        StatusCode::UNAUTHORIZED,
+                        ErrorCode::ClientAppDisabled.as_str(),
+                        "Client App is disabled",
+                    ));
+                }
+                Ok(None) => {
+                    warn!("API key references non-existent Client App: {}", app_id);
+                    return Err(ApiError::with_error_code(
+                        StatusCode::UNAUTHORIZED,
+                        ErrorCode::ClientAppDisabled.as_str(),
+                        "Client App is disabled",
+                    ));
+                }
+                Err(e) => {
+                    error!("Database error checking Client App enabled status: {}", e);
+                    return Err(ApiError::with_error_code(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        ErrorCode::InternalError.as_str(),
+                        "Database error checking Client App status",
+                    ));
+                }
+            }
         }
 
         // Convert cached value to domain entity and inject identity
@@ -156,6 +197,43 @@ async fn try_api_key_auth(
         ));
     }
 
+    // Check the associated Client App live so disabling a Client App
+    // immediately blocks its API keys (parity with the api-ext
+    // `api_key_auth_middleware`).
+    let client_app_enabled = match api_key_record.client_app_id {
+        Some(app_id) => match client_app::Entity::find_by_id(app_id)
+            .one(state.db.as_ref())
+            .await
+        {
+            Ok(Some(app)) => app.enabled,
+            Ok(None) => {
+                warn!("API key references non-existent Client App: {}", app_id);
+                false
+            }
+            Err(e) => {
+                error!("Database error checking Client App enabled status: {}", e);
+                return Err(ApiError::with_error_code(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorCode::InternalError.as_str(),
+                    "Database error checking Client App status",
+                ));
+            }
+        },
+        None => true,
+    };
+
+    if !client_app_enabled {
+        warn!(
+            "API key's Client App is disabled (DB path): {:?}",
+            api_key_record.id
+        );
+        return Err(ApiError::with_error_code(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::ClientAppDisabled.as_str(),
+            "Client App is disabled",
+        ));
+    }
+
     // Update usage stats asynchronously (don't block request)
     let api_key_id = api_key_record.id.clone();
     let repo = state.api_key_repo.clone();
@@ -166,7 +244,8 @@ async fn try_api_key_auth(
     });
 
     // Write to cache for next request (digest cache key, see cache lookup above)
-    let cache_value = (&api_key_record).into();
+    let mut cache_value: ApiKeyCacheValue = (&api_key_record).into();
+    cache_value.client_app_enabled = client_app_enabled;
     if let Err(e) = state
         .api_key_cache
         .set(&api_key_hash, &cache_value, API_KEY_CACHE_TTL_SECONDS)

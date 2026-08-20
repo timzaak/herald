@@ -2085,6 +2085,7 @@ dependencies = [
  "chrono",
  "herald-api-base",
  "herald-core",
+ "sea-orm",
  "serde",
  "serde_json",
  "tokio",

@@ -165,7 +165,7 @@ pub async fn create_permission(
             }
             herald_core::domain::user::admin_errors::UserAdminError::DatabaseError(msg) => {
                 tracing::error!("Failed to create permission: {}", msg);
-                ApiError::internal(format!("Database error: {}", msg))
+                ApiError::internal("Database error")
             }
             herald_core::domain::user::admin_errors::UserAdminError::InternalError(msg) => {
                 tracing::error!("Failed to create permission: {}", msg);
@@ -213,7 +213,7 @@ pub async fn list_permission(
         .map_err(|e| match e {
             herald_core::domain::user::admin_errors::UserAdminError::DatabaseError(msg) => {
                 tracing::error!("Failed to list permissions: {}", msg);
-                ApiError::internal(format!("Database error: {}", msg))
+                ApiError::internal("Database error")
             }
             herald_core::domain::user::admin_errors::UserAdminError::InternalError(msg) => {
                 tracing::error!("Failed to list permissions: {}", msg);
@@ -317,7 +317,7 @@ pub async fn delete_permission(
             }
             herald_core::domain::user::admin_errors::UserAdminError::DatabaseError(msg) => {
                 tracing::error!("Failed to delete permission: {}", msg);
-                ApiError::internal(format!("Database error: {}", msg))
+                ApiError::internal("Database error")
             }
             herald_core::domain::user::admin_errors::UserAdminError::InternalError(msg) => {
                 tracing::error!("Failed to delete permission: {}", msg);
