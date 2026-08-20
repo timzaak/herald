@@ -142,12 +142,15 @@ async fn validate_invoice_creation_policy(
     subscription_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     let mut payment_provider: Option<String> = if let Some(pa_id) = payment_attempt_id {
-        sqlx::query_scalar("SELECT payment_provider FROM payment_attempts WHERE id = $1")
-            .bind(pa_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-            .flatten()
+        sqlx::query_scalar(
+            "SELECT payment_provider FROM payment_attempts WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(pa_id)
+        .bind(realm_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .flatten()
     } else {
         None
     };

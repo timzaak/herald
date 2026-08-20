@@ -42,6 +42,7 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::payment_attempt::PurchasableTarget;
 use herald_core::domain::purchase::services::CreateIapAttemptInput;
 use herald_core::domain::realm_config::RealmConfigRepository;
+use herald_core::domain::user::UserRepository;
 use herald_infra_iap::google::service_account::GoogleServiceAccountAuth;
 use herald_infra_iap::{AppleEnvironment, AppleVerifier, GoogleDeveloperClient, IapError};
 use validator::Validate;
@@ -561,6 +562,7 @@ pub async fn submit_iap_receipt(
     let billing_type_str = billing_type.as_str().to_string();
     let fulfill_result = fulfill_provider_event(
         &state,
+        &realm_id,
         attempt.id,
         &input.provider,
         "succeeded",
@@ -847,19 +849,36 @@ async fn process_apple_notification(
         return Ok(());
     }
 
-    // Create the IAP attempt + fulfil via the shared dispatch. The Apple
-    // notification path has no client user_id (the webhook is unauthenticated);
-    // ownership was established cryptographically by the verified JWS, so we
-    // attribute the attempt to the mapping's existing subscription owner if
-    // any. For the first-purchase case we use the zero UUID sentinel — the
-    // fulfilment path's idempotency + entitlement grant do not require a
-    // purchaser user_id on the attempt for recurring (subscription is keyed by
-    // external id).
+    // Attribute the attempt to the real purchaser where possible. The Apple
+    // notification path has no client user_id (the webhook is unauthenticated),
+    // but Herald's client receipt path REQUIRES appAccountToken == user id, so
+    // webhook-only transactions can usually recover the owner from the same
+    // verified field; otherwise fall back to the existing subscription's
+    // owner. Refund/REVOKE clawbacks revoke by attempt.user_id — with the old
+    // mapping-id placeholder they silently no-oped and the buyer kept refunded
+    // entitlements.
+    let mut attributed_user_id: Option<Uuid> = match txn.app_account_token {
+        Some(uid) => match state.user_repository.get_user_by_id(uid).await {
+            Ok(user) if user.realm_id == realm_id => Some(uid),
+            _ => None,
+        },
+        None => None,
+    };
+    if attributed_user_id.is_none()
+        && let Ok(Some(subscription)) = state
+            .billing_repository
+            .find_by_external_subscription_id(&original_transaction_id, "apple")
+            .await
+        && subscription.realm_id == realm_id
+    {
+        attributed_user_id = Some(subscription.user_id);
+    }
+
     let attempt = state
         .purchase_service
         .create_iap_payment_attempt(CreateIapAttemptInput {
             realm_id: realm_id.to_string(),
-            user_id: resolved.mapping.id, // placeholder user attribution; see note above
+            user_id: attributed_user_id.unwrap_or(resolved.mapping.id), // placeholder only when no owner is recoverable; see note above
             payment_provider: "apple".to_string(),
             target_type: PurchasableTarget::EntitlementMapping,
             target_id: resolved.mapping.id,
@@ -870,6 +889,7 @@ async fn process_apple_notification(
 
     fulfill_provider_event(
         state,
+        realm_id,
         attempt.id,
         "apple",
         "succeeded",
@@ -951,7 +971,32 @@ async fn process_apple_refund_or_revoke(
             ))
         })?;
     let attempt = match attempt {
-        Some(a) => a,
+        Some(a) if a.realm_id == realm_id => a,
+        Some(a) => {
+            // The provider-reference lookup is realm-free; a JWS verified for
+            // this realm must not revoke another realm's attempt.
+            tracing::warn!(
+                realm_id = %realm_id,
+                attempt_id = %a.id,
+                attempt_realm_id = %a.realm_id,
+                notification_type = %notification_type_str,
+                "apple REFUND/REVOKE: attempt belongs to a different realm — skipping"
+            );
+            record_idempotent_payment_event(
+                state,
+                realm_id,
+                &synthetic_event_id,
+                "apple",
+                format!("apple_{notification_type_str}"),
+                serde_json::json!({
+                    "notificationType": notification_type_str,
+                    "productId": product_id,
+                    "outcome": "foreign_realm_attempt",
+                }),
+            )
+            .await;
+            return Ok(());
+        }
         None => {
             tracing::warn!(
                 realm_id = %realm_id,
@@ -1335,7 +1380,19 @@ async fn reprocess_google_one_time_revoke(
             ))
         })?;
     let attempt = match attempt {
-        Some(a) => a,
+        Some(a) if a.realm_id == realm_id => a,
+        // The provider-reference lookup is realm-free; an event verified for
+        // this realm must not revoke another realm's attempt.
+        Some(a) => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                attempt_id = %a.id,
+                attempt_realm_id = %a.realm_id,
+                event_type = %event_type,
+                "google one-time revoke: attempt belongs to a different realm — skipping"
+            );
+            return Ok(());
+        }
         None => {
             tracing::warn!(
                 realm_id = %realm_id,

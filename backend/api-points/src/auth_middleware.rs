@@ -53,8 +53,11 @@ async fn try_api_key_auth(
 
     debug!("API Key authentication attempt (length: {})", api_key.len());
 
-    // Check Redis cache using plaintext API key as cache key
-    let cached: Option<ApiKeyCacheValue> = match state.api_key_cache.get(api_key).await {
+    // Check Redis cache, keyed by the key's SHA-256 digest — never the
+    // plaintext credential (a Redis reader must not recover usable keys from
+    // key names; the digest matches the DB lookup below).
+    let api_key_hash = ClientApiKeyService::hash_api_key(api_key);
+    let cached: Option<ApiKeyCacheValue> = match state.api_key_cache.get(&api_key_hash).await {
         Ok(Some(cached)) => {
             debug!(enabled = cached.enabled, "Cache hit for API key");
             Some(cached)
@@ -118,10 +121,7 @@ async fn try_api_key_auth(
 
     debug!("Cache miss, computing hash and querying database");
 
-    // Compute SHA-256 hash of the API key for O(1) lookup
-    let api_key_hash = ClientApiKeyService::hash_api_key(api_key);
-
-    // Query API key by hash (O(1) lookup)
+    // Query API key by hash (O(1) lookup; hash computed above)
     let api_key_record = match state.api_key_repo.find_by_hash(&api_key_hash).await {
         Ok(Some(record)) => record,
         Ok(None) => {
@@ -165,11 +165,11 @@ async fn try_api_key_auth(
         }
     });
 
-    // Write to cache for next request (use plaintext API key as cache key)
+    // Write to cache for next request (digest cache key, see cache lookup above)
     let cache_value = (&api_key_record).into();
     if let Err(e) = state
         .api_key_cache
-        .set(api_key, &cache_value, API_KEY_CACHE_TTL_SECONDS)
+        .set(&api_key_hash, &cache_value, API_KEY_CACHE_TTL_SECONDS)
         .await
     {
         warn!("Failed to cache API key: {}", e);

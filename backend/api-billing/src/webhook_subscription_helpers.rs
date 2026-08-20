@@ -420,6 +420,19 @@ pub(crate) async fn sync_subscription(
         ));
     }
 
+    // Realm binding: the external-id lookup above is deliberately realm-free
+    // (the provider id is globally unique per provider account). An event
+    // signed for this realm must never mutate a subscription row belonging to
+    // another realm — e.g. two realms misconfigured to share one provider
+    // account, or a leaked webhook secret.
+    if let Some(sub) = existing.as_ref()
+        && sub.realm_id != realm_id
+    {
+        return Err(CoreError::Forbidden(format!(
+            "subscription {external_subscription_id} does not belong to realm {realm_id}"
+        )));
+    }
+
     let now = Utc::now();
 
     if let Some(mut subscription) = existing {
@@ -545,6 +558,19 @@ pub(crate) async fn sync_subscription_in_txn(
         return Err(CoreError::BadRequest(
             "Missing external_subscription_id".to_string(),
         ));
+    }
+
+    // Realm binding: the external-id lookup above is deliberately realm-free
+    // (the provider id is globally unique per provider account). An event
+    // signed for this realm must never mutate a subscription row belonging to
+    // another realm — e.g. two realms misconfigured to share one provider
+    // account, or a leaked webhook secret.
+    if let Some(sub) = existing.as_ref()
+        && sub.realm_id != realm_id
+    {
+        return Err(CoreError::Forbidden(format!(
+            "subscription {external_subscription_id} does not belong to realm {realm_id}"
+        )));
     }
 
     let now = Utc::now();

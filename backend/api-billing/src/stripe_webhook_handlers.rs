@@ -786,6 +786,7 @@ fn parse_credit_note_voided_payload(
 
 async fn fulfill_payment_attempt(
     app_state: &AppState,
+    realm_id: &str,
     attempt_id: Uuid,
     provider_status: &str,
     provider_transaction_id: String,
@@ -794,6 +795,7 @@ async fn fulfill_payment_attempt(
 ) -> Result<(), CoreError> {
     crate::shared_fulfillment::fulfill_provider_event(
         app_state,
+        realm_id,
         attempt_id,
         "stripe",
         provider_status,
@@ -1207,6 +1209,7 @@ async fn handle_checkout_session_completed(
 
         fulfill_payment_attempt(
             &app_state,
+            realm_id,
             attempt_id,
             "succeeded",
             provider_transaction_id,
@@ -1367,6 +1370,7 @@ async fn handle_payment_intent_succeeded(
 
     fulfill_payment_attempt(
         &app_state,
+        realm_id,
         payload.attempt_id,
         "succeeded",
         payload.payment_intent_id,
@@ -1455,6 +1459,7 @@ async fn handle_checkout_session_async_succeeded(
 
     fulfill_payment_attempt(
         &app_state,
+        realm_id,
         attempt_id,
         "succeeded",
         provider_transaction_id,
@@ -2507,6 +2512,14 @@ async fn handle_charge_refunded(
                         payload.charge_id
                     ))
                 })?;
+            // The provider-reference lookup is realm-free; a refund signed for
+            // this realm must not revoke against another realm's attempt.
+            if attempt.realm_id != realm_id {
+                return Err(CoreError::BadRequest(format!(
+                    "Stripe refund realm mismatch for charge_id {}",
+                    payload.charge_id
+                )));
+            }
             let _output = app_state
                 .points_service
                 .revoke_topup_source_proportional(

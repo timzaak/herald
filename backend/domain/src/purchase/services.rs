@@ -80,9 +80,15 @@ pub struct CompletePaymentAttemptInput {
     /// Used when the provider webhook carries billing_type metadata that
     /// should take precedence over the mapping's stored billing_type.
     pub billing_type_override: Option<BillingType>,
+    /// Realm the completion event was addressed to (the webhook path realm).
+    /// When `Some`, the attempt's own realm must match or the completion is
+    /// rejected — a signature-valid event for realm A must never fulfill a
+    /// realm-B attempt referenced through forged metadata. `None` is reserved
+    /// for the internal-key fulfillment endpoint, which has no path realm.
+    pub expected_realm_id: Option<String>,
 }
 
-/// Input for the IAP receipt submission path (design support-iap §5.2).
+/// Input for the IAP receipt submission path.
 ///
 /// IAP (Apple App Store / Google Play) is a "purchase already happened on the
 /// store -> client submits credential -> Herald verifies + fulfils" reverse

@@ -841,11 +841,23 @@ async fn handle_checkout_completed(
                 .get_payment_attempt_by_provider_reference("creem", checkout_id)
                 .await
             {
-                Ok(Some(attempt)) => (
+                Ok(Some(attempt)) if attempt.realm_id == realm_id => (
                     attempt.amount,
                     attempt.currency.clone(),
                     Some(attempt.user_id),
                 ),
+                Ok(Some(attempt)) => {
+                    // The provider-reference lookup is realm-free; never
+                    // attribute another realm's attempt to this realm's invoice.
+                    warn!(
+                        realm_id = %realm_id,
+                        event_id = %event_id,
+                        checkout_id = checkout_id,
+                        attempt_realm_id = %attempt.realm_id,
+                        "Creem checkout payment_attempt belongs to a different realm -- skipping invoice sync"
+                    );
+                    (0, String::new(), None)
+                }
                 Ok(None) => {
                     // Priority 3: not found, skip sync
                     warn!(
@@ -948,6 +960,7 @@ async fn handle_checkout_completed(
 
                 crate::shared_fulfillment::fulfill_provider_event(
                     &app_state,
+                    realm_id,
                     attempt_id,
                     "creem",
                     "succeeded",
@@ -1052,6 +1065,7 @@ async fn handle_subscription_paid(
                     provider: "creem".to_string(),
                 },
                 billing_type_override: None,
+                expected_realm_id: Some(realm_id.to_string()),
             })
             .await?;
 

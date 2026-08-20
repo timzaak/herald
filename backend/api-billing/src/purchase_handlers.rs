@@ -484,6 +484,9 @@ pub async fn fulfill_payment(
             completed_at,
             source: PaymentCompletionSource::InternalApi,
             billing_type_override: None,
+            // Demo/test payment simulation behind the INTERNAL_API_KEY gate;
+            // the endpoint has no path realm to bind the attempt to.
+            expected_realm_id: None,
         })
         .await
         .map_err(|e| core_error_to_api_error(e, "Fulfill payment"))?;

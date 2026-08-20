@@ -240,15 +240,15 @@ pub async fn handle_finish_passkey_registration(
     .await?;
 
     let credential = service
-        .finish_registration(&req.reg_token, &req.attestation, nickname.as_deref())
+        .finish_registration(
+            &req.reg_token,
+            &req.attestation,
+            nickname.as_deref(),
+            user_id,
+            &identity.realm_id(),
+        )
         .await
         .map_err(map_registration_finish_error)?;
-
-    if credential.user_id != user_id || credential.realm_id != identity.realm_id() {
-        return Err(ApiError::forbidden(
-            "passkey credential does not belong to user in realm",
-        ));
-    }
 
     // Audit passkey credential registration (PRD §4.1 audit rule).
     if let Err(audit_err) = state
@@ -587,6 +587,9 @@ fn map_registration_finish_error(err: PasskeyError) -> ApiError {
         PasskeyError::VerificationFailed | PasskeyError::Unsupported => {
             ApiError::unprocessable_entity("Passkey verification failed")
         }
+        PasskeyError::OwnerMismatch => {
+            ApiError::forbidden("passkey credential does not belong to user in realm")
+        }
         PasskeyError::Repo(CoreError::Conflict(_)) => {
             ApiError::conflict("Passkey credential already exists")
         }
@@ -606,6 +609,7 @@ fn map_passkey_error(err: PasskeyError) -> ApiError {
         PasskeyError::NotFound => ApiError::not_found("Passkey credential not found"),
         PasskeyError::ChallengeExpired => ApiError::unauthorized("Challenge expired"),
         PasskeyError::Unsupported => ApiError::unprocessable_entity("Passkey is unsupported"),
+        PasskeyError::OwnerMismatch => ApiError::forbidden("Challenge does not belong to user"),
         PasskeyError::Repo(err) => map_repository_error(err),
     }
 }

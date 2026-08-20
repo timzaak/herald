@@ -4366,6 +4366,23 @@ impl PointsRepository for PostgresPointsRepository {
                 return Err(CoreError::NotFound);
             }
 
+            // The bucket must exist in the grant's realm: the wallet/ledger
+            // FK alone would accept a bucket UUID from another realm, silently
+            // writing cross-tenant references into wallet and ledger rows
+            // (bucket ids surface in transactions, so they are not secret).
+            let bucket_in_realm: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM credit_buckets WHERE id = $1 AND realm_id = $2)",
+            )
+            .bind(bucket_id)
+            .bind(&realm_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+
+            if !bucket_in_realm {
+                return Err(CoreError::NotFound);
+            }
+
             let mut tx = pool
                 .begin()
                 .await

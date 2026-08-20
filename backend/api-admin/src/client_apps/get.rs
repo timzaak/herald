@@ -52,6 +52,9 @@ pub async fn get_client_app(
             herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
                 ApiError::not_found("client_app not found")
             }
+            herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
+                ApiError::forbidden(msg)
+            }
             e => {
                 tracing::error!("Failed to get client app: {}", e);
                 ApiError::internal(format!("Failed to get client app: {e}"))

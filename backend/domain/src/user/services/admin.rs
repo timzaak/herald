@@ -834,6 +834,24 @@ where
             return Err(UserAdminError::UserNotFound(user_id.to_string()));
         }
 
+        // The account row is gone, but the user's browser-token families live in
+        // Redis and outlive the row. Revoke them so a leaked refresh token
+        // cannot keep rotating until its absolute expiry (matches the
+        // self-delete and password-reset paths). Best-effort: the delete has
+        // already committed; access tokens are also rejected by the identity
+        // middleware's user lookup, so a failure here is logged, not fatal.
+        if let Err(e) = self
+            .token_service
+            .revoke_user_families(&user_id.to_string())
+            .await
+        {
+            tracing::error!(
+                error = %e,
+                user_id = %user_id,
+                "delete_user: failed to revoke sessions"
+            );
+        }
+
         // Record audit event (failure does not fail the operation)
         if let Err(e) = self
             .audit_event_repository

@@ -340,6 +340,19 @@ where
             .get_payment_attempt_by_id_only(input.attempt_id)
             .await?;
 
+        // Realm binding: provider events carry the attempt id in
+        // client-influenced metadata, and the lookup above is deliberately
+        // realm-free. An event signed for realm A must never complete an
+        // attempt belonging to realm B.
+        if let Some(expected_realm_id) = &input.expected_realm_id
+            && &attempt_for_realm.realm_id != expected_realm_id
+        {
+            return Err(CoreError::Forbidden(format!(
+                "payment attempt {} does not belong to realm {}",
+                input.attempt_id, expected_realm_id
+            )));
+        }
+
         let marked_attempt = self
             .payment_attempt_service
             .mark_payment_succeeded(

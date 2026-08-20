@@ -2,15 +2,16 @@
 // response/wallet-list non-leak + DTO effective_at hiding
 // =============================================================================
 //
-// Encodes design `.ai/design/point-time.md`:
-//   * P1 "管理员钱包列表不泄漏未来期积分" — `list_wallets` cross-user
+// Encodes the point-time non-leak invariants:
+//   * "管理员钱包列表不泄漏未来期积分" — `list_wallets` cross-user
 //     batched derived assembly must not leak future-effective rows.
-//   * P1-2 — `PointsTransactionResponse.effective_at` is
-//     admin/audit-only. A `points.view` (regular user) response MUST have the
+//   * `PointsTransactionResponse.effective_at` is admin/audit-only. A
+//     `points.view` (regular user) response MUST have the
 //     `effectiveAt` JSON key ABSENT (via `skip_serializing_if`); a
 //     `points.manage` (admin) response MUST include the key with the real
 //     ledger value when the source row carries one.
-//   * risk "wallet Stored 列读点遗漏" (P1).
+//   * wallet Stored 列读点遗漏 — no read path may consult the removed
+//     `points_wallets` Stored columns.
 //
 // All derived-balance cross-checks use the helpers
 // (`assert_derived_balance`, `count_future_effective_active_rows`); they mirror
@@ -23,6 +24,7 @@
 //
 // =============================================================================
 
+use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
 use crate::tests::helpers::points_helpers::{
     assert_derived_balance, count_future_effective_active_rows,
     create_credit_ledger_entry_with_effective_at,
@@ -343,16 +345,16 @@ async fn test_admin_transaction_response_includes_effective_at_for_manage(ctx: &
     )
     .await;
 
-    // Admin setup (`create_test_admin` grants `realm-admin` which carries
-    // `points.manage`).
-    let admin_email = "be-t09-admin@example.com";
-    let admin_password = "admin123";
-    let admin_user_id = create_test_admin(&ctx._app_state.pool, &realm_id, admin_email).await;
-    record_test_user_consent(&ctx._app_state.pool, admin_user_id, &realm_id).await;
+    // Admin setup: mint an admin-console (FirstParty) session with
+    // `realm-admin` (carries `points.manage`). A plain HTTP `login` token is
+    // CredentialClass::CustomUserUi and is rejected (403) by the
+    // admin-console gate mounted on `/api/points/*`.
+    let (token, _admin_user_id) =
+        create_admin_session_with_user(ctx, "be-t09-admin@example.com", 1800).await;
+    grant_realm_admin_role(ctx, &_admin_user_id).await;
 
-    // When: the admin lists realm transactions (no user_id filter ⟹ realm-wide
-    // cross-user view).
-    let token = login(ctx, "3.3.4.2", admin_email, admin_password).await;
+    // When: the admin lists realm transactions (userId filter ⟹ the data
+    // subject's cross-user view).
     let request = Request::builder()
         .method("GET")
         .uri(format!(
@@ -513,12 +515,11 @@ async fn test_admin_list_wallets_excludes_future_effective(ctx: &mut TestContext
         "user_future has two future-effective rows that must not leak"
     );
 
-    // Admin login (points.manage).
-    let admin_email = "be-t09-lw-admin@example.com";
-    let admin_password = "admin123";
-    let admin_user_id = create_test_admin(&ctx._app_state.pool, &realm_id, admin_email).await;
-    record_test_user_consent(&ctx._app_state.pool, admin_user_id, &realm_id).await;
-    let token = login(ctx, "3.3.4.3", admin_email, admin_password).await;
+    // Admin login (points.manage): mint an admin-console (FirstParty) session —
+    // plain HTTP login tokens are rejected by the admin-console gate.
+    let (token, _admin_user_id) =
+        create_admin_session_with_user(ctx, "be-t09-lw-admin@example.com", 1800).await;
+    grant_realm_admin_role(ctx, &_admin_user_id).await;
 
     // When: the admin calls list_wallets (cross-user realm-wide view).
     let request = Request::builder()

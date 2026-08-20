@@ -790,7 +790,8 @@ fn map_passkey_verify_error(err: PasskeyError) -> ApiError {
         | PasskeyError::VerificationFailed
         | PasskeyError::NotFound
         | PasskeyError::ChallengeExpired
-        | PasskeyError::Unsupported => ApiError::unauthorized(PASSKEY_VERIFY_FAILED),
+        | PasskeyError::Unsupported
+        | PasskeyError::OwnerMismatch => ApiError::unauthorized(PASSKEY_VERIFY_FAILED),
     }
 }
 
@@ -801,7 +802,8 @@ fn map_passkey_setup_error(err: PasskeyError) -> ApiError {
         PasskeyError::Repo(err) => ApiError::from(err),
         PasskeyError::VerificationFailed
         | PasskeyError::ChallengeExpired
-        | PasskeyError::NotFound => ApiError::unauthorized(PASSKEY_VERIFY_FAILED),
+        | PasskeyError::NotFound
+        | PasskeyError::OwnerMismatch => ApiError::unauthorized(PASSKEY_VERIFY_FAILED),
     }
 }
 

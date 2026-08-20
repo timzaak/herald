@@ -91,6 +91,17 @@ pub async fn authenticate_bearer(
     if user.realm_id != token_data.realm_id {
         return Err(ApiError::unauthorized("invalid bearer token"));
     }
+    // Defense in depth: status transitions are expected to revoke token
+    // families when they happen, but a direct-DB edit or a future code path
+    // that flips status without revocation must not leave the account usable.
+    // WaitVerified users keep access so they can complete email verification.
+    if matches!(
+        user.status,
+        herald_core::domain::user::entities::UserStatus::Forbidden
+            | herald_core::domain::user::entities::UserStatus::Deleted
+    ) {
+        return Err(ApiError::unauthorized("invalid bearer token"));
+    }
 
     let credential_context = TokenCredentialContext {
         client_app_id: token_data.client_app_id,

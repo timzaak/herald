@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::authz::require_principal_permission;
-use crate::client_app_scope::ensure_client_app_scope;
+use crate::client_app_scope::{ensure_client_app_scope, is_admin_api_key};
 use herald_api_base::application::http::common::error_codes::ErrorCode;
 use herald_api_base::application::http::common::error_helpers::json_error;
 use herald_api_base::application::http::rate_limit::{RateLimitConfig, rate_limit};
@@ -349,23 +349,40 @@ pub async fn consume_points_ext(
         "Points consumption requested"
     );
 
-    // 0. Apply rate limiting (parallel checks for better performance)
+    // 0. Check realm isolation - API key must be for the requested realm.
+    // This must run BEFORE any rate limiting: the limit keys are derived from
+    // the caller's validated realm, otherwise a foreign-realm caller could
+    // exhaust another realm's shared budget (cross-realm DoS).
+    if !identity.has_access_to_realm(&realm_id) {
+        tracing::warn!(
+            api_key_realm_id = %api_key_realm_id,
+            request_realm_id = %realm_id,
+            "Cross-realm access attempt blocked"
+        );
+        return json_error(StatusCode::FORBIDDEN, ErrorCode::CrossRealmAccessForbidden);
+    }
+
+    // 1. Apply rate limiting (parallel checks for better performance),
+    // keyed on the API key's own (already validated) realm.
     let (realm_result, user_result) = tokio::join!(
         rate_limit(
             &state,
-            format!("{}{}", REALM_RATE_LIMIT_PREFIX, realm_id),
+            format!("{}{}", REALM_RATE_LIMIT_PREFIX, api_key_realm_id),
             REALM_RATE_LIMIT
         ),
         rate_limit(
             &state,
-            format!("{}{}:{}", USER_RATE_LIMIT_PREFIX, realm_id, request.user_id),
+            format!(
+                "{}{}:{}",
+                USER_RATE_LIMIT_PREFIX, api_key_realm_id, request.user_id
+            ),
             USER_RATE_LIMIT
         )
     );
 
     if let Err(e) = realm_result {
         tracing::warn!(
-            realm_id = %realm_id,
+            realm_id = %api_key_realm_id,
             error = %e,
             "Realm-level rate limit exceeded"
         );
@@ -374,22 +391,12 @@ pub async fn consume_points_ext(
 
     if let Err(e) = user_result {
         tracing::warn!(
-            realm_id = %realm_id,
+            realm_id = %api_key_realm_id,
             user_id = %request.user_id,
             error = %e,
             "User-level rate limit exceeded"
         );
         return json_error(StatusCode::TOO_MANY_REQUESTS, ErrorCode::RateLimitExceeded);
-    }
-
-    // 1. Check realm isolation - API key must be for the requested realm
-    if !identity.has_access_to_realm(&realm_id) {
-        tracing::warn!(
-            api_key_realm_id = %api_key_realm_id,
-            request_realm_id = %realm_id,
-            "Cross-realm access attempt blocked"
-        );
-        return json_error(StatusCode::FORBIDDEN, ErrorCode::CrossRealmAccessForbidden);
     }
 
     if let Err(resp) =
@@ -413,6 +420,11 @@ pub async fn consume_points_ext(
     // 2. Check idempotency if key is provided
     if let Some(ref idempotency_key) = request.idempotency_key {
         let idempotency_service = &state.idempotency_service;
+        // Scope idempotency keys to the calling principal, not just the realm:
+        // multiple API keys (potentially bound to different client apps) share
+        // a realm, and a realm-wide namespace would let one key replay or
+        // suppress another key's transaction by colliding on the key string.
+        let idempotency_scope = format!("{}:{}", realm_id, identity.id());
         let request_data = serde_json::to_string(&request).unwrap_or_else(|_| {
             tracing::warn!(
                 idempotency_key = %idempotency_key,
@@ -422,7 +434,7 @@ pub async fn consume_points_ext(
         });
 
         match idempotency_service
-            .check_or_create(&realm_id, idempotency_key, &request_data)
+            .check_or_create(&idempotency_scope, idempotency_key, &request_data)
             .await
         {
             Ok(herald_core::domain::points::IdempotencyResult::Cached { transaction }) => {
@@ -658,8 +670,10 @@ pub async fn consume_points_ext(
     // semantics.
     if let Some(ref idempotency_key) = request.idempotency_key {
         let idempotency_service = &state.idempotency_service;
+        // Must match the scope used by check_or_create above.
+        let idempotency_scope = format!("{}:{}", realm_id, identity.id());
         if let Err(e) = idempotency_service
-            .save_result(&realm_id, idempotency_key, primary)
+            .save_result(&idempotency_scope, idempotency_key, primary)
             .await
         {
             tracing::error!(
@@ -733,23 +747,38 @@ pub async fn grant_points_ext(
         "Points grant requested"
     );
 
-    // 0. Apply rate limiting (realm 100/min, user 20/min)
+    // 0. Check realm isolation. Runs BEFORE rate limiting for the same
+    // cross-realm DoS reason as the consume path.
+    if !identity.has_access_to_realm(&realm_id) {
+        tracing::warn!(
+            api_key_realm_id = %api_key_realm_id,
+            request_realm_id = %realm_id,
+            "Cross-realm access attempt blocked"
+        );
+        return json_error(StatusCode::FORBIDDEN, ErrorCode::CrossRealmAccessForbidden);
+    }
+
+    // 1. Apply rate limiting (realm 100/min, user 20/min), keyed on the API
+    // key's own (already validated) realm.
     let (realm_result, user_result) = tokio::join!(
         rate_limit(
             &state,
-            format!("{}{}", REALM_RATE_LIMIT_PREFIX, realm_id),
+            format!("{}{}", REALM_RATE_LIMIT_PREFIX, api_key_realm_id),
             REALM_RATE_LIMIT
         ),
         rate_limit(
             &state,
-            format!("{}{}:{}", USER_RATE_LIMIT_PREFIX, realm_id, request.user_id),
+            format!(
+                "{}{}:{}",
+                USER_RATE_LIMIT_PREFIX, api_key_realm_id, request.user_id
+            ),
             USER_RATE_LIMIT
         )
     );
 
     if let Err(e) = realm_result {
         tracing::warn!(
-            realm_id = %realm_id,
+            realm_id = %api_key_realm_id,
             error = %e,
             "Realm-level rate limit exceeded"
         );
@@ -758,22 +787,12 @@ pub async fn grant_points_ext(
 
     if let Err(e) = user_result {
         tracing::warn!(
-            realm_id = %realm_id,
+            realm_id = %api_key_realm_id,
             user_id = %request.user_id,
             error = %e,
             "User-level rate limit exceeded"
         );
         return json_error(StatusCode::TOO_MANY_REQUESTS, ErrorCode::RateLimitExceeded);
-    }
-
-    // 1. Check realm isolation
-    if !identity.has_access_to_realm(&realm_id) {
-        tracing::warn!(
-            api_key_realm_id = %api_key_realm_id,
-            request_realm_id = %realm_id,
-            "Cross-realm access attempt blocked"
-        );
-        return json_error(StatusCode::FORBIDDEN, ErrorCode::CrossRealmAccessForbidden);
     }
 
     if let Err(resp) =
@@ -1184,10 +1203,20 @@ pub async fn get_transaction_ext(
         }
     };
 
-    if let Some(client_app_id) = transaction.client_app_id
-        && let Err(resp) = ensure_client_app_scope(&state, &identity, client_app_id).await
-    {
-        return resp;
+    match transaction.client_app_id {
+        Some(client_app_id) => {
+            if let Err(resp) = ensure_client_app_scope(&state, &identity, client_app_id).await {
+                return resp;
+            }
+        }
+        // Transactions without client-app attribution (admin/SDK grants,
+        // registration credits) are realm-level records: a key bound to one
+        // client app must not read them — only realm-admin (unbound) keys can.
+        None => match is_admin_api_key(&state, &identity).await {
+            Ok(true) => {}
+            Ok(false) => return json_error(StatusCode::FORBIDDEN, ErrorCode::Forbidden),
+            Err(resp) => return resp,
+        },
     }
 
     let response = transaction_to_response(&transaction);
@@ -1295,10 +1324,19 @@ pub async fn get_transaction_by_external_ref_ext(
     }
 
     let transaction = result.data.into_iter().next().expect("checked non-empty");
-    if let Some(client_app_id) = transaction.client_app_id
-        && let Err(resp) = ensure_client_app_scope(&state, &identity, client_app_id).await
-    {
-        return resp;
+    match transaction.client_app_id {
+        Some(client_app_id) => {
+            if let Err(resp) = ensure_client_app_scope(&state, &identity, client_app_id).await {
+                return resp;
+            }
+        }
+        // Unattributed (admin/SDK grant) transactions are realm-level records;
+        // restrict them to realm-admin (unbound) keys, same as get_transaction.
+        None => match is_admin_api_key(&state, &identity).await {
+            Ok(true) => {}
+            Ok(false) => return json_error(StatusCode::FORBIDDEN, ErrorCode::Forbidden),
+            Err(resp) => return resp,
+        },
     }
 
     Json(transaction_to_response(&transaction)).into_response()

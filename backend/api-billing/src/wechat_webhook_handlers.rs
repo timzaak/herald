@@ -266,6 +266,7 @@ async fn process_decided(
             .unwrap_or_else(|| decrypted.out_trade_no.clone());
         fulfill_provider_event(
             app_state,
+            realm_id,
             attempt.id,
             "wechat",
             "succeeded",

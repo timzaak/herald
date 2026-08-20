@@ -2,19 +2,29 @@
 // Points System Scenario Test 2: View Balance
 // =============================================================================
 //
-// **User Story**: US-PU-01 (View My Points Balance)
+// **User Story**: docs/user-stories/billing/points-admin.md (US-PO-02, admin
+// views a user's wallet)
 // **Priority**: P0
 //
-// **Scenario**: User Views Their Own Balance
+// **Scenario**: Admin views a user's wallet via the admin-console surface
+//
+// `GET /api/points/{realmId}/wallets/{userId}` is the admin wallet view: it
+// sits behind the `require_admin_console_token` gate, so callers need a
+// FirstParty admin-console token (plain HTTP login tokens are
+// CredentialClass::CustomUserUi and are rejected by design). The regular-user
+// "view my own balance" story (US-PU-01,
+// docs/user-stories/billing/points-user.md) is served by the self-service
+// `GET /api/user/wallets` endpoint and covered in
+// `credit_bucket/bucket_query_scenarios.rs` (US-CB-005,
+// docs/user-stories/billing/credit-bucket.md).
 //
 // **Given**:
-// - A user with authentication
-// - An existing points account with balance 5000
-// - Total recharged: 10000
-// - Total consumed: 5000
+// - A user with an existing points wallet (balance 5000)
+// - Total recharged: 10000 / Total consumed: 5000
+// - An admin (points.view) admin-console session
 //
 // **When**:
-// - The user calls `GET /api/{realmId}/points/balance`
+// - The admin calls `GET /api/points/{realmId}/wallets/{userId}`
 //
 // **Then**:
 // - The response returns balance: 5000
@@ -25,11 +35,11 @@
 //
 // =============================================================================
 
+use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
 use crate::tests::helpers::points_helpers::{
     assert_derived_balance, count_future_effective_active_rows,
     create_credit_ledger_entry_with_effective_at,
 };
-use crate::tests::helpers::test_setup_helpers::record_test_user_consent;
 use crate::tests::scenarios::points::fixtures::*;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -37,28 +47,43 @@ use axum::{
     http::{Request, StatusCode},
 };
 use chrono::{Duration, Utc};
-use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 
+/// Mint an admin-console (FirstParty) session for a caller with points.view.
+///
+/// `GET /api/points/{realmId}/wallets/{userId}` is the admin wallet view: it
+/// sits behind the `require_admin_console_token` gate, so a plain HTTP login
+/// token (CredentialClass::CustomUserUi since the credential-class split) is
+/// rejected with 403 by design. The regular-user "view my own balance" story
+/// (US-PU-01, docs/user-stories/billing/points-user.md) is served by the
+/// self-service `GET /api/user/wallets` endpoint and covered by
+/// `credit_bucket/bucket_query_scenarios.rs` (US-CB-005,
+/// docs/user-stories/billing/credit-bucket.md).
+async fn admin_points_view_session(ctx: &mut TestContext) -> String {
+    let (token, admin_user_id) =
+        create_admin_session_with_user(ctx, "points-view-admin@example.com", 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+    token
+}
+
 /// ============================================================================
-/// Scenario 1.2: User Views Their Own Balance
+/// Scenario 1.2: Admin views a user's wallet (flat DTO incl. lifetime totals)
 /// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_scenario_user_view_own_balance(ctx: &mut TestContext) {
+async fn test_scenario_admin_view_user_wallet(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
 
     // ============================================================================
-    // Given: A user with authentication and points account
+    // Given: A user with a points account, and an admin (points.view) session
     // ============================================================================
     println!("[Step 1] Create test user and points account");
 
     let email = "user2@example.com";
-    let password = "password123";
     let user_id =
-        create_test_user_with_auth(&ctx._app_state.pool, &ctx._realm_id, email, password).await;
-    record_test_user_consent(&ctx._app_state.pool, user_id, &ctx._realm_id).await;
+        create_test_user_with_auth(&ctx._app_state.pool, &ctx._realm_id, email, "password123")
+            .await;
 
     let balance = 5000;
     let total_recharged = 10000;
@@ -82,37 +107,10 @@ async fn test_scenario_user_view_own_balance(ctx: &mut TestContext) {
         user_id, wallet_id, balance, total_recharged, total_consumed
     );
 
-    // ============================================================================
-    // When: The user logs in and views their balance
-    // ============================================================================
-    println!("[Step 2] User logs in");
+    println!("[Step 2] Admin opens an admin-console session");
+    let token = admin_points_view_session(ctx).await;
 
-    // Login to get session token
-    let login_payload = json!({
-        "clientId": ctx._client_id,
-        "email": email,
-        "password": password,
-        "turnstileToken": "dummy"
-    });
-
-    let login_request = Request::builder()
-        .method("POST")
-        .uri(format!("/api/auth/{}/login", ctx._realm_id))
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", "3.3.3.3")
-        .body(Body::from(login_payload.to_string()))
-        .unwrap();
-
-    let login_response = app.clone().oneshot(login_request).await.unwrap();
-    assert_eq!(login_response.status(), StatusCode::OK);
-
-    // Extract session token
-    let (_response, token) = crate::tests::extract_bearer_token(login_response).await;
-    let token = token.expect("Login should return accessToken");
-
-    println!("[Step 2] ✓ User logged in: token={}", token);
-
-    println!("[Step 3] User requests balance");
+    println!("[Step 3] Admin requests the user's wallet");
 
     let request = Request::builder()
         .method("GET")
@@ -171,7 +169,7 @@ async fn test_scenario_user_view_own_balance(ctx: &mut TestContext) {
         balance, total_recharged, total_consumed
     );
 
-    println!("\n✅ Scenario 1.2 完成：用户成功查看自己的积分余额");
+    println!("\n✅ Scenario 1.2 完成：管理员成功查看用户积分钱包");
 }
 
 /// ============================================================================
@@ -189,11 +187,13 @@ async fn test_scenario_get_wallet_auto_creates_empty_wallet(ctx: &mut TestContex
     let app = ctx.create_unified_test_router();
 
     // Given: A user exists but has no points wallet yet.
-    let email = "user2-auto-create@example.com";
-    let password = "password123";
-    let user_id =
-        create_test_user_with_auth(&ctx._app_state.pool, &ctx._realm_id, email, password).await;
-    record_test_user_consent(&ctx._app_state.pool, user_id, &ctx._realm_id).await;
+    let user_id = create_test_user_with_auth(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        "user2-auto-create@example.com",
+        "password123",
+    )
+    .await;
 
     let wallet_count_before: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM points_wallets WHERE user_id = $1")
@@ -206,27 +206,8 @@ async fn test_scenario_get_wallet_auto_creates_empty_wallet(ctx: &mut TestContex
         "Precondition matters: this scenario verifies GET returns a usable view when no wallet exists"
     );
 
-    // When: The user logs in and requests their own wallet.
-    let login_payload = json!({
-        "clientId": ctx._client_id,
-        "email": email,
-        "password": password,
-        "turnstileToken": "dummy"
-    });
-
-    let login_request = Request::builder()
-        .method("POST")
-        .uri(format!("/api/auth/{}/login", ctx._realm_id))
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", "3.3.3.4")
-        .body(Body::from(login_payload.to_string()))
-        .unwrap();
-
-    let login_response = app.clone().oneshot(login_request).await.unwrap();
-    assert_eq!(login_response.status(), StatusCode::OK);
-
-    let (_response, token) = crate::tests::extract_bearer_token(login_response).await;
-    let token = token.expect("Login should return accessToken");
+    // When: an admin (points.view) requests the user's wallet.
+    let token = admin_points_view_session(ctx).await;
 
     let request = Request::builder()
         .method("GET")
@@ -275,12 +256,13 @@ async fn test_scenario_get_wallet_auto_creates_empty_wallet(ctx: &mut TestContex
 /// future-effective rows
 /// ============================================================================
 ///
-/// User Story: US-PU-001 / US-PU-004 / US-PU-005 (future-period credits must
-/// not be visible to regular users before their effective time).
+/// User Story: docs/user-stories/billing/points-user.md — US-PU-001 /
+/// US-PU-004 / US-PU-005 (future-period credits must not be visible to
+/// regular users before their effective time).
 ///
-/// Covers design `.ai/design/point-time.md` P1 "响应不泄漏未来期积分" +
-/// risk "wallet Stored 列读点遗漏：get_balance 之外的 list_wallets ... 若
-/// 继续读 points_wallets.total_balance 会泄漏未来期积分" (P1).
+/// Covers the "响应不泄漏未来期积分" invariant and the wallet Stored 列读点
+/// 遗漏 risk: `get_balance` 之外的 `list_wallets` 等读路径若继续读
+/// `points_wallets.total_balance` 会泄漏未来期积分.
 ///
 /// Why this test exists: the GET `/wallets/{userId}` response assembles
 /// `balance`/typed balances from the DERIVED SUM (`compute_available_balance`,
@@ -300,11 +282,13 @@ async fn test_user_balance_excludes_future_effective(ctx: &mut TestContext) {
     // Given: A user with two subscription_credit ledger rows on the same
     // (user, realm, bucket): one immediately available (effective_at=NULL,
     // amount A), one future-effective (effective_at=now+1d, amount B).
-    let email = "user-be-t09-noleak@example.com";
-    let password = "password123";
-    let user_id =
-        create_test_user_with_auth(&ctx._app_state.pool, &realm_id, email, password).await;
-    record_test_user_consent(&ctx._app_state.pool, user_id, &realm_id).await;
+    let user_id = create_test_user_with_auth(
+        &ctx._app_state.pool,
+        &realm_id,
+        "user-be-t09-noleak@example.com",
+        "password123",
+    )
+    .await;
 
     let amount_immediate = 2_000;
     let amount_future = 3_000;
@@ -351,24 +335,10 @@ async fn test_user_balance_excludes_future_effective(ctx: &mut TestContext) {
         "future-effective row is present in the ledger (the non-leak is a predicate effect, not a missing row)"
     );
 
-    // When: the user logs in and requests their wallet.
-    let login_payload = json!({
-        "clientId": ctx._client_id,
-        "email": email,
-        "password": password,
-        "turnstileToken": "dummy"
-    });
-    let login_request = Request::builder()
-        .method("POST")
-        .uri(format!("/api/auth/{}/login", realm_id))
-        .header("content-type", "application/json")
-        .header("x-forwarded-for", "3.3.3.9")
-        .body(Body::from(login_payload.to_string()))
-        .unwrap();
-    let login_response = app.clone().oneshot(login_request).await.unwrap();
-    assert_eq!(login_response.status(), StatusCode::OK);
-    let (_response, token) = crate::tests::extract_bearer_token(login_response).await;
-    let token = token.expect("Login should return accessToken");
+    // When: an admin (points.view) requests the user's wallet. The derived-SUM
+    // predicate is caller-independent, so the non-leak property under test is
+    // identical to the (admin-console-gated) user-visible wallet view.
+    let token = admin_points_view_session(ctx).await;
 
     let request = Request::builder()
         .method("GET")
@@ -401,7 +371,7 @@ async fn test_user_balance_excludes_future_effective(ctx: &mut TestContext) {
     );
 
     println!(
-        "\n✅ Scenario 1.4 完成：普通用户 PointsWalletResponse 不含 future-effective（balance={}，未泄漏未来期 {}）",
+        "\n✅ Scenario 1.4 完成：钱包视图 PointsWalletResponse 不含 future-effective（balance={}，未泄漏未来期 {}）",
         amount_immediate, amount_future
     );
 }

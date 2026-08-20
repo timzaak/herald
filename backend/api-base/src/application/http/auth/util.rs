@@ -277,8 +277,18 @@ pub async fn verify_turnstile_for_client_app(
         .ok_or_else(|| ApiError::bad_request("turnstile token is required"))?;
 
     // Cloudflare Turnstile 官方测试 secret：开发/测试环境常用，避免测试依赖外网。
-    // 只要配置仍是该测试 secret，就直接放行（生产请务必替换为真实 secret）。
+    // 生产环境若仍配置该测试 secret 则一律拒绝——否则人机校验会静默失效
+    // （app_env 默认即 "production"，见 config::default_app_env）。
     if secret.trim() == "1x0000000000000000000000000000000AA" {
+        if state.app_env.eq_ignore_ascii_case("production")
+            || state.app_env.eq_ignore_ascii_case("prod")
+        {
+            tracing::error!(
+                client_id = %client_app.client_id,
+                "Turnstile test secret is configured in a production environment — rejecting"
+            );
+            return Err(ApiError::bad_request("Turnstile verification failed"));
+        }
         return Ok(());
     }
 

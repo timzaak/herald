@@ -52,6 +52,9 @@ use herald_core::domain::purchase::services::{
 /// # Arguments
 ///
 /// * `app_state` - Shared application state (carries the `PurchaseService`).
+/// * `realm_id` - Realm the provider event was addressed to (the webhook path
+///   realm). Passed through as `expected_realm_id` so an event signed for one
+///   realm can never complete another realm's attempt.
 /// * `attempt_id` - The payment attempt to mark succeeded + fulfill.
 /// * `provider` - Provider short name (`"stripe"` / `"creem"` / `"apple"` /
 ///   `"google"`). Recorded on the `PaymentCompletionSource::ProviderWebhook`
@@ -68,6 +71,7 @@ use herald_core::domain::purchase::services::{
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fulfill_provider_event(
     app_state: &AppState,
+    realm_id: &str,
     attempt_id: Uuid,
     provider: &str,
     provider_status: &str,
@@ -86,6 +90,7 @@ pub(crate) async fn fulfill_provider_event(
                 provider: provider.to_string(),
             },
             billing_type_override,
+            expected_realm_id: Some(realm_id.to_string()),
         })
         .await?;
     Ok(())

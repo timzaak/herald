@@ -64,6 +64,8 @@ pub enum PasskeyError {
     ChallengeExpired,
     #[error("浏览器或设备不支持 Passkey")]
     Unsupported,
+    #[error("challenge 不属于当前用户")]
+    OwnerMismatch,
     #[error(transparent)]
     Repo(#[from] CoreError),
 }
@@ -163,11 +165,21 @@ where
         reg_token: &str,
         resp_json: &Value,
         nickname: Option<&str>,
+        expected_user_id: Uuid,
+        expected_realm_id: &str,
     ) -> Result<UserPasskeyCredential, PasskeyError> {
         let key = reg_key(reg_token);
         let payload = self
             .load_challenge::<RegistrationChallengeState>(&key)
             .await?;
+        // Ownership must be verified BEFORE the credential is persisted: the
+        // challenge is bound to the user who ran `begin_registration`, and a
+        // stolen reg_token must never plant an attacker credential on the
+        // owner's account. The challenge is left intact so the legitimate
+        // owner can still complete the ceremony.
+        if payload.user_id != expected_user_id || payload.realm_id != expected_realm_id {
+            return Err(PasskeyError::OwnerMismatch);
+        }
         self.challenge_store.delete(&key).await?;
 
         let response: RegistrationResponse = serde_json::from_value(resp_json.clone())
