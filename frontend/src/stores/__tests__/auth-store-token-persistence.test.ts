@@ -1,23 +1,28 @@
 /**
- * Auth store token-model persistence / cleanup boundaries.
+ * Auth store + Herald SDK token-model persistence / cleanup boundaries.
  *
- * Uses the REAL `useAuthStore` (no mocks) to assert the Bearer family's
- * persistence contract:
- *   - the refresh token + PKCE state are persisted (survive a reload)
- *   - the access token is NEVER persisted (in-memory holder only)
- *   - `logout()` / `reset()` / `clearAuthStorage()` all purge RT + PKCE + AT
- *   - the storage key is the existing `AUTH_STORAGE_KEY` (no new keys)
+ * Uses the REAL `useAuthStore` and the REAL Herald SDK client (no mocks) to
+ * assert the post-SDK-migration persistence contract (DEC-js-sdk-013):
+ *   - the token family (in-memory AT + persisted RT) lives in the Herald SDK
+ *     client's storage (`herald.refreshToken`), NOT in the Zustand persist
+ *   - the store persists UI/routing auth state (user, permissions,
+ *     refreshClientId) and the PKCE state — never token material
+ *   - `logout()` / `reset()` / `clearAuthStorage()` purge the store state
+ *   - the storage keys stay stable (AUTH_STORAGE_KEY, SDK storage key)
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
+import { useAuthStore, clearAuthStorage, type PersistedPkceState } from '@/stores/auth-store'
 import {
-  useAuthStore,
-  accessTokenHolder,
-  clearAuthStorage,
-  type PersistedPkceState,
-} from '@/stores/auth-store'
+  ensureHeraldClient,
+  getActiveHeraldClient,
+  applyTokenSet,
+  HERALD_REFRESH_TOKEN_STORAGE_KEY,
+} from '@/lib/herald-client'
 import { AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
 import { TOKEN_FIXTURE } from '@/test/fixtures/browser-token'
+
+const TEST_REALM = 'realm-1'
 
 /** Read the persisted snapshot written to localStorage by the persist middleware. */
 function readPersistedSnapshot(): Record<string, unknown> {
@@ -39,124 +44,99 @@ const SAMPLE_PKCE: PersistedPkceState = {
   state: 'state-xyz',
 }
 
+/** Seed a full session: token family into the SDK client, routing state into the store. */
+function seedSession() {
+  ensureHeraldClient(TEST_REALM)
+  applyTokenSet({
+    accessToken: TOKEN_FIXTURE.accessToken,
+    refreshToken: TOKEN_FIXTURE.refreshToken,
+    clientId: TOKEN_FIXTURE.clientId,
+  })
+  useAuthStore.getState().setPkceState(SAMPLE_PKCE)
+  useAuthStore.getState().setAuthStatus(true, TEST_REALM)
+}
+
 beforeEach(() => {
-  // Reset both the in-memory holder and the persisted store between tests.
-  accessTokenHolder.clear()
+  getActiveHeraldClient()?.tokens.clear()
   useAuthStore.getState().reset()
   window.localStorage.removeItem(AUTH_STORAGE_KEY)
+  window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)
 })
 
-describe('partialize: refresh token + PKCE state persisted, access token excluded', () => {
-  it('persists refreshToken + refreshClientId + pkceState to localStorage', () => {
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
-    useAuthStore.getState().setPkceState(SAMPLE_PKCE)
+describe('token family lives in the Herald SDK client, not the store persist', () => {
+  it('applyTokenSet stores AT in the SDK holder + RT in SDK storage, and only routing state in the store', () => {
+    seedSession()
 
+    // SDK owns the token family.
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe(TOKEN_FIXTURE.accessToken)
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe(TOKEN_FIXTURE.refreshToken)
+
+    // The store keeps the bound product client for redirect routing…
+    expect(useAuthStore.getState().refreshClientId).toBe(TOKEN_FIXTURE.clientId)
+    // …but never token material.
     const snapshot = readPersistedSnapshot()
-
-    expect(snapshot.refreshToken).toBe(TOKEN_FIXTURE.refreshToken)
-    expect(snapshot.refreshClientId).toBe(TOKEN_FIXTURE.clientId)
+    expect(snapshot).not.toHaveProperty('refreshToken')
+    expect(snapshot).not.toHaveProperty('accessToken')
     expect(snapshot.pkceState).toMatchObject(SAMPLE_PKCE)
   })
 
-  it('does NOT persist the in-memory access token (no AT field in the snapshot)', () => {
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
+  it('the RT survives a simulated reload via the SDK storage key; no access token is persisted anywhere', () => {
+    seedSession()
 
+    // The SDK storage entry is exactly the opaque refresh token string.
+    expect(window.localStorage.getItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)).toBe(
+      TOKEN_FIXTURE.refreshToken
+    )
+    // No access token under the SDK key (it is the raw RT string, not JSON).
+    expect(window.localStorage.getItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)).not.toContain(
+      'accessToken'
+    )
+    // And none in the persisted store snapshot.
     const snapshot = readPersistedSnapshot()
-
-    // The AT lives only in the in-memory holder; the persisted snapshot must
-    // not carry it under any common key name.
     expect(snapshot).not.toHaveProperty('accessToken')
     expect(snapshot).not.toHaveProperty('access_token')
-    // The holder DOES hold it in memory.
-    expect(accessTokenHolder.get()).toBe(TOKEN_FIXTURE.accessToken)
   })
 })
 
-describe('access token is non-persistent across a simulated full reload', () => {
-  it('a fresh module holder starts empty even when a refresh token was persisted', () => {
-    // Seed a full session.
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
-    expect(accessTokenHolder.get()).toBe(TOKEN_FIXTURE.accessToken)
-
-    // Simulate a full page reload: the in-memory holder is wiped, while the
-    // persisted RT/clientId survive in localStorage.
-    accessTokenHolder.clear()
-    const persisted = readPersistedSnapshot()
-    expect(persisted.refreshToken).toBe(TOKEN_FIXTURE.refreshToken)
-
-    // After "reload", no access token is restored from storage — the app must
-    // call the refresh endpoint to obtain a new AT (refresh-first restore).
-    expect(accessTokenHolder.get()).toBeNull()
-  })
-})
-
-describe('logout() / reset() / clearAuthStorage() all purge RT + PKCE + AT', () => {
+describe('logout() / reset() / clearAuthStorage() purge the store state', () => {
   beforeEach(() => {
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
-    useAuthStore.getState().setPkceState(SAMPLE_PKCE)
-    useAuthStore.getState().setAuthStatus(true, 'realm-1')
+    seedSession()
   })
 
-  it('logout() clears the refresh token, PKCE state, and in-memory access token', () => {
-    expect(accessTokenHolder.get()).toBe(TOKEN_FIXTURE.accessToken)
-
+  it('logout() clears routing auth state + PKCE (token purge is the SDK bridge/logoutFlow job)', () => {
     useAuthStore.getState().logout()
 
-    expect(useAuthStore.getState().refreshToken).toBeNull()
     expect(useAuthStore.getState().refreshClientId).toBeNull()
     expect(useAuthStore.getState().pkceState).toBeNull()
-    expect(accessTokenHolder.get()).toBeNull()
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
   })
 
-  it('reset() clears the refresh token, PKCE state, and in-memory access token', () => {
+  it('reset() clears routing auth state + PKCE', () => {
     useAuthStore.getState().reset()
 
-    expect(useAuthStore.getState().refreshToken).toBeNull()
     expect(useAuthStore.getState().refreshClientId).toBeNull()
     expect(useAuthStore.getState().pkceState).toBeNull()
-    expect(accessTokenHolder.get()).toBeNull()
   })
 
-  it('clearAuthStorage() wipes both the in-memory holder and the persisted localStorage (no RT/PKCE residue)', () => {
+  it('clearAuthStorage() wipes the persisted localStorage snapshot (no routing/PKCE residue)', () => {
     clearAuthStorage()
 
-    // In-memory AT cleared.
-    expect(accessTokenHolder.get()).toBeNull()
-    // Persisted snapshot in localStorage has no RT/PKCE residue.
     const snapshot = readPersistedSnapshot()
-    expect(snapshot.refreshToken).toBeUndefined()
+    expect(snapshot.refreshClientId).toBeUndefined()
     expect(snapshot.pkceState).toBeUndefined()
   })
 })
 
-describe('storage key: uses the shared AUTH_STORAGE_KEY (no new keys introduced)', () => {
+describe('storage keys: stable shared constants (no undocumented keys)', () => {
   it('the persist middleware writes under AUTH_STORAGE_KEY', () => {
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
-
+    seedSession()
     expect(window.localStorage.getItem(AUTH_STORAGE_KEY)).not.toBeNull()
-    // And the key name is exactly the shared constant.
     expect(AUTH_STORAGE_KEY).toBe('auth-storage')
+  })
+
+  it('the SDK persists the refresh token under its documented key', () => {
+    seedSession()
+    expect(HERALD_REFRESH_TOKEN_STORAGE_KEY).toBe('herald.refreshToken')
   })
 })
 
@@ -168,19 +148,5 @@ describe('PKCE state round-trip (getPkceState reads what setPkceState wrote)', (
     // Clearing returns null.
     useAuthStore.getState().setPkceState(null)
     expect(useAuthStore.getState().getPkceState()).toBeNull()
-  })
-})
-
-describe('getRefreshToken round-trip', () => {
-  it('returns the stored refresh token + bound clientId', () => {
-    useAuthStore.getState().setTokens({
-      accessToken: TOKEN_FIXTURE.accessToken,
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
-    expect(useAuthStore.getState().getRefreshToken()).toEqual({
-      refreshToken: TOKEN_FIXTURE.refreshToken,
-      clientId: TOKEN_FIXTURE.clientId,
-    })
   })
 })

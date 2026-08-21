@@ -5,19 +5,19 @@
  * This service bypasses React Query to provide direct, synchronous
  * access to auth data for Zustand store updates.
  *
- * All calls go through the generated `@hey-api` client, which (after
- * `initBearerClient()` in `main.tsx`) injects `Authorization: Bearer` from the
- * in-memory access-token holder and silently refreshes on a single 401.
+ * Login-family calls (login, logout, status) go through the `@herald/web` SDK
+ * client (`lib/herald-client.ts`), which owns the token family and its
+ * silent-refresh transport. Everything else (permissions, profile,
+ * switch-client, PKCE exchange) uses the generated `@hey-api` client, which
+ * (after `initBearerClient()` in `main.tsx`) injects
+ * `Authorization: Bearer` from the SDK's token holder and silently refreshes
+ * on a single 401.
  */
 
 import {
-  status,
   getCurrentUserPermissions,
   getUserRoles,
   getProfile,
-  login,
-  logout,
-  refresh,
   switchClient,
   oauthToken,
 } from '@/lib/api-generated'
@@ -29,6 +29,10 @@ import type {
   BrowserTokenResponse,
   SwitchClientResponse,
 } from '@/lib/api-generated'
+import type { ConsentAgreement, LoginResult } from '@herald/web'
+import { ensureHeraldClient, getActiveHeraldClient } from '@/lib/herald-client'
+import { useAuthStore } from '@/stores/auth-store'
+import { ADMIN_REALM_ID } from '@/lib/constants/auth-constants'
 
 /**
  * Extended status response with permissions
@@ -38,17 +42,14 @@ export interface ExtendedStatusResponse extends StatusResponse {
 }
 
 /**
- * Fetch authentication status from the API
+ * Fetch authentication status from the API (via the Herald SDK client).
  *
  * @returns The authentication status
  */
 export async function fetchAuthStatus(): Promise<StatusResponse> {
-  const { data, error } = await status()
-  if (error) throw error
-  if (!data) {
-    throw new Error('Auth status failed: no response data')
-  }
-  return data
+  const realmId = useAuthStore.getState().realmId ?? ADMIN_REALM_ID
+  const data = await ensureHeraldClient(realmId).getStatus()
+  return data as StatusResponse
 }
 
 /**
@@ -86,7 +87,48 @@ export async function fetchUserProfile(): Promise<UserProfile | null> {
 }
 
 /**
- * Perform login with credentials
+ * Map the SDK's `LoginResult` discriminated union back onto the legacy
+ * `LoginResponse` branch shape consumed by `loginFlow` and the login page
+ * (`secondFactors` / `requiresTotp` / `consentRequired` / `agreements` /
+ * `redirectTo` / `realmId`). Shared with the TOTP / passkey login forms, whose
+ * verify endpoints return the same multi-branch bodies. The consent branch
+ * restores the raw snake_case agreement summaries from the SDK's passthrough
+ * so the consent UI and `toAuthConsentAgreements` keep working unchanged.
+ */
+export function mapLoginResultToResponse(result: LoginResult): LoginResponse {
+  switch (result.kind) {
+    case 'success':
+      // Tokens are already applied inside the SDK; callers of the direct
+      // (non-PKCE) path only read `realmId` / the absence of branch flags.
+      return { realmId: result.session.realmId ?? '' } as unknown as LoginResponse
+    case 'requires-second-factor':
+      return {
+        requiresTotp: true,
+        secondFactors: result.secondFactors,
+        tempToken: result.tempToken,
+        expiresInSeconds: result.expiresInSeconds,
+        userId: result.userId,
+        realmId: result.realmId,
+        message: '',
+      } as unknown as LoginResponse
+    case 'consent-required':
+      return {
+        consentRequired: true,
+        agreements: result.agreements.map(
+          (a) => a.raw ?? { agreement_type: a.agreementType, version_id: a.versionId }
+        ),
+      } as unknown as LoginResponse
+    case 'oauth-redirect':
+      return { redirectTo: result.redirectTo } as unknown as LoginResponse
+  }
+}
+
+/**
+ * Perform login with credentials (via the Herald SDK client).
+ *
+ * The SDK applies the issued token set itself on the success branch; the
+ * PKCE/OAuth context is passed through so the backend answers with
+ * `redirectTo` (the code exchange stays with the caller, DEC-js-sdk-008).
  *
  * @param realmId - The realm ID to login to
  * @param credentials - Login credentials
@@ -96,61 +138,32 @@ export async function performLogin(
   realmId: string,
   credentials: LoginRequestPayload
 ): Promise<LoginResponse> {
-  const { data, error } = await login({
-    path: { realmId },
-    body: credentials,
+  const herald = ensureHeraldClient(realmId)
+  // The login page targets a product client (console vs account center) per
+  // flow — rebind the SDK's request-body clientId accordingly.
+  herald.tokens.bindClientId(credentials.clientId)
+  const result = await herald.login({
+    email: credentials.email ?? undefined,
+    username: credentials.username ?? undefined,
+    password: credentials.password,
+    turnstileToken: credentials.turnstileToken ?? undefined,
+    ...(credentials.agreements ? { agreements: credentials.agreements as ConsentAgreement[] } : {}),
+    ...(credentials.oauthClientId ? { oauthClientId: credentials.oauthClientId } : {}),
+    ...(credentials.redirectUri ? { redirectUri: credentials.redirectUri } : {}),
+    ...(credentials.state ? { state: credentials.state } : {}),
   })
-  if (error) {
-    throw error
-  }
-  if (!data) {
-    throw new Error('Login failed: no response data')
-  }
-  // /login returns BrowserTokenResponse on success but a LoginResponse-shaped
-  // body on 2FA/consent/oauth branches; callers discriminate via fall-through.
-  return data as unknown as LoginResponse
+  return mapLoginResultToResponse(result)
 }
 
 /**
- * Perform logout — revokes the Bearer access/refresh token family.
- *
- * Runs against the Bearer-injecting generated client (the `logout` SDK function
- * carries the `bearer` security scheme). Safe to call even if the access token
- * has already expired: the backend revokes by family.
+ * Perform logout — revokes the Bearer access/refresh token family via the
+ * Herald SDK client (which also clears its token state and emits
+ * `logged-out`).
  */
 export async function performLogout(): Promise<void> {
-  const { error } = await logout()
-  if (error) throw error
-}
-
-/**
- * Refresh the browser token set.
- *
- * Wraps the generated `refresh` SDK function (`POST /api/auth/browser-token/
- * refresh`). The refresh token rotates: the returned set contains a NEW
- * access token AND a NEW refresh token which must replace the stored one.
- *
- * The refresh token is an opaque secret bound at issuance to a single
- * Client App (stored server-side in the token family). The server recovers
- * the bound Client App from the token itself, so the request body carries
- * only the refresh token — no client identifier. (Earlier revisions required
- * a `clientId` UUID in the body, but the frontend only ever had the slug,
- * which 422'd; the invariant check was redundant with the family binding.)
- *
- * @param refreshToken - The current (about-to-be-rotated) refresh token.
- * @returns The new access + refresh token set.
- */
-export async function refreshBrowserToken(refreshToken: string): Promise<BrowserTokenResponse> {
-  const { data, error } = await refresh({
-    body: { refreshToken },
-  })
-  if (error) {
-    throw error
-  }
-  if (!data) {
-    throw new Error('Token refresh failed: no response data')
-  }
-  return data
+  const herald = getActiveHeraldClient()
+  if (!herald) return
+  await herald.logout()
 }
 
 /**

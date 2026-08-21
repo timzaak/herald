@@ -2,26 +2,33 @@
  * Bearer API client interceptor state machine (design §4.4 — FE-D01).
  *
  * Exercises `initBearerClient()` end-to-end against MSW, using the REAL auth
- * store + in-memory `accessTokenHolder` (NOT mocked) so the interceptor's
- * reads (`getAccessToken`) / writes (`setTokens`) go through the same surfaces
- * production uses. Network calls go through the generated client (`status`,
- * `refresh`) — no internal API functions are mocked — and MSW controls every
- * response, including scripted 401 → 200 sequences for the loop guard.
+ * store + Herald SDK client (NOT mocked) so the interceptor's reads
+ * (`tokens.getAccessToken`) and the refresh delegation (`herald.refresh()`) go
+ * through the same surfaces production uses. Network calls go through the
+ * generated client (`status`) and the SDK transport (`refresh`) — no internal
+ * API functions are mocked — and MSW controls every response, including
+ * scripted 401 → 200 sequences for the loop guard.
  *
  * Coverage:
- * - Bearer `Authorization` injection from the in-memory holder
- * - single 401 → refresh → replay exactly once (new AT/RT swapped in)
+ * - Bearer `Authorization` injection from the SDK's in-memory token holder
+ * - single 401 → refresh (SDK single-flight) → replay exactly once (new AT/RT swapped in)
  * - refresh-loop guard (retried request re-401s → no second refresh, 401 surfaces)
  * - refresh failure (401 reuse/absolute-expiry) → logout path, RT cleared, no retry
  * - refresh endpoint itself is never Bearer-injected and never auto-refreshed
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
 import { status } from '@/lib/api-generated'
 import { initBearerClient } from '@/lib/api-client'
-import { useAuthStore, accessTokenHolder } from '@/stores/auth-store'
+import {
+  ensureHeraldClient,
+  getActiveHeraldClient,
+  applyTokenSet,
+  HERALD_REFRESH_TOKEN_STORAGE_KEY,
+} from '@/lib/herald-client'
+import { useAuthStore } from '@/stores/auth-store'
 import { AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
 import {
   REFRESH_URL,
@@ -33,28 +40,31 @@ import { TOKEN_FIXTURE } from '@/test/fixtures/browser-token'
 
 const API_BASE_URL = 'http://localhost:3000'
 const STATUS_URL = `${API_BASE_URL}/api/auth/status`
+/** Arbitrary realm for the SDK client in this file (refresh/status are realm-agnostic). */
+const TEST_REALM = 'realm-1'
 
 /** A representative authenticated /status 200 body. */
-const STATUS_OK_BODY = { authenticated: true, realmId: 'realm-1', userId: 'user-1' }
+const STATUS_OK_BODY = { authenticated: true, realmId: TEST_REALM, userId: 'user-1' }
 
 /** Install the Bearer interceptor once for the whole file (idempotent). */
 initBearerClient()
 
 /**
- * Reset ALL auth surfaces between tests: the in-memory AT holder, the real
- * Zustand store state, and any persisted localStorage. Without this the
+ * Reset ALL auth surfaces between tests: the SDK's token holder + storage, the
+ * real Zustand store state, and any persisted localStorage. Without this the
  * single-flight / loop-guard module state could leak between cases.
  */
 function resetAuthSurfaces() {
-  accessTokenHolder.clear()
+  getActiveHeraldClient()?.tokens.clear()
   useAuthStore.getState().reset()
   window.localStorage.removeItem(AUTH_STORAGE_KEY)
+  window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)
 }
 
-/** Seed an authenticated session: AT in memory + RT in the store. */
+/** Seed an authenticated session: AT + RT in the Herald SDK client. */
 function seedSession(accessToken: string = TOKEN_FIXTURE.accessToken) {
-  accessTokenHolder.set(accessToken)
-  useAuthStore.getState().setTokens({
+  ensureHeraldClient(TEST_REALM)
+  applyTokenSet({
     accessToken,
     refreshToken: TOKEN_FIXTURE.refreshToken,
     clientId: TOKEN_FIXTURE.clientId,
@@ -66,7 +76,7 @@ beforeEach(() => {
 })
 
 describe('Bearer request interceptor: Authorization header injection', () => {
-  it('injects Authorization: Bearer {accessToken} from the in-memory holder onto protected requests', async () => {
+  it('injects Authorization: Bearer {accessToken} from the SDK token holder onto protected requests', async () => {
     seedSession()
     let capturedAuth: string | null = null
     server.use(
@@ -82,7 +92,7 @@ describe('Bearer request interceptor: Authorization header injection', () => {
   })
 
   it('does NOT inject Authorization when no access token is held (e.g. pre-login)', async () => {
-    // No seed → holder empty.
+    // No seed → SDK holder empty.
     let capturedAuth: string | null = '__sentinel__'
     server.use(
       http.get(STATUS_URL, ({ request }) => {
@@ -136,9 +146,11 @@ describe('single 401 → refresh → retry exactly once', () => {
     // The refresh endpoint is skipped by the Bearer injector (RT in body, not header).
     expect(refreshCapture.authorization).toBeNull()
 
-    // New AT/RT were swapped into the holder / store.
-    expect(accessTokenHolder.get()).toBe(TOKEN_FIXTURE.rotatedAccessToken)
-    expect(useAuthStore.getState().refreshToken).toBe(TOKEN_FIXTURE.rotatedRefreshToken)
+    // New AT/RT were swapped into the SDK holder / storage.
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe(TOKEN_FIXTURE.rotatedAccessToken)
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe(
+      TOKEN_FIXTURE.rotatedRefreshToken
+    )
   })
 })
 
@@ -229,11 +241,11 @@ describe('refresh failure → force re-login (no infinite retry)', () => {
       expect(result.error).toBeDefined()
       expect(result.response?.status).toBe(401)
 
-      // Force-re-login path: RT cleared and in-memory AT cleared.
-      expect(useAuthStore.getState().refreshToken).toBeNull()
+      // Force-re-login path: the SDK session-expired bridge cleared the token
+      // family (in-memory AT + persisted RT) and logged the store out.
+      expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBeNull()
+      expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBeNull()
       expect(useAuthStore.getState().refreshClientId).toBeNull()
-      expect(accessTokenHolder.get()).toBeNull()
-      // logout() flips the store into the unauthenticated state.
       expect(useAuthStore.getState().isAuthenticated).toBe(false)
     }
   )

@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { handleVerifyTotp } from '@/lib/api-generated'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,6 +13,8 @@ import type {
   LegalAgreementSummary,
   AuthConsentAgreement,
 } from '@/lib/api-generated'
+import { mapLoginResultToResponse } from '@/lib/auth-service'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import { AgreementLinks } from '@/components/legal/AgreementLinks'
 import { toAuthConsentAgreements } from '@/data/query-options'
 import { formatDate } from '@/lib/date-utils'
@@ -101,20 +102,17 @@ export function TotpVerificationForm({
       backupCode: string | null
       agreements?: AuthConsentAgreement[]
     }) => {
-      const response = await withTimeout(
-        handleVerifyTotp({
-          path: { realmId },
-          body: {
-            code: data.backupCode ? undefined : data.code,
-            backupCode: data.backupCode,
-            tempToken,
-            ...(data.agreements ? { agreements: data.agreements } : {}),
-          },
+      const result = await withTimeout(
+        ensureHeraldClient(realmId).verifyTotp({
+          tempToken,
+          ...(data.backupCode ? { backupCode: data.backupCode } : { code: data.code }),
+          ...(data.agreements ? { agreements: data.agreements } : {}),
         })
       )
-      // verify-totp returns BrowserTokenResponse on success or a
-      // VerifyTotpResponse body on consent/oauth branches; discriminated below.
-      return response.data as unknown as VerifyTotpResponse
+      // The SDK applies the token set itself on the success branch and throws
+      // on HTTP errors; map the discriminated result back to the legacy branch
+      // shape the route consumes (`completeLoginAfterTotp`).
+      return mapLoginResultToResponse(result) as unknown as VerifyTotpResponse
     },
     onSuccess: (data) => {
       if (isConsentRequired(data)) {

@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
-import type { LegalAgreementSummary, VerifyTotpResponse } from '@/lib/api-generated'
+import { getActiveHeraldClient } from '@/lib/herald-client'
+import type {
+  LegalAgreementSummary,
+  VerifyTotpResponse,
+  BrowserTokenResponse,
+} from '@/lib/api-generated'
 import { TotpVerificationForm } from '../totp-verification-form'
 
 vi.mock('@tanstack/react-router', async () => {
@@ -91,23 +96,31 @@ function makeConsentRequiredResponse(agreements: LegalAgreementSummary[]): Verif
   }
 }
 
-function makeSuccessResponse(): VerifyTotpResponse {
+/**
+ * Success body per the real backend contract (DEC-js-sdk-011): verify-totp
+ * answers 200 with a `BrowserTokenResponse`; the SDK applies the token set and
+ * the form surfaces completion via `onSuccess`.
+ */
+function makeSuccessResponse(): BrowserTokenResponse {
   return {
-    userId: 'user-001',
-    token: 'session-token',
-    message: 'Login successful',
-    expiresInSeconds: 3600,
+    accessToken: 'at-totp',
+    refreshToken: 'rt-totp',
+    tokenType: 'Bearer',
+    expiresIn: 900,
+    refreshExpiresIn: 2592000,
   }
 }
 
 describe('TotpVerificationForm consent-required branch', () => {
   const user = userEvent.setup({ delay: null })
-  let currentResponse: VerifyTotpResponse = makeConsentRequiredResponse([])
+  let currentResponse: VerifyTotpResponse | BrowserTokenResponse = makeConsentRequiredResponse([])
   let requestBodies: unknown[] = []
 
   beforeEach(() => {
     requestBodies = []
     currentResponse = makeSuccessResponse()
+    // Token state lives in the Herald SDK client now — reset it between cases.
+    getActiveHeraldClient()?.tokens.clear()
     server.resetHandlers()
     server.use(
       http.post(`${API_BASE_URL}/api/auth/:realmId/login/verify-totp`, async ({ request }) => {
@@ -142,8 +155,10 @@ describe('TotpVerificationForm consent-required branch', () => {
     await user.click(screen.getByTestId('totp-agree-and-continue-button'))
 
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ token: 'session-token' }))
+      expect(onSuccess).toHaveBeenCalledTimes(1)
     })
+    // The post-consent success applied the token set inside the Herald SDK.
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-totp')
 
     expect(requestBodies).toHaveLength(2)
     const firstBody = requestBodies[0] as {

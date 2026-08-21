@@ -24,12 +24,13 @@ import {
 } from './generated/sdk.gen'
 import type { Client } from './generated/client/types.gen'
 import type { BrowserTokenResponse, StatusResponse } from './generated/types.gen'
-import { HeraldError } from './errors'
+import { HeraldError, toHeraldError } from './errors'
 import { resolveOp } from './transport'
 import type { AccessTokenHolder, SessionStore } from './session'
 import type { TokenStorage } from './storage'
 import type {
   ConsentAgreement,
+  EmailOtpSendResult,
   HeraldSession,
   LoginResult,
   PasskeyLoginBeginResult,
@@ -63,6 +64,16 @@ export interface LoginPayload {
   turnstileToken?: string
   /** Agreements to satisfy a prior `consent-required` gate. */
   agreements?: ConsentAgreement[]
+  /**
+   * Optional OAuth context for host apps that drive an authorization-code flow
+   * themselves (e.g. Herald's own frontend with PKCE). When present the backend
+   * answers with `redirectTo`, surfaced as `{ kind: 'oauth-redirect' }`; the SDK
+   * does NOT perform the token exchange (DEC-js-sdk-008 — that stays with the
+   * caller).
+   */
+  oauthClientId?: string
+  redirectUri?: string
+  state?: string
 }
 
 export interface VerifyTotpPayload {
@@ -76,6 +87,17 @@ export interface PasskeyLoginBeginPayload {
   /** Present for 2FA (after a `requires-second-factor` login); absent for 1FA. */
   tempToken?: string
   turnstileToken?: string
+  /**
+   * Optional OAuth context for host apps driving an authorization-code flow
+   * (first-party passkey logins from an OAuth-linked login page). Passkey
+   * verify then answers with `redirectTo` (kind: 'oauth-redirect'); the SDK
+   * does NOT perform the exchange (DEC-js-sdk-008).
+   */
+  oauth?: {
+    clientId: string
+    redirectUri: string
+    state: string
+  }
 }
 
 export interface PasskeyLoginFinishPayload {
@@ -89,6 +111,8 @@ export interface PasskeyLoginFinishPayload {
 export interface EmailOtpSendPayload {
   email: string
   turnstileToken?: string
+  /** Agreements to satisfy a prior `consent_required` conflict on re-send. */
+  agreements?: ConsentAgreement[]
 }
 
 export interface EmailOtpVerifyPayload {
@@ -107,6 +131,8 @@ export interface AuthDeps {
   accessTokenHolder: AccessTokenHolder
   storage: TokenStorage
   session: SessionStore
+  /** Shared single-flight refresh core (from the transport). */
+  refreshTokens: () => Promise<BrowserTokenResponse | null>
 }
 
 function applyTokens(tokens: BrowserTokenResponse, deps: AuthDeps): void {
@@ -147,6 +173,8 @@ function normalizeAgreements(raw: unknown): ConsentAgreement[] {
     return {
       agreementType: String(o['agreementType'] ?? o['agreement_type'] ?? ''),
       versionId: String(o['versionId'] ?? o['version_id'] ?? ''),
+      // Display passthrough for host apps that render the consent list.
+      ...(a && typeof a === 'object' ? { raw: o } : {}),
     }
   })
 }
@@ -252,6 +280,9 @@ export function createAuth(deps: AuthDeps) {
             ...(payload.email ? { email: payload.email } : {}),
             ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
             ...(payload.agreements ? { agreements: payload.agreements } : {}),
+            ...(payload.oauthClientId ? { oauthClientId: payload.oauthClientId } : {}),
+            ...(payload.redirectUri ? { redirectUri: payload.redirectUri } : {}),
+            ...(payload.state ? { state: payload.state } : {}),
           },
         }),
       )
@@ -292,6 +323,7 @@ export function createAuth(deps: AuthDeps) {
                   body: {
                     clientId: deps.clientId,
                     ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
+                    ...(payload.oauth ? { oauth: payload.oauth } : {}),
                   },
                 }),
               )
@@ -326,19 +358,43 @@ export function createAuth(deps: AuthDeps) {
     },
 
     loginWithEmailOtp: {
-      async send(payload: EmailOtpSendPayload) {
-        const data = await resolveOp(
-          send({
-            client,
-            path: { realmId },
-            body: {
-              clientId: deps.clientId,
-              email: payload.email,
-              ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
-            },
-          }),
-        )
-        return { message: data.message, expiresInSeconds: data.expiresInSeconds }
+      /**
+       * Send a passwordless login code. The two 409 control-flow outcomes
+       * (DEC-js-sdk-014) — `consent_required` (auto-register consent gate) and
+       * `email_not_registered` (auto-register off) — resolve as
+       * `{ kind: 'conflict' }` instead of throwing, mirroring the multi-branch
+       * normalization `login()` applies to its 200 bodies. All other HTTP
+       * failures throw `HeraldError`.
+       */
+      async send(payload: EmailOtpSendPayload): Promise<EmailOtpSendResult> {
+        const { data, error, response } = await send({
+          client,
+          path: { realmId },
+          body: {
+            clientId: deps.clientId,
+            email: payload.email,
+            ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
+            ...(payload.agreements ? { agreements: payload.agreements } : {}),
+          },
+        })
+        if (data) {
+          return { kind: 'sent', message: data.message, expiresInSeconds: data.expiresInSeconds }
+        }
+        const body = (error ?? {}) as Record<string, unknown>
+        const code = body['code']
+        if (
+          response?.status === 409 &&
+          (code === 'consent_required' || code === 'email_not_registered')
+        ) {
+          return {
+            kind: 'conflict',
+            code: String(code),
+            message: String(body['message'] ?? ''),
+            consentRequired: body['consentRequired'] === true,
+            agreements: normalizeAgreements(body['agreements']),
+          }
+        }
+        throw toHeraldError(error, response)
       },
 
       async verify(payload: EmailOtpVerifyPayload): Promise<LoginResult> {
@@ -362,6 +418,27 @@ export function createAuth(deps: AuthDeps) {
       const data = await resolveOp(status({ client }))
       deps.session.emit({ type: 'authenticated', session: sessionFromStatus(data, deps) })
       return data
+    },
+
+    /**
+     * Explicitly refresh the Bearer token family (startup restore, proactive
+     * refresh). Single-flight: concurrent calls share one HTTP request with the
+     * 401 auto-refresh interceptor. On success both the in-memory access token
+     * and the stored refresh token are rotated.
+     *
+     * @throws {HeraldError} `kind: 'session-expired'` when no refresh token is
+     *   stored or the refresh failed (reuse / expiry / family revocation); a
+     *   `session-expired` event is emitted either way.
+     */
+    async refresh(): Promise<BrowserTokenResponse> {
+      const tokens = await deps.refreshTokens()
+      if (!tokens) {
+        throw new HeraldError({
+          kind: 'session-expired',
+          message: 'Session refresh failed; sign in again.',
+        })
+      }
+      return tokens
     },
 
     async logout() {

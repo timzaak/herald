@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { verifyEmailConfirm, verifyEmailTrigger } from '@/lib/api-generated'
+import { verifyEmailConfirm } from '@/lib/api-generated'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/auth-utils'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import { getErrorMessage } from '@/lib/error-utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,10 +78,11 @@ export function VerifyEmailPage() {
     setVerificationError(null)
 
     try {
-      await verifyEmailTrigger({
-        path: { realmId },
-        body: { clientId: FIRST_PARTY_CLIENT_ID, email, turnstileToken },
-        throwOnError: true,
+      const herald = ensureHeraldClient(realmId)
+      herald.tokens.bindClientId(FIRST_PARTY_CLIENT_ID)
+      await herald.triggerVerifyEmail({
+        email,
+        ...(turnstileToken ? { turnstileToken } : {}),
       })
 
       toast.success(m['auth.verify_email.resend_success']())

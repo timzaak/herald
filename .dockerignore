@@ -20,6 +20,11 @@ README.md
 frontend/node_modules
 frontend/dist
 frontend/.turbo
+sdk-js/node_modules
+sdk-js/dist
+sdk-js/src/generated
+sdk-js/api.json
+sdk-js/*.tsbuildinfo
 
 # Rust
 target

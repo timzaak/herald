@@ -10,10 +10,9 @@ const mockSetUserProfile = vi.fn()
 const mockReset = vi.fn()
 const mockSetIsLoading = vi.fn()
 const mockClearAuthStorage = vi.fn()
-const mockSetTokens = vi.fn()
+const mockSetRefreshClientId = vi.fn()
 const mockSetPkceState = vi.fn()
 const mockGetPkceState = vi.fn(() => null)
-const mockGetRefreshToken = vi.fn(() => ({ refreshToken: null, clientId: null }))
 
 // The Herald PKCE bootstrap calls `oauthAuthorize` to seed backend state; stub
 // it so the consent / safe-redirect tests do not hit the network. The legal
@@ -34,28 +33,39 @@ vi.mock('@/stores/auth-store', () => ({
       setUserProfile: mockSetUserProfile,
       reset: mockReset,
       setIsLoading: mockSetIsLoading,
-      setTokens: mockSetTokens,
+      setRefreshClientId: mockSetRefreshClientId,
       setPkceState: mockSetPkceState,
       getPkceState: mockGetPkceState,
-      getRefreshToken: mockGetRefreshToken,
     }),
   },
   clearAuthStorage: () => mockClearAuthStorage(),
-  accessTokenHolder: { get: () => null, set: () => {}, clear: () => {} },
+}))
+
+// The Herald SDK client bridge owns the token family; only `applyTokenSet`
+// writes token material in these flows, so it carries the consent-interlock
+// assertions previously held by the store's `setTokens`.
+const mockApplyTokenSet = vi.fn()
+vi.mock('@/lib/herald-client', () => ({
+  ensureHeraldClient: () => ({
+    storage: { getRefreshToken: () => null },
+    tokens: { getAccessToken: () => null, clear: vi.fn() },
+    refresh: vi.fn(),
+  }),
+  getActiveHeraldClient: () => null,
+  applyTokenSet: (...args: unknown[]) => mockApplyTokenSet(...args),
 }))
 
 const mockPerformLogin = vi.fn()
 const mockFetchAuthData = vi.fn()
 const mockPerformLogout = vi.fn()
 const mockPerformPkceTokenExchange = vi.fn()
-const mockRefreshBrowserToken = vi.fn()
 
 vi.mock('@/lib/auth-service', () => ({
   performLogin: (...args: unknown[]) => mockPerformLogin(...args),
   fetchAuthData: (...args: unknown[]) => mockFetchAuthData(...args),
   performLogout: (...args: unknown[]) => mockPerformLogout(...args),
   performPkceTokenExchange: (...args: unknown[]) => mockPerformPkceTokenExchange(...args),
-  refreshBrowserToken: (...args: unknown[]) => mockRefreshBrowserToken(...args),
+  ClientSwitchError: class ClientSwitchError extends Error {},
 }))
 
 // Only `hasAdminPermission` needs stubbing for the consent / redirect-path
@@ -213,8 +223,9 @@ describe('completeLoginAfterTotp consent required handling', () => {
  * on its own. loginFlow intentionally seeds it before performLogin() so the
  * verifier survives the consent detour (beginFirstPartyPkceFlow is idempotent
  * and reuses the in-flight state on the post-consent re-submit). The real
- * Bearer guard is therefore setTokens(), asserted below; PKCE seeding is
- * expected and out of scope for this consent interlock.
+ * Bearer guard is therefore applyTokenSet() (the Herald SDK token bridge),
+ * asserted below; PKCE seeding is expected and out of scope for this consent
+ * interlock.
  */
 describe('consent interlock: no token material written under token-only flow', () => {
   beforeEach(() => {
@@ -243,7 +254,7 @@ describe('consent interlock: no token material written under token-only flow', (
     // The Bearer family must NOT be established before consent is granted.
     // (PKCE state MAY be seeded here — it is a protocol nonce, not a token;
     // see the describe docstring.)
-    expect(mockSetTokens).not.toHaveBeenCalled()
+    expect(mockApplyTokenSet).not.toHaveBeenCalled()
     expect(mockLogin).not.toHaveBeenCalled()
     expect(mockFetchAuthData).not.toHaveBeenCalled()
   })
@@ -266,7 +277,7 @@ describe('consent interlock: no token material written under token-only flow', (
     const result = await completeLoginAfterTotp('realm-1', response)
 
     expect(result).toEqual({})
-    expect(mockSetTokens).not.toHaveBeenCalled()
+    expect(mockApplyTokenSet).not.toHaveBeenCalled()
     expect(mockSetPkceState).not.toHaveBeenCalledWith(expect.any(Object))
     expect(mockSetAuthStatus).not.toHaveBeenCalled()
     expect(mockFetchAuthData).not.toHaveBeenCalled()

@@ -6,9 +6,10 @@ import { m } from '@/paraglide/messages'
 import { withTimeout } from '@/lib/totp-utils'
 import { isConsentRequired } from '@/lib/auth-utils'
 import { isWebAuthnSupported, prepareRequestOptions, serializeAssertion } from '@/lib/passkey-utils'
-import { handlePasskey2FaOptions, handlePasskey2FaVerify } from '@/lib/api-generated'
+import type { AssertionResultJSON } from '@herald/web'
+import { mapLoginResultToResponse } from '@/lib/auth-service'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import type {
-  Passkey2FaOptionsResponse,
   PasskeyVerifyResponse,
   AuthConsentAgreement,
   LegalAgreementSummary,
@@ -73,16 +74,9 @@ export function Passkey2FaForm({
 
   const beginMutation = useMutation({
     mutationFn: async () => {
-      const response = await withTimeout(
-        handlePasskey2FaOptions({
-          path: { realmId },
-          body: { tempToken },
-        })
-      )
-      if (response.error) {
-        throw new Error(m['auth.login.passkey_verification_failed']())
-      }
-      return response.data as Passkey2FaOptionsResponse
+      // The SDK throws on HTTP errors (including the 404 "2FA passkey not
+      // available" case), which onError collapses to the unified message.
+      return withTimeout(ensureHeraldClient(realmId).passkey.loginBegin({ tempToken }))
     },
     onSuccess: (data) => {
       authTokenRef.current = data.authToken
@@ -106,23 +100,18 @@ export function Passkey2FaForm({
       if (!authToken) {
         throw new Error(m['auth.login.passkey_verification_failed']())
       }
-      const response = await withTimeout(
-        handlePasskey2FaVerify({
-          path: { realmId },
-          body: {
-            tempToken,
-            authToken,
-            assertion: data.assertion,
-            ...(data.agreements ? { agreements: data.agreements } : {}),
-          },
+      const result = await withTimeout(
+        ensureHeraldClient(realmId).passkey.loginFinish({
+          authToken,
+          assertion: data.assertion as AssertionResultJSON,
+          tempToken,
+          ...(data.agreements ? { agreements: data.agreements } : {}),
         })
       )
-      if (response.error) {
-        throw new Error(m['auth.login.passkey_verification_failed']())
-      }
-      // passkey verify returns BrowserTokenResponse on success or a
-      // PasskeyVerifyResponse body on consent/oauth branches; discriminated below.
-      return response.data as unknown as PasskeyVerifyResponse
+      // passkey verify returns the multi-branch login body; the SDK applies
+      // the token set itself on the success branch and throws on HTTP errors,
+      // so map the discriminated result back to the legacy shape.
+      return mapLoginResultToResponse(result) as unknown as PasskeyVerifyResponse
     },
     onSuccess: (data) => {
       setError(null)

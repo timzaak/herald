@@ -16,6 +16,7 @@
 import { createClient } from './generated/client/client.gen'
 import type { Client, ResolvedRequestOptions } from './generated/client/types.gen'
 import { refresh } from './generated/sdk.gen'
+import type { BrowserTokenResponse } from './generated/types.gen'
 import { toHeraldError } from './errors'
 import type { AccessTokenHolder, SessionStore } from './session'
 import type { TokenStorage } from './storage'
@@ -35,29 +36,39 @@ export interface TransportDeps {
 export interface Transport {
   /** The per-instance generated client; pass to generated ops as `{ client }`. */
   readonly client: Client
+  /**
+   * Single-flight refresh core shared by the 401 interceptor and the public
+   * `auth.refresh()` bridge: resolves the rotated token set, or `null` when no
+   * refresh token is stored or the refresh failed (both emit
+   * `session-expired`).
+   */
+  readonly refreshTokens: () => Promise<BrowserTokenResponse | null>
 }
 
+/** In-flight refresh promise keyed on the client instance (single-flight). */
+type RefreshSlot = { __heraldRefresh?: Promise<BrowserTokenResponse | null> | null }
+
 /**
- * Run the refresh exactly once for a batch of concurrent 401s sharing this
+ * Run the refresh exactly once for a batch of concurrent callers sharing this
  * client instance.
  *
- * - No stored refresh token ⇒ resolves `false` WITHOUT emitting: the caller
- *   was never (or no longer) in a restorable session, so the 401 just propagates.
+ * - No stored refresh token ⇒ resolves `null` WITHOUT an HTTP call, after
+ *   emitting `session-expired`: the caller was never (or no longer) in a
+ *   restorable session, so the 401 just propagates.
  * - Refresh attempt fails (reuse / expired / family revoked) ⇒ clears the
- *   session and emits `session-expired`, then resolves `false`.
- * - Success ⇒ stores the rotated access + refresh tokens, resolves `true`.
+ *   session and emits `session-expired`, then resolves `null`.
+ * - Success ⇒ stores the rotated access + refresh tokens, resolves the set.
  */
-function refreshOnce(client: Client, deps: TransportDeps): Promise<boolean> {
+function refreshTokens(client: Client, deps: TransportDeps): Promise<BrowserTokenResponse | null> {
   const rt = deps.storage.getRefreshToken()
   if (!rt) {
     // No stored refresh token → the session cannot be restored. Signal expiry
     // (design §5.4: 无 rt → 直接 session-expired) and let the 401 propagate.
     deps.session.emit({ type: 'session-expired', reason: 'refresh-failed' })
-    return Promise.resolve(false)
+    return Promise.resolve(null)
   }
 
-  const inFlight = (client as unknown as { __heraldRefresh?: Promise<boolean> | null })
-    .__heraldRefresh
+  const inFlight = (client as unknown as RefreshSlot).__heraldRefresh
   if (inFlight) return inFlight
 
   const promise = (async () => {
@@ -66,20 +77,20 @@ function refreshOnce(client: Client, deps: TransportDeps): Promise<boolean> {
       if (error || !data) {
         // 401 reuse-detected / expired / family revoked → clean re-login required.
         deps.session.emit({ type: 'session-expired', reason: 'family-revoked' })
-        return false
+        return null
       }
       deps.accessTokenHolder.set(data.accessToken)
       deps.storage.setRefreshToken(data.refreshToken)
-      return true
+      return data
     } catch {
       deps.session.emit({ type: 'session-expired', reason: 'refresh-failed' })
-      return false
+      return null
     } finally {
-      ;(client as unknown as { __heraldRefresh?: Promise<boolean> | null }).__heraldRefresh = null
+      ;(client as unknown as RefreshSlot).__heraldRefresh = null
     }
   })()
 
-  ;(client as unknown as { __heraldRefresh?: Promise<boolean> | null }).__heraldRefresh = promise
+  ;(client as unknown as RefreshSlot).__heraldRefresh = promise
   return promise
 }
 
@@ -143,7 +154,7 @@ export function createTransport(deps: TransportDeps): Transport {
         return response
       }
 
-      const refreshed = await refreshOnce(client, deps)
+      const refreshed = (await refreshTokens(client, deps)) !== null
       if (!refreshed) {
         // No token to refresh with, or refresh failed → let the 401 propagate.
         return response
@@ -160,7 +171,7 @@ export function createTransport(deps: TransportDeps): Transport {
     },
   )
 
-  return { client }
+  return { client, refreshTokens: () => refreshTokens(client, deps) }
 }
 
 /**

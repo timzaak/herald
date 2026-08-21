@@ -17,8 +17,13 @@ describe('init (US-JS-001)', () => {
     expect(typeof client.loginWithEmailOtp.verify).toBe('function')
     expect(typeof client.getStatus).toBe('function')
     expect(typeof client.logout).toBe('function')
+    expect(typeof client.refresh).toBe('function')
     expect(typeof client.session.getSession).toBe('function')
     expect(typeof client.session.subscribe).toBe('function')
+    expect(typeof client.tokens.getAccessToken).toBe('function')
+    expect(typeof client.tokens.setTokens).toBe('function')
+    expect(typeof client.tokens.clear).toBe('function')
+    expect(typeof client.tokens.bindClientId).toBe('function')
   })
 
   it('framework_agnostic_no_react_dep — zero runtime dependencies', () => {

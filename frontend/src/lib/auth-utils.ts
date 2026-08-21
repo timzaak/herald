@@ -17,7 +17,6 @@ import type {
   LoginResponse,
   VerifyTotpResponse,
   PasskeyVerifyResponse,
-  BrowserTokenResponse,
   OneTapDirectResponse,
   SignupResponse,
 } from '@/lib/api-generated'
@@ -27,10 +26,15 @@ import {
   performLogin,
   performLogout,
   performPkceTokenExchange,
-  refreshBrowserToken,
   switchFirstPartyClient,
 } from '@/lib/auth-service'
-import { useAuthStore, clearAuthStorage, accessTokenHolder } from '@/stores/auth-store'
+import { useAuthStore, clearAuthStorage } from '@/stores/auth-store'
+import {
+  applyTokenSet,
+  bindHeraldClientId,
+  ensureHeraldClient,
+  getActiveHeraldClient,
+} from '@/lib/herald-client'
 import {
   ADMIN_WEB_CONSOLE_CLIENT_ID,
   USER_ACCOUNT_CENTER_CLIENT_ID,
@@ -193,7 +197,7 @@ async function tryCompletePkceExchange(
       redirectUri: pkce.redirectUri,
       clientId: pkce.clientId,
     })
-    useAuthStore.getState().setTokens({
+    applyTokenSet({
       accessToken: tokenSet.accessToken,
       refreshToken: tokenSet.refreshToken,
       clientId: pkce.clientId,
@@ -248,21 +252,22 @@ export async function initializeAuth(
 
   store.setIsLoading(true)
 
+  // The Herald SDK client owns the token family from here on (DEC-js-sdk-013):
+  // its storage holds the refresh token, its in-memory holder the access token.
+  const herald = ensureHeraldClient(realmId, targetClientId)
+
   try {
     // --- Startup refresh-first restore ---
     // If a refresh token is persisted but there is no in-memory access token
     // (the normal case after a full page reload), refresh before checking
     // status so the session can be restored instead of appearing logged out.
-    const { refreshToken } = store.getRefreshToken()
-    if (refreshToken && !accessTokenHolder.get()) {
+    if (herald.storage.getRefreshToken() && !herald.tokens.getAccessToken()) {
       try {
-        const tokenSet = await refreshBrowserToken(refreshToken)
-        store.setTokens({
-          accessToken: tokenSet.accessToken,
-          refreshToken: tokenSet.refreshToken,
-        })
+        await herald.refresh()
       } catch {
         // Refresh failed (reuse/expiry/revocation) → force full re-login.
+        // (The SDK also emits session-expired, which the herald-client bridge
+        // turns into a token clear + store logout.)
         store.logout()
         initializedRealm = null
         initializedClientId = null
@@ -279,7 +284,7 @@ export async function initializeAuth(
     if (authStatus.authenticated && authStatus.clientId !== targetClientId) {
       try {
         const tokenSet = await switchFirstPartyClient(targetClientId)
-        store.setTokens({
+        applyTokenSet({
           accessToken: tokenSet.accessToken,
           refreshToken: tokenSet.refreshToken,
           clientId: tokenSet.clientId,
@@ -322,8 +327,9 @@ export async function initializeAuth(
       clientId: authStatus.clientId,
     }
   } catch {
-    const { refreshToken } = store.getRefreshToken()
-    if (refreshToken) {
+    // The Herald client is guaranteed to exist here (created above the try),
+    // so its storage is the source of truth for an established token family.
+    if (herald.storage.getRefreshToken()) {
       // Status/client-switch failures can be transient. Clear stale UI auth
       // data, but keep the established token family so a later initialization
       // can retry or a full-page reload can use refresh-first restore.
@@ -485,8 +491,9 @@ export async function logoutFlow(realmId: string): Promise<void> {
     // Log the error but continue with state cleanup
     console.error('Logout API call failed:', error)
   } finally {
-    // Always reset the store, clear the in-memory access token, and clear
-    // persisted storage (refresh token + PKCE state).
+    // Always reset the store, clear the SDK's token family and persisted
+    // storage (refresh token + PKCE state).
+    getActiveHeraldClient()?.tokens.clear()
     store.reset()
     initializedRealm = null
     initializedClientId = null
@@ -609,42 +616,33 @@ export async function completeLoginAfterPasskey(
 }
 
 /**
- * Complete login after an Email-OTP verify that returned a direct
- * `BrowserTokenResponse`.
+ * Complete a login after an Email-OTP verify.
  *
  * OTP login does NOT go through PKCE/OAuth and the
  * verify response carries no `redirectTo` and no consent step (the send-phase
  * consent gate is the only consent for auto-register; login-as-consent for
- * existing users is enforced server-side). This therefore mirrors only the
- * non-PKCE branch of `completeLoginAfterPasskey`: persist the token set via the
- * shared store helper, mark the realm initialized via the shared
- * `hydrateAuthenticatedSession`, and return the safe redirect path. Token
- * storage is reused (`store.setTokens`) — never duplicated.
+ * existing users is enforced server-side). The verify call runs through the
+ * Herald SDK (`client.loginWithEmailOtp.verify`), which applies the issued
+ * token set itself — so this function only rebinds the routing clientId,
+ * marks the realm initialized via the shared `hydrateAuthenticatedSession`,
+ * and returns the safe redirect path.
  *
  * `clientId` is the Client App the OTP code was issued for (the send/verify
- * request `clientId`). It is persisted alongside the refresh token so a later
- * refresh can rebind to the same Client App, exactly as the PKCE path persists
- * `FIRST_PARTY_CLIENT_ID`. The `BrowserTokenResponse` body itself does not
- * carry `clientId`, so the caller (which owns the resolved Client App id) must
- * supply it.
+ * request `clientId`), persisted alongside the SDK-owned token family so a
+ * later refresh stays bound to the same product, exactly as the PKCE path
+ * persists `FIRST_PARTY_CLIENT_ID`.
  *
  * @param realmId - The realm ID
- * @param tokenResponse - The direct `BrowserTokenResponse` from OTP verify
  * @param clientId - The Client App id used for send/verify
  */
 export async function completeLoginAfterEmailOtp(
   realmId: string,
-  tokenResponse: BrowserTokenResponse,
   clientId: string
 ): Promise<{ redirectPath: string }> {
   const store = useAuthStore.getState()
 
   try {
-    store.setTokens({
-      accessToken: tokenResponse.accessToken,
-      refreshToken: tokenResponse.refreshToken,
-      clientId,
-    })
+    bindHeraldClientId(clientId)
     store.login(realmId)
 
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
@@ -687,7 +685,7 @@ export async function completeLoginAfterOneTap(
   const store = useAuthStore.getState()
 
   try {
-    store.setTokens({
+    applyTokenSet({
       accessToken: tokenResponse.accessToken,
       refreshToken: tokenResponse.refreshToken,
       clientId,
@@ -726,7 +724,7 @@ export async function completeSignup(
   const store = useAuthStore.getState()
 
   try {
-    store.setTokens({
+    applyTokenSet({
       accessToken: tokenResponse.accessToken,
       refreshToken: tokenResponse.refreshToken,
       clientId,

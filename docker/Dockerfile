@@ -41,10 +41,16 @@ WORKDIR /frontend
 # Install dependencies for frontend build
 RUN apk add --no-cache openssl
 
+# Copy the JS SDK first: the frontend depends on it via a `file:../sdk-js`
+# link, and its dist/ + src/generated/ are (re)generated in-image below.
+COPY sdk-js/ /sdk-js/
+
 # Copy package files for dependency caching
 COPY frontend/package*.json ./
 
-# Install dependencies
+# Install dependencies (SDK first — the frontend's file: link target must
+# exist for npm ci to resolve the symlink)
+RUN cd /sdk-js && npm ci --legacy-peer-deps
 RUN npm ci --legacy-peer-deps
 
 # Copy backend binary for API generation (create dummy if needed)
@@ -53,8 +59,11 @@ COPY --from=backend-builder /app/target/release/herald-app /tmp/herald-app
 # Copy frontend source
 COPY frontend/ ./
 
-# Generate API types using the pre-built backend binary, then build frontend
+# Generate API types using the pre-built backend binary, then build the SDK
+# (generates its src/generated + dist from the same exported spec), then the
+# frontend bundle
 RUN (/tmp/herald-app --export-openapi api.json && npx openapi-ts || echo "Warning: API generation failed, using existing types") && \
+    (cd /sdk-js && /tmp/herald-app --export-openapi api.json && npx --no-install openapi-ts && npm run build) && \
     npm run build
 
 # Stage 5: Final runtime image

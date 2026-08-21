@@ -6,7 +6,7 @@
  * - validateOAuthParams completeness check
  * - loginFlow passes OAuth fields to performLogin
  * - PKCE S256 code_verifier/code_challenge generation (pure functions)
- * - loginFlow Herald FirstParty PKCE exchange (AT in memory, RT in store)
+ * - loginFlow Herald FirstParty PKCE exchange (token family in the Herald SDK)
  * - 2FA detour carrying pending PKCE state (TOTP / Passkey completion)
  * - error-code distinguishability across the login/PKCE paths
  */
@@ -35,8 +35,12 @@ vi.mock('@/lib/auth-service', () => ({
   fetchAuthData: vi.fn(),
   performLogout: vi.fn(),
   performPkceTokenExchange: vi.fn(),
-  refreshBrowserToken: vi.fn(),
   switchFirstPartyClient: vi.fn(),
+  ClientSwitchError: class ClientSwitchError extends Error {
+    constructor(public readonly status: number) {
+      super('Client switch failed')
+    }
+  },
 }))
 
 vi.mock('@/stores/auth-store', () => ({
@@ -44,7 +48,51 @@ vi.mock('@/stores/auth-store', () => ({
     getState: vi.fn(),
   },
   clearAuthStorage: vi.fn(),
-  accessTokenHolder: { get: vi.fn(() => null), set: vi.fn(), clear: vi.fn() },
+}))
+
+// The Herald SDK client owns the token family (DEC-js-sdk-013). The hoisted
+// fake carries the mutable token state the flows read/write; `applyTokenSet`
+// (the bridge the flows call) is a vi.fn so call assertions work, and it
+// mirrors the real bridge by writing through to the fake's state.
+const heraldMock = vi.hoisted(() => {
+  const state = {
+    accessToken: null as string | null,
+    refreshToken: null as string | null,
+    refreshError: null as Error | null,
+  }
+  return {
+    state,
+    resetState(initial?: {
+      accessToken?: string | null
+      refreshToken?: string | null
+      refreshError?: Error | null
+    }) {
+      state.accessToken = initial?.accessToken ?? null
+      state.refreshToken = initial?.refreshToken ?? null
+      state.refreshError = initial?.refreshError ?? null
+    },
+    storage: {
+      getRefreshToken: () => state.refreshToken,
+    },
+    tokens: {
+      getAccessToken: () => state.accessToken,
+      clear: () => {
+        state.accessToken = null
+        state.refreshToken = null
+      },
+    },
+    refresh: () => (state.refreshError ? Promise.reject(state.refreshError) : Promise.resolve({})),
+    logout: () => Promise.resolve({ message: 'Logged out' }),
+  }
+})
+
+vi.mock('@/lib/herald-client', () => ({
+  ensureHeraldClient: () => heraldMock,
+  getActiveHeraldClient: () => heraldMock,
+  applyTokenSet: vi.fn((tokens: { accessToken: string; refreshToken: string }) => {
+    heraldMock.state.accessToken = tokens.accessToken
+    heraldMock.state.refreshToken = tokens.refreshToken
+  }),
 }))
 
 // Import mocked modules after vi.mock declarations
@@ -52,10 +100,10 @@ import {
   performLogin,
   fetchAuthData,
   performPkceTokenExchange,
-  refreshBrowserToken,
   switchFirstPartyClient,
 } from '@/lib/auth-service'
-import { accessTokenHolder, useAuthStore } from '@/stores/auth-store'
+import { useAuthStore } from '@/stores/auth-store'
+import { applyTokenSet } from '@/lib/herald-client'
 import {
   initializeAuth,
   loginFlow,
@@ -96,10 +144,9 @@ function makeStoreMock() {
     setIsLoading: vi.fn(),
     reset: vi.fn(),
     clearStorage: vi.fn(),
-    setTokens: vi.fn(),
+    setRefreshClientId: vi.fn(),
     setPkceState: vi.fn(),
     getPkceState: vi.fn(() => null),
-    getRefreshToken: vi.fn(() => ({ refreshToken: null, clientId: null })),
     permissions: [],
     roles: [],
     isAuthenticated: false,
@@ -107,27 +154,21 @@ function makeStoreMock() {
 }
 
 /**
- * A store mock whose PKCE / token actions round-trip through in-memory holders,
- * mirroring the real store contract (`setPkceState`→`getPkceState`,
- * `setTokens`→`getRefreshToken`). Needed for tests that exercise the full
- * `beginFirstPartyPkceFlow` → `tryCompletePkceExchange` round-trip inside a
- * single `loginFlow` call, where the seed writes PKCE state and the later
- * exchange must read it back.
+ * A store mock whose PKCE actions round-trip through in-memory holders,
+ * mirroring the real store contract (`setPkceState`→`getPkceState`). Needed
+ * for tests that exercise the full `beginFirstPartyPkceFlow` →
+ * `tryCompletePkceExchange` round-trip inside a single `loginFlow` call, where
+ * the seed writes PKCE state and the later exchange must read it back. Token
+ * material round-trips through the herald mock instead (see `applyTokenSet`).
  */
 function makeStatefulStoreMock(initial?: {
   pkceState?: ReturnType<NonNullable<ReturnType<typeof makeStoreMock>['getPkceState']>>
-  refreshToken?: string
-  clientId?: string
 }) {
   let pkceState = initial?.pkceState ?? null
-  let refreshToken = initial?.refreshToken ?? null
-  let clientId = initial?.clientId ?? null
   return {
     login: vi.fn(),
     logout: vi.fn(() => {
       pkceState = null
-      refreshToken = null
-      clientId = null
     }),
     setAuthStatus: vi.fn(),
     setUserPermissions: vi.fn(),
@@ -135,19 +176,13 @@ function makeStatefulStoreMock(initial?: {
     setIsLoading: vi.fn(),
     reset: vi.fn(() => {
       pkceState = null
-      refreshToken = null
-      clientId = null
     }),
     clearStorage: vi.fn(),
-    setTokens: vi.fn((tokens: { accessToken: string; refreshToken: string; clientId?: string }) => {
-      refreshToken = tokens.refreshToken
-      if (tokens.clientId) clientId = tokens.clientId
-    }),
+    setRefreshClientId: vi.fn(),
     setPkceState: vi.fn((state: unknown) => {
       pkceState = state as (typeof initial)['pkceState']
     }),
     getPkceState: vi.fn(() => pkceState),
-    getRefreshToken: vi.fn(() => ({ refreshToken, clientId })),
     permissions: [],
     roles: [],
     isAuthenticated: false,
@@ -181,6 +216,8 @@ function baseCredentials(): LoginRequestPayload {
 // --- Setup ---
 
 beforeEach(() => {
+  heraldMock.resetState()
+  vi.mocked(applyTokenSet).mockClear()
   vi.mocked(useAuthStore.getState).mockReturnValue(
     makeStoreMock() as ReturnType<typeof useAuthStore.getState>
   )
@@ -555,14 +592,15 @@ describe('loginFlow Herald FirstParty PKCE exchange', () => {
       redirectUri: 'http://localhost/callback',
       clientId: 'admin-web-console',
     })
-    // Tokens stored: AT in memory + RT in store.
-    expect(storeMock.setTokens).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accessToken: 'at-new',
-        refreshToken: 'rt-new',
-        clientId: 'admin-web-console',
-      })
-    )
+    // Token family injected into the Herald SDK client (AT in its holder, RT in
+    // its storage).
+    expect(applyTokenSet).toHaveBeenCalledWith({
+      accessToken: 'at-new',
+      refreshToken: 'rt-new',
+      clientId: 'admin-web-console',
+    })
+    expect(heraldMock.state.accessToken).toBe('at-new')
+    expect(heraldMock.state.refreshToken).toBe('rt-new')
     // PKCE state cleared after success.
     expect(storeMock.setPkceState).toHaveBeenCalledWith(null)
     // redirectTo is nulled in the returned response so the caller proceeds to
@@ -616,8 +654,8 @@ describe('loginFlow Herald FirstParty PKCE exchange', () => {
 
     // The exchange must NOT run with the mismatched code.
     expect(performPkceTokenExchange).not.toHaveBeenCalled()
-    // No tokens written.
-    expect(storeMock.setTokens).not.toHaveBeenCalled()
+    // No token material written.
+    expect(applyTokenSet).not.toHaveBeenCalled()
     // PKCE state is dropped so it cannot be replayed.
     expect(storeMock.setPkceState).toHaveBeenCalledWith(null)
     // redirectTo preserved so the caller treats it as a non-PKCE redirect.
@@ -672,26 +710,22 @@ describe('loginFlow Herald FirstParty PKCE exchange', () => {
     ).rejects.toThrow('401')
 
     // ...but the Bearer token family established by the exchange MUST survive.
-    // logout() would null the refresh token; assert it was never called.
+    // logout() would tear down the session; assert it was never called.
     expect(storeMock.logout).not.toHaveBeenCalled()
-    // The refresh token persisted by the successful exchange is still readable.
-    expect(storeMock.getRefreshToken()).toEqual({
-      refreshToken: 'rt-new',
-      clientId: 'admin-web-console',
-    })
+    // The token family injected by the successful exchange is still in the
+    // Herald SDK client.
+    expect(heraldMock.state.accessToken).toBe('at-new')
+    expect(heraldMock.state.refreshToken).toBe('rt-new')
   })
 })
 
 describe('initializeAuth token-family preservation', () => {
   it('preserves an established refresh token when status initialization fails transiently', async () => {
-    const storeMock = makeStatefulStoreMock({
-      refreshToken: 'rt-established',
-      clientId: 'user-account-center',
-    })
+    const storeMock = makeStatefulStoreMock()
     vi.mocked(useAuthStore.getState).mockReturnValue(
       storeMock as ReturnType<typeof useAuthStore.getState>
     )
-    vi.mocked(accessTokenHolder.get).mockReturnValue('at-established')
+    heraldMock.resetState({ accessToken: 'at-established', refreshToken: 'rt-established' })
     vi.mocked(fetchAuthData).mockRejectedValue(new Error('transient status failure'))
 
     const result = await initializeAuth('admin', 'admin-web-console', true)
@@ -700,21 +734,18 @@ describe('initializeAuth token-family preservation', () => {
     expect(storeMock.reset).not.toHaveBeenCalled()
     expect(storeMock.logout).not.toHaveBeenCalled()
     expect(storeMock.setAuthStatus).toHaveBeenCalledWith(false)
-    expect(storeMock.getRefreshToken()).toEqual({
-      refreshToken: 'rt-established',
-      clientId: 'user-account-center',
-    })
+    // The established token family in the Herald SDK client survives the
+    // transient failure.
+    expect(heraldMock.state.refreshToken).toBe('rt-established')
+    expect(heraldMock.state.accessToken).toBe('at-established')
   })
 
   it('preserves the replacement token family when post-switch hydration fails transiently', async () => {
-    const storeMock = makeStatefulStoreMock({
-      refreshToken: 'rt-user',
-      clientId: 'user-account-center',
-    })
+    const storeMock = makeStatefulStoreMock()
     vi.mocked(useAuthStore.getState).mockReturnValue(
       storeMock as ReturnType<typeof useAuthStore.getState>
     )
-    vi.mocked(accessTokenHolder.get).mockReturnValue('at-user')
+    heraldMock.resetState({ accessToken: 'at-user', refreshToken: 'rt-user' })
     vi.mocked(fetchAuthData)
       .mockResolvedValueOnce({
         ...makeAuthDataResponse(),
@@ -737,29 +768,37 @@ describe('initializeAuth token-family preservation', () => {
 
     expect(result.authenticated).toBe(false)
     expect(storeMock.reset).not.toHaveBeenCalled()
-    expect(storeMock.getRefreshToken()).toEqual({
-      refreshToken: 'rt-admin',
-      clientId: 'admin-web-console',
-    })
+    // The switch-client result replaced the token family via the SDK bridge.
+    expect(heraldMock.state.refreshToken).toBe('rt-admin')
+    expect(heraldMock.state.accessToken).toBe('at-admin')
+    expect(applyTokenSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: 'at-admin',
+        refreshToken: 'rt-admin',
+        clientId: 'admin-web-console',
+      })
+    )
   })
 
-  it('clears the token family when startup refresh is explicitly rejected', async () => {
-    const storeMock = makeStatefulStoreMock({
-      refreshToken: 'rt-revoked',
-      clientId: 'user-account-center',
-    })
+  it('clears the session when startup refresh is explicitly rejected', async () => {
+    const storeMock = makeStatefulStoreMock()
     vi.mocked(useAuthStore.getState).mockReturnValue(
       storeMock as ReturnType<typeof useAuthStore.getState>
     )
-    vi.mocked(accessTokenHolder.get).mockReturnValue(null)
-    vi.mocked(refreshBrowserToken).mockRejectedValue(new Error('refresh token revoked'))
+    heraldMock.resetState({
+      accessToken: null,
+      refreshToken: 'rt-revoked',
+      refreshError: new Error('refresh token revoked'),
+    })
 
     const result = await initializeAuth('admin', 'admin-web-console', true)
 
     expect(result.authenticated).toBe(false)
     expect(storeMock.logout).toHaveBeenCalledOnce()
     expect(storeMock.reset).not.toHaveBeenCalled()
-    expect(storeMock.getRefreshToken()).toEqual({ refreshToken: null, clientId: null })
+    // The stale token material is not restored: initializeAuth's failure path
+    // does not re-issue tokens. (The token purge itself is the herald-client
+    // session-expired bridge contract, asserted in the SDK bridge suites.)
   })
 })
 
@@ -971,9 +1010,9 @@ describe('2FA detour carries pending PKCE state', () => {
     })
 
     expect(result.response.requiresTotp).toBe(true)
-    // No token exchange, no tokens stored, no auth data fetched during the detour.
+    // No token exchange, no token material written, no auth data fetched during the detour.
     expect(performPkceTokenExchange).not.toHaveBeenCalled()
-    expect(storeMock.setTokens).not.toHaveBeenCalled()
+    expect(applyTokenSet).not.toHaveBeenCalled()
     expect(fetchAuthData).not.toHaveBeenCalled()
     // PKCE state is NOT cleared — it must survive the 2FA step.
     expect(storeMock.setPkceState).not.toHaveBeenCalledWith(null)
@@ -1014,13 +1053,11 @@ describe('2FA detour carries pending PKCE state', () => {
       redirectUri: 'http://localhost/callback',
       clientId: 'admin-web-console',
     })
-    expect(storeMock.setTokens).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accessToken: 'at-after-totp',
-        refreshToken: 'rt-after-totp',
-        clientId: 'admin-web-console',
-      })
-    )
+    expect(applyTokenSet).toHaveBeenCalledWith({
+      accessToken: 'at-after-totp',
+      refreshToken: 'rt-after-totp',
+      clientId: 'admin-web-console',
+    })
     // PKCE state cleared once the exchange succeeds.
     expect(storeMock.setPkceState).toHaveBeenCalledWith(null)
     expect(result.redirectPath).toBe('/user/profile')
@@ -1064,7 +1101,7 @@ describe('2FA detour carries pending PKCE state', () => {
       redirectUri: 'http://localhost/callback',
       clientId: 'admin-web-console',
     })
-    expect(storeMock.setTokens).toHaveBeenCalledWith(
+    expect(applyTokenSet).toHaveBeenCalledWith(
       expect.objectContaining({ clientId: 'admin-web-console' })
     )
     expect(storeMock.setPkceState).toHaveBeenCalledWith(null)
@@ -1148,8 +1185,8 @@ describe('loginFlow / PKCE error-code distinguishability', () => {
       // logout() revokes the family + clears RT/PKCE; state explicitly nulled.
       expect(storeMock.logout).toHaveBeenCalled()
       expect(storeMock.setPkceState).toHaveBeenCalledWith(null)
-      // No tokens were stored on failure.
-      expect(storeMock.setTokens).not.toHaveBeenCalled()
+      // No token material was written on failure.
+      expect(applyTokenSet).not.toHaveBeenCalled()
     }
   )
 

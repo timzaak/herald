@@ -29,7 +29,7 @@ export const TOKEN_FIXTURE = {
 
 /**
  * Build a normalized (camelCase) `BrowserTokenResponse` — the shape returned by
- * `refreshBrowserToken` and `performPkceTokenExchange`.
+ * the Herald SDK's token family operations and `performPkceTokenExchange`.
  */
 export function makeBrowserTokenResponse(
   overrides?: Partial<BrowserTokenResponse>

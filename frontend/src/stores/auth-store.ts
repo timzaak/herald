@@ -4,15 +4,19 @@
  * Centralized state management for authentication and authorization.
  * Uses DevTools integration for debugging and persist middleware for localStorage.
  *
- * Token model (design §4.4 — Bearer access/refresh token family):
- * - The rotating **refresh token** is persisted to localStorage (survives reload)
- *   so the app can restore the session on startup by refreshing.
- * - The short-lived **access token** is held in a module-scoped, non-reactive
- *   in-memory holder (`accessTokenHolder`) and is NEVER persisted. A full page
- *   reload clears it and triggers a refresh-first restore in `initializeAuth`.
- * - A transient **PKCE verifier** and **pending auth state** are persisted so an
- *   in-progress PKCE login that gets interrupted by a 2FA step (or a reload
- *   during the PKCE window) can still complete the token exchange.
+ * Token model (Bearer access/refresh token family), owned by the
+ * `@herald/web` SDK client (`lib/herald-client.ts`):
+ * - The rotating **refresh token** is persisted by the SDK's storage adapter
+ *   (`herald.refreshToken`) so the app can restore the session on startup by
+ *   refreshing; it is no longer part of this store.
+ * - The short-lived **access token** lives only in the SDK's in-memory holder
+ *   and is NEVER persisted. A full page reload clears it and triggers a
+ *   refresh-first restore in `initializeAuth`.
+ * - This store keeps only UI/routing auth state (user, permissions, the
+ *   `refreshClientId` the token family binds to) plus the transient **PKCE
+ *   verifier** and pending auth state, persisted so an in-progress PKCE login
+ *   interrupted by a 2FA step (or a reload during the PKCE window) can still
+ *   complete the token exchange.
  */
 
 import { create } from 'zustand'
@@ -38,25 +42,6 @@ export interface PersistedPkceState {
 }
 
 /**
- * Non-reactive in-memory holder for the access token. Deliberately NOT part of
- * the Zustand store so it never triggers re-renders and never gets persisted.
- * `api-client.ts` reads `accessTokenHolder.get()` to inject `Authorization: Bearer`.
- */
-let accessToken: string | null = null
-
-export const accessTokenHolder = {
-  get(): string | null {
-    return accessToken
-  },
-  set(token: string | null): void {
-    accessToken = token
-  },
-  clear(): void {
-    accessToken = null
-  },
-}
-
-/**
  * Authentication state
  */
 export interface AuthState {
@@ -71,10 +56,11 @@ export interface AuthState {
   permissions: string[]
   roles: string[]
 
-  // Token model (Bearer family)
-  /** Rotating refresh token — persisted; cleared only on logout/reset. */
-  refreshToken: string | null
-  /** The `clientId` the refresh token was issued for (needed to refresh). */
+  /**
+   * The `clientId` the current token family was issued for (admin console vs
+   * account center) — routing state only; the tokens themselves live in the
+   * Herald SDK client.
+   */
   refreshClientId: string | null
   /** Transient PKCE + pending-auth state — persisted across reloads. */
   pkceState: PersistedPkceState | null
@@ -96,20 +82,14 @@ export interface AuthActions {
   login: (realmId: string) => void
   logout: () => void
 
-  /**
-   * Store a freshly-issued Bearer token set (access + refresh). Access token
-   * goes to the in-memory holder; refresh token + clientId are persisted.
-   */
-  setTokens: (tokens: { accessToken: string; refreshToken: string; clientId?: string }) => void
+  /** Remember which product client the current token family binds to. */
+  setRefreshClientId: (clientId: string | null) => void
 
   /** Persist the PKCE verifier + bound OAuth params for the active flow. */
   setPkceState: (state: PersistedPkceState | null) => void
 
   /** Read the persisted PKCE state (or null if no flow is in progress). */
   getPkceState: () => PersistedPkceState | null
-
-  /** Read the persisted refresh token + its bound clientId. */
-  getRefreshToken: () => { refreshToken: string | null; clientId: string | null }
 
   // Store actions
   reset: () => void
@@ -127,7 +107,6 @@ const initialState: AuthState = {
   user: null,
   permissions: [],
   roles: [],
-  refreshToken: null,
   refreshClientId: null,
   pkceState: null,
 }
@@ -164,7 +143,6 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           }),
 
         logout: () => {
-          accessTokenHolder.clear()
           set({
             isAuthenticated: false,
             isLoading: false,
@@ -172,56 +150,41 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             user: null,
             permissions: [],
             roles: [],
-            refreshToken: null,
             refreshClientId: null,
             pkceState: null,
           })
         },
 
-        setTokens: ({ accessToken: at, refreshToken: rt, clientId }) => {
-          accessTokenHolder.set(at)
-          set({
-            refreshToken: rt,
-            ...(clientId ? { refreshClientId: clientId } : {}),
-          })
-        },
+        setRefreshClientId: (refreshClientId) => set({ refreshClientId }),
 
         setPkceState: (pkceState) => set({ pkceState }),
 
         getPkceState: () => get().pkceState,
 
-        getRefreshToken: () => ({
-          refreshToken: get().refreshToken,
-          clientId: get().refreshClientId,
-        }),
-
         // Store actions
         reset: () => {
-          accessTokenHolder.clear()
           set(initialState)
         },
 
         clearStorage: () => {
-          accessTokenHolder.clear()
           set(initialState)
         },
       }),
       {
         name: AUTH_STORAGE_KEY,
         partialize: (state) => ({
-          // Persist UI/auth state, the refresh token + its bound clientId, and
-          // the in-flight PKCE state so a reload can restore/complete the flow.
+          // Persist UI/auth routing state and the in-flight PKCE state so a
+          // reload can restore/complete the flow. The token family itself
+          // (access in memory, refresh token) lives in the Herald SDK client
+          // and must not be duplicated here.
           isAuthenticated: state.isAuthenticated,
           realmId: state.realmId,
           clientAppId: state.clientAppId,
           user: state.user,
           permissions: state.permissions,
           roles: state.roles,
-          refreshToken: state.refreshToken,
           refreshClientId: state.refreshClientId,
           pkceState: state.pkceState,
-          // NOTE: access token is intentionally NOT here — it lives only in the
-          // module-scoped in-memory holder and must not survive a reload.
         }),
       }
     ),
@@ -239,7 +202,6 @@ const persistStorage = useAuthStore.persist
  * Clear all persisted auth data from storage
  */
 export function clearAuthStorage(): void {
-  accessTokenHolder.clear()
   persistStorage.clearStorage()
 }
 
@@ -289,7 +251,7 @@ export const useAuthActions = () =>
       setUserProfile: state.setUserProfile,
       login: state.login,
       logout: state.logout,
-      setTokens: state.setTokens,
+      setRefreshClientId: state.setRefreshClientId,
       setPkceState: state.setPkceState,
       reset: state.reset,
     }))

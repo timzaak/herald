@@ -4,10 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
+import { getActiveHeraldClient } from '@/lib/herald-client'
 import { PasskeyLoginForm } from '../passkey-login-form'
 import type {
   PasskeyOptionsResponse,
   PasskeyVerifyResponse,
+  BrowserTokenResponse,
   LegalAgreementSummary,
 } from '@/lib/api-generated'
 
@@ -94,12 +96,18 @@ function makeAgreementSummary(
   }
 }
 
-function makeSuccessResponse(): PasskeyVerifyResponse {
+/**
+ * Success body per the real backend contract (DEC-js-sdk-011): passkey verify
+ * answers 200 with a `BrowserTokenResponse`; the SDK applies the token set and
+ * the form surfaces completion via `onSuccess`.
+ */
+function makeSuccessResponse(): BrowserTokenResponse {
   return {
-    userId: 'user-001',
-    token: 'session-token',
-    message: 'Login successful',
-    expiresInSeconds: 3600,
+    accessToken: 'at-passkey-1fa',
+    refreshToken: 'rt-passkey-1fa',
+    tokenType: 'Bearer',
+    expiresIn: 900,
+    refreshExpiresIn: 2592000,
   }
 }
 
@@ -151,7 +159,7 @@ function stubWebAuthnSupport(supported: boolean) {
 describe('PasskeyLoginForm (first factor)', () => {
   const user = userEvent.setup({ delay: null })
   let optionsStatus: number
-  let verifyResponse: PasskeyVerifyResponse
+  let verifyResponse: BrowserTokenResponse | PasskeyVerifyResponse
   let verifyStatus: number
   let verifyBodies: unknown[]
   let getMock: ReturnType<typeof vi.fn>
@@ -162,6 +170,8 @@ describe('PasskeyLoginForm (first factor)', () => {
     verifyResponse = makeSuccessResponse()
     verifyBodies = []
     getMock = vi.fn()
+    // Token state lives in the Herald SDK client now — reset it between cases.
+    getActiveHeraldClient()?.tokens.clear()
 
     stubWebAuthnSupport(true)
     // Both the conditional UI and the explicit button call navigator.credentials.get.
@@ -246,8 +256,11 @@ describe('PasskeyLoginForm (first factor)', () => {
         expect(getMock).toHaveBeenCalledTimes(2)
       })
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ token: 'session-token' }))
+        expect(onSuccess).toHaveBeenCalledTimes(1)
       })
+      // The success branch applied the issued token set inside the Herald SDK.
+      expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-passkey-1fa')
+      expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe('rt-passkey-1fa')
 
       // Verify body must carry authToken + serialised assertion (base64url fields).
       expect(verifyBodies).toHaveLength(1)
@@ -355,8 +368,10 @@ describe('PasskeyLoginForm (first factor)', () => {
       await user.click(screen.getByTestId('passkey-agree-and-continue-button'))
 
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ token: 'session-token' }))
+        expect(onSuccess).toHaveBeenCalledTimes(1)
       })
+      // The post-consent success applied the token set inside the Herald SDK.
+      expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-passkey-1fa')
 
       // Second verify must carry the agreements array.
       expect(verifyBodies).toHaveLength(2)

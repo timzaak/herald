@@ -156,10 +156,24 @@ pre-registered origin.
 
 ## Passwordless email-OTP login
 
-Email-OTP is an independent **passwordless first factor** (not a second factor):
+Email-OTP is an independent **passwordless first factor** (not a second factor).
+`send` resolves a discriminated result: the two 409 control-flow outcomes —
+`consent_required` (auto-register consent gate; render `agreements` and re-send
+with them) and `email_not_registered` (auto-register off) — arrive as
+`{ kind: 'conflict' }` instead of throwing:
 
 ```ts
-await client.loginWithEmailOtp.send({ email: 'user@example.com' })
+const sent = await client.loginWithEmailOtp.send({ email: 'user@example.com' })
+if (sent.kind === 'conflict' && sent.code === 'consent_required') {
+  // render sent.agreements (each entry carries the raw backend summary on
+  // `.raw` for display), then re-send with the accepted pairs:
+  await client.loginWithEmailOtp.send({
+    email: 'user@example.com',
+    agreements: sent.agreements.map(({ agreementType, versionId }) => ({ agreementType, versionId })),
+  })
+}
+
+// Verify applies the issued token set on success (same as login).
 const result = await client.loginWithEmailOtp.verify({ email: 'user@example.com', code: '123456' })
 ```
 
@@ -189,6 +203,25 @@ This SDK wraps only the `/login` direct-signed `CustomUserUi` credential class
 (no PKCE → FirstParty), and the authentication lifecycle. Server-side resource
 management, high-risk operations (password change, authenticator management,
 account deletion), and framework-specific adapters are separate concerns.
+
+## First-party consumption (Herald's own frontend)
+
+Herald's own frontend also consumes this SDK as its token engine
+(DEC-js-sdk-013). On top of the third-party surface above it uses the additive
+first-party bridge:
+
+- `client.tokens.getAccessToken()` / `setTokens({ accessToken, refreshToken,
+  clientId? })` / `clear()` / `bindClientId(clientId)` — inspect / inject the
+  token family owned by the host app (e.g. after its own PKCE exchange or
+  switch-client, which stay in the host per the scope decision above);
+- `client.refresh()` — the public single-flight refresh (shares its in-flight
+  promise with the 401 interceptor);
+- `login` / `passkey.loginBegin` accept an optional OAuth context
+  (`oauthClientId`/`redirectUri`/`state`, or the `oauth` object) which is
+  passed through untouched; the backend answers with `redirectTo` and the
+  caller completes the exchange itself;
+- `consent-required` results carry the raw agreement summary on each entry's
+  `raw` field for host apps that render the consent list.
 
 ## Regenerating the client
 

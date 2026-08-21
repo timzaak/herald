@@ -37,6 +37,7 @@ import { render, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '@/test/mocks/server'
+import { getActiveHeraldClient } from '@/lib/herald-client'
 import {
   useEmailOtpSendMutation,
   useEmailOtpVerifyMutation,
@@ -92,7 +93,7 @@ function VerifyProbe({
 }: {
   realmId: string
   payload: VerifyProbePayload
-  onSuccess?: (token: BrowserTokenResponse) => void
+  onSuccess?: () => void
   onError?: (error: unknown) => void
 }) {
   const mutation = useEmailOtpVerifyMutation({ realmId, onSuccess, onError })
@@ -161,6 +162,8 @@ function makeBrowserTokenResponse(overrides?: Partial<BrowserTokenResponse>): Br
 
 beforeEach(() => {
   server.resetHandlers()
+  // Token state lives in the Herald SDK client now — reset it between cases.
+  getActiveHeraldClient()?.tokens.clear()
 })
 
 afterEach(() => {
@@ -390,7 +393,9 @@ describe('useEmailOtpSendMutation — non-conflict errors throw', () => {
     await waitFor(() => {
       expect(onError).toHaveBeenCalledTimes(1)
     })
-    expect(onError.mock.calls[0][0]).toMatchObject({ unrelated: 'server-side-state' })
+    // The SDK throws a HeraldError (kind api, status 409) for unrecognized 409
+    // bodies — the form renders the error region, NOT a conflict.
+    expect(onError.mock.calls[0][0]).toMatchObject({ kind: 'api', status: 409 })
   })
 })
 
@@ -441,30 +446,37 @@ describe('useEmailOtpVerifyMutation — payload composition + success handoff', 
     expect(capturedBody).not.toHaveProperty('turnstileToken')
   })
 
-  it('hands the raw BrowserTokenResponse up via onSuccess on 200 (route owns the session handoff)', async () => {
-    const tokenResponse = makeBrowserTokenResponse({
-      accessToken: 'at-verify-success',
-      refreshToken: 'rt-verify-success',
-    })
-    server.use(http.post(VERIFY_URL, () => HttpResponse.json(tokenResponse)))
+  it('applies the verify token set inside the Herald SDK and notifies onSuccess (no payload handoff)', async () => {
+    server.use(
+      http.post(VERIFY_URL, () =>
+        HttpResponse.json(
+          makeBrowserTokenResponse({
+            accessToken: 'at-verify-success',
+            refreshToken: 'rt-verify-success',
+          })
+        )
+      )
+    )
 
-    const onToken = vi.fn<(token: BrowserTokenResponse) => void>()
+    const onSuccess = vi.fn<() => void>()
     renderProbe(
       <VerifyProbe
         realmId="realm-1"
         payload={{ email: 'user@example.com', code: '654321', clientId: 'admin-web-console' }}
-        onSuccess={onToken}
+        onSuccess={onSuccess}
       />
     )
 
     await clickProbe('verify-probe')
 
     await waitFor(() => {
-      expect(onToken).toHaveBeenCalledTimes(1)
+      expect(onSuccess).toHaveBeenCalledTimes(1)
     })
-    // The route owns completeLoginAfterEmailOtp + navigation; the mutation must
-    // hand up the RAW BrowserTokenResponse unchanged.
-    expect(onToken).toHaveBeenCalledWith(tokenResponse)
+    // The SDK applied the issued token set itself (DEC-js-sdk-013/014): the
+    // route's completeLoginAfterEmailOtp only rebinds + hydrates, so the
+    // mutation hands up NO token payload.
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-verify-success')
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe('rt-verify-success')
   })
 
   it('surfaces a 401 (wrong/expired/exhausted) via onError so the form can retry vs resend', async () => {

@@ -4,12 +4,13 @@
  * State machine:
  *   email → (consent gate for auto-register) → Turnstile (per Client App) →
  *   send → 6-digit code input with resend countdown → verify → Bearer session
- *   handoff (RAW `BrowserTokenResponse` up to the route via `onSuccess`).
+ *   handoff (the Herald SDK applies the token set; the route is notified via
+ *   `onSuccess()`).
  *
  * Boundary (FE-D01): the component does NOT call `completeLoginAfterEmailOtp`
- * and does NOT navigate — it hands the raw verify response up via
- * `onSuccess(tokenResponse)`, mirroring `PasskeyLoginForm` →
- * `handlePasskeySuccess`. The route owns token storage + navigation.
+ * and does NOT navigate — it notifies the route via `onSuccess()`, mirroring
+ * `PasskeyLoginForm` → `handlePasskeySuccess`. The route owns token-family
+ * binding + navigation.
  *
  * Error matrix (design §4.2):
  *   - 409 `consent_required` (auto-register, missing agreements) → consent
@@ -42,7 +43,7 @@ import {
   useEmailOtpVerifyMutation,
   type EmailOtpSendConflict,
 } from '@/components/auth/email-otp-mutations'
-import type { BrowserTokenResponse, LegalAgreementSummary } from '@/lib/api-generated'
+import type { LegalAgreementSummary } from '@/lib/api-generated'
 import { formatDate } from '@/lib/date-utils'
 
 const emailSchema = z.object({
@@ -69,11 +70,13 @@ export interface EmailOtpLoginFormProps {
    */
   turnstileStatus?: TurnstileStatus | null
   /**
-   * Called with the RAW `BrowserTokenResponse` on verify 200 success. The route
-   * owns `completeLoginAfterEmailOtp` + navigation. OTP verify has no
-   * `redirectTo`/PKCE branch, so no external-redirect callback is needed.
+   * Called after a successful verify. The Herald SDK applied the issued
+   * token set itself (`loginWithEmailOtp.verify`); the route owns
+   * `completeLoginAfterEmailOtp` (clientId rebind + hydration) + navigation.
+   * OTP verify has no `redirectTo`/PKCE branch, so no external-redirect
+   * callback is needed.
    */
-  onSuccess: (tokenResponse: BrowserTokenResponse) => void
+  onSuccess: () => void
   /** Return to the password form (back button). */
   onBack: () => void
   /** Realm-context-aware register path, rendered when `email_not_registered`. */
@@ -172,9 +175,9 @@ export function EmailOtpLoginForm({
 
   const verifyMutation = useEmailOtpVerifyMutation({
     realmId,
-    onSuccess: (tokenResponse) => {
+    onSuccess: () => {
       clearCountdown()
-      onSuccess(tokenResponse)
+      onSuccess()
     },
     onError: (err) => {
       const status = resolveApiError(err).status

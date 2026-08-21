@@ -7,7 +7,6 @@ import type {
   PasskeyVerifyResponse,
   LegalAgreementSummary,
   AuthConsentAgreement,
-  BrowserTokenResponse,
   OneTapDirectResponse,
 } from '@/lib/api-generated'
 import { loginSchema } from '@/lib/schemas/common'
@@ -381,20 +380,16 @@ export function LoginPage() {
 
   /**
    * Completion handler for an Email-OTP login. Mirrors `handlePasskeySuccess`
-   * minus the PKCE/`redirectTo` branch — OTP verify returns a direct
-   * `BrowserTokenResponse`, so only the
-   * safe-internal-redirect path applies. The route owns token storage
-   * (`completeLoginAfterEmailOtp`) + navigation; the `EmailOtpLoginForm`
-   * handed up the raw verify response via its `onSuccess` prop.
+   * minus the PKCE/`redirectTo` branch — OTP verify runs through the Herald
+   * SDK, which applies the issued token set itself, so
+   * `completeLoginAfterEmailOtp` only rebinds the routing clientId + hydrates.
+   * The `EmailOtpLoginForm` notified the route via its argument-less
+   * `onSuccess` prop.
    */
-  async function handleEmailOtpSuccess(tokenResponse: BrowserTokenResponse): Promise<void> {
+  async function handleEmailOtpSuccess(): Promise<void> {
     toast.success(m['auth.login.login_successful']())
 
-    const { redirectPath } = await completeLoginAfterEmailOtp(
-      realmId,
-      tokenResponse,
-      resolvedClientId
-    )
+    const { redirectPath } = await completeLoginAfterEmailOtp(realmId, resolvedClientId)
 
     await navigateAfterLoginSuccess(redirectPath)
   }

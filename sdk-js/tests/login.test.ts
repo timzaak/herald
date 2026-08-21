@@ -77,8 +77,23 @@ describe('login (US-JS-004 / DEC-010)', () => {
     const result = await client.login({ email: 'a@b.c', password: 'pw' })
     expect(result.kind).toBe('consent-required')
     if (result.kind !== 'consent-required') return
-    // snake_case summaries normalized to the camelCase re-submit shape.
-    expect(result.agreements).toEqual([{ agreementType: 'terms_of_service', versionId: 'v1' }])
+    // snake_case summaries normalized to the camelCase re-submit shape…
+    expect(result.agreements).toEqual([
+      {
+        agreementType: 'terms_of_service',
+        versionId: 'v1',
+        raw: {
+          agreement_type: 'terms_of_service',
+          version_id: 'v1',
+          title: 'Terms',
+          version_no: 1,
+          effective_at: '2026-01-01',
+          mode: 'active',
+        },
+      },
+    ])
+    // …while `raw` keeps the original summary for host apps that render the list.
+    expect(result.agreements[0]?.raw?.['version_no']).toBe(1)
   })
 
   it('oauth_redirect_branch', async () => {
@@ -154,11 +169,99 @@ describe('login (US-JS-004 / DEC-010)', () => {
 
     const { client } = makeClient()
     const send = await client.loginWithEmailOtp.send({ email: 'a@b.c' })
-    expect(send).toEqual({ message: 'code sent', expiresInSeconds: 300 })
+    expect(send).toEqual({ kind: 'sent', message: 'code sent', expiresInSeconds: 300 })
 
     const result = await client.loginWithEmailOtp.verify({ email: 'a@b.c', code: '123456' })
     expect(result.kind).toBe('success')
     expect(client.storage.getRefreshToken()).toBe('rt-1')
+  })
+
+  it('email_otp_send_409_consent_required_is_a_conflict_branch_with_raw_agreements', async () => {
+    server.use(
+      http.post(
+        urls.emailOtpSend,
+        () =>
+          HttpResponse.json(
+            {
+              code: 'consent_required',
+              consentRequired: true,
+              message: 'consent needed',
+              agreements: [
+                {
+                  agreement_type: 'terms_of_service',
+                  version_id: 'tos-v2',
+                  title: 'Terms',
+                  version_no: 2,
+                  effective_at: '2026-06-30T00:00:00Z',
+                  mode: 'active',
+                },
+              ],
+            },
+            { status: 409 },
+          ),
+        { once: true },
+      ),
+      // Re-send with the accepted agreements succeeds.
+      http.post(urls.emailOtpSend, () =>
+        HttpResponse.json({ message: 'code sent', expiresInSeconds: 300 }),
+      ),
+    )
+
+    const { client } = makeClient()
+    const first = await client.loginWithEmailOtp.send({ email: 'a@b.c' })
+    expect(first).toMatchObject({ kind: 'conflict', code: 'consent_required', consentRequired: true })
+    if (first.kind !== 'conflict') return
+    // `raw` carries the backend summary for host apps that render the gate.
+    expect(first.agreements[0]).toMatchObject({
+      agreementType: 'terms_of_service',
+      versionId: 'tos-v2',
+    })
+    expect(first.agreements[0]?.raw?.['version_no']).toBe(2)
+
+    const second = await client.loginWithEmailOtp.send({
+      email: 'a@b.c',
+      agreements: first.agreements,
+    })
+    expect(second).toEqual({ kind: 'sent', message: 'code sent', expiresInSeconds: 300 })
+  })
+
+  it('email_otp_send_409_email_not_registered_is_a_conflict_branch', async () => {
+    server.use(
+      http.post(
+        urls.emailOtpSend,
+        () =>
+          HttpResponse.json(
+            { code: 'email_not_registered', message: 'register first' },
+            { status: 409 },
+          ),
+        { once: true },
+      ),
+    )
+
+    const { client } = makeClient()
+    const result = await client.loginWithEmailOtp.send({ email: 'a@b.c' })
+    expect(result).toEqual({
+      kind: 'conflict',
+      code: 'email_not_registered',
+      message: 'register first',
+      consentRequired: false,
+      agreements: [],
+    })
+  })
+
+  it('email_otp_send_other_409_still_throws', async () => {
+    server.use(
+      http.post(
+        urls.emailOtpSend,
+        () => HttpResponse.json({ code: 'other_conflict', message: 'nope' }, { status: 409 }),
+        { once: true },
+      ),
+    )
+    const { client } = makeClient()
+    await expect(client.loginWithEmailOtp.send({ email: 'a@b.c' })).rejects.toMatchObject({
+      kind: 'api',
+      status: 409,
+    })
   })
 
   it('login_failure_401_returns_unauthorized', async () => {

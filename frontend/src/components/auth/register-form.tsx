@@ -1,8 +1,7 @@
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
 import { z } from 'zod'
-import { register } from '@/lib/api-generated'
-import type { RegisterRequest } from '@/lib/api-generated'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/auth-utils'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import { DEFAULT_PASSWORD_CONFIG } from '@/lib/password-strength'
 import { useFormMutation } from '@/hooks/use-form-mutation'
 import { PasswordStrengthMeter } from './password-strength-meter'
@@ -60,25 +59,14 @@ export function RegisterForm({ realmId, onSuccess }: RegisterFormProps) {
 
   const { isSubmitting, mutate } = useFormMutation({
     mutationFn: async (data: RegisterFormData) => {
-      const apiData: RegisterRequest = {
-        clientId: FIRST_PARTY_CLIENT_ID,
+      const herald = ensureHeraldClient(realmId)
+      herald.tokens.bindClientId(FIRST_PARTY_CLIENT_ID)
+      return herald.register({
         email: data.email,
         password: data.password,
-        username: data.nickname || null,
-        turnstileToken: data.turnstileToken || null,
-      }
-      const { data: result, error } = await register({
-        path: { realmId },
-        body: apiData,
-        throwOnError: false,
+        ...(data.nickname ? { username: data.nickname } : {}),
+        ...(data.turnstileToken ? { turnstileToken: data.turnstileToken } : {}),
       })
-      if (error) {
-        throw error
-      }
-      if (!result) {
-        throw new Error('No data in response')
-      }
-      return result
     },
     getSuccessMessage: (data) => data.message || m['auth.register.registration_successful'](),
     invalidateQueries: [queryKeys.usersList(realmId)],

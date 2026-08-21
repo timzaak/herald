@@ -17,6 +17,15 @@ client.setConfig({
   baseUrl: 'http://localhost:3000',
 })
 
+// Point the Herald SDK client (login-family calls + token transport) at the
+// same MSW-intercepted origin, and drop its persisted refresh token between
+// tests so token state never leaks across test cases.
+import { setHeraldBaseUrlOverride, HERALD_REFRESH_TOKEN_STORAGE_KEY } from '@/lib/herald-client'
+setHeraldBaseUrlOverride('http://localhost:3000')
+beforeEach(() => {
+  window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)
+})
+
 // Set fixed English locale for all tests to prevent translation functions
 // from causing test instability
 import { setLocale } from '@/paraglide/runtime'
@@ -24,6 +33,13 @@ setLocale('en', { reload: false })
 
 // Keep enough per-test budget for the full suite under parallel JSDOM load.
 vi.setConfig({ testTimeout: 15000 })
+
+// waitFor/findBy default to a 1s budget, which starves when the whole suite
+// runs in parallel on a loaded machine (debounced queries and React state
+// updates exceed it while other workers saturate the CPU). Align the
+// async-util budget with the testTimeout headroom above.
+import { configure } from '@testing-library/react'
+configure({ asyncUtilTimeout: 5000 })
 
 // Start/stop MSW once per test session and reset handlers between tests
 beforeAll(() => {

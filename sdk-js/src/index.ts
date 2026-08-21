@@ -6,7 +6,7 @@
 
 // Public client factory + config.
 export { createHeraldClient } from './config'
-export type { HeraldClient, HeraldClientConfig } from './config'
+export type { HeraldClient, HeraldClientConfig, SetTokensPayload, TokenBridge } from './config'
 
 // Errors.
 export { HeraldError } from './errors'
@@ -25,6 +25,9 @@ export type { AssertionResultJSON, PublicKeyCredentialRequestOptionsJSON } from 
 export type {
   BrowserTokenResponse,
   ConsentAgreement,
+  EmailOtpConflict,
+  EmailOtpSendResult,
+  EmailOtpSent,
   HeraldCredentialClass,
   HeraldSession,
   LoginConsentRequired,

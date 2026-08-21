@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { resetPasswordRequest } from '@/lib/api-generated'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/auth-utils'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import { getErrorMessage } from '@/lib/error-utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,10 +45,11 @@ export function ForgotPasswordPage() {
     setError(null)
 
     try {
-      await resetPasswordRequest({
-        path: { realmId },
-        body: { clientId: FIRST_PARTY_CLIENT_ID, email, turnstileToken },
-        throwOnError: true,
+      const herald = ensureHeraldClient(realmId)
+      herald.tokens.bindClientId(FIRST_PARTY_CLIENT_ID)
+      await herald.requestPasswordReset({
+        email,
+        ...(turnstileToken ? { turnstileToken } : {}),
       })
       setSent(true)
       toast.success(m['auth.forgot_password.success']())

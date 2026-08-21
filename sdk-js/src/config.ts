@@ -37,6 +37,37 @@ export type HeraldClient = ReturnType<typeof createAuth> & {
     getSession(): HeraldSession
     subscribe(listener: (event: SessionEvent) => void): () => void
   }
+  /** First-party token bridge: inspect / inject the token family from the host app. */
+  readonly tokens: TokenBridge
+}
+
+/** Token set obtained outside the SDK (PKCE exchange, switch-client, direct-issue responses). */
+export interface SetTokensPayload {
+  accessToken: string
+  refreshToken: string
+  /**
+   * When provided, rebinds the client's request-body `clientId` (e.g. after a
+   * first-party PKCE exchange or a switch-client performed by the host app).
+   */
+  clientId?: string
+}
+
+export interface TokenBridge {
+  /** Current in-memory access token (null after a reload, until refreshed). */
+  getAccessToken(): string | null
+  /**
+   * Inject a token set obtained outside the SDK. Pure state update — no session
+   * event is emitted; call `getStatus()` afterwards to hydrate the session.
+   */
+  setTokens(tokens: SetTokensPayload): void
+  /** Clear the access + refresh tokens without calling the server or emitting events. */
+  clear(): void
+  /**
+   * Rebind the request-body `clientId` without touching tokens. First-party
+   * hosts pick between built-in products (e.g. console vs account center) per
+   * flow, before any tokens exist.
+   */
+  bindClientId(clientId: string): void
 }
 
 /**
@@ -71,14 +102,19 @@ export function createHeraldClient(config: HeraldClientConfig): HeraldClient {
     session,
   })
 
-  const auth = createAuth({
+  // Mutable on purpose: `tokens.setTokens({ clientId })` rebinds the client's
+  // request-body clientId after a host-app switch-client / PKCE exchange.
+  const authDeps = {
     realmId: config.realmId,
     clientId: config.clientId,
     client: transport.client,
     accessTokenHolder,
     storage,
     session,
-  })
+    refreshTokens: transport.refreshTokens,
+  }
+
+  const auth = createAuth(authDeps)
 
   return {
     ...auth,
@@ -86,6 +122,23 @@ export function createHeraldClient(config: HeraldClientConfig): HeraldClient {
     session: {
       getSession: () => session.getSession(),
       subscribe: (listener) => session.subscribe(listener),
+    },
+    tokens: {
+      getAccessToken: () => accessTokenHolder.get(),
+      setTokens: (tokens) => {
+        accessTokenHolder.set(tokens.accessToken)
+        storage.setRefreshToken(tokens.refreshToken)
+        if (tokens.clientId !== undefined) {
+          authDeps.clientId = tokens.clientId
+        }
+      },
+      clear: () => {
+        accessTokenHolder.clear()
+        storage.setRefreshToken(null)
+      },
+      bindClientId: (clientId) => {
+        authDeps.clientId = clientId
+      },
     },
   }
 }

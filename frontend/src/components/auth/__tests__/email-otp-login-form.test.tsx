@@ -6,10 +6,11 @@
  *   - 409 `consent_required` → agreement gate + re-send with agreements
  *   - 409 `email_not_registered` → guidance + register link
  *   - verify 401 (wrong code) → error region, retry enabled
- *   - verify success → `onSuccess(tokenResponse)` (raw handoff)
+ *   - verify success → `onSuccess()` (the Herald SDK applied the token set)
  *
- * The generated SDK functions `send` / `verify` are mocked with `vi.mock`
- * (FE-D01 step 6 requirement). The component does not call `status2` or
+ * The Herald SDK client is mocked with `vi.mock('@/lib/herald-client')`
+ * exposing controllable `loginWithEmailOtp.send` / `.verify` mocks
+ * (DEC-js-sdk-014 result shapes). The component does not call `status2` or
  * `getTurnstileStatus` directly — the route owns those queries and passes
  * `turnstileStatus` down as a prop — so they are not needed in this isolated
  * component test.
@@ -24,15 +25,23 @@ import type { LegalAgreementSummary } from '@/lib/api-generated'
 
 // --- Mocks ---------------------------------------------------------------
 
-// `send` / `verify` are the only generated SDK functions the form invokes
-// (via the email-otp-mutations hooks). Each returns the hey-api response
-// shape `{ data, error }`; the controller below flips responses per test.
+// `loginWithEmailOtp.send` / `.verify` are the only SDK surface the form
+// invokes (via the email-otp-mutations hooks). Each returns the SDK result
+// shape; the controller below flips responses per test.
 const sendMock = vi.fn()
 const verifyMock = vi.fn()
+const bindClientIdMock = vi.fn()
 
-vi.mock('@/lib/api-generated', () => ({
-  send: (...args: unknown[]) => sendMock(...args),
-  verify: (...args: unknown[]) => verifyMock(...args),
+const heraldFake = {
+  tokens: { bindClientId: bindClientIdMock },
+  loginWithEmailOtp: { send: sendMock, verify: verifyMock },
+}
+
+vi.mock('@/lib/herald-client', () => ({
+  ensureHeraldClient: () => heraldFake,
+  getActiveHeraldClient: () => heraldFake,
+  applyTokenSet: vi.fn(),
+  bindHeraldClientId: vi.fn(),
 }))
 
 // Mock the Turnstile widget so it never tries to load the real script.
@@ -168,10 +177,7 @@ describe('EmailOtpLoginForm', () => {
   })
 
   it('advances to the code step and shows the resend countdown after a successful send', async () => {
-    sendMock.mockResolvedValue({
-      data: { message: 'sent', expiresInSeconds: 300 },
-      error: undefined,
-    })
+    sendMock.mockResolvedValue({ kind: 'sent', message: 'sent', expiresInSeconds: 300 })
 
     renderForm()
     await typeEmailAndSend(user)
@@ -182,16 +188,13 @@ describe('EmailOtpLoginForm', () => {
     expect(screen.getByTestId('email-otp-resend-countdown')).toBeInTheDocument()
     expect(screen.queryByTestId('email-otp-resend-btn')).not.toBeInTheDocument()
 
-    // send was called with the expected payload shape
+    // The resolved product clientId was bound onto the SDK client for the
+    // request, and send was called with the expected payload shape.
     await waitFor(() => {
       expect(sendMock).toHaveBeenCalledTimes(1)
     })
-    const call = sendMock.mock.calls[0][0] as {
-      path: { realmId: string }
-      body: { clientId: string; email: string }
-    }
-    expect(call.path.realmId).toBe('test-realm')
-    expect(call.body).toEqual({ clientId: 'admin-web-console', email: EMAIL })
+    expect(bindClientIdMock).toHaveBeenCalledWith('admin-web-console')
+    expect(sendMock).toHaveBeenCalledWith({ email: EMAIL })
   })
 
   it('renders the agreement gate on 409 consent_required and re-sends with agreements', async () => {
@@ -200,21 +203,20 @@ describe('EmailOtpLoginForm', () => {
       makeAgreement('privacy_policy', 'privacy-v3', 3),
     ]
     sendMock.mockResolvedValueOnce({
-      data: undefined,
-      // The conflict body arrives on `response.error` (hey-api axios client,
-      // default throwOnError:false → response.error === parsed HTTP body).
-      error: {
-        code: 'consent_required',
-        consentRequired: true,
-        agreements,
-        message: 'consent required',
-      },
+      kind: 'conflict',
+      code: 'consent_required',
+      consentRequired: true,
+      message: 'consent required',
+      // The SDK's conflict branch carries normalized agreements with the raw
+      // backend summaries (DEC-js-sdk-013/014).
+      agreements: agreements.map((raw) => ({
+        agreementType: raw.agreement_type,
+        versionId: raw.version_id,
+        raw,
+      })),
     })
     // Second send (after agreeing) succeeds.
-    sendMock.mockResolvedValueOnce({
-      data: { message: 'sent', expiresInSeconds: 300 },
-      error: undefined,
-    })
+    sendMock.mockResolvedValueOnce({ kind: 'sent', message: 'sent', expiresInSeconds: 300 })
 
     renderForm()
     await typeEmailAndSend(user)
@@ -229,28 +231,24 @@ describe('EmailOtpLoginForm', () => {
     await waitFor(() => {
       expect(sendMock).toHaveBeenCalledTimes(2)
     })
-    const secondCall = sendMock.mock.calls[1][0] as {
-      body: {
-        clientId: string
-        email: string
-        agreements?: Array<{ agreementType: string; versionId: string }>
-      }
-    }
-    expect(secondCall.body.agreements).toEqual([
-      { agreementType: 'terms_of_service', versionId: 'tos-v2' },
-      { agreementType: 'privacy_policy', versionId: 'privacy-v3' },
-    ])
+    expect(sendMock).toHaveBeenCalledWith({
+      email: EMAIL,
+      agreements: [
+        { agreementType: 'terms_of_service', versionId: 'tos-v2' },
+        { agreementType: 'privacy_policy', versionId: 'privacy-v3' },
+      ],
+    })
     // After the successful re-send the code step is shown.
     await screen.findByTestId('email-otp-code-input')
   })
 
   it('shows guidance and the register link on 409 email_not_registered', async () => {
     sendMock.mockResolvedValue({
-      data: undefined,
-      error: {
-        code: 'email_not_registered',
-        message: 'Please register first.',
-      },
+      kind: 'conflict',
+      code: 'email_not_registered',
+      consentRequired: false,
+      agreements: [],
+      message: 'Please register first.',
     })
 
     renderForm()
@@ -264,14 +262,10 @@ describe('EmailOtpLoginForm', () => {
   })
 
   it('surfaces a verify 401 in the error region and keeps retry enabled', async () => {
-    sendMock.mockResolvedValue({
-      data: { message: 'sent', expiresInSeconds: 300 },
-      error: undefined,
-    })
-    verifyMock.mockResolvedValue({
-      data: undefined,
-      error: { code: 'invalid_code', message: 'Invalid or expired code.', status: 401 },
-    })
+    sendMock.mockResolvedValue({ kind: 'sent', message: 'sent', expiresInSeconds: 300 })
+    verifyMock.mockRejectedValue(
+      Object.assign(new Error('Invalid or expired code.'), { status: 401 })
+    )
 
     renderForm()
     await typeEmailAndSend(user)
@@ -289,19 +283,9 @@ describe('EmailOtpLoginForm', () => {
     expect(screen.getByTestId('email-otp-verify-btn')).toBeInTheDocument()
   })
 
-  it('hands the raw token response up via onSuccess on verify success', async () => {
-    sendMock.mockResolvedValue({
-      data: { message: 'sent', expiresInSeconds: 300 },
-      error: undefined,
-    })
-    const tokenResponse = {
-      accessToken: 'at-123',
-      refreshToken: 'rt-456',
-      expiresIn: 3600,
-      refreshExpiresIn: 86400,
-      tokenType: 'Bearer',
-    }
-    verifyMock.mockResolvedValue({ data: tokenResponse, error: undefined })
+  it('notifies onSuccess (no payload — the SDK applied the token set) on verify success', async () => {
+    sendMock.mockResolvedValue({ kind: 'sent', message: 'sent', expiresInSeconds: 300 })
+    verifyMock.mockResolvedValue({ kind: 'success' })
 
     const { onSuccess } = renderForm()
     await typeEmailAndSend(user)
@@ -314,9 +298,7 @@ describe('EmailOtpLoginForm', () => {
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledTimes(1)
     })
-    // The route owns completeLoginAfterEmailOtp + navigation; the component
-    // must hand up the RAW response unchanged.
-    expect(onSuccess).toHaveBeenCalledWith(tokenResponse)
+    expect(onSuccess).toHaveBeenCalledWith()
   })
 })
 

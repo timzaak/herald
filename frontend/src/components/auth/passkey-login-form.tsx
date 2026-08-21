@@ -5,9 +5,10 @@ import { m } from '@/paraglide/messages'
 import { withTimeout } from '@/lib/totp-utils'
 import { isConsentRequired } from '@/lib/auth-utils'
 import { isWebAuthnSupported, prepareRequestOptions, serializeAssertion } from '@/lib/passkey-utils'
-import { handlePasskeyOptions, handlePasskeyVerify } from '@/lib/api-generated'
+import type { AssertionResultJSON } from '@herald/web'
+import { mapLoginResultToResponse } from '@/lib/auth-service'
+import { ensureHeraldClient } from '@/lib/herald-client'
 import type {
-  PasskeyOptionsResponse,
   PasskeyVerifyResponse,
   PasskeyOAuthRequest,
   LegalAgreementSummary,
@@ -106,24 +107,19 @@ export function PasskeyLoginForm({
     const authToken = authTokenRef.current
     if (!authToken) return null
 
-    const response = await withTimeout(
-      handlePasskeyVerify({
-        path: { realmId },
-        body: {
-          authToken,
-          assertion,
-          ...(agreements ? { agreements } : {}),
-        },
+    const result = await withTimeout(
+      ensureHeraldClient(realmId).passkey.loginFinish({
+        authToken,
+        assertion: assertion as AssertionResultJSON,
+        ...(agreements ? { agreements } : {}),
       })
     )
 
     if (!mountedRef.current) return null
-    if (response.error) {
-      throw new Error(m['auth.login.passkey_verification_failed']())
-    }
-    // passkey verify returns BrowserTokenResponse on success or a
-    // PasskeyVerifyResponse body on consent/oauth branches; discriminated below.
-    return response.data as unknown as PasskeyVerifyResponse
+    // passkey verify returns the multi-branch login body; the SDK applies the
+    // token set itself on the success branch and throws on HTTP errors, so map
+    // the discriminated result back to the legacy shape the route consumes.
+    return mapLoginResultToResponse(result) as unknown as PasskeyVerifyResponse
   }
 
   /**
@@ -189,33 +185,27 @@ export function PasskeyLoginForm({
    */
   async function beginAndArm(signal: AbortSignal): Promise<void> {
     try {
-      const response = await withTimeout(
-        handlePasskeyOptions({
-          path: { realmId },
-          body: {
-            clientId,
-            ...(turnstileToken ? { turnstileToken } : {}),
-            ...(oauth ? { oauth } : {}),
-          },
+      const herald = ensureHeraldClient(realmId)
+      // The parent resolved the product client (console vs account center) for
+      // this flow — rebind the SDK's request-body clientId accordingly.
+      herald.tokens.bindClientId(clientId)
+      const data = await withTimeout(
+        herald.passkey.loginBegin({
+          ...(turnstileToken ? { turnstileToken } : {}),
+          ...(oauth ? { oauth } : {}),
         })
       )
 
       if (!mountedRef.current || signal.aborted) return
 
-      if (response.error) {
-        // 404 = realm has passkey disabled → tell parent to hide the entry.
-        onUnavailable?.()
-        return
-      }
-
-      const data = response.data as PasskeyOptionsResponse
       authTokenRef.current = data.authToken
       optionsRef.current = data.options
       if (mountedRef.current) setOptionsReady(true)
 
       await armConditional()
     } catch {
-      // Network / timeout — passkey is unavailable; fall back silently.
+      // 404 (realm passkey disabled), network, or timeout — passkey is
+      // unavailable; fall back silently.
       if (mountedRef.current) onUnavailable?.()
     }
   }

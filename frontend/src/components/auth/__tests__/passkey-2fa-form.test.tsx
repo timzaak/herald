@@ -4,10 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
+import { getActiveHeraldClient } from '@/lib/herald-client'
 import { Passkey2FaForm } from '../passkey-2fa-form'
 import type {
   Passkey2FaOptionsResponse,
   PasskeyVerifyResponse,
+  BrowserTokenResponse,
   LegalAgreementSummary,
 } from '@/lib/api-generated'
 
@@ -92,12 +94,18 @@ function makeAgreementSummary(
   }
 }
 
-function makeSuccessResponse(): PasskeyVerifyResponse {
+/**
+ * Success body per the real backend contract (DEC-js-sdk-011): 2FA passkey
+ * verify answers 200 with a `BrowserTokenResponse`; the SDK applies the token
+ * set and the form surfaces completion via `onSuccess`.
+ */
+function makeSuccessResponse(): BrowserTokenResponse {
   return {
-    userId: 'user-001',
-    token: 'session-token',
-    message: 'Login successful',
-    expiresInSeconds: 3600,
+    accessToken: 'at-passkey-2fa',
+    refreshToken: 'rt-passkey-2fa',
+    tokenType: 'Bearer',
+    expiresIn: 900,
+    refreshExpiresIn: 2592000,
   }
 }
 
@@ -154,7 +162,7 @@ function stubWebAuthnSupport(supported: boolean) {
 describe('Passkey2FaForm (second factor)', () => {
   const user = userEvent.setup({ delay: null })
   let optionsStatus: number
-  let verifyResponse: PasskeyVerifyResponse
+  let verifyResponse: BrowserTokenResponse | PasskeyVerifyResponse
   let verifyStatus: number
   let verifyBodies: unknown[]
   let getMock: ReturnType<typeof vi.fn>
@@ -165,6 +173,8 @@ describe('Passkey2FaForm (second factor)', () => {
     verifyResponse = makeSuccessResponse()
     verifyBodies = []
     getMock = vi.fn()
+    // Token state lives in the Herald SDK client now — reset it between cases.
+    getActiveHeraldClient()?.tokens.clear()
     getMock.mockResolvedValue(null)
 
     stubWebAuthnSupport(true)
@@ -243,8 +253,10 @@ describe('Passkey2FaForm (second factor)', () => {
       await user.click(screen.getByTestId('passkey-login-button'))
 
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ token: 'session-token' }))
+        expect(onSuccess).toHaveBeenCalledTimes(1)
       })
+      // The success branch applied the issued token set inside the Herald SDK.
+      expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-passkey-2fa')
 
       const body = verifyBodies[0] as {
         tempToken: string
@@ -357,8 +369,10 @@ describe('Passkey2FaForm (second factor)', () => {
       await user.click(screen.getByTestId('passkey-agree-and-continue-button'))
 
       await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ token: 'session-token' }))
+        expect(onSuccess).toHaveBeenCalledTimes(1)
       })
+      // The post-consent success applied the token set inside the Herald SDK.
+      expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe('at-passkey-2fa')
 
       const second = verifyBodies[1] as {
         agreements?: Array<{ agreementType: string; versionId: string }>
