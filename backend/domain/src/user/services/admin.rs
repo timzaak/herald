@@ -551,7 +551,7 @@ where
 
         // Load the target user before any write: this enforces the target
         // realm boundary (a cross-realm id must fail here, not mid-mutation)
-        // and captures the old status for the Forbidden linkage (BE-D02).
+        // and captures the old status for the Forbidden linkage.
         let target_user =
             match require_target_user_in_realm(&*self.user_repository, realm_id, user_id).await {
                 Ok(user) => user,
@@ -596,7 +596,7 @@ where
             return Err(e);
         }
 
-        // Forbidden linkage (BE-D02 / US-RA-021): when the user transitions
+        // Forbidden linkage: when the user transitions
         // INTO Forbidden, revoke all active sessions within the same logical
         // boundary. Non-target transitions and idempotent re-forbidding do
         // not revoke.
@@ -1162,6 +1162,36 @@ where
             return Err(UserAdminError::PermissionDenied(
                 "Cannot assign these roles without roles.manage permission".to_string(),
             ));
+        }
+
+        // Hierarchy guard: a delegated roles.manage holder must not reach
+        // primary-admin level by assigning a privileged builtin role (e.g.
+        // realm-admin) to themselves. Assigning such a role requires holding
+        // every permission it grants. The plain builtin "user" role is exempt
+        // (it is the default end-user role).
+        let requested_roles = self
+            .role_policy_repository
+            .get_roles_by_ids(&role_ids)
+            .await?;
+        for role in requested_roles
+            .iter()
+            .filter(|r| r.is_builtin && r.name != "user")
+        {
+            let policies = self
+                .role_policy_repository
+                .get_role_policies_for_user(realm_id, &[role.id])
+                .await?;
+            for policy in &policies {
+                require_permission(
+                    &*self.permission_checker,
+                    &identity,
+                    realm_id,
+                    &policy.resource,
+                    &policy.action,
+                    "Cannot assign a role granting a permission you do not hold",
+                )
+                .await?;
+            }
         }
 
         // Get client ID (hardcoded for now, should come from state)
@@ -1942,7 +1972,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Forbidden linkage (BE-D02) — hand-rolled mock ports.
+    // Forbidden linkage — hand-rolled mock ports.
     // The port traits return `impl Future` (non-object-safe), so mockall is
     // unusable. Only the methods exercised by `update_user_admin` return
     // meaningful values; the rest panic to surface accidental coupling.
@@ -2007,6 +2037,80 @@ mod tests {
             _action: &str,
         ) -> Result<bool, CoreError> {
             Ok(true)
+        }
+        async fn invalidate_principal_role_cache(
+            &self,
+            _realm_id: &str,
+            _principal_type: &str,
+            _principal_id: &str,
+        ) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    /// Permission checker that only allows an explicit (resource, action)
+    /// allowlist — models a delegated sub-admin for the assign-hierarchy guard
+    /// tests (e.g. holds roles.manage but NOT users.manage).
+    struct SelectivePermission {
+        allowed: Vec<(&'static str, &'static str)>,
+    }
+    impl PermissionService for SelectivePermission {
+        async fn check_permission(
+            &self,
+            _realm_id: &str,
+            _user_id: &str,
+            resource: &str,
+            action: &str,
+        ) -> Result<bool, CoreError> {
+            Ok(self.allowed.contains(&(resource, action)))
+        }
+        async fn get_user_roles(
+            &self,
+            _realm_id: &str,
+            _user_id: &str,
+        ) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn get_role_policies(
+            &self,
+            _realm_id: &str,
+            _role_id: &str,
+        ) -> Result<Vec<crate::authorization::Policy>, CoreError> {
+            Ok(vec![])
+        }
+        async fn invalidate_user_role_cache(
+            &self,
+            _realm_id: &str,
+            _user_id: &str,
+        ) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn invalidate_role_policy_cache(
+            &self,
+            _realm_id: &str,
+            _role_id: &str,
+        ) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn invalidate_realm_cache(&self, _realm_id: &str) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn get_user_permissions(
+            &self,
+            _realm_id: &str,
+            _user_id: &str,
+        ) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn check_principal_permission(
+            &self,
+            _realm_id: &str,
+            _principal_type: &str,
+            _principal_id: &str,
+            resource: &str,
+            action: &str,
+        ) -> Result<bool, CoreError> {
+            Ok(self.allowed.contains(&(resource, action)))
         }
         async fn invalidate_principal_role_cache(
             &self,
@@ -2210,14 +2314,31 @@ mod tests {
     /// everything else is an inert default.
     struct MockRolePolicyRepo {
         roles: Vec<RoleEntity>,
+        /// (role_id, resource, action) rows served by
+        /// `get_role_policies_for_user` — lets tests model a role's granted
+        /// permission set for the assign-hierarchy guard.
+        policies: Vec<(Uuid, String, String)>,
     }
     impl RolePolicyRepository for MockRolePolicyRepo {
         async fn get_role_policies_for_user(
             &self,
             _realm_id: &str,
-            _role_ids: &[Uuid],
+            role_ids: &[Uuid],
         ) -> UserAdminResult<Vec<PolicyEntity>> {
-            Ok(vec![])
+            Ok(self
+                .policies
+                .iter()
+                .filter(|(role_id, _, _)| role_ids.contains(role_id))
+                .map(|(role_id, resource, action)| PolicyEntity {
+                    id: *role_id,
+                    realm_id: _realm_id.to_string(),
+                    resource: resource.clone(),
+                    action: action.clone(),
+                    policy_json: None,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                })
+                .collect())
         }
         async fn get_direct_user_policies(
             &self,
@@ -2507,7 +2628,10 @@ mod tests {
             AdminUserServiceImpl::new(
                 Arc::new(repo),
                 Arc::new(user_role_repo),
-                Arc::new(MockRolePolicyRepo { roles: vec![] }),
+                Arc::new(MockRolePolicyRepo {
+                    roles: vec![],
+                    policies: vec![],
+                }),
                 Arc::new(AlwaysAllowPermission),
                 Arc::new(MockAuditRepo),
                 Arc::new(token),
@@ -2723,7 +2847,10 @@ mod tests {
         (
             RoleAssignmentServiceImpl::new(
                 Arc::new(repo),
-                Arc::new(MockRolePolicyRepo { roles }),
+                Arc::new(MockRolePolicyRepo {
+                    roles,
+                    policies: vec![],
+                }),
                 Arc::new(AlwaysAllowPermission),
             ),
             replace_calls,
@@ -2876,6 +3003,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assign_user_roles_blocks_privileged_builtin_role_the_caller_cannot_hold() {
+        // Hierarchy guard: a delegated sub-admin holding ONLY roles.manage
+        // must not reach primary-admin level by assigning the builtin
+        // realm-admin role (whose policy set grants users.manage). Without
+        // the guard this is a direct self-escalation to full realm admin.
+        let role_id = Uuid::now_v7();
+        let mut realm_admin = role_entity(role_id, "r");
+        realm_admin.name = "realm-admin".to_string();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let replace_calls = repo.replace_calls.clone();
+        let svc = RoleAssignmentServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![realm_admin],
+                policies: vec![(role_id, "users".to_string(), "manage".to_string())],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("roles", "manage")],
+            }),
+        );
+
+        let res = svc
+            .assign_user_roles(admin_identity("r"), "r", Uuid::nil(), vec![role_id])
+            .await;
+        match res {
+            Err(UserAdminError::PermissionDenied(msg)) => {
+                assert!(
+                    msg.contains("permission you do not hold"),
+                    "unexpected deny message: {msg}"
+                );
+            }
+            other => panic!("expected PermissionDenied, got {:?}", other),
+        }
+        assert_eq!(
+            replace_calls.load(Ordering::SeqCst),
+            0,
+            "no role replacement may run when the caller lacks the role's permissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn assign_user_roles_allows_privileged_builtin_role_to_peer_level_caller() {
+        // Positive control: a caller who already holds every permission the
+        // role grants (a peer realm-admin) may assign it — the guard must not
+        // break legitimate admin-to-admin promotion.
+        let role_id = Uuid::now_v7();
+        let mut realm_admin = role_entity(role_id, "r");
+        realm_admin.name = "realm-admin".to_string();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let replace_calls = repo.replace_calls.clone();
+        let svc = RoleAssignmentServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![realm_admin],
+                policies: vec![(role_id, "users".to_string(), "manage".to_string())],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("roles", "manage"), ("users", "manage")],
+            }),
+        );
+
+        let res = svc
+            .assign_user_roles(admin_identity("r"), "r", Uuid::nil(), vec![role_id])
+            .await;
+        assert!(res.is_ok(), "peer-level assignment must succeed: {:?}", res);
+        assert_eq!(
+            replace_calls.load(Ordering::SeqCst),
+            1,
+            "the role replacement must run for a peer-level caller"
+        );
+    }
+
+    #[tokio::test]
     async fn assign_user_roles_allows_same_realm_target_and_roles() {
         // Sanity: the boundary check must not break the legitimate flow.
         let (svc, replace_calls) =
@@ -2890,7 +3092,10 @@ mod tests {
     async fn get_effective_permissions_rejects_cross_realm_target() {
         let svc = UserPermissionServiceImpl::new(
             Arc::new(MockUserRoleRepo::for_user_realm("other")),
-            Arc::new(MockRolePolicyRepo { roles: vec![] }),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![],
+                policies: vec![],
+            }),
             Arc::new(AlwaysAllowPermission),
         );
         let res = svc
@@ -2913,7 +3118,10 @@ mod tests {
     > {
         PermissionManagementServiceImpl::new(
             Arc::new(MockUserRoleRepo::for_user_realm(target_user_realm)),
-            Arc::new(MockRolePolicyRepo { roles }),
+            Arc::new(MockRolePolicyRepo {
+                roles,
+                policies: vec![],
+            }),
             Arc::new(AlwaysAllowPermission),
             Arc::new(MockAuditRepo),
         )

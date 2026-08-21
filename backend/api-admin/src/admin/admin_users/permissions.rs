@@ -137,6 +137,34 @@ pub async fn assign_user_permission(
         .require_permission(&state, "policies", "manage")
         .await?;
 
+    // Security: a delegated policies.manage holder must not grant a
+    // permission they do not hold themselves — otherwise a sub-admin could
+    // self-assign e.g. ("users","manage") and take over the realm.
+    admin
+        .require_permission(&state, &payload.resource, &payload.action)
+        .await?;
+
+    // Security: the target user must exist in this realm, so policy rows are
+    // never written for arbitrary ids (including users of other realms).
+    let target_exists =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM account WHERE id = $1 AND realm_id = $2")
+            .bind(target_user_id)
+            .bind(&realm_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    target_user_id = %target_user_id,
+                    error = %e,
+                    "Failed to check target user for permission assignment"
+                );
+                ApiError::internal("Failed to check target user")
+            })?;
+    if target_exists.is_none() {
+        return Err(ApiError::not_found("User not found in this realm"));
+    }
+
     // Check if permission already exists
     let existing = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM role_policies
@@ -252,6 +280,27 @@ pub async fn remove_user_permission(
     admin
         .require_permission(&state, "policies", "manage")
         .await?;
+
+    // Security: the target user must exist in this realm, matching the
+    // assignment path (policy rows are only ever removed for realm users).
+    let target_exists =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM account WHERE id = $1 AND realm_id = $2")
+            .bind(target_user_id)
+            .bind(&realm_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    target_user_id = %target_user_id,
+                    error = %e,
+                    "Failed to check target user for permission removal"
+                );
+                ApiError::internal("Failed to check target user")
+            })?;
+    if target_exists.is_none() {
+        return Err(ApiError::not_found("User not found in this realm"));
+    }
 
     // Delete the permission policy from role_policies table
     let result = sqlx::query(

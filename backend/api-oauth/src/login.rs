@@ -9,8 +9,10 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::helper::generate_oauth_auth_url;
+use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::security_constants::OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +53,7 @@ pub struct OAuthLoginResponse {
 )]
 pub async fn oauth_login(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Path((realm_id, provider)): Path<(String, String)>,
     Query(query): Query<OAuthLoginRequest>,
 ) -> Result<Json<OAuthLoginResponse>, ApiError> {
@@ -69,6 +72,16 @@ pub async fn oauth_login(
             provider
         )));
     }
+
+    // Per-IP cap: each request costs a provider-config DB read plus a Redis
+    // state write, so an unauthenticated flood can fill Redis.
+    rate_limit_hit(
+        &state,
+        format!("rl:oauth-login:ip:{ip}"),
+        OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT.0,
+        OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT.1,
+    )
+    .await?;
 
     // Generate OAuth authorization URL and state token
     let client_id = query

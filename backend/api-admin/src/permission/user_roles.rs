@@ -30,7 +30,7 @@ use herald_core::domain::audit::{
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::authorization::principal_types;
-use herald_core::entity::{account, roles, user_roles};
+use herald_core::entity::{account, role_policies, roles, user_roles};
 
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 
@@ -207,6 +207,31 @@ pub async fn assign_roles_to_user(
         ));
     }
 
+    // Security: a delegated roles.manage holder must not reach primary-admin
+    // level by assigning a privileged builtin role (e.g. realm-admin) to
+    // themselves. Assigning such a role requires holding every permission it
+    // grants — only satisfied by callers already at that level. The plain
+    // builtin "user" role is exempt (it is the default end-user role).
+    for role in &matching_roles {
+        if !role.is_builtin || role.name == "user" {
+            continue;
+        }
+        let role_policies = role_policies::Entity::find()
+            .filter(role_policies::Column::RealmId.eq(realm_id.clone()))
+            .filter(role_policies::Column::RoleId.eq(role.id))
+            .all(state.db.as_ref())
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, role_id = %role.id, "Failed to query role policies");
+                ApiError::internal(format!("Failed to query role policies: {}", e))
+            })?;
+        for policy in &role_policies {
+            admin
+                .require_permission(&state, &policy.resource, &policy.action)
+                .await?;
+        }
+    }
+
     // Assign each role
     for role_id in &unique_role_ids {
         let user_role = user_roles::ActiveModel {
@@ -217,7 +242,7 @@ pub async fn assign_roles_to_user(
             client_id: ActiveValue::Set(Some(identity.client_id())),
             principal_type: ActiveValue::Set(principal_types::USER.to_string()),
             principal_id: ActiveValue::Set(user_id.to_string()),
-            // BE-D01 columns: admin-assign path is a manual grant (no payment
+            // Admin-assign path is a manual grant (no payment
             // origin, no subscription expiry).
             source: ActiveValue::Set("manual".to_string()),
             source_id: ActiveValue::Set(None),

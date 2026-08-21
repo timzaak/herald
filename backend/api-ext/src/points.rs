@@ -13,7 +13,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::authz::require_principal_permission;
-use crate::client_app_scope::{ensure_client_app_scope, is_admin_api_key};
+use crate::client_app_scope::{
+    ensure_bucket_in_client_app_scope, ensure_client_app_scope, is_admin_api_key,
+};
 use herald_api_base::application::http::common::error_codes::ErrorCode;
 use herald_api_base::application::http::common::error_helpers::json_error;
 use herald_api_base::application::http::rate_limit::{RateLimitConfig, rate_limit};
@@ -239,12 +241,32 @@ pub async fn get_balance_ext(
         }
     };
 
-    // 3. Query balance
-    let balance = match state
-        .points_service
-        .get_balance(identity, &realm_id, user_id)
-        .await
-    {
+    // 3. Query balance. A client-app-bound key is scoped to the buckets its
+    // app covers (same coverage set it can consume from); admin-api keys and
+    // unbound keys see the realm-wide total.
+    let bound_client_app_id = identity
+        .as_third_party()
+        .and_then(|api_key| api_key.client_app_id);
+    let admin_key = match is_admin_api_key(&state, &identity).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let balance_result = match bound_client_app_id {
+        Some(client_app_id) if !admin_key => {
+            state
+                .points_service
+                .get_balance_for_client_app(identity, &realm_id, user_id, client_app_id)
+                .await
+        }
+        _ => {
+            state
+                .points_service
+                .get_balance(identity, &realm_id, user_id)
+                .await
+        }
+    };
+    let balance = match balance_result {
         Ok(balance) => balance,
         Err(e) => {
             tracing::error!("Failed to query balance: {}", e);
@@ -832,6 +854,16 @@ pub async fn grant_points_ext(
             }
         },
     };
+
+    // 4b. Client-app scope: a key bound to one app may only grant into
+    // buckets covered by that app (consumption draws exclusively from
+    // covered buckets; grants must respect the same boundary, otherwise a
+    // bound key could mint points into other apps' pools).
+    if let Err(resp) =
+        ensure_bucket_in_client_app_scope(&state, &identity, &realm_id, bucket_id).await
+    {
+        return resp;
+    }
 
     // 5. Validate reason non-empty
     if request.reason.trim().is_empty() {

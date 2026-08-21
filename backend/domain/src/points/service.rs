@@ -173,6 +173,68 @@ where
         ))
     }
 
+    /// Client-app scoped variant of [`get_balance`]: every spendable figure
+    /// (typed balances, total) is restricted to the Credit Buckets the client
+    /// app explicitly covers — the same coverage set `consume_points_atomic`
+    /// spends from. Used by the external API so a client-app-bound API key
+    /// sees only the points of its own app, not the user's realm-wide total.
+    /// Wallet analytics (`total_recharged` / `total_consumed`) remain the
+    /// Stored wallet lifetime totals.
+    pub async fn get_balance_for_client_app(
+        &self,
+        identity: Identity,
+        realm_id: &str,
+        user_id: Uuid,
+        client_app_id: Uuid,
+    ) -> Result<PointsBalance, CoreError> {
+        // Permission + realm boundary checks (same gate as get_balance).
+        ensure_policy(
+            self.policy
+                .can_view_points(identity.clone(), Some(user_id))
+                .await,
+            "Insufficient permissions to view points balance",
+        )?;
+        if !identity.has_access_to_realm(realm_id) {
+            return Err(CoreError::Forbidden(
+                "Access denied: cannot access points from a different realm".to_string(),
+            ));
+        }
+
+        let now = chrono::Utc::now();
+
+        // Read-path realization, same as get_balance (fail-loud).
+        self.reconcile_due_for_user(realm_id, user_id, now).await?;
+        let account = self.get_wallet(identity, realm_id, user_id).await?;
+
+        let covered = self
+            .repository
+            .find_covered_bucket_ids(realm_id, client_app_id)
+            .await?;
+
+        // An app that covers no buckets must yield a zero balance — NOT fall
+        // back to the unfiltered view (an empty bucket slice means "all
+        // buckets" in compute_available_balance).
+        let (derived, window_balances) = if covered.is_empty() {
+            (Vec::new(), Default::default())
+        } else {
+            let derived = self
+                .repository
+                .compute_available_balance(realm_id, user_id, &covered, now)
+                .await?;
+            let covered_set: std::collections::HashSet<Uuid> = covered.iter().copied().collect();
+            let window_balances = self
+                .compute_window_balance_for_buckets(realm_id, user_id, Some(&covered_set), now)
+                .await?;
+            (derived, window_balances)
+        };
+
+        Ok(Self::build_balance_from_derived(
+            account,
+            derived,
+            window_balances,
+        ))
+    }
+
     /// Compute per-credit-type window-quota availability across all buckets
     /// for a user. Returns a map with entries for `SubscriptionCredit` and
     /// `FreePeriodicCredit` when active quota entitlements exist; missing
@@ -181,6 +243,20 @@ where
         &self,
         realm_id: &str,
         user_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<std::collections::HashMap<CreditType, i64>, CoreError> {
+        self.compute_window_balance_for_buckets(realm_id, user_id, None, now)
+            .await
+    }
+
+    /// Bucket-filtered variant of [`compute_window_balance_by_credit_type`]:
+    /// `allowed_buckets = Some(set)` restricts the aggregation to entitlements
+    /// in those buckets (client-app scoped views); `None` aggregates all.
+    async fn compute_window_balance_for_buckets(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        allowed_buckets: Option<&std::collections::HashSet<Uuid>>,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<std::collections::HashMap<CreditType, i64>, CoreError> {
         use std::collections::{HashMap, HashSet};
@@ -197,7 +273,16 @@ where
             if entitlements.is_empty() {
                 continue;
             }
-            let bucket_ids: HashSet<Uuid> = entitlements.iter().map(|e| e.bucket_id).collect();
+            let bucket_ids: HashSet<Uuid> = entitlements
+                .iter()
+                .map(|e| e.bucket_id)
+                .filter(|bucket_id| {
+                    allowed_buckets.is_none_or(|allowed| allowed.contains(bucket_id))
+                })
+                .collect();
+            if bucket_ids.is_empty() {
+                continue;
+            }
             let mut total = 0i64;
             for bucket_id in bucket_ids {
                 total += self

@@ -183,53 +183,58 @@ pub async fn remove_permission_from_role(
         return Err(ApiError::not_found("Role not found"));
     }
 
+    // permission_id is likewise client-supplied: load it realm-scoped BEFORE
+    // any write, so a foreign realm's permission id can neither steer the
+    // builtin guard nor the policy sync, and a non-existent id 404s instead
+    // of silently succeeding.
+    let permission: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT resource, action, is_builtin FROM permissions WHERE id = $1 AND realm_id = $2",
+    )
+    .bind(permission_id)
+    .bind(&realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to check permission: {e}");
+        ApiError::internal("Failed to check permission")
+    })?;
+    let Some((perm_resource, perm_action, perm_is_builtin)) = permission else {
+        return Err(ApiError::not_found("Permission not found in this realm"));
+    };
+
     if let Some((role_name, is_builtin)) = role
         && is_builtin
         && role_name == "realm-admin"
+        && perm_is_builtin
     {
-        let permission: Option<(bool,)> =
-            sqlx::query_as("SELECT is_builtin FROM permissions WHERE id = $1 AND realm_id = $2")
-                .bind(permission_id)
-                .bind(&realm_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to check permission: {e}");
-                    ApiError::internal("Failed to check permission")
-                })?;
-
-        if let Some((perm_is_builtin,)) = permission
-            && perm_is_builtin
+        if let Err(e) = state
+            .audit_event_repository
+            .create(NewAuditEvent {
+                realm_id: realm_id.clone(),
+                category: AuditCategory::Rbac,
+                action: AuditAction::PermissionRevoke,
+                actor_id: identity.user_id().to_string(),
+                actor_type: Some(ActorType::Admin),
+                actor_name: identity.as_user().map(|u| u.email.clone()),
+                target_type: AuditTargetType::Role,
+                target_id: role_id.to_string(),
+                target_name: None,
+                result: AuditResult::Failure,
+                details: Some(serde_json::json!({
+                    "reason": "builtin_permission_removal",
+                    "permission_id": permission_id,
+                })),
+                ip_address: None,
+                user_agent: None,
+                trace_id: None,
+            })
+            .await
         {
-            if let Err(e) = state
-                .audit_event_repository
-                .create(NewAuditEvent {
-                    realm_id: realm_id.clone(),
-                    category: AuditCategory::Rbac,
-                    action: AuditAction::PermissionRevoke,
-                    actor_id: identity.user_id().to_string(),
-                    actor_type: Some(ActorType::Admin),
-                    actor_name: identity.as_user().map(|u| u.email.clone()),
-                    target_type: AuditTargetType::Role,
-                    target_id: role_id.to_string(),
-                    target_name: None,
-                    result: AuditResult::Failure,
-                    details: Some(serde_json::json!({
-                        "reason": "builtin_permission_removal",
-                        "permission_id": permission_id,
-                    })),
-                    ip_address: None,
-                    user_agent: None,
-                    trace_id: None,
-                })
-                .await
-            {
-                tracing::warn!(error = %e, "Failed to record audit event");
-            }
-            return Err(ApiError::forbidden(
-                "Cannot remove built-in permission from built-in role",
-            ));
+            tracing::warn!(error = %e, "Failed to record audit event");
         }
+        return Err(ApiError::forbidden(
+            "Cannot remove built-in permission from built-in role",
+        ));
     }
 
     sqlx::query("DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2")
@@ -242,26 +247,12 @@ pub async fn remove_permission_from_role(
             ApiError::internal("Failed to remove permission")
         })?;
 
-    // Sync removal to role_policies. Realm-scoped like the check above: a
-    // foreign permission row must not steer policy sync for this realm's role.
-    let perm_row: Option<(String, String)> =
-        sqlx::query_as("SELECT resource, action FROM permissions WHERE id = $1 AND realm_id = $2")
-            .bind(permission_id)
-            .bind(&realm_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to lookup permission for policy sync: {e}");
-                ApiError::internal("Failed to sync role policy")
-            })?;
-
-    if let Some((resource, action)) = perm_row {
-        sqlx::query(
-            "DELETE FROM role_policies WHERE role_id = $1 AND resource = $2 AND action = $3",
-        )
+    // Sync removal to role_policies. The (resource, action) pair was loaded
+    // realm-scoped above, so the sync cannot be steered by a foreign row.
+    sqlx::query("DELETE FROM role_policies WHERE role_id = $1 AND resource = $2 AND action = $3")
         .bind(role_id)
-        .bind(&resource)
-        .bind(&action)
+        .bind(&perm_resource)
+        .bind(&perm_action)
         .execute(&state.pool)
         .await
         .map_err(|e| {
@@ -269,12 +260,11 @@ pub async fn remove_permission_from_role(
             ApiError::internal("Failed to sync role policy")
         })?;
 
-        // Invalidate permission cache so the removal takes effect
-        let _ = state
-            .permission_checker
-            .invalidate_role_policy_cache(&realm_id, &role_id.to_string())
-            .await;
-    }
+    // Invalidate permission cache so the removal takes effect
+    let _ = state
+        .permission_checker
+        .invalidate_role_policy_cache(&realm_id, &role_id.to_string())
+        .await;
 
     // Record audit event (failure does not fail the operation)
     if let Err(e) = state

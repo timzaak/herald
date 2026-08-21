@@ -424,6 +424,16 @@ pub trait PointsRepository: Send + Sync {
         now: chrono::DateTime<chrono::Utc>,
     ) -> impl Future<Output = Result<Vec<(CreditType, i64)>, CoreError>> + Send;
 
+    /// Explicitly covered, enabled bucket ids for a client app in a realm
+    /// (`credit_bucket_client_apps` joined to enabled `credit_buckets`).
+    /// Used to scope client-app-bound API keys to the buckets their app
+    /// actually covers — the same coverage set consumption spends from.
+    fn find_covered_bucket_ids(
+        &self,
+        realm_id: &str,
+        client_app_id: Uuid,
+    ) -> impl Future<Output = Result<Vec<Uuid>, CoreError>> + Send;
+
     /// Derived available balance broken down by `(bucket_id, credit_type)`.
     /// Same predicate as `compute_available_balance`, used by
     /// bucket overview / bucket delete guard so they no longer read
@@ -501,7 +511,7 @@ pub trait PointsRepository: Send + Sync {
     /// result is further restricted to that bucket; `None` returns active
     /// entitlements across all the user's buckets (used by the coarse
     /// `reconcile_due_for_user` read-path check). Window availability is
-    /// computed from the returned entitlement snapshots (design §5.2).
+    /// computed from the returned entitlement snapshots.
     fn find_active_quota_entitlements(
         &self,
         realm_id: &str,
@@ -514,8 +524,8 @@ pub trait PointsRepository: Send + Sync {
     /// Sliding-window consume aggregation. Returns
     /// `COALESCE(SUM(ABS(amount)), 0)` over `points_transactions` filtered by
     /// `(realm_id, user_id, bucket_id, credit_type, type='consume')` and
-    /// `created_at >= window_start` (design §5.2). Backed by the
-    /// `idx_points_transactions_window_agg` covering index (design §4.3.2).
+    /// `created_at >= window_start`. Backed by the
+    /// `idx_points_transactions_window_agg` covering index.
     fn sum_consume_in_window(
         &self,
         realm_id: &str,
@@ -528,7 +538,7 @@ pub trait PointsRepository: Send + Sync {
     /// Grant a quota entitlement atomically. Idempotent: the
     /// `UNIQUE(realm_id, user_id, bucket_id, credit_type, idempotency_key)`
     /// constraint guarantees a replayed grant returns the existing row without
-    /// re-writing (design §5.4 / §4.3.2). Returns the persisted entitlement
+    /// re-writing. Returns the persisted entitlement
     /// (created or pre-existing).
     fn grant_quota_entitlement_atomic(
         &self,
@@ -538,7 +548,7 @@ pub trait PointsRepository: Send + Sync {
     /// Revoke the active quota entitlement identified by
     /// `(realm_id, user_id, bucket_id, credit_type, source_id)`. Sets
     /// `status = 'revoked'` and `effective_until = revoke_at`; already-consumed
-    /// usage is NOT reverse-adjusted (it ages out via window slide — design §4.1).
+    /// usage is NOT reverse-adjusted (it ages out via window slide).
     /// No-op (returns `Ok(())`) if no active entitlement matches, so revoke is
     /// idempotent across replayed webhook events.
     fn revoke_quota_entitlement_atomic(
@@ -554,9 +564,9 @@ pub trait PointsRepository: Send + Sync {
     /// Sweep-expire quota entitlements whose `effective_until` has passed
     /// (`status = 'active' AND effective_until <= now`), in batches of
     /// `batch_size`. Sets matched rows to `status = 'expired'`. Returns the
-    /// number of rows expired. Invoked by the BE-D07/D11 expiry worker; NOT a
+    /// number of rows expired. Invoked by the expiry worker; NOT a
     /// correctness backstop — window availability is a pure function of the
-    /// consume stream + effective interval (design §4.1).
+    /// consume stream + effective interval.
     fn expire_quota_entitlements_batch(
         &self,
         now: chrono::DateTime<chrono::Utc>,

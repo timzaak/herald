@@ -4776,6 +4776,37 @@ impl PointsRepository for PostgresPointsRepository {
         }
     }
 
+    /// Explicitly covered, enabled bucket ids for a client app in a realm.
+    /// Same coverage set as the in-tx consume path (`find_covered_bucket_ids_in_tx`):
+    /// explicit `credit_bucket_client_apps` rows joined to enabled buckets only.
+    fn find_covered_bucket_ids(
+        &self,
+        realm_id: &str,
+        client_app_id: Uuid,
+    ) -> impl std::future::Future<Output = Result<Vec<Uuid>, CoreError>> + Send {
+        let pool = self.pool.clone();
+        let realm_id = realm_id.to_string();
+        async move {
+            let rows: Vec<(Uuid,)> = sqlx::query_as(
+                r#"
+                SELECT bca.bucket_id
+                FROM credit_bucket_client_apps bca
+                JOIN credit_buckets b ON b.id = bca.bucket_id
+                WHERE bca.realm_id = $1
+                  AND bca.client_app_id = $2
+                  AND b.enabled = true
+                ORDER BY bca.bucket_id ASC
+                "#,
+            )
+            .bind(&realm_id)
+            .bind(client_app_id)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+            Ok(rows.into_iter().map(|(id,)| id).collect())
+        }
+    }
+
     /// Derived available balance broken down by `(bucket_id, credit_type)`.
     /// Same predicate as `compute_available_balance`, used by
     /// bucket overview / bucket delete guard / `list_wallets` bulk-derived

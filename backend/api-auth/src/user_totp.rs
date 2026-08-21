@@ -276,6 +276,41 @@ pub async fn handle_verify_totp_setup(
     let verified = UserTotpService::verify_totp(&secret, &req.code)?;
 
     if !verified {
+        // Attempt cap: the temp token is a random UUID handed only to the
+        // enrolling user, but within its TTL the 6-digit code must not be
+        // guessable without limit. Atomic INCR on a companion key; on
+        // exhaustion both keys are deleted so a fresh enrollment must restart.
+        const TOTP_SETUP_MAX_ATTEMPTS: i64 = 5;
+        let attempts_key = format!("totp:setup:attempts:{}", req.temp_token);
+        let attempts: i64 = conn.incr(&attempts_key, 1).await.map_err(|e| {
+            tracing::error!("Failed to increment TOTP setup attempt counter: {}", e);
+            ApiError::internal("Failed to update attempt counter".to_string())
+        })?;
+        if attempts == 1 {
+            let remaining_ttl: i64 = conn.ttl(&temp_key).await.map_err(|e| {
+                tracing::error!("Failed to read TOTP setup token TTL: {}", e);
+                ApiError::internal("Failed to read TTL".to_string())
+            })?;
+            if remaining_ttl > 0 {
+                let _: () = conn
+                    .expire(&attempts_key, remaining_ttl)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Failed to set attempt counter TTL: {}", e);
+                        ApiError::internal("Failed to set TTL".to_string())
+                    })?;
+            }
+        }
+        if attempts >= TOTP_SETUP_MAX_ATTEMPTS {
+            let _: () = conn.del(&temp_key).await.map_err(|e| {
+                tracing::error!("Failed to delete exhausted TOTP setup token: {}", e);
+                ApiError::internal("Failed to delete temp token".to_string())
+            })?;
+            let _: () = conn.del(&attempts_key).await.map_err(|e| {
+                tracing::error!("Failed to delete exhausted attempt counter: {}", e);
+                ApiError::internal("Failed to delete attempt counter".to_string())
+            })?;
+        }
         return Err(ApiError::unauthorized("Invalid TOTP code".to_string()));
     }
 
@@ -283,11 +318,18 @@ pub async fn handle_verify_totp_setup(
     totp_config.enable();
     let totp_config = totp_repo.update_config(totp_config).await?;
 
-    // 6. Delete temp token
+    // 6. Delete temp token + attempt counter
     let _: () = conn.del(&temp_key).await.map_err(|e| {
         tracing::error!("Failed to delete temp token: {}", e);
         ApiError::internal("Failed to delete temp token".to_string())
     })?;
+    let _: () = conn
+        .del(format!("totp:setup:attempts:{}", req.temp_token))
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete TOTP setup attempt counter: {}", e);
+            ApiError::internal("Failed to delete attempt counter".to_string())
+        })?;
 
     Ok(ApiResult::ok(VerifyTotpSetupResponse {
         message: "TOTP enabled successfully".to_string(),

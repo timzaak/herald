@@ -13,9 +13,12 @@ use crate::{
     callback::issue_callback_token_response,
     helper::{generate_oauth_auth_url, handle_oauth_callback},
 };
-use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::auth::util::{
+    ClientIp, rate_limit_hit, user_agent_from_headers,
+};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::security_constants::OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
@@ -53,11 +56,22 @@ pub async fn wechat_login(
     Path(realm_id): Path<String>,
     Query(query): Query<WeChatAuthUrlRequest>,
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
 ) -> Result<Json<WeChatAuthUrlResponse>, ApiError> {
     tracing::info!(
         realm_id = %realm_id,
         "WeChat authorization URL requested"
     );
+
+    // Per-IP cap: each request costs a provider-config DB read plus a Redis
+    // state write, so an unauthenticated flood can fill Redis.
+    rate_limit_hit(
+        &state,
+        format!("rl:oauth-wechat-login:ip:{ip}"),
+        OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT.0,
+        OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT.1,
+    )
+    .await?;
 
     // Generate OAuth authorization URL and state token using the helper function
     let realm_id_clone = realm_id.clone();

@@ -1,4 +1,4 @@
-// Email OTP login (design email-otp-login §4.1/§4.2/§5.4).
+// Email OTP login.
 //
 // Two-phase unauthenticated flow: `send` issues a one-time code (or signals the
 // consent/email-not-registered branches), `verify` consumes it and either logs
@@ -6,10 +6,10 @@
 // family via `RedisBrowserTokenService`. A public `status` endpoint exposes the
 // Realm enablement flag for front-end entry-point visibility.
 //
-// Reuses BE-D01 (`verify_turnstile_for_client_app`) and BE-D02
-// (`ConfigType::EmailOtp` helpers + `security_constants` OTP rates). Per design
-// §4.1 the auto-register consent expression is enforced at `send` time (consent
-// before code issuance); `verify` only records register-as-consent best-effort.
+// Reuses `verify_turnstile_for_client_app` and the `ConfigType::EmailOtp`
+// helpers + `security_constants` OTP rates. The auto-register consent
+// expression is enforced at `send` time (consent before code issuance);
+// `verify` only records register-as-consent best-effort.
 
 use axum::{
     Json,
@@ -54,7 +54,7 @@ use crate::consent_gate::AuthConsentAgreement;
 use crate::mailflow;
 
 // ---------------------------------------------------------------------------
-// DTOs (design §4.2.2 / §5.4)
+// DTOs
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema, Validate)]
@@ -104,7 +104,7 @@ impl Validate for EmailOtpVerifyRequest {
         if !self.email.validate_email() {
             errors.add("email", validator::ValidationError::new("email"));
         }
-        // 6 ASCII digits — matches design §4.2.2 (`code` regex ^[0-9]{6}$).
+        // 6 ASCII digits — matches the `code` field regex ^[0-9]{6}$.
         if self.code.len() != 6 || !self.code.bytes().all(|b| b.is_ascii_digit()) {
             errors.add("code", validator::ValidationError::new("invalid_format"));
         }
@@ -140,7 +140,7 @@ pub struct EmailOtpStatusResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Redis storage (design §4.5 / §5.4)
+// Redis storage
 // ---------------------------------------------------------------------------
 
 /// Stored OTP payload (JSON in Redis). The code is stored as plaintext so the
@@ -148,25 +148,37 @@ pub struct EmailOtpStatusResponse {
 /// the login/auto-register verification — consistent with how the password-reset
 /// code is persisted in plaintext in the `email_verification_code` table. The
 /// session tokens live as plaintext in the *same* Redis, so hashing only this
-/// 300s one-time code would be inconsistent defense-in-depth (design §4.5
-/// amended; see the Handoff in `.ai/task/email-otp-login/demo/`). `attempts`
-/// counts failed verifications; `max_attempts` is snapshotted from constants at
-/// write time.
+/// 300s one-time code would be inconsistent defense-in-depth. Failed
+/// attempts are counted in a SEPARATE Redis key (see
+/// [`otp_attempts_redis_key`]) incremented atomically via INCR — a GET/SET
+/// counter inside this JSON would let concurrent guesses each read the same
+/// snapshot and never reach `max_attempts`. `max_attempts` is snapshotted from
+/// constants at write time.
 #[derive(Serialize, Deserialize)]
 struct StoredOtp {
     code: String,
-    attempts: i64,
     max_attempts: i64,
+}
+
+/// sha256 digest of the normalized email — shared by the code key and the
+/// attempts counter key so they always address the same identity.
+fn otp_email_digest(email: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(normalize_email(email).as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// `emailotp:{realm_id}:{sha256(email trim+lowercase)}`. The email is normalized
 /// (trimmed + lowercased) before hashing so casing/whitespace variations collapse
 /// to the same key (and thus the same code / attempt counter).
 fn otp_redis_key(realm_id: &str, email: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(normalize_email(email).as_bytes());
-    let digest = hex::encode(hasher.finalize());
-    format!("emailotp:{realm_id}:{digest}")
+    format!("emailotp:{realm_id}:{}", otp_email_digest(email))
+}
+
+/// Atomic INCR-backed attempt counter companion to [`otp_redis_key`]. Deleted
+/// together with the code key on success/exhaustion/re-send.
+fn otp_attempts_redis_key(realm_id: &str, email: &str) -> String {
+    format!("emailotp:attempts:{realm_id}:{}", otp_email_digest(email))
 }
 
 fn rate_key_send(ip: &str) -> String {
@@ -183,7 +195,7 @@ fn rate_key_verify_email(email: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// send handler (design §4.1 / §5.4)
+// send handler
 // ---------------------------------------------------------------------------
 
 /// Send an email OTP login code.
@@ -238,7 +250,7 @@ pub async fn send(
 
     let email = normalize_email(&payload.email);
 
-    // 4. IP + email rate limiting (BE-D02 constants).
+    // 4. IP + email rate limiting.
     rate_limit_hit(
         &state,
         rate_key_send(&ip),
@@ -284,10 +296,9 @@ pub async fn send(
         None => {
             // Unregistered → auto-register path.
             // Realm registration policy takes precedence over the email-otp
-            // auto_register flag (email-otp-login PRD §4.1 "注册政策优先":
-            // auto-register must not bypass the Realm registration policy;
-            // when the Realm has registration disabled, an unregistered email
-            // is rejected without creating an account).
+            // auto_register flag: auto-register must not bypass the Realm
+            // registration policy; when the Realm has registration disabled,
+            // an unregistered email is rejected without creating an account.
             if !is_registration_enabled(&state, &realm_id).await? {
                 tracing::debug!(
                     realm_id = %realm_id,
@@ -337,12 +348,12 @@ pub async fn send(
     let code = generate_otp_code();
     let stored = StoredOtp {
         code: code.clone(),
-        attempts: 0,
         max_attempts: OTP_MAX_ATTEMPTS,
     };
     let stored_json = serde_json::to_string(&stored)
         .map_err(|_| ApiError::internal("Failed to serialize OTP state".to_string()))?;
     let key = otp_redis_key(&realm_id, &email);
+    let attempts_key = otp_attempts_redis_key(&realm_id, &email);
     {
         let mut conn = state
             .redis_manager
@@ -356,16 +367,22 @@ pub async fn send(
                 tracing::error!(error = %e, "Failed to store OTP code in Redis");
                 ApiError::internal("Redis operation error".to_string())
             })?;
+        // Fresh code → fresh attempt counter (any leftover counter from the
+        // previous code must not count against this one).
+        let _: () = conn.del(&attempts_key).await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to reset OTP attempt counter");
+            ApiError::internal("Redis operation error".to_string())
+        })?;
     }
 
-    // 7. Send the email (inline body; no template-engine change, design §4.1).
+    // 7. Send the email (inline body; no template-engine change).
     let brand = realm_brand_name(&state, &realm_id).await;
     let subject = format!("{brand} 登录验证码");
     let text = format!("您的 {brand} 验证码：{code}");
     let html = format!("<p>您的 <strong>{brand}</strong> 验证码：<strong>{code}</strong></p>");
     // Best-effort: send failure is observable but must not leak code state — the
-    // code is already stored in Redis. Design §7 lists email delivery as a P1
-    // observation item; we surface the error as 500 so it is not silently lost.
+    // code is already stored in Redis. We surface the error as 500 so it is
+    // not silently lost.
     EmailService::send_email(&state.pool, &realm_id, &email, &subject, &text, &html)
         .await
         .map_err(|e| {
@@ -392,7 +409,7 @@ pub async fn send(
 }
 
 // ---------------------------------------------------------------------------
-// verify handler (design §4.1 / §5.4)
+// verify handler
 // ---------------------------------------------------------------------------
 
 /// Verify an email OTP login code and issue a session.
@@ -461,6 +478,7 @@ pub async fn verify(
 
     // 5. Load stored code; absent → expired/never-sent → 401.
     let key = otp_redis_key(&realm_id, &email);
+    let attempts_key = otp_attempts_redis_key(&realm_id, &email);
     let mut conn = state
         .redis_manager
         .get()
@@ -472,7 +490,7 @@ pub async fn verify(
     })?;
     let stored_json =
         stored_raw.ok_or_else(|| ApiError::unauthorized("验证码已失效，请重新发送".to_string()))?;
-    let mut stored: StoredOtp = serde_json::from_str(&stored_json).map_err(|e| {
+    let stored: StoredOtp = serde_json::from_str(&stored_json).map_err(|e| {
         tracing::error!(error = %e, "Failed to parse stored OTP JSON");
         ApiError::internal("Redis operation error".to_string())
     })?;
@@ -481,37 +499,42 @@ pub async fn verify(
     let matches = constant_time_eq(&payload.code, &stored.code);
 
     if !matches {
-        stored.attempts += 1;
-        if stored.attempts >= stored.max_attempts {
-            // Exhausted → delete (force re-send), return 401.
-            let _: () = conn.del(&key).await.map_err(|e| {
-                tracing::error!(error = %e, "Failed to delete exhausted OTP code");
-                ApiError::internal("Redis operation error".to_string())
-            })?;
-        } else {
-            // Preserve remaining TTL when rewriting the attempt counter.
+        // Atomic INCR on the dedicated counter key. A GET/SET rewrite of a
+        // counter stored inside the code JSON would let concurrent guesses
+        // each read the same snapshot, undercount failures, and effectively
+        // multiply the brute-force budget beyond max_attempts.
+        let attempts: i64 = conn.incr(&attempts_key, 1).await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to increment OTP attempt counter");
+            ApiError::internal("Redis operation error".to_string())
+        })?;
+        if attempts == 1 {
+            // First failure: carry over the code's remaining TTL so the
+            // counter cannot outlive the code it guards. TTL can return
+            // -1 (no expiry) / -2 (no key) defensively; skip on those.
             let remaining_ttl: i64 = conn.ttl(&key).await.map_err(|e| {
                 tracing::error!(error = %e, "Failed to read OTP TTL");
                 ApiError::internal("Redis operation error".to_string())
             })?;
-            // TTL read can return -1 (no expiry) or -2 (no key) defensively;
-            // only rewrite if a positive TTL remains, otherwise treat as expired.
             if remaining_ttl > 0 {
-                let updated = serde_json::to_string(&stored)
-                    .map_err(|_| ApiError::internal("Redis operation error".to_string()))?;
                 let _: () = conn
-                    .set_ex(&key, updated, remaining_ttl as u64)
+                    .expire(&attempts_key, remaining_ttl)
                     .await
                     .map_err(|e| {
-                        tracing::error!(error = %e, "Failed to rewrite OTP attempts");
+                        tracing::error!(error = %e, "Failed to set OTP attempt counter TTL");
                         ApiError::internal("Redis operation error".to_string())
                     })?;
-            } else {
-                let _: () = conn.del(&key).await.map_err(|e| {
-                    tracing::error!(error = %e, "Failed to delete stale OTP code");
-                    ApiError::internal("Redis operation error".to_string())
-                })?;
             }
+        }
+        if attempts >= stored.max_attempts {
+            // Exhausted → delete code + counter (force re-send), return 401.
+            let _: () = conn.del(&key).await.map_err(|e| {
+                tracing::error!(error = %e, "Failed to delete exhausted OTP code");
+                ApiError::internal("Redis operation error".to_string())
+            })?;
+            let _: () = conn.del(&attempts_key).await.map_err(|e| {
+                tracing::error!(error = %e, "Failed to delete exhausted OTP attempt counter");
+                ApiError::internal("Redis operation error".to_string())
+            })?;
         }
         record_login_failure(
             &state,
@@ -525,9 +548,13 @@ pub async fn verify(
         return Err(ApiError::unauthorized("验证码错误或已失效".to_string()));
     }
 
-    // 7. Match → one-time consume (delete before proceeding).
+    // 7. Match → one-time consume (delete code + counter before proceeding).
     let _: () = conn.del(&key).await.map_err(|e| {
         tracing::error!(error = %e, "Failed to consume OTP code after match");
+        ApiError::internal("Redis operation error".to_string())
+    })?;
+    let _: () = conn.del(&attempts_key).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to consume OTP attempt counter after match");
         ApiError::internal("Redis operation error".to_string())
     })?;
 
@@ -681,7 +708,7 @@ pub async fn verify(
 }
 
 // ---------------------------------------------------------------------------
-// status handler (design §4.2.2 / §5.4)
+// status handler
 // ---------------------------------------------------------------------------
 
 /// Public OTP-login enablement flag for a Realm.
@@ -942,13 +969,25 @@ mod tests {
     }
 
     #[test]
+    fn otp_attempts_key_shares_digest_with_code_key() {
+        // The counter key must address the same (realm, normalized email) as
+        // the code key so send/verify keep them in lockstep.
+        let code_key = otp_redis_key("realm-1", "  Alice@Example.COM ");
+        let attempts_key = otp_attempts_redis_key("realm-1", "alice@example.com");
+        assert_eq!(
+            code_key.trim_start_matches("emailotp:realm-1:"),
+            attempts_key.trim_start_matches("emailotp:attempts:realm-1:")
+        );
+    }
+
+    #[test]
     fn stored_otp_round_trips_plaintext_code() {
         // The code is persisted as plaintext (not hashed) so the Demo/E2E flow
         // can read it back from Redis. Serialization must preserve the exact
-        // code and the attempt counters unchanged.
+        // code and the attempt limit unchanged (attempt counting itself lives
+        // in the dedicated INCR key).
         let stored = StoredOtp {
             code: "123456".to_string(),
-            attempts: 0,
             max_attempts: OTP_MAX_ATTEMPTS,
         };
         let json = serde_json::to_string(&stored).unwrap();
