@@ -161,6 +161,18 @@ pub async fn issue_callback_token_response(
     if user.realm_id != realm_id {
         return Err(ApiError::bad_request("OAuth user realm mismatch"));
     }
+    // Defense in depth: disabled/deleted accounts must not receive new token
+    // families on the OAuth direct-session path (inject_token_identity also
+    // rejects them downstream, but tokens should not be issued at all).
+    // WaitVerified users keep access so they can complete email verification,
+    // matching the identity middleware.
+    if matches!(
+        user.status,
+        herald_core::domain::user::entities::UserStatus::Forbidden
+            | herald_core::domain::user::entities::UserStatus::Deleted
+    ) {
+        return Err(ApiError::unauthorized("Account is disabled"));
+    }
     let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
     let tokens = if client_app.is_first_party {
         token_service

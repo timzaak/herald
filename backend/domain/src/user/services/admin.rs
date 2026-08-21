@@ -146,6 +146,46 @@ async fn require_roles_in_realm(
     Ok(())
 }
 
+/// Hierarchy guard for role grants: assigning a privileged builtin role
+/// (any builtin role except the plain end-user "user" role) requires the
+/// caller to hold every permission that role grants. Without this, a
+/// delegated admin holding only roles.manage/policies.manage could reach
+/// primary-admin level by assigning e.g. the builtin realm-admin role to
+/// themselves.
+async fn require_role_grant_hierarchy<RP, P>(
+    role_policy_repository: &RP,
+    permission_checker: &P,
+    identity: &Identity,
+    realm_id: &str,
+    role_ids: &[Uuid],
+) -> UserAdminResult<()>
+where
+    RP: RolePolicyRepository,
+    P: PermissionService,
+{
+    let requested_roles = role_policy_repository.get_roles_by_ids(role_ids).await?;
+    for role in requested_roles
+        .iter()
+        .filter(|r| r.is_builtin && r.name != "user")
+    {
+        let policies = role_policy_repository
+            .get_role_policies_for_user(realm_id, &[role.id])
+            .await?;
+        for policy in &policies {
+            require_permission(
+                permission_checker,
+                identity,
+                realm_id,
+                &policy.resource,
+                &policy.action,
+                "Cannot assign a role granting a permission you do not hold",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Admin User Service Implementation
 // ============================================================================
@@ -1169,30 +1209,14 @@ where
         // realm-admin) to themselves. Assigning such a role requires holding
         // every permission it grants. The plain builtin "user" role is exempt
         // (it is the default end-user role).
-        let requested_roles = self
-            .role_policy_repository
-            .get_roles_by_ids(&role_ids)
-            .await?;
-        for role in requested_roles
-            .iter()
-            .filter(|r| r.is_builtin && r.name != "user")
-        {
-            let policies = self
-                .role_policy_repository
-                .get_role_policies_for_user(realm_id, &[role.id])
-                .await?;
-            for policy in &policies {
-                require_permission(
-                    &*self.permission_checker,
-                    &identity,
-                    realm_id,
-                    &policy.resource,
-                    &policy.action,
-                    "Cannot assign a role granting a permission you do not hold",
-                )
-                .await?;
-            }
-        }
+        require_role_grant_hierarchy(
+            &*self.role_policy_repository,
+            &*self.permission_checker,
+            &identity,
+            realm_id,
+            &role_ids,
+        )
+        .await?;
 
         // Get client ID (hardcoded for now, should come from state)
         let client_id = "admin-web-console";
@@ -1744,6 +1768,22 @@ where
         }
         require_roles_in_realm(&*self.role_policy_repository, realm_id, &involved_roles).await?;
 
+        // Hierarchy guard for the RoleWrap (user ← role) grant: this path
+        // assigns roles with only policies.manage, so it must enforce the
+        // same builtin-role escalation guard as assign_user_roles —
+        // otherwise a delegated policies.manage holder could self-assign the
+        // builtin realm-admin role and take over the realm.
+        if let Some(r) = role {
+            require_role_grant_hierarchy(
+                &*self.role_policy_repository,
+                &*self.permission_checker,
+                &identity,
+                realm_id,
+                &[r],
+            )
+            .await?;
+        }
+
         // Create role policy
         if let (Some(rid), Some(res), Some(act)) = (role_id, resource, action) {
             self.role_policy_repository
@@ -2198,17 +2238,20 @@ mod tests {
     }
 
     /// Minimal user-role repository. `get_user_realm` (target-realm checks)
-    /// and `replace_user_roles` (call counting) are exercised by the
-    /// realm-boundary tests; the rest are inert defaults.
+    /// and `replace_user_roles`/`add_user_role` (call counting) are exercised
+    /// by the realm-boundary and hierarchy-guard tests; the rest are inert
+    /// defaults.
     struct MockUserRoleRepo {
         user_realm: Option<String>,
         replace_calls: Arc<AtomicUsize>,
+        add_calls: Arc<AtomicUsize>,
     }
     impl MockUserRoleRepo {
         fn for_user_realm(realm: &str) -> Self {
             Self {
                 user_realm: Some(realm.to_string()),
                 replace_calls: Arc::new(AtomicUsize::new(0)),
+                add_calls: Arc::new(AtomicUsize::new(0)),
             }
         }
     }
@@ -2242,6 +2285,7 @@ mod tests {
             _realm_id: &str,
             _client_id: &str,
         ) -> UserAdminResult<()> {
+            self.add_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
         async fn remove_user_role(
@@ -3074,6 +3118,103 @@ mod tests {
             replace_calls.load(Ordering::SeqCst),
             1,
             "the role replacement must run for a peer-level caller"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_permission_blocks_privileged_builtin_role_the_caller_cannot_hold() {
+        // Hierarchy guard on the RoleWrap path: a delegated sub-admin holding
+        // ONLY policies.manage must not self-assign the builtin realm-admin
+        // role through POST /api/permission/{realmId}/permissions — this
+        // endpoint grants roles, so it must enforce the same guard as
+        // assign_user_roles or it is a direct self-escalation to full admin.
+        let role_id = Uuid::now_v7();
+        let mut realm_admin = role_entity(role_id, "r");
+        realm_admin.name = "realm-admin".to_string();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let add_calls = repo.add_calls.clone();
+        let svc = PermissionManagementServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![realm_admin],
+                policies: vec![(role_id, "users".to_string(), "manage".to_string())],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("policies", "manage")],
+            }),
+            Arc::new(MockAuditRepo),
+        );
+
+        let res = svc
+            .create_permission(
+                admin_identity("r"),
+                audit_ctx(),
+                "r",
+                "admin-web-console",
+                None,
+                Some(Uuid::nil()),
+                Some(role_id),
+                None,
+                None,
+            )
+            .await;
+        match res {
+            Err(UserAdminError::PermissionDenied(msg)) => {
+                assert!(
+                    msg.contains("permission you do not hold"),
+                    "unexpected deny message: {msg}"
+                );
+            }
+            other => panic!("expected PermissionDenied, got {:?}", other),
+        }
+        assert_eq!(
+            add_calls.load(Ordering::SeqCst),
+            0,
+            "no user-role write may run when the caller lacks the role's permissions"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_permission_allows_privileged_builtin_role_to_peer_level_caller() {
+        // Positive control: a caller who holds every permission the role
+        // grants may still use the RoleWrap path to grant it.
+        let role_id = Uuid::now_v7();
+        let mut realm_admin = role_entity(role_id, "r");
+        realm_admin.name = "realm-admin".to_string();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let add_calls = repo.add_calls.clone();
+        let svc = PermissionManagementServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![realm_admin],
+                policies: vec![(role_id, "users".to_string(), "manage".to_string())],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("policies", "manage"), ("users", "manage")],
+            }),
+            Arc::new(MockAuditRepo),
+        );
+
+        let res = svc
+            .create_permission(
+                admin_identity("r"),
+                audit_ctx(),
+                "r",
+                "admin-web-console",
+                None,
+                Some(Uuid::nil()),
+                Some(role_id),
+                None,
+                None,
+            )
+            .await;
+        assert!(res.is_ok(), "peer-level grant must succeed: {:?}", res);
+        assert_eq!(
+            add_calls.load(Ordering::SeqCst),
+            1,
+            "the user-role write must run for a peer-level caller"
         );
     }
 

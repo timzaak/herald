@@ -9,11 +9,13 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
-use herald_api_base::application::http::common::auth_utils::AdminIdentity;
+use herald_api_base::application::http::common::auth_utils::{AdminIdentity, require_token_scope};
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::AuditContext;
-use herald_core::domain::authentication::{BrowserTokenService, Identity};
+use herald_core::domain::authentication::{
+    BrowserTokenService, CredentialScope, Identity, TokenCredentialContext,
+};
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::user::PermissionManagementService;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
@@ -355,6 +357,7 @@ pub async fn delete_permission(
 pub async fn check_permission(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
+    Extension(credential_context): Extension<TokenCredentialContext>,
     Valid(Json(payload)): Valid<Json<PermissionCheckRequest>>,
 ) -> Result<ApiResult<PermissionCheckResponse>, ApiError> {
     // Self-introspection only (RFC 7662-style): the caller must authenticate,
@@ -365,6 +368,10 @@ pub async fn check_permission(
             "Access denied: authenticated user token required",
         ));
     }
+
+    // Scope gate for CustomUserUi credentials, matching GET /api/user/permissions
+    // (which exposes the same self-permission matrix behind ProfileRead).
+    require_token_scope(&identity, &credential_context, CredentialScope::ProfileRead)?;
 
     let token_data = RedisBrowserTokenService::new(state.redis_manager.clone())
         .lookup_access_token(&payload.token)

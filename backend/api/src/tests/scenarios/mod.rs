@@ -11,12 +11,14 @@ pub mod change_email_scenarios;
 pub mod client_app_scenarios;
 // Custom-Domain config lifecycle scenarios
 pub mod custom_domain_config_scenarios;
-// Custom-Domain internal Caddy ask endpoint scenarios (BE-T02-A).
+// Custom-Domain internal Caddy ask endpoint scenarios.
 // The public host→realmId resolve endpoint was removed when realm routing
 // reverted to always relying on the {realmId} path segment; only the ask
 // (Caddy On-Demand TLS authorization) scenarios remain.
 pub mod consent_gate_scenarios;
 pub mod custom_domain_internal_endpoints_scenarios;
+// Delegated sub-admin escalation guards on the RBAC management endpoints
+pub mod delegated_admin_escalation_scenarios;
 pub mod login_flow_scenarios;
 pub mod permission_security_scenarios;
 pub mod realm_access_scenarios;
@@ -82,23 +84,21 @@ pub mod points;
 // Email config scenarios
 pub mod email_config_scenarios;
 
-// Credit Bucket scenarios (authored by backend-test slot)
+// Credit Bucket scenarios
 pub mod credit_bucket;
 
 pub mod legal;
 
 pub mod account_self_delete_scenarios;
 
-// Kickoff User (session management / forced logout) scenarios
-// Authored by BE-T01 (backend-test authoring slot). Covers design
-// `.ai/design/kickoff-user.md` §6.1, US-RA-020 and US-RA-021.
+// Kickoff User (session management / forced logout) scenarios, covering
+// docs/user-stories/core/realm-admin.md US-RA-020 and US-RA-021.
 pub mod user_sessions_scenarios;
 
 // Realm management scenarios
-// (realm_config_update_scenarios and realm_delete_scenarios removed - see .ai/future/backend_test_delete.md)
+// (realm_config_update_scenarios and realm_delete_scenarios removed)
 
-// Email-OTP login scenarios (design email-otp-login §6.1/§6.3).
-// Authored by BE-T01 (backend-test authoring slot).
+// Email-OTP login scenarios.
 pub mod client_app_turnstile_scenarios;
 pub mod email_otp_send_verify_scenarios;
 pub mod realm_email_otp_config_scenarios;

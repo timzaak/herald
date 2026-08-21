@@ -184,6 +184,15 @@ pub async fn add_policy_to_role(
         return Err(ApiError::forbidden("Cannot create privileged policies"));
     }
 
+    // Security: a delegated policies.manage holder must not attach a
+    // permission they do not hold themselves to any role — otherwise a
+    // sub-admin could grant e.g. ("users","manage") to the builtin "user"
+    // role and escalate every account in the realm. Mirrors the guard on
+    // direct user-permission assignment.
+    admin
+        .require_permission(&state, &request.resource, &request.action)
+        .await?;
+
     // Create new policy
     let policy = role_policies::ActiveModel {
         id: ActiveValue::Set(Uuid::now_v7()),

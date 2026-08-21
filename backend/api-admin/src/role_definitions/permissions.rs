@@ -71,6 +71,13 @@ pub async fn assign_permission_to_role(
         return Err(ApiError::not_found("Permission not found"));
     };
 
+    // Security: a delegated roles.manage holder may only attach permissions
+    // they hold themselves — otherwise a sub-admin could craft a role that
+    // out-ranks them (attach ("users","manage") to a fresh custom role, then
+    // self-assign it). Mirrors the guard on add_policy_to_role and direct
+    // user-permission assignment.
+    admin.require_permission(&state, &resource, &action).await?;
+
     sqlx::query(
         r#"
         INSERT INTO role_permissions (role_id, permission_id)

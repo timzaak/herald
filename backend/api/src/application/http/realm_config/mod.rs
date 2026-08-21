@@ -419,6 +419,13 @@ pub async fn upsert_realm_config(
         "Upserting realm config"
     );
 
+    // Authorization must run before the email-configured guard below: the
+    // guard's 400 message discloses whether the realm has email configured,
+    // which must not reach a caller from another realm (error-shape oracle).
+    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+        .require_permission(&state, "settings", "manage")
+        .await?;
+
     let config_type = parse_config_type(payload.config_type)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
@@ -529,6 +536,13 @@ pub async fn batch_upsert_realm_configs(
         user_id = %current_user_id,
         "Batch upserting realm configs"
     );
+
+    // Authorization must run before the email-configured guard below: the
+    // guard's 400 message discloses whether the realm has email configured,
+    // which must not reach a caller from another realm (error-shape oracle).
+    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+        .require_permission(&state, "settings", "manage")
+        .await?;
 
     let mut skipped_existing = Vec::new();
     let mut requests: Vec<UpsertRealmConfigRequest> = Vec::new();
