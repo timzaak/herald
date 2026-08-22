@@ -68,16 +68,19 @@ pub async fn get_user(
         }
     })?;
 
-    // Fetch nickname from profile table
-    let nickname: Option<String> = sqlx::query_scalar("SELECT nickname FROM profile WHERE id = $1")
-        .bind(target_user_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to fetch user nickname: {e}");
-            ApiError::internal("Failed to fetch user nickname")
-        })?
-        .flatten();
+    // Fetch nickname from profile table (realm predicate mirrors the user
+    // lookup above so the row can never come from another realm)
+    let nickname: Option<String> =
+        sqlx::query_scalar("SELECT nickname FROM profile WHERE id = $1 AND realm_id = $2")
+            .bind(target_user_id)
+            .bind(admin.realm_id())
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch user nickname: {e}");
+                ApiError::internal("Failed to fetch user nickname")
+            })?
+            .flatten();
 
     // Map User entity to UserDetailResponse
     Ok(ApiResult::ok(UserDetailResponse {

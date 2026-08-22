@@ -183,6 +183,12 @@ pub struct PurchaseHistoryItem {
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct FulfillPaymentRequest {
+    /// Realm the caller intends to fulfill in. The attempt's own realm must
+    /// match or the request is rejected — the internal key is global, so this
+    /// binding is what stops a (leaked or mistyped) call from completing a
+    /// payment attempt in an arbitrary other realm.
+    #[validate(length(min = 1))]
+    pub realm_id: String,
     pub provider_status: String,
     pub provider_transaction_id: String,
     pub completed_at: String,
@@ -475,6 +481,10 @@ pub async fn fulfill_payment(
         .map_err(|_| ApiError::bad_request("Invalid completed_at format"))?
         .with_timezone(&chrono::Utc);
 
+    input
+        .validate()
+        .map_err(|e| ApiError::bad_request(format!("Invalid fulfill request: {}", e)))?;
+
     let result = state
         .purchase_service
         .complete_succeeded_payment_attempt(CompletePaymentAttemptInput {
@@ -484,9 +494,11 @@ pub async fn fulfill_payment(
             completed_at,
             source: PaymentCompletionSource::InternalApi,
             billing_type_override: None,
-            // Demo/test payment simulation behind the INTERNAL_API_KEY gate;
-            // the endpoint has no path realm to bind the attempt to.
-            expected_realm_id: None,
+            // Demo/test payment simulation behind the INTERNAL_API_KEY gate.
+            // The endpoint has no path realm, so the caller must state the
+            // realm in the body and the domain layer rejects an attempt from
+            // any other realm.
+            expected_realm_id: Some(input.realm_id),
         })
         .await
         .map_err(|e| core_error_to_api_error(e, "Fulfill payment"))?;

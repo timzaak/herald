@@ -3578,7 +3578,7 @@ pub async fn handle_stripe_webhook(
     // Check for existing payment event (idempotency check)
     let existing_event = app_state
         .billing_repository
-        .find_payment_event_by_external_id(&event_id, "stripe")
+        .find_payment_event_by_external_id(&realm_id, &event_id, "stripe")
         .await?;
 
     let saved_event = match existing_event {
@@ -3908,7 +3908,7 @@ pub(crate) async fn reprocess_stripe_event(
 
     let saved_event = if let Some(existing) = app_state
         .billing_repository
-        .find_payment_event_by_external_id(event_id, "stripe")
+        .find_payment_event_by_external_id(realm_id, event_id, "stripe")
         .await?
     {
         if existing.processed {

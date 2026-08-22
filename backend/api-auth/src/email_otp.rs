@@ -63,6 +63,7 @@ pub struct EmailOtpSendRequest {
     #[validate(length(min = 1, max = 36))]
     pub client_id: String,
     #[validate(email)]
+    #[validate(length(min = 3, max = 254))]
     pub email: String,
     #[serde(default)]
     #[schema(required = false)]
@@ -103,6 +104,12 @@ impl Validate for EmailOtpVerifyRequest {
         }
         if !self.email.validate_email() {
             errors.add("email", validator::ValidationError::new("email"));
+        }
+        // Bound the identifier: it feeds Redis rate-limit keys
+        // (`rl:otp:verify:email:{...}`), so an unbounded value is a
+        // memory/keyspace DoS vector.
+        if self.email.len() > 254 {
+            errors.add("email", validator::ValidationError::new("length"));
         }
         // 6 ASCII digits — matches the `code` field regex ^[0-9]{6}$.
         if self.code.len() != 6 || !self.code.bytes().all(|b| b.is_ascii_digit()) {
@@ -158,6 +165,13 @@ pub struct EmailOtpStatusResponse {
 struct StoredOtp {
     code: String,
     max_attempts: i64,
+    /// Absolute expiry (epoch ms). The verify path claims the code atomically
+    /// (GET+DEL) and restores it on a mismatch; this field is what lets the
+    /// restore re-apply the ORIGINAL remaining TTL instead of a fresh one.
+    /// `None` only for entries written before the field existed — those are
+    /// never restored (a mismatch burns them; fail-closed).
+    #[serde(default)]
+    expires_at_ms: Option<u64>,
 }
 
 /// sha256 digest of the normalized email — shared by the code key and the
@@ -166,6 +180,13 @@ fn otp_email_digest(email: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(normalize_email(email).as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// `emailotp:{realm_id}:{sha256(email trim+lowercase)}`. The email is normalized
@@ -349,6 +370,7 @@ pub async fn send(
     let stored = StoredOtp {
         code: code.clone(),
         max_attempts: OTP_MAX_ATTEMPTS,
+        expires_at_ms: Some(now_epoch_ms() + OTP_CODE_TTL_SECONDS * 1000),
     };
     let stored_json = serde_json::to_string(&stored)
         .map_err(|_| ApiError::internal("Failed to serialize OTP state".to_string()))?;
@@ -476,7 +498,11 @@ pub async fn verify(
     verify_turnstile_for_client_app(&state, &client_app, payload.turnstile_token.as_deref(), &ip)
         .await?;
 
-    // 5. Load stored code; absent → expired/never-sent → 401.
+    // 5. Atomically CLAIM the code: GET+DEL inside MULTI/EXEC. The key is
+    //    absent for the whole compare, so two concurrent requests presenting
+    //    the same (stolen) code cannot both read it — exactly one claim
+    //    succeeds. On a mismatch the code is restored below (unless attempts
+    //    ran out), preserving the multi-attempt contract.
     let key = otp_redis_key(&realm_id, &email);
     let attempts_key = otp_attempts_redis_key(&realm_id, &email);
     let mut conn = state
@@ -484,10 +510,18 @@ pub async fn verify(
         .get()
         .await
         .map_err(|_| ApiError::internal("Redis connection error".to_string()))?;
-    let stored_raw: Option<String> = conn.get(&key).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to read OTP code from Redis");
-        ApiError::internal("Redis operation error".to_string())
-    })?;
+    let (stored_raw, _deleted): (Option<String>, i64) = redis::pipe()
+        .atomic()
+        .cmd("GET")
+        .arg(&key)
+        .cmd("DEL")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to claim OTP code from Redis");
+            ApiError::internal("Redis operation error".to_string())
+        })?;
     let stored_json =
         stored_raw.ok_or_else(|| ApiError::unauthorized("验证码已失效，请重新发送".to_string()))?;
     let stored: StoredOtp = serde_json::from_str(&stored_json).map_err(|e| {
@@ -510,14 +544,20 @@ pub async fn verify(
         if attempts == 1 {
             // First failure: carry over the code's remaining TTL so the
             // counter cannot outlive the code it guards. TTL can return
-            // -1 (no expiry) / -2 (no key) defensively; skip on those.
-            let remaining_ttl: i64 = conn.ttl(&key).await.map_err(|e| {
-                tracing::error!(error = %e, "Failed to read OTP TTL");
-                ApiError::internal("Redis operation error".to_string())
-            })?;
-            if remaining_ttl > 0 {
+            // -1 (no expiry) / -2 (no key — the claim already deleted the
+            // code, so compute from the stored absolute expiry instead);
+            // skip when neither is available.
+            let remaining_ttl: i64 = conn.ttl(&key).await.unwrap_or(-2);
+            let remaining_secs = if remaining_ttl > 0 {
+                Some(remaining_ttl)
+            } else {
+                stored.expires_at_ms.map(|expires_at_ms| {
+                    ((expires_at_ms.saturating_sub(now_epoch_ms())) / 1000) as i64
+                })
+            };
+            if let Some(remaining_secs) = remaining_secs.filter(|secs| *secs > 0) {
                 let _: () = conn
-                    .expire(&attempts_key, remaining_ttl)
+                    .expire(&attempts_key, remaining_secs)
                     .await
                     .map_err(|e| {
                         tracing::error!(error = %e, "Failed to set OTP attempt counter TTL");
@@ -526,15 +566,35 @@ pub async fn verify(
             }
         }
         if attempts >= stored.max_attempts {
-            // Exhausted → delete code + counter (force re-send), return 401.
-            let _: () = conn.del(&key).await.map_err(|e| {
-                tracing::error!(error = %e, "Failed to delete exhausted OTP code");
-                ApiError::internal("Redis operation error".to_string())
-            })?;
+            // Exhausted → the claim already deleted the code; drop the
+            // counter too (force re-send) and refuse to restore.
             let _: () = conn.del(&attempts_key).await.map_err(|e| {
                 tracing::error!(error = %e, "Failed to delete exhausted OTP attempt counter");
                 ApiError::internal("Redis operation error".to_string())
             })?;
+        } else {
+            // Not exhausted → restore the claimed code so the remaining
+            // attempts still work. NX: if a NEWER code was sent while we held
+            // the claim, the old code must not clobber it. Best-effort: a
+            // restore failure burns the code (fail-closed), not the security.
+            if let Some(expires_at_ms) = stored.expires_at_ms {
+                let remaining_ms = expires_at_ms.saturating_sub(now_epoch_ms());
+                if remaining_ms > 0 {
+                    let restore: Result<(), _> = redis::pipe()
+                        .atomic()
+                        .cmd("SET")
+                        .arg(&key)
+                        .arg(&stored_json)
+                        .arg("NX")
+                        .arg("PX")
+                        .arg(remaining_ms)
+                        .query_async(&mut conn)
+                        .await;
+                    if let Err(e) = restore {
+                        tracing::warn!(error = %e, "Failed to restore claimed OTP code");
+                    }
+                }
+            }
         }
         record_login_failure(
             &state,
@@ -548,13 +608,10 @@ pub async fn verify(
         return Err(ApiError::unauthorized("验证码错误或已失效".to_string()));
     }
 
-    // 7. Match → one-time consume (delete code + counter before proceeding).
-    let _: () = conn.del(&key).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to consume OTP code after match");
-        ApiError::internal("Redis operation error".to_string())
-    })?;
+    // 7. Match → the claim already consumed the code; drop the counter and
+    //    proceed to user resolution / token issuance.
     let _: () = conn.del(&attempts_key).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to consume OTP attempt counter after match");
+        tracing::error!(error = %e, "Failed to consume OTP attempt counter");
         ApiError::internal("Redis operation error".to_string())
     })?;
 
@@ -989,6 +1046,7 @@ mod tests {
         let stored = StoredOtp {
             code: "123456".to_string(),
             max_attempts: OTP_MAX_ATTEMPTS,
+            expires_at_ms: Some(1_700_000_000_000),
         };
         let json = serde_json::to_string(&stored).unwrap();
         assert!(
@@ -998,6 +1056,12 @@ mod tests {
         let back: StoredOtp = serde_json::from_str(&json).unwrap();
         assert_eq!(back.code, "123456");
         assert_eq!(back.max_attempts, OTP_MAX_ATTEMPTS);
+        assert_eq!(back.expires_at_ms, Some(1_700_000_000_000));
+        // Entries written before the field existed must still deserialize
+        // (restore is skipped for them — fail-closed, never a parse error).
+        let legacy: StoredOtp =
+            serde_json::from_str(r#"{"code":"654321","max_attempts":5}"#).unwrap();
+        assert_eq!(legacy.expires_at_ms, None);
     }
 
     #[test]

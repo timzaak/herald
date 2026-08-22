@@ -56,6 +56,7 @@ async function updatePaymentStatus(
           'X-Internal-API-Key': getInternalApiKey(),
         },
         data: {
+          realmId,
           providerStatus: action === 'fulfill' ? 'succeeded' : 'failed',
           providerTransactionId: `demo-${action}-${attemptId}`,
           completedAt: new Date().toISOString(),

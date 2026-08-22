@@ -406,7 +406,7 @@ billing_repo_test!(
         repo.create_payment_event(event).await.unwrap();
 
         let result = repo
-            .find_payment_event_by_external_id("evt_find123", "creem")
+            .find_payment_event_by_external_id("test_find_event", "evt_find123", "creem")
             .await;
 
         assert!(result.is_ok());
@@ -423,7 +423,7 @@ billing_repo_test!(
     test_repository_find_payment_event_by_creem_id_not_found,
     |repo| {
         let result = repo
-            .find_payment_event_by_external_id("nonexistent_event_id", "creem")
+            .find_payment_event_by_external_id("test_find_event", "nonexistent_event_id", "creem")
             .await;
 
         assert!(result.is_ok());
@@ -444,7 +444,7 @@ billing_repo_test!(test_repository_mark_payment_event_processed, |repo| {
 
     // Verify the event is marked as processed
     let found = repo
-        .find_payment_event_by_external_id("evt_mark123", "creem")
+        .find_payment_event_by_external_id("test_mark_processed", "evt_mark123", "creem")
         .await
         .unwrap();
     assert!(found.is_some());

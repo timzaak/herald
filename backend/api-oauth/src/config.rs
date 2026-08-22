@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::Identity;
 use serde::{Deserialize, Serialize};
@@ -103,6 +104,13 @@ pub async fn list_oauth_configs(
         "Listing OAuth configs"
     );
 
+    // In-handler gate mirroring the service-layer policy (settings.view +
+    // realm match) so the handler layer stays protected even if the wired
+    // policy regresses to an AllowAll test double.
+    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
+        .require_permission(&state, "settings", "view")
+        .await?;
+
     let configs = oauth_config_service
         .list_configs(identity, &realm_id)
         .await
@@ -152,6 +160,10 @@ pub async fn get_oauth_config(
         user_id = %current_user_id,
         "Getting OAuth config"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
+        .require_permission(&state, "settings", "view")
+        .await?;
 
     let config = oauth_config_service
         .get_config(identity, &realm_id, &provider_type)
@@ -219,6 +231,10 @@ pub async fn create_oauth_config(
         user_id = %current_user_id,
         "Creating OAuth config"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
+        .require_permission(&state, "settings", "manage")
+        .await?;
 
     let request = CreateOAuthProviderConfigRequest {
         realm_id,
@@ -297,6 +313,10 @@ pub async fn update_oauth_config(
         user_id = %current_user_id,
         "Updating OAuth config"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
+        .require_permission(&state, "settings", "manage")
+        .await?;
 
     // Get existing config to obtain its ID
     let existing_config = oauth_config_service
@@ -380,6 +400,10 @@ pub async fn delete_oauth_config(
         user_id = %current_user_id,
         "Deleting OAuth config"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
+        .require_permission(&state, "settings", "manage")
+        .await?;
 
     // Get existing config to obtain its ID
     let existing_config = oauth_config_service

@@ -510,7 +510,7 @@ pub async fn submit_iap_receipt(
     // re-fulfilling (US-IAP-003 scenario 4).
     if let Some(existing) = state
         .billing_repository
-        .find_payment_event_by_external_id(&external_txn_id, &input.provider)
+        .find_payment_event_by_external_id(&realm_id, &external_txn_id, &input.provider)
         .await
         .map_err(|e| core_error_to_api_error(e, "iap receipt idempotency lookup"))?
     {
@@ -837,7 +837,7 @@ async fn process_apple_notification(
     // Idempotency: payment_event keyed by originalTransactionId.
     if state
         .billing_repository
-        .find_payment_event_by_external_id(&original_transaction_id, "apple")
+        .find_payment_event_by_external_id(realm_id, &original_transaction_id, "apple")
         .await?
         .is_some()
     {
@@ -946,7 +946,7 @@ async fn process_apple_refund_or_revoke(
     let synthetic_event_id = format!("apple:{original_transaction_id}:{notification_type_str}");
     if state
         .billing_repository
-        .find_payment_event_by_external_id(&synthetic_event_id, "apple")
+        .find_payment_event_by_external_id(realm_id, &synthetic_event_id, "apple")
         .await?
         .is_some()
     {
@@ -1218,7 +1218,7 @@ pub async fn reprocess_google_event(
     let synthetic_event_id = format!("google:{purchase_token}:{event_type}");
     if state
         .billing_repository
-        .find_payment_event_by_external_id(&synthetic_event_id, "google")
+        .find_payment_event_by_external_id(&realm_id, &synthetic_event_id, "google")
         .await?
         .is_some()
     {

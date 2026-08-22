@@ -99,6 +99,11 @@ fn is_sensitive_config_key(config_type: &ConfigType, config_key: &str) -> bool {
         ConfigType::Wechat => matches!(config_key, "private_key" | "v3_key"),
         ConfigType::Turnstile => config_key == "secret_key",
         ConfigType::Email => matches!(config_key, "resend_api_key" | "smtp_password"),
+        // Realm-wide TOTP encryption key: every key of this type is a
+        // credential (internally written as `version_1` with is_secret=true).
+        // Force the flag so the generic config API can neither store it with
+        // is_secret=false nor echo it back in plaintext on GET.
+        ConfigType::TotpKey => true,
         _ => false,
     }
 }
@@ -261,6 +266,12 @@ pub async fn list_realm_configs(
         "Listing realm configs"
     );
 
+    // Mirror the write handlers' in-handler gate so reads do not depend solely
+    // on the service-layer policy wiring (which tests replace with AllowAll).
+    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+        .require_permission(&state, "settings", "view")
+        .await?;
+
     let configs = realm_config_service
         .get_all_configs(identity, realm_id)
         .await
@@ -309,6 +320,10 @@ pub async fn list_realm_configs_by_type(
         user_id = %current_user_id,
         "Listing realm configs by type"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+        .require_permission(&state, "settings", "view")
+        .await?;
 
     let configs = realm_config_service
         .get_configs_by_type(identity, realm_id, config_type)
@@ -360,6 +375,10 @@ pub async fn get_realm_config(
         user_id = %current_user_id,
         "Getting realm config"
     );
+
+    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+        .require_permission(&state, "settings", "view")
+        .await?;
 
     let config = realm_config_service
         .get_config(identity, realm_id, config_type, config_key)
@@ -846,11 +865,60 @@ pub async fn email_test(
             message: "Test email sent successfully".to_string(),
         })),
         Err(e) => {
+            // Full error (may embed SMTP host/auth details) goes to logs only;
+            // the response stays generic like every other internal error path.
             tracing::error!("Failed to send test email: {e}");
             Ok(Json(EmailTestResponse {
                 success: false,
-                message: format!("Failed to send test email: {e}"),
+                message: "Failed to send test email; check server logs for details".to_string(),
             }))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(config_type: ConfigType, config_key: &str, is_secret: bool) -> RealmConfig {
+        RealmConfig {
+            id: Uuid::now_v7(),
+            realm_id: "realm-1".to_string(),
+            config_type: config_type.clone(),
+            config_key: config_key.to_string(),
+            config_value: "top-secret-value".to_string(),
+            is_secret,
+            enabled: true,
+            metadata: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    /// WHY: the realm-wide TOTP encryption key is the single most sensitive
+    /// config row. Before the fix, a `settings.manage` admin could upsert
+    /// `totp_key/version_1` with `isSecret:false` and read the key back in
+    /// plaintext — the server-side forced-sensitive list is what guarantees a
+    /// mislabeled (or maliciously relabeled) row still masks on read.
+    #[test]
+    fn totp_key_is_always_masked_even_when_stored_unflagged() {
+        assert!(is_sensitive_config_key(&ConfigType::TotpKey, "version_1"));
+        assert!(is_sensitive_config_key(
+            &ConfigType::TotpKey,
+            "anything-else"
+        ));
+
+        let response = to_response(config(ConfigType::TotpKey, "version_1", false));
+        assert!(
+            response.config_value.is_none(),
+            "TOTP key stored with is_secret=false must still be masked on read"
+        );
+        assert_eq!(response.config_key, "version_1");
+    }
+
+    #[test]
+    fn non_sensitive_config_value_is_returned_verbatim() {
+        let response = to_response(config(ConfigType::Registration, "enabled", false));
+        assert_eq!(response.config_value.as_deref(), Some("top-secret-value"));
     }
 }

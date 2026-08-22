@@ -83,6 +83,53 @@ pub struct RevokeQuotaEntitlementResponse {
     pub revoked: bool,
 }
 
+/// Reject requests whose user or credit bucket does not exist in the path
+/// realm. The internal key is global, so without this check a caller could
+/// seed quota entitlements for arbitrary (cross-realm or nonexistent) users
+/// and buckets — the domain grant path itself writes rows verbatim.
+async fn ensure_user_and_bucket_in_realm(
+    state: &AppState,
+    realm_id: &str,
+    user_id: Uuid,
+    bucket_id: Uuid,
+) -> Result<(), ApiError> {
+    let user_ok = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM account WHERE id = $1 AND realm_id = $2",
+    )
+    .bind(user_id)
+    .bind(realm_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, realm_id, "internal quota: user lookup failed");
+        ApiError::internal("Internal server error")
+    })?;
+    if user_ok == 0 {
+        return Err(ApiError::bad_request(format!(
+            "user {user_id} does not exist in realm {realm_id}"
+        )));
+    }
+
+    let bucket_ok = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM credit_buckets WHERE id = $1 AND realm_id = $2",
+    )
+    .bind(bucket_id)
+    .bind(realm_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, realm_id, "internal quota: bucket lookup failed");
+        ApiError::internal("Internal server error")
+    })?;
+    if bucket_ok == 0 {
+        return Err(ApiError::bad_request(format!(
+            "credit bucket {bucket_id} does not exist in realm {realm_id}"
+        )));
+    }
+
+    Ok(())
+}
+
 /// Grant (or idempotently re-grant) a quota entitlement.
 ///
 /// `idempotency_key` is derived as `internal:{source_id}` so a replayed grant
@@ -118,6 +165,8 @@ pub async fn grant_quota_entitlement(
             "At least one quota window is required",
         ));
     }
+
+    ensure_user_and_bucket_in_realm(&state, &realm_id, input.user_id, input.bucket_id).await?;
 
     let credit_type = parse_credit_type(input.credit_type.as_deref())?;
     let source_type = parse_source_type(input.source_type.as_deref())?;
@@ -199,6 +248,8 @@ pub async fn revoke_quota_entitlement(
         .map_err(|e| ApiError::bad_request(format!("Invalid request: {}", e)))?;
 
     let credit_type = parse_credit_type(input.credit_type.as_deref())?;
+
+    ensure_user_and_bucket_in_realm(&state, &realm_id, input.user_id, input.bucket_id).await?;
 
     state
         .subscription_service

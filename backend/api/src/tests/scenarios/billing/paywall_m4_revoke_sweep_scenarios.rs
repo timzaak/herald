@@ -309,6 +309,7 @@ mod tests {
         provider_tx_id: &str,
     ) -> Result<serde_json::Value, String> {
         let payload = serde_json::json!({
+            "realmId": ctx._realm_id,
             "providerStatus": "success",
             "providerTransactionId": provider_tx_id,
             "completedAt": chrono::Utc::now().to_rfc3339(),
@@ -484,7 +485,7 @@ mod tests {
                 (id, realm_id, external_event_id, payment_provider, event_type,
                  payload, processed, processing_started_at, next_retry_at, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, NOW())
-             ON CONFLICT (external_event_id, payment_provider) DO NOTHING",
+             ON CONFLICT (realm_id, external_event_id, payment_provider) DO NOTHING",
         )
         .bind(Uuid::now_v7())
         .bind(realm_id)

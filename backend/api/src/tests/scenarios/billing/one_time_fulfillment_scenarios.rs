@@ -139,6 +139,7 @@ mod tests {
         provider_tx_id: &str,
     ) -> Result<serde_json::Value, String> {
         let payload = json!({
+            "realmId": ctx._realm_id,
             "providerStatus": "success",
             "providerTransactionId": provider_tx_id,
             "completedAt": chrono::Utc::now().to_rfc3339(),

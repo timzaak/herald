@@ -80,7 +80,7 @@ impl WebhookEventRepository {
                 (id, realm_id, external_event_id, payment_provider, event_type, payload, processed, created_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, false, NOW())
-            ON CONFLICT (external_event_id, payment_provider) DO NOTHING
+            ON CONFLICT (realm_id, external_event_id, payment_provider) DO NOTHING
             "#,
         )
         .bind(event_id)
@@ -98,11 +98,13 @@ impl WebhookEventRepository {
             r#"
             SELECT id, processed, processing_started_at
             FROM payment_event
-            WHERE external_event_id = $1
-              AND payment_provider = $2
+            WHERE realm_id = $1
+              AND external_event_id = $2
+              AND payment_provider = $3
             FOR UPDATE
             "#,
         )
+        .bind(realm_id)
         .bind(external_event_id)
         .bind(payment_provider)
         .fetch_one(&mut **tx)

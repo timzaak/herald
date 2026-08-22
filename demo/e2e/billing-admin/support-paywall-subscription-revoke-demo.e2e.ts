@@ -604,7 +604,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
       // UUID from the response (the refund webhook's
       // metadata.herald_subscription_id MUST be the internal UUID — the handler
       // resolves via find_subscription_by_id, NOT by external id).
-      const fulfillResult = await fulfillAndCaptureSubscription(request, attemptId)
+      const fulfillResult = await fulfillAndCaptureSubscription(request, TEST_REALM, attemptId)
       expect(
         fulfillResult.success,
         `payment fulfillment must succeed: ${fulfillResult.error ?? ''}`,
@@ -985,6 +985,7 @@ async function resolveUserIdByEmail(
  */
 async function fulfillAndCaptureSubscription(
   request: APIRequestContext,
+  realmId: string,
   attemptId: string,
 ): Promise<{ success: boolean; subscriptionId?: string; error?: string }> {
   const apiKey = process.env.INTERNAL_API_KEY?.trim()
@@ -1003,12 +1004,13 @@ async function fulfillAndCaptureSubscription(
           'X-Internal-API-Key': apiKey,
         },
         data: {
+          realmId,
           providerStatus: 'succeeded',
           providerTransactionId: `demo-fulfill-${attemptId}`,
           completedAt: new Date().toISOString(),
         },
         timeout: 10_000,
-      },
+      }
     )
     if (resp.ok()) {
       const data = await resp.json()

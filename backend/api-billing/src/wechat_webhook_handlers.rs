@@ -135,7 +135,7 @@ async fn process_wechat_callback(
     // Idempotency by WeChat notification `id` + provider "wechat".
     let existing_event = app_state
         .billing_repository
-        .find_payment_event_by_external_id(&notification.id, "wechat")
+        .find_payment_event_by_external_id(realm_id, &notification.id, "wechat")
         .await?;
     if existing_event.as_ref().is_some_and(|e| e.processed) {
         info!(

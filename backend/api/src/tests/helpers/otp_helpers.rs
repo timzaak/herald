@@ -8,14 +8,17 @@
 // rather than hashed, consistent with the password-reset code persisted in the
 // `email_verification_code` table and with the session tokens in the same
 // Redis; it also lets the Demo/E2E flow read the code back). These helpers
-// inject a *known* code into the exact Redis key the production `verify`
-// handler reads, using the same key derivation
-// (`emailotp:{realm_id}:{sha256(normalize_email(email))}`) and the same
-// `StoredOtp` JSON shape (`code` / `attempts` / `max_attempts`).
+// inject a *known* code into the exact Redis keys the production `verify`
+// handler reads, using the same key derivations
+// (`emailotp:{realm_id}:{sha256(normalize_email(email))}` for the code and
+// `emailotp:attempts:{realm_id}:{digest}` for the INCR attempt counter) and
+// the same `StoredOtp` JSON shape (`code` / `max_attempts` /
+// `expires_at_ms`).
 //
 // These helpers MUST stay mechanically in sync with
-// `backend/api-auth/src/email_otp.rs` (`otp_redis_key`, `StoredOtp`, and the
-// `OTP_*` constants). They do NOT modify production code.
+// `backend/api-auth/src/email_otp.rs` (`otp_redis_key`,
+// `otp_attempts_redis_key`, `StoredOtp`, and the `OTP_*` constants). They do
+// NOT modify production code.
 //
 // =============================================================================
 
@@ -40,14 +43,32 @@ pub fn otp_redis_key(realm_id: &str, email: &str) -> String {
     format!("emailotp:{realm_id}:{digest}")
 }
 
-/// Reproduce `StoredOtp` (JSON in Redis). Field order/names must match the
+/// Reproduce `email_otp::otp_attempts_redis_key`:
+/// `emailotp:attempts:{realm_id}:{digest}` (plain INCR counter).
+pub fn otp_attempts_redis_key(realm_id: &str, email: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(normalize_email(email).as_bytes());
+    let digest = hex::encode(hasher.finalize());
+    format!("emailotp:attempts:{realm_id}:{digest}")
+}
+
+/// Reproduce `StoredOtp` (JSON in Redis). Field names must match the
 /// production `#[derive(Serialize, Deserialize)] struct StoredOtp`. The `code`
-/// is plaintext (mirrors the production change).
+/// is plaintext (mirrors the production change). `expires_at_ms` is the
+/// absolute expiry the verify path needs to restore a claimed-but-mismatched
+/// code with its original remaining TTL.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct StoredOtp {
     code: String,
-    attempts: i64,
     max_attempts: i64,
+    expires_at_ms: Option<u64>,
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Inject a *known* OTP code into Redis so a subsequent `verify` request can be
@@ -55,10 +76,11 @@ struct StoredOtp {
 ///
 /// Writes the same Redis key + JSON shape the production `send` handler writes,
 /// so the production `verify` handler will read it back and compare the
-/// plaintext code with constant-time equality. `attempts` lets a test start the
-/// counter partway (e.g. to exercise the `max_attempts` boundary). `ttl_secs`
-/// should be `OTP_CODE_TTL_SECONDS` in normal cases; tests that need an
-/// "expired" key pass a tiny TTL and sleep.
+/// plaintext code with constant-time equality. `attempts` seeds the SEPARATE
+/// INCR counter key (production keeps the count outside the code JSON) — 0
+/// leaves no counter, matching a fresh send. `ttl_secs` should be
+/// `OTP_CODE_TTL_SECONDS` in normal cases; tests that need an "expired" key
+/// pass a tiny TTL and sleep.
 pub async fn inject_otp_code(
     ctx: &TestContext,
     realm_id: &str,
@@ -70,11 +92,12 @@ pub async fn inject_otp_code(
 ) {
     let stored = StoredOtp {
         code: code.to_string(),
-        attempts,
         max_attempts,
+        expires_at_ms: Some(now_epoch_ms() + ttl_secs * 1000),
     };
     let stored_json = serde_json::to_string(&stored).expect("failed to serialize StoredOtp");
     let key = otp_redis_key(realm_id, email);
+    let attempts_key = otp_attempts_redis_key(realm_id, email);
 
     let mut conn = ctx
         ._app_state
@@ -86,22 +109,32 @@ pub async fn inject_otp_code(
         .set_ex(&key, stored_json, ttl_secs)
         .await
         .expect("failed to inject OTP code into Redis");
+    if attempts > 0 {
+        let _: () = conn
+            .set_ex(&attempts_key, attempts, ttl_secs)
+            .await
+            .expect("failed to seed OTP attempt counter");
+    } else {
+        // Fresh code → fresh counter (production send deletes leftovers).
+        let _: () = conn
+            .del(&attempts_key)
+            .await
+            .expect("failed to reset OTP attempt counter");
+    }
 }
 
-/// Read back the stored attempt counter for an email (or `None` if the key is
-/// absent — expired, never sent, or consumed one-time).
+/// Read back the attempt counter for an email (or `None` if the key is absent
+/// — no failed verify yet, or the code was consumed/invalidated, which deletes
+/// the counter).
 pub async fn read_otp_attempts(ctx: &TestContext, realm_id: &str, email: &str) -> Option<i64> {
-    let key = otp_redis_key(realm_id, email);
+    let key = otp_attempts_redis_key(realm_id, email);
     let mut conn = ctx
         ._app_state
         .redis_manager
         .get()
         .await
         .expect("failed to get Redis connection");
-    let raw: Option<String> = conn.get(&key).await.expect("failed to read OTP key");
-    raw.as_deref()
-        .and_then(|s| serde_json::from_str::<StoredOtp>(s).ok())
-        .map(|stored| stored.attempts)
+    conn.get(&key).await.expect("failed to read OTP counter")
 }
 
 /// Delete the stored OTP key for an email (test cleanup / explicit invalidation).

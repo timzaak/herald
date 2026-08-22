@@ -98,7 +98,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO payment_event (id, realm_id, external_event_id, payment_provider, event_type, payload, processed, created_at)
              VALUES ($1, $2, $3, $4, $5, '{}', $6, NOW())
-             ON CONFLICT (external_event_id, payment_provider) DO NOTHING",
+             ON CONFLICT (realm_id, external_event_id, payment_provider) DO NOTHING",
         )
         .bind(Uuid::now_v7())
         .bind(realm_id)

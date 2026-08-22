@@ -12,6 +12,7 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use herald_api_base::application::http::rate_limit::rate_limit_hit;
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
@@ -68,6 +69,21 @@ pub async fn device_confirm(
         ));
     }
 
+    // Same per-user throttle as device_verify: confirm also probes live
+    // user_codes, and an unthrottled confirm endpoint would give a bound
+    // guesser a second brute-force channel against the code space.
+    rate_limit_hit(
+        &state,
+        format!("rl:device-confirm:user:{}", identity.user_id()),
+        20,
+        300,
+    )
+    .await?;
+
+    // user_code is stored uppercased (device_verify normalizes before the
+    // index write); normalize here too or a lowercase confirm silently 404s.
+    let user_code = payload.user_code.to_uppercase();
+
     let mut conn = state
         .redis_manager
         .get()
@@ -75,7 +91,7 @@ pub async fn device_confirm(
         .map_err(|_| ApiError::internal("Internal server error"))?;
 
     // Lookup device_code from user_code index
-    let user_code_key = format!("deviceUserCode:{}", payload.user_code);
+    let user_code_key = format!("deviceUserCode:{}", user_code);
     let device_code: Option<String> = conn.get(&user_code_key).await.map_err(|e| {
         tracing::error!(error = %e, "Redis GET failed: user code lookup");
         ApiError::internal("Internal server error")

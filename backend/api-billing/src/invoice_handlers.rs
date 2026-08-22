@@ -1289,14 +1289,15 @@ pub async fn get_invoice_apply_eligibility(
 
     // Mirrors the write-path SQL in `validate_invoice_creation_policy` exactly.
     let provider: Option<String> = match resource {
-        OwnedResource::PaymentAttempt => {
-            sqlx::query_scalar("SELECT payment_provider FROM payment_attempts WHERE id = $1")
-                .bind(query.reference_id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-                .flatten()
-        }
+        OwnedResource::PaymentAttempt => sqlx::query_scalar(
+            "SELECT payment_provider FROM payment_attempts WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(query.reference_id)
+        .bind(&realm_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        .flatten(),
         OwnedResource::Subscription => sqlx::query_scalar(
             "SELECT payment_provider FROM subscription WHERE id = $1 AND realm_id = $2",
         )

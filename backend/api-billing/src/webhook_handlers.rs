@@ -2274,7 +2274,7 @@ pub async fn handle_creem_webhook(
 
     if app_state
         .billing_repository
-        .find_payment_event_by_external_id(&event_id, "creem")
+        .find_payment_event_by_external_id(&realm_id, &event_id, "creem")
         .await?
         .is_some()
     {
@@ -2408,7 +2408,7 @@ pub(crate) async fn reprocess_creem_event(
 
     if let Some(existing) = app_state
         .billing_repository
-        .find_payment_event_by_external_id(&event_id, "creem")
+        .find_payment_event_by_external_id(realm_id, &event_id, "creem")
         .await?
     {
         if existing.processed {

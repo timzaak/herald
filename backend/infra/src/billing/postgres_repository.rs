@@ -1340,10 +1340,12 @@ impl BillingRepository for PostgresBillingRepository {
 
     async fn find_payment_event_by_external_id(
         &self,
+        realm_id: &str,
         external_event_id: &str,
         payment_provider: &str,
     ) -> Result<Option<PaymentEvent>, CoreError> {
         Ok(payment_event::Entity::find()
+            .filter(payment_event::Column::RealmId.eq(realm_id))
             .filter(payment_event::Column::ExternalEventId.eq(external_event_id))
             .filter(payment_event::Column::PaymentProvider.eq(payment_provider))
             .one(&self.db)

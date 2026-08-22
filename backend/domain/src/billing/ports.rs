@@ -48,9 +48,12 @@ pub trait BillingRepository: Send + Sync {
         event: PaymentEvent,
     ) -> impl Future<Output = Result<PaymentEvent, CoreError>> + Send;
 
-    /// Find payment event by external event ID and provider (for idempotency)
+    /// Find payment event by realm + external event ID + provider (for
+    /// idempotency). Realm must be part of the key: realms that share one
+    /// provider account receive the same external event id independently.
     fn find_payment_event_by_external_id(
         &self,
+        realm_id: &str,
         external_event_id: &str,
         payment_provider: &str,
     ) -> impl Future<Output = Result<Option<PaymentEvent>, CoreError>> + Send;

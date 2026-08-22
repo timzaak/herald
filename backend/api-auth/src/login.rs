@@ -44,8 +44,14 @@ use crate::passkey_rp::resolve_passkey_rp;
 pub struct LoginRequestPayload {
     #[validate(length(min = 1, max = 36))]
     pub client_id: String,
+    // Bound the identifier: it is interpolated into Redis rate-limit keys
+    // (`rl:login:identifier:{...}`) and audit rows, so an unbounded value is
+    // a memory/keyspace DoS vector. Caps mirror RegisterRequest (an identifier
+    // longer than the register caps can never match an account).
+    #[validate(length(min = 1, max = 36))]
     pub username: Option<String>, // Optional username login
-    pub email: Option<String>,    // Optional email login
+    #[validate(length(min = 3, max = 254))]
+    pub email: Option<String>, // Optional email login
     #[validate(length(min = 8, max = 36))]
     pub password: String,
     pub turnstile_token: Option<String>, // Optional: required only if Turnstile is enabled for the realm

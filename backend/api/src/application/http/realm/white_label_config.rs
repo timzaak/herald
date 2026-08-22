@@ -559,22 +559,124 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn validate_http_url(value: &str, field_name: &str) -> Result<(), ApiError> {
-    if value.starts_with("http://") || value.starts_with("https://") {
-        return Ok(());
-    }
+/// The published background value is echoed verbatim by `/api/public-config`
+/// to every white-label consumer, including third-party custom login UIs that
+/// may interpolate it into raw CSS. Besides the format checks below, values
+/// must therefore never carry characters that could break out of a single
+/// CSS declaration (`;{}`), load external resources (`url(`), or smuggle
+/// markup (`<>`, quotes, backslash, control chars).
+const BACKGROUND_VALUE_MAX_LEN: usize = 500;
+const BACKGROUND_URL_MAX_LEN: usize = 2048;
 
-    Err(ApiError::bad_request(format!(
-        "{field_name} must be an http:// or https:// URL"
-    )))
+fn contains_forbidden_css_chars(value: &str) -> bool {
+    value
+        .chars()
+        .any(|c| c.is_control() || matches!(c, ';' | '{' | '}' | '<' | '>' | '\\' | '"' | '\''))
+}
+
+fn validate_http_url(value: &str, field_name: &str) -> Result<(), ApiError> {
+    if !(value.starts_with("http://") || value.starts_with("https://")) {
+        return Err(ApiError::bad_request(format!(
+            "{field_name} must be an http:// or https:// URL"
+        )));
+    }
+    if value.len() > BACKGROUND_URL_MAX_LEN
+        || contains_forbidden_css_chars(value)
+        || value
+            .chars()
+            .any(|c| c.is_whitespace() || c == '(' || c == ')')
+    {
+        return Err(ApiError::bad_request(format!(
+            "{field_name} contains characters that are not allowed in an image URL"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_gradient(value: &str) -> Result<(), ApiError> {
-    if value.starts_with("linear-gradient(") || value.starts_with("radial-gradient(") {
-        return Ok(());
+    if !(value.starts_with("linear-gradient(") || value.starts_with("radial-gradient(")) {
+        return Err(ApiError::bad_request(
+            "background.value must start with linear-gradient( or radial-gradient(",
+        ));
+    }
+    if !value.ends_with(')') || value.len() > BACKGROUND_VALUE_MAX_LEN {
+        return Err(ApiError::bad_request(
+            "background.value must be a single complete gradient function",
+        ));
+    }
+    if contains_forbidden_css_chars(value) || value.to_ascii_lowercase().contains("url(") {
+        return Err(ApiError::bad_request(
+            "background.value contains characters that are not allowed in a gradient",
+        ));
+    }
+    // Parens must nest (never dip below zero mid-value, end balanced).
+    let mut depth: i32 = 0;
+    for c in value.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(ApiError::bad_request(
+            "background.value has unbalanced parentheses",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod background_validation_tests {
+    use super::{validate_gradient, validate_http_url};
+
+    /// WHY: the published background value is served verbatim to third-party
+    /// white-label login UIs. A gradient carrying declaration breakouts (`;`,
+    /// `}`) or `url(` would let a realm admin smuggle extra CSS / external
+    /// resource loads into those UIs. Legit gradients must keep passing.
+    #[test]
+    fn legit_gradients_pass() {
+        assert!(validate_gradient("linear-gradient(135deg, #1e3a8a, #2563eb)").is_ok());
+        assert!(validate_gradient("radial-gradient(circle at 30% 30%, #fff, #000)").is_ok());
+        assert!(
+            validate_gradient("linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.6))")
+                .is_ok()
+        );
     }
 
-    Err(ApiError::bad_request(
-        "background.value must start with linear-gradient( or radial-gradient(",
-    ))
+    #[test]
+    fn css_breakout_attempts_are_rejected() {
+        // Extra declarations after the closing paren.
+        assert!(
+            validate_gradient("linear-gradient(red,blue)}body{background:url(//evil)").is_err()
+        );
+        // url() resource load inside the gradient.
+        assert!(validate_gradient("linear-gradient(red,url(https://evil.example/x))").is_err());
+        // Unbalanced / truncated function value.
+        assert!(validate_gradient("linear-gradient(red,blue").is_err());
+        assert!(validate_gradient("linear-gradient)(red,blue)(").is_err());
+        // Markup smuggle.
+        assert!(validate_gradient("linear-gradient(red,<script>alert(1)</script>)").is_err());
+        // Single-quote escape (breaks out of CSS string contexts).
+        assert!(validate_gradient("linear-gradient('red',blue)").is_err());
+    }
+
+    #[test]
+    fn image_urls_reject_css_escape_characters() {
+        assert!(validate_http_url("https://cdn.example.com/bg.png", "background.value").is_ok());
+        assert!(
+            validate_http_url(
+                "https://evil.example/a\") body{background:red}",
+                "background.value"
+            )
+            .is_err()
+        );
+        assert!(validate_http_url("https://evil.example/a b.png", "background.value").is_err());
+        assert!(validate_http_url("javascript:alert(1)", "background.value").is_err());
+    }
 }
