@@ -15,21 +15,29 @@
  * - refresh-loop guard (retried request re-401s → no second refresh, 401 surfaces)
  * - refresh failure (401 reuse/absolute-expiry) → logout path, RT cleared, no retry
  * - refresh endpoint itself is never Bearer-injected and never auto-refreshed
+ * - 401 racing a first-party client switch (root loader): recovery waits for
+ *   the rotated family and replays with it — never refreshes with the
+ *   superseded refresh token (which would revoke the family and log out)
+ * - 403 racing the same switch (admin-console endpoints reject the superseded
+ *   token with 403, not 401): replayed with the rotated token ONLY when the
+ *   token rotated mid-flight; a genuine permission 403 surfaces untouched
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
-import { status } from '@/lib/api-generated'
+import { status, listRealmConfigs } from '@/lib/api-generated'
 import { initBearerClient } from '@/lib/api-client'
+import { switchFirstPartyClient } from '@/lib/auth-service'
 import {
   ensureHeraldClient,
   getActiveHeraldClient,
   applyTokenSet,
+  runTokenSwitch,
   HERALD_REFRESH_TOKEN_STORAGE_KEY,
 } from '@/lib/herald-client'
 import { useAuthStore } from '@/stores/auth-store'
-import { AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
+import { ADMIN_WEB_CONSOLE_CLIENT_ID, AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
 import {
   REFRESH_URL,
   createRefreshSuccessHandler,
@@ -40,6 +48,13 @@ import { TOKEN_FIXTURE } from '@/test/fixtures/browser-token'
 
 const API_BASE_URL = 'http://localhost:3000'
 const STATUS_URL = `${API_BASE_URL}/api/auth/status`
+const SWITCH_CLIENT_URL = `${API_BASE_URL}/api/auth/browser-token/switch-client`
+/**
+ * The admin-console configs endpoint (`listRealmConfigs` with realmId 'admin')
+ * — the production surface where a superseded token draws a 403 instead of a
+ * 401 ("Access denied: admin console credential required").
+ */
+const CONFIGS_ADMIN_URL = `${API_BASE_URL}/api/configs/admin`
 /** Arbitrary realm for the SDK client in this file (refresh/status are realm-agnostic). */
 const TEST_REALM = 'realm-1'
 
@@ -284,5 +299,238 @@ describe('refresh endpoint isolation', () => {
 
     // Exactly one refresh attempt — the refresh 401 did not trigger recursion.
     expect(refreshCallCount).toBe(1)
+  })
+})
+
+describe('401 racing a first-party client switch (root-loader token rotation)', () => {
+  /**
+   * Reproduces the /manage entry race: the root loader switches the token
+   * family (switch-client + applyTokenSet) while layout-level queries are
+   * still in flight with the OLD access token. Their 401 recovery must wait
+   * for the switch and replay with the NEW token — refreshing with the
+   * superseded refresh token gets a family-revocation 401 and logs the just-
+   * rotated session out (the historical "bounced back to login" flake).
+   */
+  it('waits out the switch, replays with the rotated access token, and never refreshes or logs out', async () => {
+    // Pre-switch session (e.g. the user-account-center family after login).
+    seedSession(TOKEN_FIXTURE.accessToken)
+
+    // Hold the switch-client response so the query's 401 recovery runs INSIDE
+    // the rotation window (local storage still holds the old refresh token).
+    let releaseSwitch!: (body: Record<string, unknown>) => void
+    const switchHold = new Promise<Record<string, unknown>>((resolve) => {
+      releaseSwitch = resolve
+    })
+    server.use(
+      http.post(SWITCH_CLIENT_URL, () => switchHold.then((body) => HttpResponse.json(body)))
+    )
+
+    // Any refresh attempt during the window is the bug: the old refresh token
+    // is superseded the moment the backend rotates the family.
+    let refreshCallCount = 0
+    server.use(
+      http.post(REFRESH_URL, () => {
+        refreshCallCount += 1
+        return HttpResponse.json(
+          { error: REFRESH_ERRORS.reuseDetected, error_description: REFRESH_ERRORS.reuseDetected },
+          { status: 401 }
+        )
+      })
+    )
+
+    // The protected endpoint answers 401 for the pre-switch access token.
+    let statusCallCount = 0
+    let replayAuth: string | null = null
+    server.use(
+      http.get(STATUS_URL, ({ request }) => {
+        statusCallCount += 1
+        if (statusCallCount === 1) {
+          return HttpResponse.json({ error: 'invalid_token' }, { status: 401 })
+        }
+        replayAuth = request.headers.get('Authorization')
+        return HttpResponse.json(STATUS_OK_BODY)
+      })
+    )
+
+    // Mirror the root loader: the switch HTTP call + applyTokenSet run as one
+    // critical section (`initializeAuth` wraps them in `runTokenSwitch`).
+    const switchDone = runTokenSwitch(async () => {
+      const tokenSet = await switchFirstPartyClient(ADMIN_WEB_CONSOLE_CLIENT_ID)
+      applyTokenSet({
+        accessToken: tokenSet.accessToken,
+        refreshToken: tokenSet.refreshToken,
+        clientId: tokenSet.clientId,
+      })
+    })
+
+    const queryDone = status()
+
+    // The 401 arrived (and its recovery parked on the switch gate) before the
+    // rotation is released.
+    await vi.waitFor(() => expect(statusCallCount).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    releaseSwitch({
+      accessToken: TOKEN_FIXTURE.rotatedAccessToken,
+      refreshToken: TOKEN_FIXTURE.rotatedRefreshToken,
+      tokenType: 'Bearer',
+      expiresIn: 900,
+      refreshExpiresIn: 2592000,
+      clientId: ADMIN_WEB_CONSOLE_CLIENT_ID,
+    })
+
+    const result = await queryDone
+    await switchDone
+
+    // The query recovered on the switched family: one 401 + one replay, and
+    // the replay carried the NEW access token (not the superseded one).
+    expect(statusCallCount).toBe(2)
+    expect(replayAuth).toBe(`Bearer ${TOKEN_FIXTURE.rotatedAccessToken}`)
+    expect(result.data).toMatchObject({ authenticated: true })
+
+    // No refresh was ever attempted → no family revocation, no logout.
+    expect(refreshCallCount).toBe(0)
+    // The freshly-switched family survived intact (a session-expired teardown
+    // would have cleared both tokens and the bound client).
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe(TOKEN_FIXTURE.rotatedAccessToken)
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe(
+      TOKEN_FIXTURE.rotatedRefreshToken
+    )
+    expect(useAuthStore.getState().refreshClientId).toBe(ADMIN_WEB_CONSOLE_CLIENT_ID)
+  })
+})
+
+describe('403 racing a first-party client switch', () => {
+  /**
+   * Same rotation window as the 401 case above, but on admin-console-scoped
+   * endpoints (`GET /api/configs/admin`), which answer a superseded token with
+   * 403 "admin console credential required" instead of 401. Two 403 kinds must
+   * stay distinguishable: the race (token rotated mid-flight → recover by
+   * replaying with the rotated token) and a genuine permission denial (token
+   * still current → surface untouched; swallowing it would hide real authz
+   * errors, refreshing on it would rotate the family for nothing).
+   */
+  it('waits out the switch and replays the 403-ed request with the rotated access token', async () => {
+    // Pre-switch session (e.g. the user-account-center family right after login).
+    seedSession(TOKEN_FIXTURE.accessToken)
+
+    // Hold the switch-client response so the query's 403 recovery runs INSIDE
+    // the rotation window.
+    let releaseSwitch!: (body: Record<string, unknown>) => void
+    const switchHold = new Promise<Record<string, unknown>>((resolve) => {
+      releaseSwitch = resolve
+    })
+    server.use(
+      http.post(SWITCH_CLIENT_URL, () => switchHold.then((body) => HttpResponse.json(body)))
+    )
+
+    // A 403 must recover via replay only — never via refresh.
+    let refreshCallCount = 0
+    server.use(
+      http.post(REFRESH_URL, () => {
+        refreshCallCount += 1
+        return HttpResponse.json(
+          { error: REFRESH_ERRORS.reuseDetected, error_description: REFRESH_ERRORS.reuseDetected },
+          { status: 401 }
+        )
+      })
+    )
+
+    // The admin-console endpoint answers the pre-switch token with the
+    // production 403 body, then accepts the replay.
+    let configsCallCount = 0
+    let replayAuth: string | null = null
+    server.use(
+      http.get(CONFIGS_ADMIN_URL, ({ request }) => {
+        configsCallCount += 1
+        if (configsCallCount === 1) {
+          return HttpResponse.json(
+            { code: 'forbidden', message: 'Access denied: admin console credential required' },
+            { status: 403 }
+          )
+        }
+        replayAuth = request.headers.get('Authorization')
+        return HttpResponse.json([])
+      })
+    )
+
+    // Mirror the root loader: switch HTTP call + applyTokenSet as one critical
+    // section, racing the configs query issued with the OLD access token.
+    const switchDone = runTokenSwitch(async () => {
+      const tokenSet = await switchFirstPartyClient(ADMIN_WEB_CONSOLE_CLIENT_ID)
+      applyTokenSet({
+        accessToken: tokenSet.accessToken,
+        refreshToken: tokenSet.refreshToken,
+        clientId: tokenSet.clientId,
+      })
+    })
+
+    const queryDone = listRealmConfigs({ path: { realmId: 'admin' } })
+
+    // The 403 arrived (and its recovery parked on the switch gate) before the
+    // rotation is released.
+    await vi.waitFor(() => expect(configsCallCount).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    releaseSwitch({
+      accessToken: TOKEN_FIXTURE.rotatedAccessToken,
+      refreshToken: TOKEN_FIXTURE.rotatedRefreshToken,
+      tokenType: 'Bearer',
+      expiresIn: 900,
+      refreshExpiresIn: 2592000,
+      clientId: ADMIN_WEB_CONSOLE_CLIENT_ID,
+    })
+
+    const result = await queryDone
+    await switchDone
+
+    // The query recovered on the switched family: one 403 + one replay, and
+    // the replay carried the NEW access token (not the superseded one).
+    expect(configsCallCount).toBe(2)
+    expect(replayAuth).toBe(`Bearer ${TOKEN_FIXTURE.rotatedAccessToken}`)
+    expect(result.data).toEqual([])
+    // No refresh, no logout — the switched family survived intact.
+    expect(refreshCallCount).toBe(0)
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe(TOKEN_FIXTURE.rotatedAccessToken)
+    expect(useAuthStore.getState().refreshClientId).toBe(ADMIN_WEB_CONSOLE_CLIENT_ID)
+  })
+
+  it('a genuine permission 403 (token still current) is not replayed and surfaces untouched', async () => {
+    seedSession(TOKEN_FIXTURE.accessToken)
+
+    // The endpoint denies this token's permissions outright — no switch in
+    // flight, the token is the current one.
+    let configsCallCount = 0
+    server.use(
+      http.get(CONFIGS_ADMIN_URL, () => {
+        configsCallCount += 1
+        return HttpResponse.json(
+          { code: 'forbidden', message: 'Access denied: admin console credential required' },
+          { status: 403 }
+        )
+      })
+    )
+
+    // A permission denial must not trigger a refresh (family rotation) any
+    // more than a replay.
+    let refreshCallCount = 0
+    server.use(
+      http.post(REFRESH_URL, () => {
+        refreshCallCount += 1
+        return HttpResponse.json({}, { status: 401 })
+      })
+    )
+
+    const result = await listRealmConfigs({ path: { realmId: 'admin' } })
+
+    // Fired exactly once, no replay; the 403 (not a masked 401 or empty data)
+    // reached the caller.
+    expect(configsCallCount).toBe(1)
+    expect(result.error).toBeDefined()
+    expect(result.response?.status).toBe(403)
+    // No session side effects: tokens untouched, no refresh attempted.
+    expect(refreshCallCount).toBe(0)
+    expect(getActiveHeraldClient()?.tokens.getAccessToken()).toBe(TOKEN_FIXTURE.accessToken)
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBe(TOKEN_FIXTURE.refreshToken)
   })
 })

@@ -16,6 +16,7 @@ def is_running(pid: int) -> bool:
             ["powershell", "-NoProfile", "-Command", f"Get-Process -Id {pid} -ErrorAction SilentlyContinue"],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
         )
         if result.returncode == 0:
@@ -108,6 +109,7 @@ def _get_pids_by_port_windows_powershell(port: int) -> set[str]:
             ["powershell", "-NoProfile", "-Command", command],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -131,6 +133,7 @@ def _get_pids_by_port_windows_netstat(port: int) -> set[str]:
             ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -185,6 +188,7 @@ def _get_parent_pid_windows(pid: str) -> str | None:
             ["wmic", "process", "where", f"ProcessId={pid}", "get", "ParentProcessId", "/value"],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -206,6 +210,7 @@ def _get_process_name_windows(pid: str) -> str | None:
             ["wmic", "process", "where", f"ProcessId={pid}", "get", "Name", "/value"],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -236,6 +241,7 @@ def kill_process_by_port(port: int) -> bool:
                     ["taskkill", "/PID", pid, "/F", "/T"],
                     capture_output=True,
                     text=True,
+                    errors="replace",
                     check=False,
                 )
             except (ValueError, FileNotFoundError, OSError):
@@ -251,6 +257,7 @@ def kill_process_by_port(port: int) -> bool:
                             ["taskkill", "/PID", ppid, "/F", "/T"],
                             capture_output=True,
                             text=True,
+                            errors="replace",
                             check=False,
                             timeout=5,
                         )

@@ -93,6 +93,9 @@ vi.mock('@/lib/herald-client', () => ({
     heraldMock.state.accessToken = tokens.accessToken
     heraldMock.state.refreshToken = tokens.refreshToken
   }),
+  // Passthrough: the switch gate itself is covered by the interceptor suites
+  // (real herald-client + MSW); these flow tests only need the op to run.
+  runTokenSwitch: (switchOp: () => Promise<unknown>) => switchOp(),
 }))
 
 // Import mocked modules after vi.mock declarations

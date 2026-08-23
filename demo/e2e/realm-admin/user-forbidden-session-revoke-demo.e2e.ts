@@ -1,9 +1,8 @@
 /**
  * User Forbidden Session Revoke Demo Tests — US-RA-021 (scenarios 1–3)
  *
- * User Story (DRAFT, pre-publish):
- *   `.ai/user-stories/core/kickoff-user.md` — US-RA-021 (P1), scenarios 1–3.
- *   This is a DRAFT user story; citing the draft path, NOT a published fact.
+ * User Story:
+ *   docs/user-stories/core/realm-admin.md — US-RA-021 (故事 20), scenarios 1–3.
  *
  * Scope: when a Realm Admin sets a user's status to Forbidden via the edit-user
  * dialog, the linkage must revoke ALL of that user's active sessions immediately
@@ -16,7 +15,11 @@
  *       :90   dialog title           = `user-edit-dialog-title`
  *       :109  email input (disabled) = `user-edit-email-input`
  *       :119  nickname input         = `user-edit-nickname-input`
- *       :130  status Select          = `user-edit-status-select`
+ *       :130  status Select wrapper   = `user-edit-status-select` — NOTE:
+ *              this testid is forwarded to Radix Select.Root, which renders
+ *              NO DOM element (ui/select.tsx:8-10), so it never appears in
+ *              the DOM; the clickable trigger is the dialog's only
+ *              `[data-slot="select-trigger"]` (see selectUserStatus below).
  *       :162  submit button          = `user-edit-submit-button`
  *       :129  onValueChange={(value) => field.handleChange(Number(value))}
  *             → option values are numeric status codes as strings.
@@ -184,14 +187,12 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
     await test.step('When admin sets the user status to Forbidden', async () => {
       await usersPage.clickEditUser(FORBIDDEN_USER_EMAIL)
 
-      // `fillUserForm({})` is a no-op here (no field changes other than the
-      // status Select, which fillUserForm does not touch). The status Select
-      // is driven directly via its Radix trigger + data-value option so the
-      // choice is locale-independent (select.tsx SelectItem renders
-      // `data-value={props.value}`).
+      // No field changes other than the status Select, so no form fill is
+      // needed; the status Select is driven via its Radix trigger + data-value
+      // option so the choice is locale-independent (see selectUserStatus).
       await selectUserStatus(usersPage, STATUS_FORBIDDEN)
 
-      await usersPage.submitUserForm()
+      await usersPage.submitEditUserForm()
     })
 
     // Primary persistent assertion (NOT a toast): the same protected call now
@@ -210,7 +211,13 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
           data: {
             email: FORBIDDEN_USER_EMAIL,
             password: FORBIDDEN_USER_PASSWORD,
-            client_id: t.clientAppId,
+            // LoginRequestPayload is `#[serde(rename_all = "camelCase")]`
+            // (backend/api-auth/src/login.rs:43-46), so the wire field is
+            // `clientId`. A snake_case `client_id` key would be dropped by
+            // serde, the required field would be missing, and the login would
+            // fail 400 BEFORE the Forbidden-status check — masking the
+            // 401/403 verdict this step asserts.
+            clientId: t.clientAppId,
           },
           headers: { 'content-type': 'application/json' },
         }
@@ -250,10 +257,10 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
     await test.step('When admin changes nickname and sets status to Forbidden', async () => {
       await usersPage.clickEditUser(FORBIDDEN_USER_EMAIL)
 
-      await usersPage.fillUserForm({ nickname: 'forbidden-renamed' })
+      await usersPage.fillEditUserForm({ nickname: 'forbidden-renamed' })
       await selectUserStatus(usersPage, STATUS_FORBIDDEN)
 
-      await usersPage.submitUserForm()
+      await usersPage.submitEditUserForm()
     })
 
     // Primary persistent assertion: 401 — sessions revoked despite the
@@ -289,9 +296,9 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
     await test.step('When admin changes nickname only (status stays Normal)', async () => {
       await usersPage.clickEditUser(FORBIDDEN_USER_EMAIL)
 
-      await usersPage.fillUserForm({ nickname: 'still-normal-renamed' })
+      await usersPage.fillEditUserForm({ nickname: 'still-normal-renamed' })
 
-      await usersPage.submitUserForm()
+      await usersPage.submitEditUserForm()
     })
 
     // Persistent assertion: the session survived the non-Forbidden edit.
@@ -309,7 +316,7 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
 
       await selectUserStatus(usersPage, STATUS_NORMAL)
 
-      await usersPage.submitUserForm()
+      await usersPage.submitEditUserForm()
     })
 
     await test.step('Then the session is still valid (200)', async () => {
@@ -323,13 +330,19 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
 /**
  * Drive the edit-user dialog's status Select to a given numeric status code.
  *
- * The Select is a Radix Select; `select.tsx`'s `SelectItem` renders
- * `data-value={props.value}` on each option, and the trigger lives at
- * `[data-testid="user-edit-status-select"]` (edit-user-dialog.tsx:130). This
- * follows the same pattern as `BasePage.selectRadixOption`
- * (pages/base-page.ts:235-252): click the trigger, wait for the
- * `[data-slot="select-content"]` listbox, then click the option by value.
- * Locale-independent — does not depend on `m['user_status.*']()` labels.
+ * Trigger location note: edit-user-dialog.tsx:130 passes
+ * `data-testid="user-edit-status-select"` to the shadcn `Select` wrapper — but
+ * that wrapper forwards it to Radix's `SelectPrimitive.Root`, which renders NO
+ * DOM element (ui/select.tsx:8-10), so the testid never appears in the DOM.
+ * The rendered, clickable element is the `SelectTrigger`
+ * (`data-slot="select-trigger"`, ui/select.tsx:22-24) — the edit dialog's
+ * status Select is its only trigger.
+ *
+ * Option selection stays locale-independent: `select.tsx`'s `SelectItem`
+ * renders `data-value={props.value}` (ui/select.tsx:141), and the status
+ * options' values are the numeric status codes as strings
+ * (lib/constants/user.ts getUserStatusOptions). Click the trigger, wait for
+ * the `[data-slot="select-content"]` listbox, click the option by value.
  *
  * MUST be called after `usersPage.clickEditUser(email)` has opened the dialog.
  *
@@ -341,7 +354,9 @@ async function selectUserStatus(
   statusCode: string
 ): Promise<void> {
   const page = usersPage.page
-  const trigger = page.locator('[data-testid="user-edit-status-select"]')
+  const editDialog = page.locator('[data-testid="user-edit-dialog"]')
+
+  const trigger = editDialog.locator('[data-slot="select-trigger"]')
   await trigger.click()
 
   const listbox = page.locator('[data-slot="select-content"]')

@@ -893,9 +893,11 @@ BEGIN
     -- `no unique or exclusion constraint matching`). This row is a single-price
     -- subscription mapping; NULLS NOT DISTINCT lets a NULL external_price_id
     -- still match on re-seed.
+    -- provider_product_info must carry price/currency: stripe rows without
+    -- them fail checkout with 422 PriceInfoMissing (multi-currency change).
     INSERT INTO provider_entitlement_mappings (
         id, realm_id, payment_provider, external_product_id, external_price_id,
-        entitlement_key, billing_type, enabled
+        entitlement_key, billing_type, enabled, provider_product_info, synced_at
     ) VALUES (
         uuidv7(),
         '{POINTS_REALM_ID}',
@@ -904,12 +906,24 @@ BEGIN
         NULL,
         'professional',
         'recurring',
-        TRUE
+        TRUE,
+        '{{
+          "name": "Professional",
+          "description": "Professional subscription for realm-001 demo purchase flows",
+          "price": 1999,
+          "currency": "usd",
+          "billing_type": "recurring",
+          "product_metadata": {{}},
+          "price_metadata": {{}}
+        }}'::jsonb,
+        NOW()
     )
     ON CONFLICT (realm_id, payment_provider, external_product_id, external_price_id) DO UPDATE
         SET entitlement_key = EXCLUDED.entitlement_key,
             billing_type = EXCLUDED.billing_type,
-            enabled = TRUE;
+            enabled = TRUE,
+            provider_product_info = EXCLUDED.provider_product_info,
+            synced_at = NOW();
 
     DELETE FROM subscription WHERE client_app_id = v_client_app_id;
 
@@ -1424,9 +1438,11 @@ BEGIN
     -- external_price_id added; ON CONFLICT targets the new 4-column unique key.
     -- Single-price subscription row; NULL external_price_id matches on re-seed
     -- via NULLS NOT DISTINCT.
+    -- provider_product_info must carry price/currency: stripe rows without
+    -- them fail checkout with 422 PriceInfoMissing (multi-currency change).
     INSERT INTO provider_entitlement_mappings (
         id, realm_id, payment_provider, external_product_id, external_price_id,
-        entitlement_key, billing_type, enabled
+        entitlement_key, billing_type, enabled, provider_product_info, synced_at
     ) VALUES (
         uuidv7(),
         '{ADMIN_REALM}',
@@ -1435,12 +1451,24 @@ BEGIN
         NULL,
         'professional',
         'recurring',
-        TRUE
+        TRUE,
+        '{{
+          "name": "Professional",
+          "description": "Professional subscription for admin realm demo flows",
+          "price": 1999,
+          "currency": "usd",
+          "billing_type": "recurring",
+          "product_metadata": {{}},
+          "price_metadata": {{}}
+        }}'::jsonb,
+        NOW()
     )
     ON CONFLICT (realm_id, payment_provider, external_product_id, external_price_id) DO UPDATE
         SET entitlement_key = EXCLUDED.entitlement_key,
             billing_type = EXCLUDED.billing_type,
-            enabled = TRUE;
+            enabled = TRUE,
+            provider_product_info = EXCLUDED.provider_product_info,
+            synced_at = NOW();
 
     DELETE FROM subscription WHERE client_app_id = v_client_app_id;
 

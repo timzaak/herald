@@ -413,8 +413,8 @@ export const test = base.extend<{
    * - Provider product sync (returns {productsSynced, pricesSynced})
    * - Protected-price 409 dialog (Cancel-only) and webhook-unresolved banner
    *
-   * The POM exposes selectProduct/fillPriceRow/saveChanges/sync; see
-   * pages/entitlement-mappings-page.ts for the full method surface.
+   * The POM exposes selectProduct/configureFixedPointRule/saveChanges/sync;
+   * see pages/entitlement-mappings-page.ts for the full method surface.
    */
   entitlementMappingsPage: async ({ page, demoLogger, testStartTime, loginPage }, use) => {
     await verifyTestEnvironment(page, {

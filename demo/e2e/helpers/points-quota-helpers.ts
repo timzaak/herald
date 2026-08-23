@@ -12,7 +12,6 @@ import { SELECTORS } from '../selectors'
 import { makeExtApiRequest } from './ext-api-helper'
 import { loginAsAdmin, loginWithCredentials } from './auth'
 import { registerUser, POINTS_ROUTES } from './points-helpers'
-import { initiatePurchaseFlow } from './unified-purchase.helpers'
 import type { QuotaWindowFixture } from '../fixtures/points-quota.fixtures'
 
 export type { QuotaWindowFixture }
@@ -185,37 +184,6 @@ export async function createEntitlementMappingWithQuotaWindows(
 }
 
 /**
- * Purchase a subscription that is configured with quota windows.
- *
- * This is a thin wrapper around the unified purchase flow. It returns the
- * payment attempt id and waits for the completion step to surface.
- *
- * @param providerHint Payment provider name used by the purchase page
- *                     (e.g. `'stripe'` or `'creem'`).
- */
-export async function purchaseSubscriptionToGetQuota(
-  page: Page,
-  realmId: string,
-  userEmail: string,
-  password: string,
-  providerHint: string,
-): Promise<string> {
-  await loginWithCredentials(page, { realmId, email: userEmail, password })
-  await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-
-  const attemptId = await initiatePurchaseFlow(page, providerHint as 'stripe' | 'creem', realmId)
-
-  // Wait for either the completion step or a provider redirect prompt.
-  await expect(
-    page.locator(SELECTORS.purchasePoints.stepComplete)
-      .or(page.locator(SELECTORS.paymentProviderUI.redirectPrompt))
-      .or(page.locator(SELECTORS.paymentProviderUI.contextDegraded)),
-  ).toBeVisible({ timeout: 15000 })
-
-  return attemptId
-}
-
-/**
  * Consume points through the external API.
  *
  * Thin wrapper around `makeExtApiRequest` for
@@ -305,13 +273,6 @@ export async function getWindowResetsIn(
   if (count === 0) return ''
   const text = (await spans.last().textContent()) || ''
   return text.trim()
-}
-
-export async function getSpendableNow(page: Page): Promise<number> {
-  const el = page.locator(SELECTORS.pointsUsageDashboard.spendableNow)
-  await expect(el).toBeVisible()
-  const text = (await el.textContent()) || ''
-  return parseAmount(text)
 }
 
 /**

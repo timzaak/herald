@@ -28,6 +28,48 @@ export const HERALD_REFRESH_TOKEN_STORAGE_KEY = 'herald.refreshToken'
 let baseUrlOverride: string | null = null
 let active: { realmId: string; client: HeraldClient } | null = null
 
+/**
+ * In-flight first-party client switch (the switch-client HTTP call plus the
+ * local `applyTokenSet`), if any.
+ *
+ * The switch rotates the whole token family server-side, but the SDK's storage
+ * still holds the pre-rotation refresh token until `applyTokenSet` runs — a
+ * window of a few milliseconds. A 401 recovery that runs inside that window
+ * would refresh with the superseded refresh token, which the backend answers
+ * with family revocation and the SDK turns into a session-expired logout —
+ * tearing down the very session the switch just established. The 401
+ * interceptor (`api-client.ts`) therefore awaits `waitForTokenSwitch()` before
+ * refreshing; the switch itself runs inside `runTokenSwitch` so the two can
+ * never interleave.
+ */
+let tokenSwitchInFlight: Promise<unknown> | null = null
+
+/**
+ * Run a token-family switch as one critical section covering BOTH the HTTP
+ * switch and the local `applyTokenSet` — the gate must not open between the
+ * two, or a concurrent 401 recovery could still observe the superseded token.
+ */
+export function runTokenSwitch<T>(switchOp: () => Promise<T>): Promise<T> {
+  const gated = switchOp().finally(() => {
+    if (tokenSwitchInFlight === gated) {
+      tokenSwitchInFlight = null
+    }
+  })
+  tokenSwitchInFlight = gated
+  return gated
+}
+
+/**
+ * Wait for any in-flight client switch to settle. Never rejects: a failed
+ * switch is handled by its caller (`initializeAuth`); waiters just proceed
+ * with whatever tokens are current once the attempt is over.
+ */
+export async function waitForTokenSwitch(): Promise<void> {
+  if (tokenSwitchInFlight) {
+    await tokenSwitchInFlight.catch(() => undefined)
+  }
+}
+
 function handleSessionEvent(event: SessionEvent, client: HeraldClient): void {
   if (event.type === 'session-expired') {
     // Mirror the pre-SDK refresh-failure path: clear the stale token family so

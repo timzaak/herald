@@ -20,6 +20,8 @@ import { PaymentAttemptStatus } from '@/components/purchase/payment-attempt-stat
 import { usePurchaseFlowActions, usePaymentAttempt } from '@/stores/purchase-flow-store'
 import { usePurchaseFlowStore } from '@/stores/purchase-flow-store'
 import { useAuthStore } from '@/stores/auth-store'
+import { initializeAuth } from '@/lib/auth-utils'
+import { USER_ACCOUNT_CENTER_CLIENT_ID } from '@/lib/constants/auth-constants'
 import { PAYMENT_PROVIDERS } from '@/lib/billing-constants'
 import { resolveWechatScene } from '@/lib/wechat-pay-utils'
 import { formatInvoiceAmount } from '@/lib/invoice-utils'
@@ -29,11 +31,17 @@ import { useCurrentSearch, useResolvedRealmId } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
 
 export const Route = createFileRoute('/$realmId/user/purchase-points')({
-  beforeLoad: ({ context, params }) =>
-    requireUserFeature(context.queryClient, (f) => f.user.pointsVisible, {
+  beforeLoad: async ({ context, params }) => {
+    // Route beforeLoads run ahead of the __root loader, so on a cold reload
+    // the feature query below would fire before initializeAuth restores the
+    // Bearer token (401 → route error boundary). Idempotent: short-circuits
+    // once the realm/client is initialized.
+    await initializeAuth(params.realmId, USER_ACCOUNT_CENTER_CLIENT_ID)
+    await requireUserFeature(context.queryClient, (f) => f.user.pointsVisible, {
       to: '/$realmId/user/points',
       params: { realmId: params.realmId },
-    }),
+    })
+  },
   validateSearch: purchasePointsSearchSchema,
   component: PurchasePointsRoute,
 })

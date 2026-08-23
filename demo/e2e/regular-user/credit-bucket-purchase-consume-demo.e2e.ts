@@ -42,15 +42,20 @@
  * key in realm-001. The realm-001 admin carries `points.manage`.
  *
  * Expiry-ordering coverage decision:
- * Earlier-expiry-first consume ordering is a backend guarantee. The seed does
- * NOT set deterministic ledger expiry ordering, but `grantPointsViaExtApi`
- * accepts `validityDays`, so `beforeAll` deterministically grants bucket A
- * (primary-pool) with a SHORTER validity (7 days) and bucket B (promo-pool)
- * with a LONGER validity (365 days). A consume that drains A first and spills
- * into B therefore exercises the earlier-expiry-first path deterministically,
- * and the test asserts A contributed non-zero (and, when both contribute, A
- * appears in `transactions` before B by backend bucket_id ASC sort only when
- * deterministically settable — see step notes).
+ * Earlier-expiry-first consume ordering is a backend guarantee
+ * (`expires_at ASC NULLS LAST, created_at ASC` — see
+ * backend/infra/src/points/postgres_repository.rs::
+ * find_active_ledgers_by_expiration_for_update). The demo seed leaves large,
+ * non-deterministic balances on the buckets (primary-pool carries a 3000
+ * topup with NULL expiry — which drains LAST — plus a 1900 subscription
+ * ledger), so cross-bucket determinism cannot come from seed balances.
+ * Instead: `beforeAll` grants bucket A with a SHORTER validity (7 days) than
+ * bucket B (365 days), which keeps US-CB-007 场景3's small consume inside A
+ * alone; and US-CB-007 场景1 grants its OWN two ledgers with the two
+ * earliest expiries in the covered set (A@1d, then B@2d) and consumes
+ * exactly their sum, so the greedy split — A drained fully, B taking the
+ * spill — is deterministic without any assumption about prior wallet state
+ * (see step notes).
  *
  * Frontend contract verified against:
  * - frontend/src/routes/$realmId/user/purchase-points.tsx (purchase steps).
@@ -81,9 +86,6 @@ import {
   type ApiKeyWithPermission,
 } from '../helpers/grant-points-helpers'
 import { makeExtApiRequest } from '../helpers/ext-api-helper'
-import {
-  initiatePurchaseFlow,
-} from '../helpers/unified-purchase.helpers'
 import { fulfillPayment } from '../helpers/payment-simulation'
 import {
   CREDIT_BUCKET_KEYS,
@@ -112,13 +114,12 @@ const REALM_ADMIN_PASSWORD = 'password'
 const POINTS_DEMO_APP_CLIENT_ID = 'points-demo-app'
 
 /**
- * Grant amounts used to establish a deterministic cross-bucket state.
- *
- * Bucket A (primary-pool) is granted with `validityDays: 7` (earlier expiry),
- * bucket B (promo-pool) with `validityDays: 365` (later expiry). A consume
- * whose amount exceeds A's balance must spill into B — the load-bearing
- * multi-transaction shape — and the earlier-expiry-first ordering means A is
- * drained before B contributes.
+ * `beforeAll` baseline grants. The demo seed leaves large balances on the
+ * demo user (primary-pool: 3000 topup with NULL expiry + 1900 subscription),
+ * so these small grants are NOT meant to be drainable on their own — they
+ * exist so bucket A always holds an active ledger expiring EARLIER than every
+ * bucket-B ledger (7d vs 365d). That ordering is what keeps US-CB-007 场景3's
+ * small consume inside A alone.
  */
 const BUCKET_A_GRANT_AMOUNT = 300
 const BUCKET_A_VALIDITY_DAYS = 7
@@ -126,11 +127,25 @@ const BUCKET_B_GRANT_AMOUNT = 700
 const BUCKET_B_VALIDITY_DAYS = 365
 
 /**
- * Consume amount spanning both buckets (drains A entirely, spills into B).
- * `BUCKET_A_GRANT_AMOUNT` < this < `BUCKET_A_GRANT_AMOUNT + BUCKET_B_GRANT_AMOUNT`
- * guarantees both buckets contribute (transactions.length >= 2).
+ * Cross-bucket split for US-CB-007 场景1 (TEST_DATA_ASSUMPTION fix).
+ *
+ * A fixed 500 consume can no longer be assumed to span two buckets: the seed
+ * alone leaves ~3300 spendable on primary-pool, and the greedy allocation
+ * orders ledgers `expires_at ASC NULLS LAST` (A's NULL-expiry topup drains
+ * LAST), so "consume everything A holds first" is not reachable with a fixed
+ * amount. Instead the scenario grants its OWN two ledgers with the two
+ * earliest expiries in the covered set and consumes exactly their sum:
+ *
+ *   bucket A grant, validityDays 1 (earliest expiry)  → drained fully first
+ *   bucket B grant, validityDays 2 (second-earliest)  → takes the spill
+ *
+ * Both grants are fully consumed by the scenario, so later scenarios (场景3's
+ * single-bucket consume) are unaffected regardless of accumulated wallet
+ * state.
  */
-const CROSS_BUCKET_CONSUME_AMOUNT = 500
+const CROSS_SPLIT_A_GRANT = 300 // bucket A (primary-pool), validityDays 1
+const CROSS_SPLIT_B_GRANT = 200 // bucket B (promo-pool), validityDays 2
+const CROSS_BUCKET_CONSUME_AMOUNT = CROSS_SPLIT_A_GRANT + CROSS_SPLIT_B_GRANT // 500
 
 // ============================================================================
 // In-file consume helper (US-CB-007)
@@ -321,9 +336,16 @@ test.beforeAll(async ({ browser }) => {
 
     // 4. Resolve the `points-demo-app` client app UUID (covered by both
     //    buckets; consume takes the UUID, not the client_id string). Reuse a
-    //    fresh admin bearer context (the prior one was disposed).
+    //    fresh admin bearer context (the prior one was disposed). The SAME
+    //    context must stay alive through steps 5/5b below: these admin APIs
+    //    are Bearer-only, and `createTestApiKeyWithPermission` defaults its
+    //    requestContext to `page.context().request`, which carries cookies
+    //    only and would 401 "missing bearer token". It is passed explicitly
+    //    to both mint calls and disposed only after BOTH keys exist.
     const clientAdminApi = await createAdminBearerContext(page, TEST_REALM)
     let coveredClientAppId = ''
+    let apiKey: ApiKeyWithPermission
+    let uncoveredApiKey: ApiKeyWithPermission
     try {
       const clientAppResponse = await clientAdminApi.get(
         `${backendUrl}/api/client/${TEST_REALM}`,
@@ -339,53 +361,59 @@ test.beforeAll(async ({ browser }) => {
         )
         coveredClientAppId = demoApp?.id ?? ''
       }
+      if (!coveredClientAppId) {
+        throw new Error(
+          `[DE-D04 beforeAll] Could not resolve client app UUID for ` +
+            `${POINTS_DEMO_APP_CLIENT_ID} in ${TEST_REALM}.`,
+        )
+      }
+
+      // 5. Mint a realm-001 API key with points.manage. Bind the key to the
+      //    seeded `points-demo-app` UUID so consume's
+      //    ensure_client_app_scope check (key's bound app == consume target)
+      //    passes — otherwise 场景1/2/3 hit a 403 from the client_app scope
+      //    layer instead of reaching the real consume logic. The 6th arg
+      //    (requestContext) is the Bearer admin context — see the step-4 note.
+      apiKey = await createTestApiKeyWithPermission(
+        page,
+        'points.manage',
+        setupStartTime,
+        TEST_REALM,
+        coveredClientAppId,
+        clientAdminApi,
+      )
+
+      // 5b. A key bound to a client app with NO bucket coverage, for the
+      //     US-CB-007 场景2 no_covered_pool sub-case. Default helper path
+      //     creates a fresh grant-test-app-${suffix} that no bucket covers;
+      //     binding the key to it lets consume's ensure_client_app_scope pass
+      //     so the request reaches the real no_covered_pool logic (→ 409),
+      //     instead of the client_app-scope 403. Distinct suffix avoids
+      //     client_id collision with the covered key's resources. Same Bearer
+      //     requestContext as step 5.
+      uncoveredApiKey = await createTestApiKeyWithPermission(
+        page,
+        'points.manage',
+        setupStartTime + 1,
+        TEST_REALM,
+        '',
+        clientAdminApi,
+      )
     } finally {
       await clientAdminApi.dispose().catch(() => {})
     }
-    if (!coveredClientAppId) {
-      throw new Error(
-        `[DE-D04 beforeAll] Could not resolve client app UUID for ` +
-          `${POINTS_DEMO_APP_CLIENT_ID} in ${TEST_REALM}.`,
-      )
-    }
 
-    // 5. Mint a realm-001 API key with points.manage. Bind the key to the
-    //    seeded `points-demo-app` UUID so consume's
-    //    ensure_client_app_scope check (key's bound app == consume target)
-    //    passes — otherwise 场景1/2/3 hit a 403 from the client_app scope
-    //    layer instead of reaching the real consume logic.
-    const apiKey = await createTestApiKeyWithPermission(
-      page,
-      'points.manage',
-      setupStartTime,
-      TEST_REALM,
-      coveredClientAppId,
-    )
-
-    // 5b. A key bound to a client app with NO bucket coverage, for the
-    //     US-CB-007 场景2 no_covered_pool sub-case. Default helper path
-    //     creates a fresh grant-test-app-${suffix} that no bucket covers;
-    //     binding the key to it lets consume's ensure_client_app_scope pass
-    //     so the request reaches the real no_covered_pool logic (→ 409),
-    //     instead of the client_app-scope 403. Distinct suffix avoids
-    //     client_id collision with the covered key's resources.
-    const uncoveredApiKey = await createTestApiKeyWithPermission(
-      page,
-      'points.manage',
-      setupStartTime + 1,
-      TEST_REALM,
-    )
-
-    // 6. Establish a deterministic cross-bucket state via the ext-API grant.
-    //    Bucket A (primary-pool) is granted with a SHORT validity so its
-    //    ledger expires earlier; bucket B (promo-pool) with a LONG validity.
-    //    This makes the earlier-expiry-first consume ordering deterministic
-    //    (see expiry-ordering coverage decision at the top of this file).
+    // 6. Baseline cross-bucket grants via the ext-API grant. Bucket A
+    //    (primary-pool) is granted with a SHORT validity so its ledger
+    //    expires earlier than every bucket-B ledger; bucket B (promo-pool)
+    //    with a LONG validity. US-CB-007 场景3 relies on this: its small
+    //    consume must stay inside A alone (see expiry-ordering coverage
+    //    decision at the top of this file). 场景1 does NOT rely on these
+    //    balances — it grants its own earliest-expiry ledgers in-test.
     //
-    //    Re-grants are additive across re-runs; the consume tests read the
-    //    live response, so accumulation does not break the assertions (the
-    //    cross-bucket shape + correlation + reconciliation hold regardless of
-    //    the absolute balance, as long as both buckets hold >= 1 credit).
+    //    Re-grants are additive across re-runs; 场景1/场景3 read only
+    //    scenario-local or relative state, so accumulation does not break the
+    //    assertions (as long as bucket A holds >= 场景3's SMALL_AMOUNT).
     const grantA = await grantPointsViaExtApi(apiKey.apiKey, TEST_REALM, {
       userId: demoUserId,
       amount: BUCKET_A_GRANT_AMOUNT,
@@ -482,18 +510,18 @@ test.describe('[Regular User / SDK] 购买 Bucket 套餐与跨池消费 (US-CB-0
 
     // The purchase page renders a price-card grid (`purchase-price-card-${priceId}`,
     // priceId = externalPriceId ?? mappingId) instead of the legacy
-    // entitlement-key-grouped `mapping-card-{entitlementKey}` cards. The
-    // credit-bucket seed no longer exposes
-    // a stable entitlement-key testid; the previous `credits-1000` key was an
-    // entitlement key, not a priceId. US-CB-004 intent — "purchase an assigned
-    // mapping credits the bound bucket" — does NOT depend on which specific
-    // mapping is purchased: every mapping is assigned to a bucket by design
-    // (migration 20260607_product_reduce.sql makes provider_entitlement_mappings
-    // .bucket_id NOT NULL; PUT detach is rejected). We therefore select the
-    // FIRST purchasable price card in the Monthly pane (one_time cards are
-    // period-agnostic and render here), drive the checkout inline, and assert
-    // the primary-pool balance increased — exactly the load-bearing
-    // persistent-state assertion.
+    // entitlement-key-grouped `mapping-card-{entitlementKey}` cards. US-CB-004
+    // intent — "purchase an assigned mapping credits the bound bucket" — is
+    // asserted on the persistent bucket balance, but the FIRST card cannot be
+    // used blindly: it is the Professional subscription card, whose mapping
+    // carries NO points distribution rules (pointRules: []), and the current
+    // step machine skips the payment step for single-provider prices and
+    // redirects the tab to the Stripe hosted checkout (see the When-step
+    // notes). We therefore pin a credit-pack card whose distribution rules
+    // credit primary-pool, capture the payment attempt from the API response,
+    // block the hosted-checkout redirect, fulfill via the internal endpoint,
+    // and assert the primary-pool balance increased — exactly the
+    // load-bearing persistent-state assertion.
     let balanceBefore = 0
 
     await test.step('Given: 读取绑定 Bucket 购买前的余额', async () => {
@@ -510,92 +538,141 @@ test.describe('[Regular User / SDK] 购买 Bucket 套餐与跨池消费 (US-CB-0
     let attemptId = ''
 
     await test.step('When: 购买已归属 mapping 并模拟支付成功', async () => {
-      // Card-selection uses the price-card grid (migrated from the legacy
-      // `mappingCard.card(targetEntitlementKey)`). We pick the first
-      // purchasable card across both sections (Subscriptions month grid +
-      // Credit packs grid), skipping any disabled card with a `-reason` row.
-      // The page resolves the checkout mappingId from the clicked option, so we
-      // do not pin it here.
+      // Current step machine (purchase-points.tsx, since 533ec22d/a71c72a4):
+      // when the selected price's provider resolves to at most one matching
+      // provider, clicking Next on the packages step fires the payment attempt
+      // DIRECTLY (the `purchase-step-payment` step never renders), and when
+      // the attempt response carries a hosted checkout URL the tab is
+      // redirected same-tab to the provider host (`window.location.href`).
+      // realm-001 wires exactly one stripe provider, so every stripe card
+      // takes that path. Block the Stripe host navigation so the browser
+      // never actually loads the external checkout (the abort leaves an
+      // ERR_ABORTED error document, which our deliberate ?attemptId
+      // navigation in the Then step replaces), and capture the attempt id
+      // NODE-side via a route handler (see the attempt capture below).
+      await page.route('https://checkout.stripe.com/**', (route) =>
+        route.abort(),
+      )
+
       await page.evaluate(() =>
         localStorage.removeItem('cas-purchase-flow'),
       )
+
+      // Attach the purchase-options listener BEFORE the navigation that
+      // triggers the request: the fetch fires once during page mount and
+      // completes quickly, so a listener attached after `goto` races (and
+      // typically loses against) an already-finished response. Same
+      // register-before-act pattern as the attempt-response capture below.
+      const optionsResponsePromise = page.waitForResponse(
+        (resp) =>
+          resp.url().includes('/purchase-options') &&
+          resp.request().method() === 'GET' &&
+          resp.status() === 200,
+      )
       await page.goto(`/${TEST_REALM}/user/purchase-points`)
       await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
+      const optionsResponse = await optionsResponsePromise
 
-      // Union the Subscriptions (month) grid and the Credit packs grid so a
-      // one_time-only realm still resolves.
-      const cards = page
-        .locator(
-          `${SELECTORS.purchasePriceCard.priceGrid('month')}, ${SELECTORS.purchasePriceCard.creditPacksGrid}`,
-        )
-        .locator('[data-testid^="purchase-price-card-"]')
-      await expect(cards.first()).toBeVisible({ timeout: 10000 })
-
-      const cardCount = await cards.count()
-      let clickedPriceId: string | null = null
-      for (let i = 0; i < cardCount; i++) {
-        const card = cards.nth(i)
-        const testid = (await card.getAttribute('data-testid')) ?? ''
-        if (testid.endsWith('-reason')) continue
-        const reason = card.locator(`[data-testid="${testid}-reason"]`)
-        if ((await reason.count()) > 0) continue // disabled card
-        await card.click()
-        // Card testid is period-invariant under the section IA (no `-annual`).
-        clickedPriceId = testid.replace(/^purchase-price-card-/, '')
-        break
-      }
+      // PINNED CARD: resolve a stripe option whose pointRules actually credit
+      // primary-pool (the seeded `demo-multi-wallet-topup` credit pack:
+      // 120 → primary-pool + 80 → promo-pool) from the purchase-options
+      // response. priceId = externalPriceId ?? mappingId; the card testid is
+      // `purchase-price-card-${priceId}`.
+      const options = ((await optionsResponse.json()) as {
+        items?: Array<{
+          mappingId: string
+          externalPriceId?: string | null
+          paymentProvider: string
+          pointRules?: Array<{ bucketId: string }>
+        }>
+      }).items
+      const credited = (options ?? []).find(
+        (o) =>
+          o.paymentProvider === 'stripe' &&
+          (o.pointRules ?? []).some(
+            (rule) => rule.bucketId === primaryPoolBucketId,
+          ),
+      )
       expect(
-        clickedPriceId,
-        'a purchasable price card must exist in the Subscriptions month or Credit packs grid',
-      ).not.toBeNull()
+        credited,
+        'a stripe price card with a points rule bound to primary-pool must exist',
+      ).toBeTruthy()
 
-      await expect(
-        page.locator(SELECTORS.purchasePoints.nextButton),
-      ).toBeEnabled()
-      await page.locator(SELECTORS.purchasePoints.nextButton).click()
+      const priceId = credited!.externalPriceId ?? credited!.mappingId
+      const card = page.locator(SELECTORS.purchasePriceCard.priceCard(priceId))
+      await expect(card).toBeVisible({ timeout: 10000 })
+      await card.click()
 
-      await expect(
-        page.locator(SELECTORS.purchasePoints.stepPayment),
-      ).toBeVisible()
-
-      // Select stripe and proceed to processing.
-      await page.locator(SELECTORS.paymentMethodSelector.select('stripe')).click()
-      await expect(
-        page.locator(SELECTORS.paymentMethodSelector.selected('stripe')),
-      ).toBeVisible()
-      await expect(
-        page.locator(SELECTORS.purchasePoints.nextButton),
-      ).toBeEnabled()
-      await page.locator(SELECTORS.purchasePoints.nextButton).click()
-
-      await expect(
-        page.locator(SELECTORS.purchasePoints.stepProcessing),
-      ).toBeVisible({ timeout: 10000 })
-
-      // Extract the attempt id from localStorage (mirrors
-      // extractPaymentAttemptId in unified-purchase.helpers).
-      await page.waitForTimeout(2000)
-      attemptId = await page.evaluate(() => {
-        const state = localStorage.getItem('cas-purchase-flow')
-        if (state) {
-          const parsed = JSON.parse(state)
-          return parsed?.state?.attemptId ?? ''
+      // Single-provider price → Next fires createPaymentAttempt immediately
+      // (see the step-machine note above). The attempt id is captured
+      // NODE-side with a route handler — the only capture approach immune to
+      // the same-tab redirect: the browser's buffered response body is
+      // evicted once the redirect navigation starts (a deferred resp.json()
+      // fails with "Network.getResponseBody: No resource with given
+      // identifier found"), and after the aborted redirect the document is
+      // an ERR_ABORTED error page whose localStorage is unreadable. The
+      // handler proxies the real request (route.fetch) and fulfills the
+      // page with the untouched response, so frontend behavior — including
+      // the subsequent redirect — is unchanged. Glob note: the pattern only
+      // matches the exact POST path, not the per-attempt status polling
+      // (`.../payment-attempts/{attemptId}`), so polling is not intercepted.
+      let createdAttemptId = ''
+      await page.route('**/purchase/payment-attempts', async (route) => {
+        const resp = await route.fetch()
+        if (resp.status() === 201) {
+          try {
+            createdAttemptId = ((await resp.json()) as { id: string }).id
+          } catch {
+            // Leave empty — the expect.poll below fails loudly if the id
+            // never arrives.
+          }
         }
-        return ''
+        await route.fulfill({ response: resp })
       })
+
+      try {
+        await expect(
+          page.locator(SELECTORS.purchasePoints.nextButton),
+        ).toBeEnabled()
+        await page.locator(SELECTORS.purchasePoints.nextButton).click()
+
+        // The route handler resolves the id the moment the POST completes;
+        // the (aborted) redirect that follows cannot disturb it.
+        await expect
+          .poll(() => createdAttemptId, { timeout: 15000 })
+          .toBeTruthy()
+      } finally {
+        await page.unroute('**/purchase/payment-attempts')
+      }
+      attemptId = createdAttemptId
       expect(attemptId, 'payment attempt id must be created').toBeTruthy()
 
-      // Fulfill the payment via the internal fulfillment endpoint.
+      // Fulfill the payment via the internal fulfillment endpoint (the
+      // webhook equivalent): it applies the mapping's points distribution
+      // rules to the bound buckets.
       const fulfillResult = await fulfillPayment(request, TEST_REALM, attemptId)
       expect(
         fulfillResult.success,
         `payment fulfillment failed: ${fulfillResult.error ?? ''}`,
       ).toBe(true)
+      // API-side proof that the purchase credited the bound bucket (asserted
+      // again on the persistent bucket balance in the Then step).
+      expect(
+        (fulfillResult.pointGrants ?? []).filter(
+          (g) => g.bucketId === primaryPoolBucketId,
+        ).length,
+        'fulfillment must grant points into the bound bucket (primary-pool)',
+      ).toBeGreaterThan(0)
     })
 
     await test.step('Then: 购买完成步骤展示且绑定 Bucket 余额增加', async () => {
-      // Return to the purchase page to observe the complete step (the
-      // fulfillment is async; the page polls and transitions).
+      // Resume the purchase page the way the provider bounce does
+      // (`?attemptId=...`): the page re-enters the processing step, polls the
+      // attempt, observes the fulfilled (Succeeded) status, and renders the
+      // complete step.
+      await page.goto(
+        `/${TEST_REALM}/user/purchase-points?attemptId=${attemptId}`,
+      )
       await expect(
         page.locator(SELECTORS.purchasePoints.stepComplete),
       ).toBeVisible({ timeout: 20000 })
@@ -713,6 +790,33 @@ test.describe('[Regular User / SDK] 购买 Bucket 套餐与跨池消费 (US-CB-0
       body: ConsumePointsResponse | ConsumeErrorBody | unknown
     }
 
+    await test.step('Given: 发放本场景专属的最早过期 ledger (A@1d 先于 B@2d)', async () => {
+      // Deterministic cross-bucket setup (TEST_DATA_ASSUMPTION fix): the seed
+      // alone leaves ~3300 spendable on primary-pool, so a fixed 500 consume
+      // never spills out of A. Grant the scenario's OWN two ledgers with the
+      // two earliest expiries in the covered set — A@1d, then B@2d — so the
+      // greedy expiry-first allocation drains A fully and spills into B,
+      // regardless of accumulated balances. Both grants are fully consumed
+      // below, so later scenarios are unaffected.
+      const grantA = await grantPointsViaExtApi(apiKey.apiKey, TEST_REALM, {
+        userId: demoUserId,
+        amount: CROSS_SPLIT_A_GRANT,
+        reason: 'DE-D04 US-CB-007 场景1: bucket A earliest-expiry grant',
+        bucketId: primaryPoolBucketId,
+        validityDays: 1,
+      })
+      expect(grantA.status, 'scenario bucket-A grant must succeed').toBe(200)
+
+      const grantB = await grantPointsViaExtApi(apiKey.apiKey, TEST_REALM, {
+        userId: demoUserId,
+        amount: CROSS_SPLIT_B_GRANT,
+        reason: 'DE-D04 US-CB-007 场景1: bucket B second-earliest grant',
+        bucketId: promoPoolBucketId,
+        validityDays: 2,
+      })
+      expect(grantB.status, 'scenario bucket-B grant must succeed').toBe(200)
+    })
+
     await test.step('When: SDK 跨池消费 amount 横跨两个 Bucket', async () => {
       response = await consumePointsViaExtApi(apiKey.apiKey, TEST_REALM, {
         userId: demoUserId,
@@ -805,13 +909,12 @@ test.describe('[Regular User / SDK] 购买 Bucket 套餐与跨池消费 (US-CB-0
       ).toEqual([])
     })
 
-    await test.step('Then: 更早过期的 Bucket (A=primary-pool) 贡献非零', async () => {
-      // Expiry-ordering coverage decision: the seed does NOT set deterministic
-      // expiry, but `beforeAll` granted bucket A with validityDays=7 (earlier
-      // expiry) and bucket B with validityDays=365. The consume amount
-      // (CROSS_BUCKET_CONSUME_AMOUNT=500) exceeds A's grant (300), so A is
-      // drained first and B contributes the remainder. The earlier-expiry-first
-      // guarantee therefore produces a non-zero A contribution deterministically.
+    await test.step('Then: 更早过期的 Bucket (A=primary-pool) 整笔扣完后溢出到 B', async () => {
+      // Expiry-ordering coverage decision: the scenario's A@1d grant is the
+      // earliest-expiry ledger in the covered set and B@2d the second, so the
+      // greedy expiry-first allocation drains A fully before B contributes
+      // the spill — deterministically, without assuming anything about seed
+      // balances.
       const aContribution = body.transactions
         .filter((tx) => tx.bucketId === primaryPoolBucketId)
         .reduce((acc, tx) => acc + tx.amount, 0)
@@ -820,8 +923,17 @@ test.describe('[Regular User / SDK] 购买 Bucket 套餐与跨池消费 (US-CB-0
         'earlier-expiry bucket A (primary-pool) must contribute non-zero',
       ).toBeGreaterThan(0)
 
-      // A's contribution equals its entire grant (consume amount > A grant).
-      expect(aContribution).toBe(BUCKET_A_GRANT_AMOUNT)
+      // A's contribution equals its entire scenario grant (the consume
+      // amount spans both scenario grants exactly).
+      expect(aContribution).toBe(CROSS_SPLIT_A_GRANT)
+
+      const bContribution = body.transactions
+        .filter((tx) => tx.bucketId === promoPoolBucketId)
+        .reduce((acc, tx) => acc + tx.amount, 0)
+      expect(
+        bContribution,
+        'the spill must land in the later-expiry bucket B (promo-pool)',
+      ).toBe(CROSS_SPLIT_B_GRANT)
     })
   })
 

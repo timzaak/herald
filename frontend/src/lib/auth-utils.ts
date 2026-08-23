@@ -34,6 +34,7 @@ import {
   bindHeraldClientId,
   ensureHeraldClient,
   getActiveHeraldClient,
+  runTokenSwitch,
 } from '@/lib/herald-client'
 import {
   ADMIN_WEB_CONSOLE_CLIENT_ID,
@@ -283,11 +284,19 @@ export async function initializeAuth(
 
     if (authStatus.authenticated && authStatus.clientId !== targetClientId) {
       try {
-        const tokenSet = await switchFirstPartyClient(targetClientId)
-        applyTokenSet({
-          accessToken: tokenSet.accessToken,
-          refreshToken: tokenSet.refreshToken,
-          clientId: tokenSet.clientId,
+        // The switch rotates the token family server-side while layout-level
+        // queries may still be in flight with the old access token. Run the
+        // switch + applyTokenSet as one critical section so their 401 recovery
+        // waits for the new tokens instead of refreshing with the superseded
+        // refresh token (which would revoke the family and log the just-
+        // rotated session out).
+        await runTokenSwitch(async () => {
+          const tokenSet = await switchFirstPartyClient(targetClientId)
+          applyTokenSet({
+            accessToken: tokenSet.accessToken,
+            refreshToken: tokenSet.refreshToken,
+            clientId: tokenSet.clientId,
+          })
         })
         ;({ authStatus, userPermissions, userProfile } = await fetchAuthData())
       } catch (error) {

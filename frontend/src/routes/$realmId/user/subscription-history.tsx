@@ -11,17 +11,25 @@ import {
   purchaseHistoryQueryOptions,
   requireUserFeature,
 } from '@/data/query-options'
+import { initializeAuth } from '@/lib/auth-utils'
+import { USER_ACCOUNT_CENTER_CLIENT_ID } from '@/lib/constants/auth-constants'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import type { PurchaseHistoryItem } from '@/lib/api-generated'
 import { m } from '@/paraglide/messages'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 
 export const Route = createFileRoute('/$realmId/user/subscription-history')({
-  beforeLoad: ({ context, params }) =>
-    requireUserFeature(context.queryClient, (f) => f.user.pointsVisible, {
+  beforeLoad: async ({ context, params }) => {
+    // Route beforeLoads run ahead of the __root loader, so on a cold reload
+    // the feature query below would fire before initializeAuth restores the
+    // Bearer token (401 → route error boundary). Idempotent: short-circuits
+    // once the realm/client is initialized.
+    await initializeAuth(params.realmId, USER_ACCOUNT_CENTER_CLIENT_ID)
+    await requireUserFeature(context.queryClient, (f) => f.user.pointsVisible, {
       to: '/$realmId/user/profile',
       params: { realmId: params.realmId },
-    }),
+    })
+  },
   component: PurchaseRecordsRoute,
 })
 

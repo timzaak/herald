@@ -357,6 +357,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
           ).toBe(true)
         }
       } finally {
+        await admin.request.dispose()
         await admin.ctx.close()
       }
     })
@@ -545,6 +546,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
           'manual-granted permission must survive the cancel webhook (source isolation)',
         ).toBe(true)
       } finally {
+        await admin.request.dispose()
         await admin.ctx.close()
       }
     })
@@ -588,6 +590,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
           ).toBe(true)
         }
       } finally {
+        await admin.request.dispose()
         await admin.ctx.close()
       }
     })
@@ -1026,10 +1029,14 @@ async function fulfillAndCaptureSubscription(
 
 /**
  * Create an admin-authenticated API request context by spinning up a dedicated
- * browser context, logging in as the realm admin, and exposing its
- * `request` (which inherits the X-Auth session cookie). The caller MUST close
- * the returned `ctx` (typically in a `finally` block). Mirrors DE-D01's
- * beforeAll admin-context pattern.
+ * browser context, logging in as the realm admin, and minting a standalone
+ * Bearer-authenticated API context from the admin access token (the same
+ * pattern this file's beforeAll uses). Since commit f3b8d48a the frontend uses
+ * the browser Bearer token model — the token lives in localStorage
+ * (`auth-storage`) and NO session cookie is ever set — so the browser context's
+ * own `request` would reach the backend WITHOUT credentials (401 "missing
+ * bearer token"). The caller MUST dispose the returned `request` AND close the
+ * returned `ctx` (typically in a `finally` block).
  *
  * The admin PUT (roles.manage) + admin GET user-roles (users.view) require an
  * admin session; the test's `page` holds the regular user's session.
@@ -1042,14 +1049,16 @@ async function createAdminRequest(
   const adminLogger = new UnifiedLogger(adminPage, 'DE-D02 admin-request')
   const loginPage = new LoginPage(adminPage, adminLogger)
   await loginPage.loginAsAdmin(REALM_ADMIN_EMAIL, REALM_ADMIN_PASSWORD, TEST_REALM)
-  return { ctx, request: ctx.request }
+  const request = await createBearerApiContext(loginPage.getAccessToken())
+  return { ctx, request }
 }
 
 /**
  * Manually grant a SET of roles to a user via the admin PUT endpoint
- * (`PUT /api/users/{realmId}/{userId}/roles`, body `{ roleIds }`). Requires an
- * admin-authenticated `request` context (see `createAdminRequest`). Returns
- * true on success.
+ * (`PUT /api/users/{realmId}/{userId}/roles`, body `{ roleIds }`). Requires a
+ * Bearer-authenticated admin `request` context (see `createAdminRequest`).
+ * Returns true on success; THROWS (with status + body) on a non-2xx response
+ * so an auth failure fails loud instead of a bare false at the assertion.
  *
  * NOTE: replace_user_roles REPLACES the user's roles for client_id=
  * 'admin-web-console' (its DELETE is scoped to that client_id), writing rows
@@ -1067,20 +1076,33 @@ async function manuallyGrantRoles(
     `${backendBaseUrl()}/api/users/${realmId}/${userId}/roles`,
     { headers: { 'Content-Type': 'application/json' }, data: { roleIds } },
   )
-  return resp.ok()
+  if (!resp.ok()) {
+    const body = await resp.text().catch(() => '')
+    throw new Error(
+      `manual role grant via admin PUT failed for ${realmId}/${userId}: ${resp.status()} ${body}`,
+    )
+  }
+  return true
 }
 
 /** Read a user's assigned role ids via the admin GET user-roles endpoint.
- * Requires an admin-authenticated `request` context. */
+ * Requires a Bearer-authenticated admin `request` context (see
+ * `createAdminRequest`). Fails LOUD on transport errors and non-2xx responses:
+ * silently returning [] here masked a 401 (pre-Bearer fix) and made both the
+ * baseline-cleanup PUT and the sub-flow B role union no-ops built on a false
+ * empty baseline. */
 async function readUserRoles(
   request: APIRequestContext,
   realmId: string,
   userId: string,
 ): Promise<string[]> {
-  const resp = await request
-    .get(`${backendBaseUrl()}/api/users/${realmId}/${userId}/roles`)
-    .catch(() => null)
-  if (!resp || !resp.ok()) return []
+  const resp = await request.get(`${backendBaseUrl()}/api/users/${realmId}/${userId}/roles`)
+  if (!resp.ok()) {
+    const body = await resp.text().catch(() => '')
+    throw new Error(
+      `admin GET user-roles failed for ${realmId}/${userId}: ${resp.status()} ${body}`,
+    )
+  }
   const body = await resp.json()
   // ApiResult<UserRolesResponse> → { ok, data: { roles: [{ id, name, description }] } }
   // Tolerate bare-array / items shapes too.

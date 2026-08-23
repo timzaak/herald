@@ -15,7 +15,7 @@
  * Test Scenarios:
  * 1. Configure Stripe (Payment Providers page)
  * 2. Sync Stripe Products & View Entitlement Mappings
- * 3. Configure Entitlement Mapping (set entitlement key, points policy)
+ * 3. Configure Entitlement Mapping (read provider-owned key, set points policy)
  * 4. Stripe Checkout Flow (API-level verification via entitlement key)
  * 5. Handle Checkout Failure (invalid entitlement key)
  * 6. View Subscription History (Stripe events)
@@ -26,6 +26,7 @@ import { verifyTestEnvironment } from '../helpers/environment-setup'
 import type { UnifiedLogger } from '../helpers/unified-logger'
 import { createBearerApiContext, DEMO_ADMIN } from '../helpers/auth'
 import { EntitlementMappingsPage } from '../pages/entitlement-mappings-page'
+import { SELECTORS } from '../selectors'
 import { randomUUID } from 'crypto'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
@@ -140,12 +141,29 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
   // Scenario 3: Configure Entitlement Mapping (US-BI-004)
   // The old detail dialog is gone; configuration happens inline in the
   // right-hand detail panel via the EntitlementMappingsPage POM
-  // (selectProduct → fillPriceRow → saveChanges).
+  // (selectProduct → configureFixedPointRule → saveChanges).
+  //
+  // Current contract (frontend/src/components/billing/
+  // entitlement-mappings-page.tsx, since commit 2ef33cc8): the entitlement
+  // key is provider-owned and permanently read-only in the detail panel, and
+  // the batch update DTO has no entitlementKey field. Operators only
+  // configure the points policy through the PointDistributionRuleEditor on
+  // each price row — the same surface driven by
+  // multiple-price-entitlement-mapping-demo.e2e.ts S2.
   // ============================================================================
 
   test.describe('Scenario 3: Configure Entitlement Mapping', () => {
+    // Deterministic fixture: the demo seed (scripts/lib/demo_seed.py
+    // `_ensure_subscription_history_demo_data`) guarantees a stripe mapping
+    // for `test-product-subscription` with entitlement key `professional` in
+    // the admin realm. Its external_price_id is NULL, so the price-edit-row
+    // testid suffix is the (dynamic) mapping id — resolved from the DOM below.
+    const SEED_PRODUCT_ID = 'test-product-subscription'
+    const SEED_ENTITLEMENT_KEY = 'professional'
+    const SEED_POINT_RULE_AMOUNT = 1000
+
     test('should configure entitlement key and points policy on a mapping via master-detail', async ({ page, loginPage, demoLogger }) => {
-      const entitlementKey = `test-entitlement-${testStartTime}`
+      const mappingsPage = new EntitlementMappingsPage(page, demoLogger)
 
       await test.step('Given: 管理员已登录并配置 Stripe', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', DEMO_ADMIN.realmId)
@@ -167,62 +185,60 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
       })
 
       await test.step('When: 导航到 Entitlement Mappings 页面 (master-detail)', async () => {
-        const mappingsPage = new EntitlementMappingsPage(page, demoLogger)
         await mappingsPage.goto(DEMO_ADMIN.realmId)
         await demoLogger.testCode.log('Entitlement mappings page loaded (master-detail)')
       })
 
-      await test.step('When: 选择第一个 product 打开 detail panel', async () => {
-        const mappingsPage = new EntitlementMappingsPage(page, demoLogger)
+      await test.step('When: 选择种子 product 打开 detail panel', async () => {
         await mappingsPage.waitForDataLoaded()
 
-        const hasMappings = !(await mappingsPage.isListEmpty())
-        if (!hasMappings) {
-          await demoLogger.testCode.log('No mappings to configure — skipping detail panel test')
-          return
-        }
+        // Fail loud when the seeded mapping is missing. An earlier revision
+        // returned early on an empty list here, which made this scenario
+        // silently pass in unseeded environments and hid the readonly-key
+        // regression behind a skip branch.
+        await expect(
+          page.locator(SELECTORS.multiPriceMapping.mappingProductRow(SEED_PRODUCT_ID)),
+          `seeded mapping product ${SEED_PRODUCT_ID} must exist (demo seed required)`,
+        ).toBeVisible()
 
-        // Select the first product row; the detail panel mounts on the right.
-        await mappingsPage.selectFirstProduct()
+        await mappingsPage.selectProduct(SEED_PRODUCT_ID)
         await expect(mappingsPage.mappingDetailPanel).toBeVisible()
         await expect(mappingsPage.detailHead).toBeVisible()
-        await demoLogger.testCode.log('Detail panel opened for first product')
+        await demoLogger.testCode.log(`Detail panel opened for seeded product ${SEED_PRODUCT_ID}`)
       })
 
-      await test.step('When: 设置第一个 price 行的 entitlement key 和 points 策略', async () => {
-        const mappingsPage = new EntitlementMappingsPage(page, demoLogger)
-        const panelVisible = await mappingsPage.mappingDetailPanel.isVisible().catch(() => false)
-        if (!panelVisible) return
-
-        // The first price-edit-row inside the detail panel. Its testid suffix
-        // is externalPriceId (Stripe) or mappingId (Creem NULL-price); we don't
-        // know which here, so resolve the first row generically.
+      await test.step('When: 校验只读 entitlement key 并配置 points 策略', async () => {
+        // The seed row is the product's only price; its testid suffix is the
+        // dynamic mapping id (NULL external_price_id fallback — Creem
+        // NULL-price rows use the same rule), so resolve it generically.
         const firstPriceRow = mappingsPage.mappingDetailPanel.locator('[data-testid^="price-edit-row-"]').first()
         await expect(firstPriceRow).toBeVisible()
         const testid = (await firstPriceRow.getAttribute('data-testid')) || ''
         const priceKey = testid.replace(/^price-edit-row-/, '')
 
-        await mappingsPage.fillPriceRow(priceKey, {
-          entitlementKey,
-          pointsPerPeriod: 1000,
-        })
-        await demoLogger.testCode.log(`Price row ${priceKey} configured (key=${entitlementKey})`)
+        // The entitlement key is provider-owned and read-only — assert the
+        // seeded value instead of filling it (the batch update DTO no longer
+        // carries an entitlementKey field).
+        const providerOwnedKey = await mappingsPage.getEntitlementKeyValue(priceKey)
+        expect(
+          providerOwnedKey,
+          'provider sync/seed must supply the seeded entitlement key',
+        ).toBe(SEED_ENTITLEMENT_KEY)
+        await expect(mappingsPage.getSharedKeyChip(providerOwnedKey)).toBeVisible()
+
+        // Points policy is configured through the PointDistributionRuleEditor
+        // on the price row (idempotent — reuses the existing fixed rule).
+        await mappingsPage.configureFixedPointRule(priceKey, SEED_POINT_RULE_AMOUNT)
+        await demoLogger.testCode.log(
+          `Price row ${priceKey} configured (readonly key=${providerOwnedKey}, fixed points=${SEED_POINT_RULE_AMOUNT})`,
+        )
       })
 
       await test.step('Then: 验证 detail panel 包含 Save Changes 按钮', async () => {
-        const mappingsPage = new EntitlementMappingsPage(page, demoLogger)
-        const panelVisible = await mappingsPage.mappingDetailPanel.isVisible().catch(() => false)
-        if (!panelVisible) return
-
-        // Save Changes button is rendered when canManage (billing.manage).
-        // It may be absent for read-only personas — assert presence only if the
-        // panel is the editable variant (admin has billing.manage).
-        const saveVisible = await mappingsPage.saveMappingButton.isVisible().catch(() => false)
-        if (saveVisible) {
-          await demoLogger.testCode.log('Save Changes button present — configuration form is editable')
-        } else {
-          await demoLogger.testCode.log('Save Changes button absent — read-only variant (no billing.manage)')
-        }
+        // Save Changes is rendered when canManage (billing.manage). The admin
+        // persona used here holds it, so the editable variant must mount.
+        await expect(mappingsPage.saveMappingButton).toBeVisible()
+        await demoLogger.testCode.log('Save Changes button present — configuration form is editable')
       })
     })
   })

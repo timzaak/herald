@@ -208,22 +208,37 @@ test.describe('[Regular User] Login Re-consent Demo Tests', () => {
 
       await test.step('Assert a session was established', async () => {
         // Post auth-rewrite: the access token is in-memory (never persisted)
-        // and there is no X-Auth cookie. A durable session is proven by the
-        // persisted refresh token in localStorage under `auth-storage`. The
-        // URL having moved off /auth/login (asserted above) confirms the
-        // in-memory access token was issued and the SPA routed to an
-        // authenticated route.
-        const hasPersistedSession = await page.evaluate(() => {
-          const raw = localStorage.getItem('auth-storage')
-          if (!raw) return false
-          try {
-            const parsed = JSON.parse(raw)
-            const state = parsed?.state ?? parsed
-            return Boolean(state?.isAuthenticated && state?.refreshToken)
-          } catch {
-            return false
-          }
-        })
+        // and there is no X-Auth cookie. A durable session is proven by two
+        // persisted artifacts in localStorage: `auth-storage` (Zustand
+        // persist) flagging isAuthenticated, plus the refresh token stored
+        // by the Herald SDK as a raw string under its own key
+        // 'herald.refreshToken' (frontend/src/lib/herald-client.ts
+        // HERALD_REFRESH_TOKEN_STORAGE_KEY, passed to the SDK as storageKey).
+        // The Zustand persist no longer contains a refreshToken — its
+        // partialize deliberately excludes the token family
+        // (frontend/src/stores/auth-store.ts). The token lands asynchronously
+        // after the post-login PKCE exchange, so poll briefly until both
+        // artifacts appear. The URL having moved off /auth/login (asserted
+        // above) confirms the in-memory access token was issued and the SPA
+        // routed to an authenticated route.
+        let hasPersistedSession = false
+        for (let i = 0; i < 20 && !hasPersistedSession; i++) {
+          hasPersistedSession = await page.evaluate(() => {
+            const raw = localStorage.getItem('auth-storage')
+            if (!raw) return false
+            try {
+              const parsed = JSON.parse(raw)
+              const state = parsed?.state ?? parsed
+              return (
+                state?.isAuthenticated === true &&
+                Boolean(localStorage.getItem('herald.refreshToken'))
+              )
+            } catch {
+              return false
+            }
+          })
+          if (!hasPersistedSession) await page.waitForTimeout(250)
+        }
         expect(hasPersistedSession).toBe(true)
       })
     })

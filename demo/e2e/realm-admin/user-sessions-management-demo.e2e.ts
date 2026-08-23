@@ -1,9 +1,8 @@
 /**
  * User Sessions Management Demo Tests — US-RA-020 (scenarios 1–5)
  *
- * User Story (DRAFT, pre-publish):
- *   `.ai/user-stories/core/kickoff-user.md` — US-RA-020 (P1), scenarios 1–5.
- *   This is a draft user story; citing the draft path, NOT a published fact.
+ * User Story:
+ *   docs/user-stories/core/realm-admin.md — US-RA-020 (故事 19), scenarios 1–5.
  *
  * Selector calibration sources (all verified against current frontend):
  *   - frontend/src/components/users/user-table.tsx:131
@@ -354,74 +353,77 @@ export interface TargetUserSession {
 }
 
 /**
- * Create a real browser token family for `email`/`password` in `realmId` by
- * calling the login API from a fresh browser context, and capture the Bearer
- * access token for later 401 assertion.
+ * Provision the target user (idempotent delete-then-create) and resolve the
+ * first-party client id. Runs BEFORE any login.
+ *
+ * ⚠️ Ordering constraint (verified against source): `delete_user` revokes ALL
+ * of the user's token families (backend/domain/src/user/services/admin.rs
+ * delete_user → revoke_user_families, admin.rs:885-897). Provisioning must
+ * therefore run exactly ONCE per test, before the first login; every
+ * additional session that must COEXIST with earlier ones is created via
+ * {@link createAdditionalTargetUserSession} (login-only, no delete/re-create)
+ * — otherwise provisioning the second session silently revokes the first.
+ */
+async function provisionTargetUser(
+  browser: Browser,
+  realmId: string,
+  email: string,
+  password: string
+): Promise<{ userId: string; clientAppId: string }> {
+  // The admin user-API + client-app endpoints are gated on
+  // `Authorization: Bearer`, which `page.request.*` cannot supply (the
+  // token lives in SPA memory only). Build a dedicated Bearer context for the
+  // provisioning calls; dispose it once we have what we need.
+  const adminApi = await createAdminBearerContext(browser, realmId)
+  try {
+    // 1. Ensure the target user exists (idempotent). Required so the login
+    //    call has a valid Normal/no-2FA account to authenticate.
+    const userId = await ensureTargetUser(adminApi, realmId, email, password)
+
+    // 2. Resolve a first-party client_id (required by login.rs:46).
+    const clientAppId = await resolveFirstPartyClientId(adminApi, realmId)
+
+    return { userId, clientAppId }
+  } finally {
+    // The admin Bearer context is no longer needed after provisioning; release
+    // it before spawning the target user's own isolated login context.
+    await adminApi.dispose().catch(() => {})
+  }
+}
+
+/**
+ * Log the (already provisioned) target user in from a fresh browser context,
+ * creating a real token family, and capture the Bearer access token for later
+ * 401/200 assertions.
+ *
+ * Each call creates a NEW token family — backend create_family only adds a
+ * family and never revokes existing ones
+ * (backend/infra/src/authentication/mod.rs:358-470) — so repeated calls for
+ * the same user yield independent coexisting sessions.
  *
  * Contract notes (verified against source):
  *  - POST /api/auth/{realmId}/login requires `client_id`
  *    (backend/api-auth/src/login.rs:46) → a first-party client app is resolved
- *    first via the admin context.
+ *    first during provisioning.
  *  - The top-level (no-TOTP, no-OAuth) success response is `BrowserTokenResponse`
  *    with camelCase `accessToken` (backend/api-auth/src/browser_token.rs:11-19;
  *    login.rs:624 returns `BrowserTokenResponse` directly for that branch).
  *  - The caller must pass a NO-2FA Normal user; if `requires_totp` is true the
  *    seed user was mis-provisioned — throw with a clear message.
- *
- * @param browser    Playwright Browser (used to spawn the isolated context and
- *                   to build a one-shot admin Bearer context).
- * @param realmId    Realm to log the user into.
- * @param email      Target user email (must already exist as Normal/no-2FA).
- * @param password   Target user password.
- * @param adminPage  Admin-authenticated page. Retained only for call-site
- *                   stability; it is NOT used for any API call here. The admin
- *                   API helpers require a Bearer token this page does not expose
- *                   (the access token lives in SPA memory, see {@link
- *                   backendBaseUrl} note), so a fresh admin Bearer context is
- *                   built from `browser` instead. Logging the admin in on
- *                   `adminPage` would clobber the fixture session the caller
- *                   needs for subsequent UI steps (e.g. opening the sessions
- *                   dialog), so this helper deliberately avoids mutating it.
  */
-export async function createTargetUserSession(
+async function loginTargetUserSession(
   browser: Browser,
   realmId: string,
   email: string,
   password: string,
-  adminPage: Page
+  provisioning: { userId: string; clientAppId: string }
 ): Promise<TargetUserSession> {
-  // The admin user-API + client-app endpoints are gated on
-  // `Authorization: Bearer`, which `adminPage.request.*` cannot supply (the
-  // token lives in SPA memory only). Build a dedicated Bearer context for the
-  // provisioning calls; dispose it once we have what we need.
-  const adminApi = await createAdminBearerContext(browser, realmId)
+  const { userId, clientAppId } = provisioning
 
-  // 1. Ensure the target user exists (idempotent). Required so the login call
-  //    has a valid Normal/no-2FA account to authenticate.
-  const userId = await ensureTargetUser(adminApi, realmId, email, password).catch(
-    async (error) => {
-      await adminApi.dispose().catch(() => {})
-      throw error
-    }
-  )
-
-  // 2. Resolve a first-party client_id (required by login.rs:46).
-  const clientAppId = await resolveFirstPartyClientId(
-    adminApi,
-    realmId
-  ).catch(async (error) => {
-    await adminApi.dispose().catch(() => {})
-    throw error
-  })
-
-  // The admin Bearer context is no longer needed after provisioning; release
-  // it before spawning the target user's own isolated login context.
-  await adminApi.dispose().catch(() => {})
-
-  // 3. Log the target user in from an ISOLATED browser context. This creates a
-  //    real token family in Redis and a session cookie scoped to this context,
-  //    independent of the admin context. NO admin Bearer is used here — this is
-  //    the target user's OWN login, which returns the user's own access token.
+  // Log the target user in from an ISOLATED browser context. This creates a
+  // real token family in Redis and a session cookie scoped to this context,
+  // independent of the admin context. NO admin Bearer is used here — this is
+  // the target user's OWN login, which returns the user's own access token.
   const context = await browser.newContext()
   const loginRes = await context.request.post(
     `${backendBaseUrl()}/api/auth/${realmId}/login`,
@@ -434,7 +436,7 @@ export async function createTargetUserSession(
     const body = await loginRes.text().catch(() => '<unreadable>')
     await context.close().catch(() => {})
     throw new Error(
-      `createTargetUserSession: login failed for ${email} in realm ${realmId} ` +
+      `loginTargetUserSession: login failed for ${email} in realm ${realmId} ` +
         `(HTTP ${loginRes.status()}): ${body}`
     )
   }
@@ -447,7 +449,7 @@ export async function createTargetUserSession(
   if (body?.requires_totp === true) {
     await context.close().catch(() => {})
     throw new Error(
-      `createTargetUserSession: seed user ${email} requires TOTP — ` +
+      `loginTargetUserSession: seed user ${email} requires TOTP — ` +
       `the user was mis-provisioned (expected no-2FA Normal user).`
     )
   }
@@ -480,7 +482,7 @@ export async function createTargetUserSession(
     if (agreements.length === 0) {
       await context.close().catch(() => {})
       throw new Error(
-        `createTargetUserSession: login for ${email} required consent but ` +
+        `loginTargetUserSession: login for ${email} required consent but ` +
         `no agreement summaries were returned. Body: ${JSON.stringify(body)}`
       )
     }
@@ -495,7 +497,7 @@ export async function createTargetUserSession(
       const cbody = await consentLoginRes.text().catch(() => '<unreadable>')
       await context.close().catch(() => {})
       throw new Error(
-        `createTargetUserSession: consent login failed for ${email} ` +
+        `loginTargetUserSession: consent login failed for ${email} ` +
         `in realm ${realmId} (HTTP ${consentLoginRes.status()}): ${cbody}`
       )
     }
@@ -506,7 +508,7 @@ export async function createTargetUserSession(
   if (!accessToken) {
     await context.close().catch(() => {})
     throw new Error(
-      `createTargetUserSession: login response for ${email} did not carry ` +
+      `loginTargetUserSession: login response for ${email} did not carry ` +
       `accessToken. Body keys: ${Object.keys(body ?? {}).join(', ')}`
     )
   }
@@ -522,6 +524,66 @@ export async function createTargetUserSession(
     userId,
     clientAppId,
   }
+}
+
+/**
+ * Create the FIRST session for a target user: provision the user
+ * (idempotent delete-then-create, via a one-shot admin Bearer context built
+ * from `browser`), then log the user in from an isolated context.
+ *
+ * See {@link provisionTargetUser} for the delete-revokes-all-families
+ * constraint: scenarios needing MULTIPLE coexisting sessions must call this
+ * exactly once and use {@link createAdditionalTargetUserSession} for every
+ * further login.
+ *
+ * @param adminPage  Admin-authenticated page. Retained only for call-site
+ *                   stability; it is NOT used for any API call here. The admin
+ *                   API helpers require a Bearer token this page does not expose
+ *                   (the access token lives in SPA memory, see {@link
+ *                   backendBaseUrl} note), so a fresh admin Bearer context is
+ *                   built from `browser` instead. Logging the admin in on
+ *                   `adminPage` would clobber the fixture session the caller
+ *                   needs for subsequent UI steps (e.g. opening the sessions
+ *                   dialog), so this helper deliberately avoids mutating it.
+ */
+export async function createTargetUserSession(
+  browser: Browser,
+  realmId: string,
+  email: string,
+  password: string,
+  adminPage: Page
+): Promise<TargetUserSession> {
+  const provisioning = await provisionTargetUser(browser, realmId, email, password)
+  return loginTargetUserSession(browser, realmId, email, password, provisioning)
+}
+
+/**
+ * Create an ADDITIONAL session for a user already provisioned via
+ * {@link createTargetUserSession} — login-only, NO delete/re-create.
+ *
+ * Why this exists: provisioning deletes the user first, and `delete_user`
+ * revokes ALL of the user's token families
+ * (backend/domain/src/user/services/admin.rs:885-897). Calling
+ * {@link createTargetUserSession} again for a second session would therefore
+ * silently revoke the FIRST session's family (US-RA-020 S2/S3 were
+ * structurally unable to pass that way). Provision once, then use this helper
+ * for every further login.
+ *
+ * @param existing  Any session previously created for the SAME user; only its
+ *                  `userId` and `clientAppId` are read (no admin API call is
+ *                  made, so no other session can be disturbed).
+ */
+export async function createAdditionalTargetUserSession(
+  browser: Browser,
+  realmId: string,
+  email: string,
+  password: string,
+  existing: TargetUserSession
+): Promise<TargetUserSession> {
+  return loginTargetUserSession(browser, realmId, email, password, {
+    userId: existing.userId,
+    clientAppId: existing.clientAppId,
+  })
 }
 
 /**
@@ -680,8 +742,18 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
     // Then: the dialog shows at least one active session row (persistent
     // state — row count, not a toast).
     await test.step('Then the dialog lists the active session(s)', async () => {
-      const rowCount = await usersPage.getSessionRowCount()
-      expect(rowCount).toBeGreaterThanOrEqual(1)
+      // Retry-based: the dialog renders its shell immediately but rows appear
+      // only after the sessions useQuery resolves (loading Skeleton first,
+      // user-sessions-dialog.tsx:70-95). A bare `.count()` is instantaneous
+      // and reads 0 during that window even though the API already returned
+      // data — poll until the rows are rendered.
+      await expect
+        .poll(async () => usersPage.getSessionRowCount(), {
+          timeout: 10_000,
+          message:
+            'sessions dialog should render at least one active session row',
+        })
+        .toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -692,6 +764,10 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
   }) => {
     // Given: plant TWO sessions (two token families, two contexts).
     await test.step('Given the target user has two active sessions', async () => {
+      // Provision ONCE, then add the second session via the login-only
+      // helper: provisioning again would delete+re-create the user, and
+      // delete_user revokes ALL families — killing sessionA before the test
+      // even reaches the revoke step (see createAdditionalTargetUserSession).
       const sessionA = await createTargetUserSession(
         browser,
         ADMIN_REALM,
@@ -700,12 +776,12 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
         page
       )
       createdSessions.push(sessionA)
-      const sessionB = await createTargetUserSession(
+      const sessionB = await createAdditionalTargetUserSession(
         browser,
         ADMIN_REALM,
         SESSIONS_USER_EMAIL,
         SESSIONS_USER_PASSWORD,
-        page
+        sessionA
       )
       createdSessions.push(sessionB)
 
@@ -724,28 +800,43 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
     // Then: the revoked session's token is 401, the other is still 200.
     // Persistent state assertion (HTTP status), not a toast.
     await test.step('Then only the revoked session is invalidated', async () => {
-      const [sessionA, sessionB] = createdSessions
-      // Row 0 was revoked; that corresponds to one family. The OTHER context
-      // must remain valid. Assert both branches explicitly:
-      //   - at least one of the two is now 401
-      //   - the remaining one is still 200
-      const statuses = await Promise.all(
-        createdSessions.map(async (t) => {
-          const res = await t.context.request.get(
-            `${backendBaseUrl()}/api/users/${ADMIN_REALM}/${t.userId}/sessions`,
-            { headers: { Authorization: `Bearer ${t.accessToken}` } }
-          )
-          return res.status()
-        })
-      )
-      const unauthorizedCount = statuses.filter((s) => s === 401).length
-      const authorizedCount = statuses.filter((s) => s === 200).length
-      expect(unauthorizedCount).toBe(1)
-      expect(authorizedCount).toBe(1)
-
-      // Explicit persistent assertions for cross-session isolation proof.
-      await assertContextUnauthorized(sessionA, ADMIN_REALM)
-      await assertContextAuthorized(sessionB, ADMIN_REALM)
+      // Row order is NON-DETERMINISTIC: the sessions list preserves the
+      // backend's Redis SMEMBERS order (infra list_user_sessions,
+      // backend/infra/src/authentication/mod.rs:701-706) and the frontend
+      // renders it as-is (user-sessions-dialog.tsx `sessions.map(...)` — no
+      // sort). So dialog "row 0" may be EITHER family; assert the unordered
+      // invariant instead: exactly one session is revoked (401) and the other
+      // is still authorized (200). Pinning sessionA/sessionB to specific rows
+      // would flake ~50% of runs.
+      //
+      // The probe is `/api/auth/status` (architecture-neutral, same rationale
+      // as assertContextUnauthorized above): the admin sessions endpoint
+      // requires an AdminIdentity with `users.manage`
+      // (api-admin .../admin_users/sessions.rs:124-126), so a VALID sibling
+      // token (CustomUserUi credential) would answer 403 there — masking the
+      // 200 "still authorized" signal this step must prove.
+      await expect
+        .poll(
+          async () => {
+            const statuses = await Promise.all(
+              createdSessions.map(async (t) => {
+                const res = await t.context.request.get(
+                  `${backendBaseUrl()}/api/auth/status`,
+                  { headers: { Authorization: `Bearer ${t.accessToken}` } }
+                )
+                return res.status()
+              })
+            )
+            return statuses.slice().sort().join(',')
+          },
+          {
+            timeout: 5000,
+            message:
+              'exactly one session should be revoked (401) while the other ' +
+              'stays authorized (200)',
+          }
+        )
+        .toBe('200,401')
     })
   })
 
@@ -754,7 +845,9 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
     page,
     browser,
   }) => {
-    // Given: plant two sessions.
+    // Given: plant two sessions. Provision once, then login-only for the
+    // second (provisioning again would delete+re-create the user and revoke
+    // sessionA's family — see createAdditionalTargetUserSession).
     let sessionA!: TargetUserSession
     let sessionB!: TargetUserSession
     await test.step('Given the target user has two active sessions', async () => {
@@ -766,12 +859,12 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
         page
       )
       createdSessions.push(sessionA)
-      sessionB = await createTargetUserSession(
+      sessionB = await createAdditionalTargetUserSession(
         browser,
         ADMIN_REALM,
         SESSIONS_USER_EMAIL,
         SESSIONS_USER_PASSWORD,
-        page
+        sessionA
       )
       createdSessions.push(sessionB)
     })
@@ -796,13 +889,16 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
       await usersPage.expectSessionsDialogOpen()
       await usersPage.expectRevokeAllButtonAbsent()
 
-      // Account state unchanged: a fresh login succeeds and is authorized.
-      const fresh = await createTargetUserSession(
+      // Account state unchanged: a fresh login for the SAME account succeeds
+      // and is authorized. Login-only (no delete/re-create) so this proves
+      // the ORIGINAL account can still log in after revoke-all — deleting and
+      // re-creating the user here would make the assertion vacuous.
+      const fresh = await createAdditionalTargetUserSession(
         browser,
         ADMIN_REALM,
         SESSIONS_USER_EMAIL,
         SESSIONS_USER_PASSWORD,
-        page
+        sessionA
       )
       createdSessions.push(fresh)
       await assertContextAuthorized(fresh, ADMIN_REALM)
@@ -832,9 +928,16 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
       await realmAdminPage.clickManageSessions(SESSIONS_USER_EMAIL)
       await realmAdminPage.expectSessionsDialogOpen()
       // The realm1 session IS visible to the realm1 admin (data the admin
-      // should be able to see).
-      const rowCount = await realmAdminPage.getSessionRowCount()
-      expect(rowCount).toBeGreaterThanOrEqual(1)
+      // should be able to see). Retry-based count — the dialog renders its
+      // shell immediately but rows appear only after the sessions useQuery
+      // resolves (see S1 for the full rationale).
+      await expect
+        .poll(async () => realmAdminPage.getSessionRowCount(), {
+          timeout: 10_000,
+          message:
+            'realm1 sessions dialog should render at least one active session row',
+        })
+        .toBeGreaterThanOrEqual(1)
     })
 
     // Then: the same email does NOT appear in a different realm's user table.
@@ -906,6 +1009,11 @@ test.describe('[US-RA-020] Realm Admin manages user sessions', () => {
     // Then: the sessions entry button IS rendered for the target row
     // (proves `canManage` gating on the positive branch).
     await test.step('Then the sessions entry button is visible (canManage=true)', async () => {
+      // The fixture loaded this table before the API-side user create; reload
+      // so the target row is present (same pattern as clickManageSessions).
+      await page.reload()
+      await usersPage.waitForReady()
+
       const row = usersPage.findUserRow(SESSIONS_USER_EMAIL)
       await expect(row).toBeVisible()
       await expect(

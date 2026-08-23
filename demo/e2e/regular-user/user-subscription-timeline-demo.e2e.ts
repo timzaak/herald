@@ -1,11 +1,37 @@
 /**
- * User Subscription Timeline Demo Tests
+ * User Purchase Records Demo Tests (formerly "User Subscription Timeline")
  *
  * User Story:
- * - US-BI-009: View Own Subscription History (Regular User)
- * - US-BI-009: Profile Subscription Display (Scenes 7-9)
+ * - US-BI-009: View Own Purchase Records (Regular User)
+ *   The route /user/subscription-history was rewritten in commit 9fb5d023
+ *   (2026-06-16, "rework user purchase-records and points surface") from a
+ *   subscription-timeline page to the Purchase Records page
+ *   (frontend/src/routes/$realmId/user/subscription-history.tsx ->
+ *   PurchaseRecordsRoute + PurchaseHistoryList). The URL is unchanged, but the
+ *   page now lists the user's point purchases, not subscription events.
  *
- * Design Doc: .ai/design/profile-subscription-display.md
+ * Migration note (2026-08-22):
+ * - Old assertions targeted subscription-timeline testids
+ *   (`subscription-timeline` / `subscription-timeline-empty` /
+ *   `toggle-event-details-*` / `event-badge-*`) that no longer render on this
+ *   page. All assertions now target the Purchase Records contract
+ *   (selectors.ts `SELECTORS.purchaseHistory.*`).
+ * - The page consumes GET /api/user/bill/purchase/history -> { items, total }.
+ *   Demo seed creates NO purchase history for user@realm-001.com
+ *   (scripts/lib/demo_seed.py removed `_ensure_purchase_history_demo_data`
+ *   intentionally), so a targeted run renders `purchase-history-empty`.
+ *   Because other purchase demos in a full-suite run share this seed user and
+ *   may complete purchases for them, the history-state assertions branch on
+ *   the actually rendered state (empty OR populated) with hard assertions in
+ *   both branches — no soft `.catch(() => false)` pass-throughs remain.
+ * - Scene 5 (empty state) is merged into Scene 1+2: under the current
+ *   contract the seed user's empty history IS the default page state, so a
+ *   separate empty-state test would duplicate the same assertions.
+ * - Scenes 7-9 (profile page subscription display) are DELETED: the current
+ *   /user/profile (frontend/src/routes/$realmId/user/profile.tsx) renders
+ *   only account info (email/nickname/status); the SubscriptionInfoCard /
+ *   "Subscription Status" section is no longer mounted by any route. Profile
+ *   account-info display is covered by regular-user-comprehensive-demo.e2e.ts.
  *
  * UnifiedLogger Usage:
  * - All tests use UnifiedLogger through 'demoLogger' fixture
@@ -13,88 +39,63 @@
  * - Logs are saved to demo/test-results/console-logs/
  *
  * Test Coverage:
- * - Scene 1+2: Subscription history timeline with full details (merged for efficiency)
- * - Scene 3+4: Event type badges and details (merged for efficiency)
- * - Scene 5: Empty state for new subscription
- * - Scene 6: Permission isolation
- * - Scene 7+8: Profile page subscription display (merged for efficiency)
- * - Scene 9: Profile page empty state
+ * - Scene 1+2(+5): Purchase Records page renders for the signed-in user and
+ *   the history section reflects the user's own purchase data (empty state or
+ *   populated list)
+ * - Scene 3+4: purchase history data contract via the page's own API
+ *   (GET /api/user/bill/purchase/history with the user's Bearer context)
+ * - Scene 6: permission isolation — the purchase history API is unreadable
+ *   without the user's Bearer credential (401 anonymous vs 200 authenticated)
  *
- * Total tests: 6 (merged from original 9 for ~30-40% time savings)
- *
- * ========================================
- * Test Architecture (2026-03-24)
- * ========================================
- *
- * 1. Dedicated Test Realm Approach:
- *    - Uses a dedicated realm (realm1) for subscription timeline tests
- *    - Complete test isolation from admin realm and Demo Seed data
- *    - Tests can be run independently without affecting demo environment
- *
- * 2. API-Based Test Data Creation:
- *    - Uses api-test-data.helpers.ts for creating test data via API
- *    - No direct database operations
- *    - Follows E2E testing best practices
- *    - Tests real API endpoints and data flow
- *
- * 3. Test Data Components:
- *    - Realm: realm1 (created or ensured to exist)
- *    - User: Regular user in realm1
- *    - Client App: Test client app created via API
- *    - Billing Plan: Test plan created via API
- *    - Subscription: Test subscription with history events
- *
- * 4. Fixed User Role Consistency (P1):
- *    - Using regular user role in realm1
- *    - Aligns with US-BI-009 requirement for Regular User role
- *
- * 5. Aligned Selectors with Frontend Implementation (P1):
- *    - Verified all selectors against actual frontend code
- *    - Page title: "Subscription History" (subscription-history.tsx:87)
- *    - Page description: "View your subscription changes and history" (subscription-history.tsx:88-89)
- *    - Timeline container: data-testid="subscription-timeline" (user-subscription-timeline.tsx:201)
- *    - Timeline events: data-testid="timeline-event-${event.id}" (user-subscription-timeline.tsx:24)
- *    - Event badges: data-testid="event-badge-${eventType}" (history-event-badge.tsx:42)
- *    - Event details toggle: data-testid="toggle-event-details-${event.id}" (user-subscription-timeline.tsx:40)
- *    - Empty state: data-testid="subscription-timeline-empty" (user-subscription-timeline.tsx:190)
- *    - Empty message: "No history available" (user-subscription-timeline.tsx:193)
- *    - Profile page: "Profile Information" (profile.tsx:42)
- *    - Subscription status: "Subscription Status" (profile.tsx:69)
- *    - Subscription cards: data-testid="subscription-info-card-${clientAppId}" (subscription-info-card.tsx:61)
- *    - No subscriptions: data-testid="no-subscriptions-message" (profile.tsx:84)
- *    - No subscriptions message: "You don't have any client apps with subscriptions." (profile.tsx:85)
- *
- * 6. Fixed URL Paths (P1):
- *    - Updated all paths to use correct user-facing routes
- *    - Subscription history: /user/subscription-history (not /manage/)
- *    - Profile page: /user/profile
- *    - Removed dependency on admin management pages
- *
- * 7. Enhanced Test Quality:
- *    - All selectors now match actual frontend implementation
- *    - All URLs use correct user routes
- *    - Improved test reliability and maintainability
- *    - Better alignment with frontend component structure
- *    - Complete test isolation using dedicated realm
+ * Total tests: 3
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
-import { loginWithCredentials } from '../helpers/auth'
+import { loginWithCredentials, createBearerApiContext } from '../helpers/auth'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
-import {
-  isTimelineEmpty,
-  waitForTimelineToLoad,
-  navigateToSubscriptionDetailHistory,
-  navigateToUserProfile,
-} from '../helpers/subscription-history.helpers'
+import { SELECTORS } from '../selectors'
+import { request, type APIRequestContext, type Page } from '@playwright/test'
 
 const TEST_REALM = 'realm-001'
 const TEST_USER_EMAIL = 'user@realm-001.com' // Created by Demo Seed
 const TEST_USER_PASSWORD = 'password'
 
-test.describe('[Regular User] Subscription Timeline Demo Tests', () => {
+// Route path is unchanged from the old subscription-history page; the page
+// itself is session-scoped (realm resolved from the session, not the URL).
+const PURCHASE_RECORDS_PATH = '/user/subscription-history'
+
+const PURCHASE_HISTORY_ENDPOINT =
+  '/api/user/bill/purchase/history?page=1&page_size=20'
+
+function frontendBaseUrl(): string {
+  return process.env.BASE_URL || 'http://localhost:3000'
+}
+
+function backendBaseUrl(): string {
+  return (
+    process.env.API_BASE_URL ||
+    process.env.BASE_URL?.replace(/:\d+/, ':8080') ||
+    'http://localhost:8080'
+  )
+}
+
+/**
+ * Navigate to the Purchase Records page and wait for its root testid.
+ * Replaces the old navigateToSubscriptionDetailHistory helper, which waited
+ * on subscription-timeline testids that this page no longer renders.
+ */
+async function navigateToPurchaseRecords(page: Page): Promise<void> {
+  await page.goto(`${frontendBaseUrl()}${PURCHASE_RECORDS_PATH}`, {
+    waitUntil: 'domcontentloaded',
+  })
+  await expect(page.locator(SELECTORS.purchaseHistory.page)).toBeVisible({
+    timeout: 15000,
+  })
+}
+
+test.describe('[Regular User] Purchase Records Demo Tests', () => {
   // Verify test environment before each test
-  test.beforeEach(async ({ page, demoLogger }) => {
+  test.beforeEach(async ({ page }) => {
     await verifyTestEnvironment(page, {
       requiredRealms: [TEST_REALM],
       requiredUsers: [TEST_USER_EMAIL],
@@ -112,28 +113,30 @@ test.describe('[Regular User] Subscription Timeline Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-BI-009: View Own Subscription History
+  // User Story US-BI-009: View Own Purchase Records
   // ============================================================================
 
-  test.describe('US-BI-009: View Own Subscription History', () => {
+  test.describe('US-BI-009: View Own Purchase Records', () => {
     // ============================================================================
-    // Scene 1-6: Subscription History Timeline
+    // Scenes 1+2+5: Purchase Records page and history state
     // ============================================================================
 
-    test('should view subscription history timeline with full details (Scene 1+2)', async ({
+    test('should view purchase records page with own history state (Scene 1+2+5)', async ({
       page,
       demoLogger,
-      testStartTime,
     }) => {
-      await test.step('Given: 使用 Demo Seed 创建的订阅历史', async () => {
-        // ✅ 正确：依赖 Demo Seed 创建的数据
-        // realm-001 已经有了订阅历史事件：created, upgraded, renewed
-        // 不需要创建新数据
-        await demoLogger.testCode.info('Using demo seed subscription history data')
+      await test.step('Given: Demo Seed 用户（无预置购买历史）', async () => {
+        // Demo seed intentionally does NOT create purchase history for
+        // user@realm-001.com; in a targeted run the page shows the empty
+        // state. In a full-suite run other purchase demos may complete
+        // purchases for this shared seed user, in which case the populated
+        // list must render instead — both outcomes are asserted below.
+        await demoLogger.testCode.info(
+          'Using demo seed user; purchase history state depends on prior demo runs',
+        )
       })
 
-      await test.step('When: 用户登录并访问订阅历史页面', async () => {
-        // Login as regular user
+      await test.step('When: 用户登录并访问购买记录页面', async () => {
         await loginWithCredentials(page, {
           email: TEST_USER_EMAIL,
           password: TEST_USER_PASSWORD,
@@ -142,393 +145,155 @@ test.describe('[Regular User] Subscription Timeline Demo Tests', () => {
         })
         await demoLogger.testCode.info('User logged in')
 
-        // Navigate to subscription history page
-        await navigateToSubscriptionDetailHistory(page, TEST_REALM)
+        await navigateToPurchaseRecords(page)
       })
 
       await test.step('Then: 验证页面基础元素', async () => {
-        // 验证页面标题 — the page title is a localized string
-        // (`billing.purchase_records_page_title`), so assert via the stable
-        // timeline container/empty-state testids rather than a hardcoded
-        // English heading name (which breaks under any locale change).
+        // Page root (title area is a localized string, so assert the stable
+        // page testid rather than a hardcoded English heading).
+        await expect(page.locator(SELECTORS.purchaseHistory.page)).toBeVisible()
+
+        // The page's primary CTA links to /user/purchase-points; it renders
+        // whenever the realm's points feature is visible (seed realm-001 has
+        // pointsVisible=true, verified via GET /api/user/feature-availability).
         await expect(
-          page.getByTestId('subscription-timeline').or(page.getByTestId('subscription-timeline-empty')),
+          page.getByTestId('purchase-records-purchase-points-button'),
         ).toBeVisible()
-        await demoLogger.testCode.info('Page title displayed')
-
-        // PageHeader has no subtitle, only verify title
-        await demoLogger.testCode.info('Page title verified (no description subtitle)')
-
-        // 验证时间线容器或空状态
-        const timeline = page.getByTestId('subscription-timeline')
-        const hasTimeline = await timeline.isVisible().catch(() => false)
-        if (hasTimeline) {
-          await demoLogger.testCode.info('Timeline container displayed')
-        } else {
-          const emptyTimeline = page.getByTestId('subscription-timeline-empty')
-          const hasEmpty = await emptyTimeline.isVisible().catch(() => false)
-          if (hasEmpty) {
-            await demoLogger.testCode.info('Empty timeline displayed')
-          }
-        }
+        await demoLogger.testCode.info('Purchase Records page displayed with purchase-points CTA')
       })
 
-      await test.step('And: 验证时间线事件显示', async () => {
-        const empty = await isTimelineEmpty(page)
+      await test.step('And: 验证购买历史区状态（空态或有数据）', async () => {
+        const emptyState = page.locator(SELECTORS.purchaseHistory.empty)
+        const historyList = page.locator(SELECTORS.purchaseHistory.list)
 
-        if (!empty) {
-          // 验证至少有一个时间线事件
-          const firstEvent = page.locator('[data-testid^="timeline-event-"]').first()
-          await expect(firstEvent).toBeVisible()
-          await demoLogger.testCode.info('Timeline shows history events in reverse chronological order')
-
-          // 验证时间戳和操作者信息显示
-          const eventVisible = await page.getByTestId('timeline-event-0').isVisible().catch(() => false)
-          if (eventVisible) {
-            await demoLogger.testCode.info('Timeline events display timestamps and actor information')
-          }
-        } else {
-          await demoLogger.testCode.info('Timeline is empty (no history events)')
-        }
-      })
-    })
-
-    test('should show event type badges and details (Scene 3+4)', async ({
-      page,
-      demoLogger,
-      testStartTime,
-    }) => {
-      await test.step('Given: 使用 Demo Seed 创建的订阅历史', async () => {
-        // ✅ 正确：依赖 Demo Seed 创建的数据
-        // realm-001 已经有了订阅历史事件：created, upgraded, renewed
-        await demoLogger.testCode.info('Using demo seed subscription history data with multiple event types')
-      })
-
-      await test.step('When: 用户登录并访问订阅历史页面', async () => {
-        // Login as regular user
-        await loginWithCredentials(page, {
-          email: TEST_USER_EMAIL,
-          password: TEST_USER_PASSWORD,
-          realmId: TEST_REALM,
-          waitNavigation: false,
+        // PurchaseHistoryList always resolves to exactly one terminal state
+        // (empty | list); waiting for one of them is itself the assertion
+        // that the history section settled instead of staying on the
+        // loading skeleton.
+        await expect(emptyState.or(historyList).first()).toBeVisible({
+          timeout: 15000,
         })
-        await demoLogger.testCode.info('User logged in')
 
-        // Navigate to subscription history page
-        await navigateToSubscriptionDetailHistory(page, TEST_REALM)
-      })
-
-      await test.step('Then: 验证事件类型标签显示', async () => {
-        const empty = await isTimelineEmpty(page)
-
-        if (!empty) {
-          // Demo Seed 创建了 3 种事件类型：created, upgraded, renewed
-          const expectedEventTypes = ['created', 'upgraded', 'renewed']
-          const foundEventTypes: string[] = []
-
-          // 验证 Created 事件标签（绿色）
-          const createdBadge = page.locator('[data-testid="event-badge-created"]')
-          const hasCreatedEvent = await createdBadge.isVisible().catch(() => false)
-
-          if (hasCreatedEvent) {
-            await expect(createdBadge).toBeVisible()
-            await expect(createdBadge).toHaveClass(/bg-green-/)
-            foundEventTypes.push('created')
-            await demoLogger.testCode.info('Created event badge displayed (green)')
-          }
-
-          // 验证 Upgraded 事件标签（蓝色）
-          const upgradedBadge = page.locator('[data-testid="event-badge-upgraded"]')
-          const hasUpgradedEvent = await upgradedBadge.isVisible().catch(() => false)
-
-          if (hasUpgradedEvent) {
-            await expect(upgradedBadge).toBeVisible()
-            await expect(upgradedBadge).toHaveClass(/bg-blue-/)
-            foundEventTypes.push('upgraded')
-            await demoLogger.testCode.info('Upgraded event badge displayed (blue)')
-          }
-
-          // 验证 Renewed 事件标签（Demo Seed 包含此事件）
-          const renewedBadge = page.locator('[data-testid="event-badge-renewed"]')
-          const hasRenewedEvent = await renewedBadge.isVisible().catch(() => false)
-
-          if (hasRenewedEvent) {
-            await expect(renewedBadge).toBeVisible()
-            foundEventTypes.push('renewed')
-            await demoLogger.testCode.info('Renewed event badge displayed')
-          }
-
-          await demoLogger.testCode.info(`Event types found: ${foundEventTypes.join(', ')}`)
+        if (await emptyState.isVisible()) {
+          // Targeted-run seed reality: no purchases yet.
+          await expect(historyList).toHaveCount(0)
+          await demoLogger.testCode.info(
+            'Empty purchase history displayed (seed user has no purchases)',
+          )
         } else {
-          await demoLogger.testCode.info('Timeline is empty, no event badges to verify')
-        }
-      })
-
-      await test.step('And: 验证事件详情展开和关闭', async () => {
-        const empty = await isTimelineEmpty(page)
-
-        if (!empty) {
-          // 点击第一个事件展开详情
-          const firstToggleButton = page.locator('[data-testid^="toggle-event-details-"]').first()
-          await firstToggleButton.click()
-          await demoLogger.testCode.info('Event details opened')
-
-          // 验证详情内容
-          const previousStateVisible = await page.getByText('Previous State').isVisible().catch(() => false)
-          if (previousStateVisible) {
-            await expect(page.getByText('Previous State')).toBeVisible()
-            await expect(page.getByText('Status:').first()).toBeVisible()
-            await demoLogger.testCode.info('Previous State and Status displayed')
-          }
-
-          const newStateVisible = await page.getByText('New State').isVisible().catch(() => false)
-          if (newStateVisible) {
-            await expect(page.getByText('New State')).toBeVisible()
-            await demoLogger.testCode.info('New State displayed')
-          }
-
-          // 关闭详情
-          await firstToggleButton.click()
-          await demoLogger.testCode.info('Event details closed')
-        } else {
-          await demoLogger.testCode.info('Timeline is empty, no event details to verify')
-        }
-      })
-    })
-
-    test('should display empty state for new subscription (Scene 5)', async ({
-      page,
-      demoLogger,
-      testStartTime,
-    }) => {
-      await test.step('Given: 使用 Demo Seed 创建的订阅历史', async () => {
-        // ✅ 正确：依赖 Demo Seed 创建的数据
-        // realm-001 已经有了订阅历史事件
-        // 注意：此测试期望空状态，但 Demo Seed 创建了历史事件
-        // 实际显示的是非空状态，这是正常的
-        await demoLogger.testCode.info('Using demo seed subscription history data (note: expects empty state but demo seed has events)')
-      })
-
-      await test.step('When: 用户登录并访问订阅历史页面（刚创建，无历史）', async () => {
-        // Login as regular user
-        await loginWithCredentials(page, {
-          email: TEST_USER_EMAIL,
-          password: TEST_USER_PASSWORD,
-          realmId: TEST_REALM,
-          waitNavigation: false,
-        })
-        await demoLogger.testCode.info('User logged in')
-
-        // 访问用户订阅历史页面
-        await navigateToSubscriptionDetailHistory(page, TEST_REALM)
-      })
-
-      await test.step('Then: 验证空状态显示', async () => {
-        // 使用前端实际的空状态 data-testid
-        const emptyTimeline = page.getByTestId('subscription-timeline-empty')
-        const empty = await emptyTimeline.isVisible().catch(() => false)
-
-        if (empty) {
-          await expect(emptyTimeline).toBeVisible()
-          // 验证空状态文案（前端实际文案）
-          await expect(page.getByText('No history available')).toBeVisible()
-          await demoLogger.testCode.info('Empty state displayed for new subscription')
-        } else {
-          await demoLogger.testCode.info('Timeline has events (not empty state)')
-        }
-      })
-    })
-
-    test('should enforce permission isolation (Scene 6)', async ({
-      page,
-      demoLogger,
-      testStartTime,
-    }) => {
-      await test.step('Given: 使用 Demo Seed 创建的订阅历史', async () => {
-        // ✅ 正确：依赖 Demo Seed 创建的数据
-        await demoLogger.testCode.info('Using demo seed subscription history data')
-      })
-
-      await test.step('When: 用户登录并尝试访问订阅历史', async () => {
-        // Login as regular user
-        await loginWithCredentials(page, {
-          email: TEST_USER_EMAIL,
-          password: TEST_USER_PASSWORD,
-          realmId: TEST_REALM,
-          waitNavigation: false,
-        })
-        await demoLogger.testCode.info('User logged in')
-
-        // 尝试通过 URL 直接访问（前端会处理权限检查）
-        await navigateToSubscriptionDetailHistory(page, TEST_REALM)
-      })
-
-      await test.step('Then: 验证权限隔离生效', async () => {
-        // 可能的响应：
-        // 1. 显示访问被拒绝消息
-        // 2. 重定向到 403 页面
-        // 3. 显示空状态（因为用户无权查看）
-
-        const accessDenied = await page.getByText(/access denied/i).isVisible().catch(() => false)
-        const forbidden = await page.getByText(/forbidden/i).isVisible().catch(() => false)
-        const empty = await isTimelineEmpty(page)
-
-        if (accessDenied || forbidden) {
-          await demoLogger.testCode.info('Permission isolation enforced: access denied')
-        } else if (empty) {
-          await demoLogger.testCode.info('Permission isolation enforced: empty state shown')
-        } else {
-          await demoLogger.testCode.info('Permission isolation behavior needs verification')
+          // Populated state (full-suite ordering): each completed purchase
+          // renders as a row with a details button.
+          await expect(historyList).toBeVisible()
+          await expect(
+            page.locator('[data-testid^="purchase-history-item-"]').first(),
+          ).toBeVisible()
+          await expect(
+            page.locator('[data-testid^="purchase-history-details-button-"]').first(),
+          ).toBeVisible()
+          await demoLogger.testCode.info('Purchase history list rendered with purchase rows')
         }
       })
     })
 
     // ============================================================================
-    // Scenes 7-9: Profile Page Subscription Status Display
+    // Scenes 3+4: Purchase history data contract (API layer)
     // ============================================================================
 
-    test('should display subscription status on profile page (Scene 7+8)', async ({
-      page,
+    test('should return purchase history data contract the page consumes (Scene 3+4)', async ({
+      loginPage,
       demoLogger,
-      testStartTime,
     }) => {
-      await test.step('Given: 使用 Demo Seed 创建的订阅历史', async () => {
-        // ✅ 正确：依赖 Demo Seed 创建的数据
-        await demoLogger.testCode.info('Using demo seed subscription history data')
+      await test.step('When: 以普通用户身份登录并获取 Bearer 上下文', async () => {
+        await loginPage.loginAsUser(TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_REALM)
+        await demoLogger.testCode.info('User logged in via API-capable session')
       })
 
-      await test.step('When: 用户登录并访问个人页面', async () => {
-        // Login as regular user
-        await loginWithCredentials(page, {
-          email: TEST_USER_EMAIL,
-          password: TEST_USER_PASSWORD,
-          realmId: TEST_REALM,
-          waitNavigation: false,
-        })
-        await demoLogger.testCode.info('User logged in')
+      await test.step('Then: GET purchase history 返回 200 且结构为 {items, total}', async () => {
+        const apiContext = await createBearerApiContext(loginPage.getAccessToken())
+        try {
+          const response = await apiContext.get(
+            `${backendBaseUrl()}${PURCHASE_HISTORY_ENDPOINT}`,
+          )
+          expect(response.status()).toBe(200)
 
-        await navigateToUserProfile(page, TEST_REALM)
-        await demoLogger.testCode.info('Navigated to profile page')
-      })
+          const body = await response.json()
+          // The page feeds `body.items` into PurchaseHistoryList and
+          // `body.total` into ListPagination — both fields are load-bearing.
+          expect(Array.isArray(body.items)).toBe(true)
+          expect(typeof body.total).toBe('number')
 
-      await test.step('Then: 验证页面基础元素', async () => {
-        // 验证 Profile Information
-        await expect(page.getByText('Profile Information')).toBeVisible({ timeout: 10000 })
-        await demoLogger.testCode.info('Profile page content displayed')
-
-        // 验证 Subscription Status 卡片
-        const subscriptionStatusCard = await page.getByText('Subscription Status').isVisible({ timeout: 5000 }).catch(() => false)
-
-        if (subscriptionStatusCard) {
-          await expect(page.getByText('Subscription Status')).toBeVisible()
-          await demoLogger.testCode.info('Subscription Status card displayed')
-        } else {
-          await demoLogger.testCode.info('Subscription Status card not found (user may not have subscriptions)')
-        }
-      })
-
-      await test.step('And: 验证订阅卡片显示（单个或多个）', async () => {
-        const subscriptionCards = page.locator('[data-testid^="subscription-info-card-"]')
-        const cardCount = await subscriptionCards.count()
-
-        await demoLogger.testCode.info(`Found ${cardCount} subscription card(s)`)
-
-        if (cardCount > 0) {
-          // 验证每个订阅卡片都有必要信息
-          for (let i = 0; i < cardCount; i++) {
-            const card = subscriptionCards.nth(i)
-            const planName = await card.locator('[data-testid^="subscription-plan-"]').textContent({ timeout: 3000 }).catch(() => 'N/A')
-            const status = await card.locator('[data-testid^="subscription-status-"]').textContent({ timeout: 3000 }).catch(() => 'N/A')
-            await demoLogger.testCode.info(`Subscription ${i + 1}: Plan="${planName}", Status="${status}"`)
-
-            // 验证计费周期信息（第一个卡片）
-            if (i === 0) {
-              const periodStartText = await card.getByText('Period Start').isVisible({ timeout: 3000 }).catch(() => false)
-              const periodEndText = await card.getByText('Period End').isVisible({ timeout: 3000 }).catch(() => false)
-
-              if (periodStartText || periodEndText) {
-                await demoLogger.testCode.info('Billing period information displayed')
-              }
-            }
-          }
-
-          if (cardCount > 1) {
-            await demoLogger.testCode.info('Multiple subscriptions displayed correctly')
-          }
-        } else {
-          await demoLogger.testCode.info('No subscription cards found')
-        }
-      })
-
-      await test.step('And: 验证侧边栏菜单', async () => {
-        const subscriptionMenu = await page.getByRole('link', { name: 'Subscription' }).isVisible({ timeout: 5000 }).catch(() => false)
-
-        if (subscriptionMenu) {
-          await expect(page.getByRole('link', { name: 'Subscription' })).toBeVisible()
-          await demoLogger.testCode.info('Subscription menu item displayed in sidebar')
-        } else {
-          await demoLogger.testCode.info('Subscription menu item not found (sidebar may not have this item)')
-        }
-      })
-    })
-
-    test('should display empty state when user has no subscriptions (Scene 9)', async ({
-      page,
-      demoLogger,
-      testStartTime,
-    }) => {
-      // 注意：这个测试验证用户没有订阅时的空状态
-      // 由于我们创建测试数据，这个测试在清理后应该显示空状态
-
-      await test.step('Given: 普通用户已登录（无订阅）', async () => {
-        // 不创建测试数据，直接登录
-        await loginWithCredentials(page, {
-          email: TEST_USER_EMAIL,
-          password: TEST_USER_PASSWORD,
-          realmId: TEST_REALM,
-          waitNavigation: false,
-        })
-        await demoLogger.testCode.info('User logged in (no subscriptions created)')
-      })
-
-      await test.step('When: 用户访问个人页面', async () => {
-        await navigateToUserProfile(page, TEST_REALM)
-        await demoLogger.testCode.info('Navigated to profile page')
-      })
-
-      await test.step('Then: 验证订阅状态卡片显示', async () => {
-        const subscriptionStatusCard = await page.getByText('Subscription Status').isVisible({ timeout: 5000 }).catch(() => false)
-
-        if (subscriptionStatusCard) {
-          await expect(page.getByText('Subscription Status')).toBeVisible()
-
-          // 由于没有创建订阅数据，应该显示空状态
-          // 检查是否有订阅卡片（使用前端实际 data-testid）
-          const subscriptionCards = page.locator('[data-testid^="subscription-info-card-"]')
-          const cardCount = await subscriptionCards.count()
-
-          if (cardCount > 0) {
-            await demoLogger.testCode.info(`Found ${cardCount} subscription card(s) (unexpected - test should have no subscriptions)`)
-
-            // 验证第一个订阅卡片的内容
-            const firstCard = subscriptionCards.first()
-            const planName = await firstCard.locator('[data-testid^="subscription-plan-"]').textContent({ timeout: 3000 }).catch(() => 'N/A')
-            const status = await firstCard.locator('[data-testid^="subscription-status-"]').textContent({ timeout: 3000 }).catch(() => 'N/A')
-            await demoLogger.testCode.info(`Subscription: Plan="${planName}", Status="${status}"`)
+          if (body.total === 0) {
+            // Targeted-run seed reality: empty items must match total=0, and
+            // is what drives the `purchase-history-empty` state in Scene 1+2.
+            expect(body.items).toHaveLength(0)
+            await demoLogger.testCode.info(
+              'Purchase history API returned empty items/total (seed user has no purchases)',
+            )
           } else {
-            // 如果没有订阅卡片，检查空状态消息
-            const noSubscriptionsMessage = page.getByTestId('no-subscriptions-message')
-            const emptyStateVisible = await noSubscriptionsMessage.isVisible().catch(() => false)
-
-            if (emptyStateVisible) {
-              await expect(page.getByText("You don't have any client apps with subscriptions.")).toBeVisible()
-              await demoLogger.testCode.info('Empty state message displayed (as expected)')
-            } else {
-              await demoLogger.testCode.info('No subscription cards or empty state message found')
-            }
+            // Populated history: every row the page renders must carry the
+            // fields PurchaseHistoryList/PurchaseDetailsDialog display.
+            expect(body.items.length).toBeGreaterThan(0)
+            const firstItem = body.items[0]
+            expect(typeof firstItem.attemptId).toBe('string')
+            expect(typeof firstItem.createdAt).toBe('string')
+            expect(typeof firstItem.status).toBe('string')
+            expect(typeof firstItem.paymentProvider).toBe('string')
+            await demoLogger.testCode.info(
+              `Purchase history API returned ${body.items.length} row(s) on page 1 (total=${body.total})`,
+            )
           }
-        } else {
-          await demoLogger.testCode.info('Subscription Status card not found')
+        } finally {
+          await apiContext.dispose()
+        }
+      })
+    })
+
+    // ============================================================================
+    // Scene 6: Permission isolation
+    // ============================================================================
+
+    test('should enforce permission isolation on purchase history access (Scene 6)', async ({
+      loginPage,
+      demoLogger,
+    }) => {
+      await test.step('When: 未认证请求购买历史 API', async () => {
+        const anonymousApi = await request.newContext()
+        try {
+          const response = await anonymousApi.get(
+            `${backendBaseUrl()}${PURCHASE_HISTORY_ENDPOINT}`,
+          )
+          // /api/user/* is wrapped by inject_token_identity
+          // (backend/api-base/.../identity_middleware.rs): a request without a
+          // Bearer access token is rejected with 401 "missing bearer token".
+          expect(response.status()).toBe(401)
+          await demoLogger.testCode.info('Anonymous purchase history request rejected with 401')
+        } finally {
+          await anonymousApi.dispose()
+        }
+      })
+
+      await test.step('And: 以普通用户 Bearer 请求同一 API', async () => {
+        await loginPage.loginAsUser(TEST_USER_EMAIL, TEST_USER_PASSWORD, TEST_REALM)
+
+        const userApi = await createBearerApiContext(loginPage.getAccessToken())
+        try {
+          const response = await userApi.get(
+            `${backendBaseUrl()}${PURCHASE_HISTORY_ENDPOINT}`,
+          )
+          expect(response.status()).toBe(200)
+
+          // The identity is derived from the Bearer token, so the served
+          // history is scoped to the authenticated user — a regular user can
+          // only ever read their own purchase records through this endpoint
+          // (the same one the Purchase Records page consumes).
+          const body = await response.json()
+          expect(Array.isArray(body.items)).toBe(true)
+          expect(typeof body.total).toBe('number')
+          await demoLogger.testCode.info(
+            'Authenticated purchase history request returned the own-history contract',
+          )
+        } finally {
+          await userApi.dispose()
         }
       })
     })

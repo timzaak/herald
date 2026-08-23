@@ -13,7 +13,6 @@
  * - S6: Cross-realm access denied (403)
  *
  * @see docs/user-stories/integration/sdk.md (Story 4)
- * @see .ai/design/points-grant.md
  * @see backend/api-ext/src/points.rs (grant_points_ext handler)
  */
 
@@ -37,6 +36,18 @@ const NONEXISTENT_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 // Cross-realm ID for S6 (must differ from the API key's realm)
 const CROSS_REALM_ID = 'nonexistent-realm'
+
+// `admin-api-client` is auto-provisioned per realm (backend/domain/src/realm/services.rs)
+// and API keys bound to it are EXEMPT from the client-app scope checks
+// (ADMIN_API_CLIENT_ID, backend/api-ext/src/client_app_scope.rs).
+// Since the scope hardening, `grant_points_ext` step 4b
+// (backend/api-ext/src/points.rs) rejects keys bound to ordinary client apps
+// unless the target bucket is covered by that app. The admin realm's seeded
+// `primary-pool` has NO coverage rows at all — demo seed only binds coverage to
+// realm-001's `points-demo-app` (scripts/lib/demo_seed.py) — so the happy-path
+// key must bind to `admin-api-client` to act realm-wide. Same pattern as the
+// support-paywall demos (billing-admin/support-paywall-subscription-revoke-demo).
+const ADMIN_API_CLIENT_ID = 'admin-api-client'
 
 test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
   // Shared across tests within this describe block (same worker).
@@ -70,6 +81,16 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
       )
       apiContext = await createBearerApiContext(loginPage.getAccessToken())
 
+      // Resolve the admin realm's auto-provisioned `admin-api-client` UUID and
+      // bind the happy-path key to it: the key must pass the 4b bucket-coverage
+      // scope check (see ADMIN_API_CLIENT_ID rationale above) so S1/S2 reach
+      // 200 and S5 reaches the 404 UserNotFound branch instead of an early 403.
+      const adminApiAppId = await resolveClientAppId(
+        apiContext,
+        DEMO_ADMIN.realmId,
+        ADMIN_API_CLIENT_ID,
+      )
+
       // Create primary API key (nominally with points.manage permission)
       // NOTE: createTestApiKeyWithPermission's permission param is a placeholder;
       // actual permissions are determined by roles assigned to the API key.
@@ -79,7 +100,7 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
         'points.manage',
         setupStartTime,
         DEMO_ADMIN.realmId,
-        '',
+        adminApiAppId,
         apiContext,
       )
 
@@ -183,7 +204,9 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
         process.env.BASE_URL?.replace(/:\d+/, ':8080') ||
         'http://localhost:8080'
 
-      // Cleanup: delete test client apps created during beforeAll
+      // Cleanup: delete test client apps created during beforeAll.
+      // (`grant-test-app-${suffix1}` is never created anymore — the happy-path
+      // key binds to the seeded admin-api-client instead — so its lookup no-ops.)
       const suffix1 = setupStartTime
       const suffix2 = setupStartTime + 1
       const appNames = [`grant-test-app-${suffix1}`, `grant-test-app-${suffix2}`]
@@ -389,7 +412,9 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
           userId: NONEXISTENT_USER_ID,
           amount: 100,
           reason: 'User not found test',
-          // The user-not-found check fails before bucket validation.
+          // The 4b bucket-scope check runs BEFORE the user-existence lookup
+          // (backend/api-ext/src/points.rs), so the scope-exempt key is what
+          // lets this request reach the 404 UserNotFound branch.
           bucketId: targetBucketId,
         },
       )
@@ -437,3 +462,36 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
     })
   })
 })
+
+/** Resolve the client-app UUID for a given client_id in a realm (mirrors DE-D01). */
+async function resolveClientAppId(
+  request: APIRequestContext,
+  realmId: string,
+  clientId: string,
+): Promise<string> {
+  const backendUrl =
+    process.env.API_BASE_URL ||
+    process.env.BASE_URL?.replace(/:\d+/, ':8080') ||
+    'http://localhost:8080'
+  const resp = await request.get(`${backendUrl}/api/client/${realmId}`)
+  if (!resp.ok()) {
+    throw new Error(
+      `could not list client apps in ${realmId}: ${resp.status()} ${await resp.text()}`,
+    )
+  }
+  const body = await resp.json()
+  const raw: unknown = Array.isArray(body)
+    ? body
+    : (body as { data?: unknown }).data ??
+      (body as { items?: unknown }).items ??
+      []
+  const apps: { id: string; clientId?: string; client_id?: string }[] =
+    Array.isArray(raw) ? raw : []
+  const hit = apps.find((a) => (a.clientId ?? a.client_id) === clientId)
+  if (!hit) {
+    throw new Error(
+      `client app ${clientId} not found in ${realmId}; available: ${apps.map((a) => a.clientId ?? a.client_id).join(', ')}`,
+    )
+  }
+  return hit.id
+}

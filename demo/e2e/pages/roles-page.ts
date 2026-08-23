@@ -49,6 +49,7 @@ export class RolesPage extends BasePage {
   readonly dialogSubmitButton: Locator // Generic submit button for delete confirmation
   readonly dialogCancelButton: Locator
   readonly descriptionInput: Locator // Alias for edit mode
+  readonly permissionsDialog: Locator // Role permissions dialog (stays open on save errors)
 
   private createdRoles: string[] = [] // Track created roles for cleanup
   private realmId = 'admin'
@@ -96,6 +97,9 @@ export class RolesPage extends BasePage {
 
     // Aliases for convenience
     this.descriptionInput = this.editDescriptionInput // Alias for edit mode
+
+    // Role permissions dialog
+    this.permissionsDialog = page.locator('[data-testid="role-permissions-dialog"]')
   }
 
   /**
@@ -594,6 +598,35 @@ export class RolesPage extends BasePage {
     ])
 
     await expect(this.table.getByRole('row').first()).toBeVisible({ timeout: 5000 })
+  }
+
+  /**
+   * Click Save on the role permissions dialog WITHOUT asserting that the
+   * dialog closes, and return the assign API response.
+   *
+   * Negative-path counterpart of savePermissions(): when the backend rejects
+   * the grant (e.g. the 8c7b3aa8 guard on
+   * POST /api/roles/{realmId}/define/{roleId}/permissions returns 403 because
+   * the caller does not hold the permission being granted), the frontend only
+   * toasts the error and keeps the dialog open, so waiting for the dialog to
+   * hide would time out. Callers assert on the returned response and on the
+   * dialog remaining open.
+   */
+  async clickSavePermissions(): Promise<Response> {
+    const saveButton = this.page.locator('[data-testid="role-permissions-save-button"]')
+    await expect(saveButton).toBeEnabled()
+
+    const assignResponse = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        /\/api\/roles\/[^/]+\/define\/[^/]+\/permissions\/?$/.test(
+          new URL(response.url()).pathname,
+        ),
+      { timeout: 10000 },
+    )
+
+    await this.smartClick(saveButton)
+    return assignResponse
   }
 
   async cancelPermissions(): Promise<void> {

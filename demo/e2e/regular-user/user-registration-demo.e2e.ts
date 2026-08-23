@@ -2,7 +2,6 @@
  * User Registration Demo Tests
  *
  * User Story: docs/user-stories/core/regular-user.md (US-RU-001: Account Registration)
- * Design Doc: .ai/design/user-registration.md
  *
  * Test Scenarios:
  * - US-RU-001: Account Registration (7 scenarios covering success and failure cases)
@@ -77,10 +76,15 @@ test.describe('[Regular User] Account Registration Demo Tests', () => {
     // (no POST, waitForResponse times out) until the consent checkbox is
     // checked. Check it here for every scenario that navigates to the page so
     // the happy-path / already-exists scenarios reach the register API.
+    // The form only mounts after the public-config query resolves (the page
+    // renders a loading placeholder first), so we must WAIT for the checkbox
+    // instead of probing with isVisible() — its timeout option is ignored and
+    // it returns immediately, silently skipping the check during loading.
     // Idempotent if already checked. Validation-failure scenarios are
     // unaffected (their own field errors block submit before consent matters).
     const consent = page.getByTestId('register-consent-checkbox')
-    if (await consent.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await consent.waitFor({ state: 'visible', timeout: 10000 })
+    if (!(await consent.isChecked())) {
       await consent.check()
     }
   }
@@ -142,27 +146,14 @@ test.describe('[Regular User] Account Registration Demo Tests', () => {
       })
 
       await test.step('Step 6: Verify registration success', async () => {
-        // Wait for URL navigation to complete (TanStack Router navigation is asynchronous)
+        // Contract: registration does NOT create a session. @herald/web's
+        // register() returns {message, verificationRequired} (no token, unlike
+        // login()), and the register page's success handler navigates to
+        // /auth/verify-email or /auth/login. realm-001's demo seed has email
+        // verification disabled, so the only real landing point here is
+        // /auth/login. Assert exactly that — no dashboard auto-login branch.
         await page.waitForURL(`**/auth/login`, { timeout: 3000 })
-
-        // According to user story US-RU-001: "页面跳转到 Dashboard 或 redirect 页面"
-        // Support both scenarios: auto-login to dashboard or redirect to login page
-        const isOnDashboard = page.url().includes('/dashboard')
-        const isOnLogin = page.url().includes('/auth/login')
-
-        console.log(`[Registration] Checking redirect: isOnDashboard=${isOnDashboard}, isOnLogin=${isOnLogin}`)
-
-        if (isOnDashboard) {
-          // Scenario: User auto-logged in to dashboard
-          console.log('[Registration] Redirected to dashboard (auto-login)')
-          await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible()
-        } else if (isOnLogin) {
-          // Scenario: Redirected to login page (manual login)
-          console.log('[Registration] Redirected to login page (manual login)')
-          await expect(page.getByTestId('login-title')).toBeVisible()
-        } else {
-          throw new Error(`Registration succeeded but unexpected URL: ${page.url()}`)
-        }
+        await expect(page.getByTestId('login-title')).toBeVisible()
 
         // Check for success toast (using sonner toast selector)
         await expect(page.locator('[data-sonner-toast]')).toBeVisible({ timeout: 5000 })

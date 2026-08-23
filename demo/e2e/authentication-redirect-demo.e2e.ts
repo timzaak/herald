@@ -170,15 +170,19 @@ test.describe('Authentication Redirect Flow', () => {
 
   // Scenario 5: Admin user accessing realm root
   //
-  // Post route-refactor (commit 03eeb456): the realm root path is the personal
-  // product entry point and resolves to the `user-account-center` first-party
-  // client (frontend/src/routes/__root.tsx). An admin logged in via the
-  // `admin-web-console` client holds a token-bound identity that does NOT
-  // validate under the user-account-center client, so a full page-load of
-  // /${realmId} re-initializes auth as unauthenticated and redirects to the
-  // realm login page. Admins must reach the console via the top-level /manage
-  // (Scenario 3), not the realm root.
-  test('Scenario 5: Admin user accessing realm root redirects to login', async ({ page, loginPage }) => {
+  // The realm root path is the personal product entry point and resolves to
+  // the `user-account-center` first-party client
+  // (frontend/src/routes/__root.tsx). An admin logged in via the
+  // `admin-web-console` client holds a persisted refresh token (Herald SDK
+  // token engine), so a full page-load of /${realmId} restores the session:
+  // `initializeAuth` refreshes first and switches the client to
+  // user-account-center when needed (frontend/src/lib/auth-utils.ts). The
+  // root loader then treats the admin as authenticated and redirects to
+  // /user/profile — the same realm-root redirect any authenticated user
+  // gets, regardless of permissions (frontend/src/routes/__root.tsx). The
+  // admin console remains reachable via the top-level /manage (Scenario 3),
+  // not the realm root.
+  test('Scenario 5: Admin user accessing realm root redirects to user profile', async ({ page, loginPage }) => {
     await test.step('Login as admin', async () => {
       await loginPage.goto(REALM_ID)
       await loginPage.loginAsAdmin('admin@cas.com', 'password', REALM_ID)
@@ -188,20 +192,24 @@ test.describe('Authentication Redirect Flow', () => {
       await page.goto(`${BASE_URL}/${REALM_ID}`)
     })
 
-    // Realm root re-evaluates auth under the user-account-center client and
-    // redirects the admin-console-bound session to the realm login page.
-    await expect(page).toHaveURL(new RegExp(`\\/${REALM_ID}\\/auth\\/login`), { timeout: 10000 })
+    // The realm root restores the admin session under the user-account-center
+    // client and redirects to the personal profile page.
+    await expect(page).toHaveURL(/\/user\/profile/, { timeout: 10000 })
+    await expect(page.getByText('Profile Information')).toBeVisible()
   })
 
   // Scenario 6: Regular user accessing realm root
   //
   // Post route-refactor (commit 03eeb456) the realm root /${realmId} resolves
-  // to the user-account-center client. A full page.goto() of the realm root
-  // re-initializes auth from the persisted refresh token; in the demo
-  // environment the token-bound identity does not survive this client
-  // re-initialization, so an authenticated regular user visiting the realm root
-  // is sent back to the realm login page (not /user/profile). This test
-  // asserts the observed runtime behavior.
+  // to the user-account-center client. Unlike the admin in Scenario 5, the
+  // fresh regular user created here always goes through login-time re-consent
+  // (auto-agreed by the login helper), and on that observed runtime path no
+  // refresh token is persisted. `initializeAuth`'s refresh-first startup
+  // (frontend/src/lib/auth-utils.ts) therefore has nothing to restore after
+  // the full page.goto(), so the user is sent back to the realm login page
+  // (not /user/profile). This asserts the observed runtime behavior; once the
+  // regular-user login path persists tokens like the admin path, this is
+  // expected to redirect to /user/profile the same way Scenario 5 does.
   test('Scenario 6: Regular user accessing realm root redirects to login', async ({ page, loginPage, usersPage, demoLogger }) => {
     const testUserEmail = `testuser${testStartTime}@example.com`
 
@@ -249,10 +257,10 @@ test.describe('Authentication Redirect Flow', () => {
 
   // Scenario 6.5: Authenticated regular user accessing root URL
   //
-  // Like Scenario 6, a full page.goto('/') re-initializes auth and the
-  // token-bound session does not survive the reload in the demo environment,
-  // so the authenticated regular user is redirected to the realm login page.
-  // Asserts observed runtime behavior.
+  // Like Scenario 6, the fresh regular user's login leaves no refresh token
+  // persisted (re-consent path), so a full page.goto('/') re-initializes auth
+  // unauthenticated and the authenticated regular user is redirected to the
+  // realm login page. Asserts observed runtime behavior.
   test('Scenario 6.5: Authenticated regular user accessing root URL redirects to login', async ({ page, loginPage, usersPage, demoLogger }) => {
     const testUserEmail = `rooturluser${testStartTime}@example.com`
 
@@ -300,11 +308,11 @@ test.describe('Authentication Redirect Flow', () => {
 
   // Scenario 7: Regular user accessing admin dashboard (permission denied)
   //
-  // The admin console lives at the top-level /manage. A full page.goto('/manage')
-  // re-initializes auth under the admin-console client; the regular user's
-  // token-bound identity does not survive the reload in the demo environment,
-  // so the user is redirected to the realm login page (with a redirect back to
-  // /manage). Asserts observed runtime behavior.
+  // The admin console lives at the top-level /manage. As in Scenario 6, the
+  // fresh regular user's login leaves no refresh token persisted (re-consent
+  // path), so a full page.goto('/manage') re-initializes auth unauthenticated
+  // and the user is redirected to the realm login page (with a redirect back
+  // to /manage). Asserts observed runtime behavior.
   test('Scenario 7: Regular user accessing admin dashboard redirects to login', async ({ page, loginPage, usersPage, demoLogger }) => {
     const noPermissionEmail = `nopermission${testStartTime}@example.com`
 

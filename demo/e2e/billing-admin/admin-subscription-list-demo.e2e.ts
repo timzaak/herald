@@ -5,8 +5,9 @@
  *
  * Coverage:
  * - US-EM-006 Scene 1: Display subscription projection list with correct columns
- *   Note: Columns follow the actual frontend implementation (Entitlement Key, Payment Provider,
- *   External Price ID, Synced At, Status, Client App), NOT the user story columns (User,
+ *   Note: Columns follow the actual frontend implementation (Entitlement, Payment
+ *   Provider, External Price ID, Synced At, Billing type, Service period end,
+ *   Status, Client App), NOT the user story columns (User,
  *   Current Period). The user story should be updated to match the implementation.
  * - US-EM-006 Scene 2: Filter subscriptions by entitlement key, status, and payment provider
  * - Row field verification: Verify expected subscription fields in list rows
@@ -17,7 +18,6 @@
  *   subscription detail view with change history timeline. This should be tracked as a
  *   follow-up task when the frontend feature is built.
  *
- * Design Doc: .ai/design/product_reduce.md (sections 4.4.1, 5.2)
  * User Story: docs/user-stories/billing/entitlement-mapping.md (US-EM-006)
  *
  * Uses AdminSubscriptionListPage page object from DE-D01.
@@ -25,6 +25,20 @@
  */
 
 import { test, expect } from '../fixtures/demo-page.fixtures'
+
+/**
+ * Resolve the Status column index from the rendered table headers.
+ *
+ * The column layout evolves with the frontend (Billing type / Service period
+ * end were inserted between Synced At and Status, growing the table from 6 to
+ * 8 columns and shifting Status off its old fixed index), so tests must locate
+ * the column by header text instead of a hardcoded index.
+ */
+function findStatusColumnIndex(headers: string[]): number {
+  const index = headers.findIndex((h) => h.trim().toLowerCase() === 'status')
+  expect(index, 'Expected a "Status" column in table headers').toBeGreaterThanOrEqual(0)
+  return index
+}
 
 test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => {
   // ==========================================================================
@@ -64,12 +78,15 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
         const headers = await adminSubscriptionListPage.getTableHeaders()
 
         // Columns per the actual frontend implementation:
-        // Entitlement Key, Payment Provider, External Price ID, Synced At, Status, Client App
+        // Entitlement, Payment Provider, External Price ID, Synced At,
+        // Billing type, Service period end, Status, Client App
         const expectedColumns = [
-          'Entitlement Key',
+          'Entitlement',
           'Payment Provider',
           'External Price ID',
           'Synced At',
+          'Billing type',
+          'Service period end',
           'Status',
           'Client App',
         ]
@@ -84,8 +101,8 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
         expect(rowCount).toBeGreaterThanOrEqual(1)
 
         const firstRowTexts = await adminSubscriptionListPage.getSubscriptionRowTexts(0)
-        // Each row should have 6 cells matching the columns
-        expect(firstRowTexts.length).toBe(6)
+        // Each row should have 8 cells matching the columns
+        expect(firstRowTexts.length).toBe(8)
 
         // Verify row data: entitlement key and provider should be non-empty
         expect(
@@ -97,8 +114,10 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
           'Payment Provider cell should not be empty'
         ).toBeGreaterThan(0)
 
-        // Status badge should contain recognizable status label text
-        const statusText = firstRowTexts[4].trim()
+        // Status badge should contain recognizable status label text.
+        // The column is located by header text so future column
+        // insertions/removals cannot silently shift the index.
+        const statusText = (firstRowTexts[findStatusColumnIndex(headers)] || '').trim()
         expect(statusText.length, 'Status cell should not be empty').toBeGreaterThan(0)
 
         demoLogger.testCode.log(
@@ -132,26 +151,16 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
     })
 
     await test.step('Then: Empty state is shown (no matching subscriptions)', async () => {
-      await adminSubscriptionListPage.waitForDataLoaded()
-      const hasEmpty = await adminSubscriptionListPage.isTableEmpty()
-      if (hasEmpty) {
-        const emptyText = await adminSubscriptionListPage.getEmptyStateText()
-        // The empty state message should indicate no match
-        expect(emptyText.length, 'Empty state should have a message').toBeGreaterThan(0)
-        demoLogger.testCode.log(`[Then] Empty state shown: "${emptyText.trim()}"`)
-      } else {
-        // Table might still show rows if filtering is client-side and delayed
-        // or if seed data happens to match. This is acceptable.
-        const hasTable = await adminSubscriptionListPage.isVisible(adminSubscriptionListPage.table)
-        if (hasTable) {
-          const rowCount = await adminSubscriptionListPage.getSubscriptionRowCount()
-          demoLogger.testCode.log(
-            `[Then] ${rowCount} rows shown after filter (acceptable if data matched)`
-          )
-        } else {
-          expect(hasEmpty || hasTable).toBe(true)
-        }
-      }
+      // The list keeps the previous table visible while the filtered query
+      // refetches (keepPreviousData), then swaps to the empty state. Two
+      // point-in-time checks can straddle that swap and observe neither
+      // state, so wait atomically for the empty state -- the filter value
+      // guarantees no match, hence the empty state must render.
+      await expect(adminSubscriptionListPage.emptyState).toBeVisible()
+      const emptyText = await adminSubscriptionListPage.getEmptyStateText()
+      // The empty state message should indicate no match
+      expect(emptyText.length, 'Empty state should have a message').toBeGreaterThan(0)
+      demoLogger.testCode.log(`[Then] Empty state shown: "${emptyText.trim()}"`)
     })
 
     await test.step('When: Clear the entitlement key filter', async () => {
@@ -160,10 +169,19 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
     })
 
     await test.step('Then: Page returns to showing all subscriptions or empty state', async () => {
-      await adminSubscriptionListPage.waitForDataLoaded()
-      const hasTable = await adminSubscriptionListPage.isVisible(adminSubscriptionListPage.table)
-      const hasEmpty = await adminSubscriptionListPage.isTableEmpty()
-      expect(hasTable || hasEmpty).toBe(true)
+      // Same asynchronous table/empty-state swap as above -- poll for either
+      // final state atomically instead of two point-in-time reads.
+      await expect
+        .poll(
+          async () =>
+            (await adminSubscriptionListPage.isVisible(adminSubscriptionListPage.table)) ||
+            (await adminSubscriptionListPage.isTableEmpty()),
+          {
+            message:
+              'Expected the table or the empty state to be visible after clearing the filter',
+          }
+        )
+        .toBe(true)
       demoLogger.testCode.log('[Then] Filter cleared, page shows appropriate state')
     })
   })
@@ -193,12 +211,25 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
       const hasEmpty = await adminSubscriptionListPage.isTableEmpty()
 
       if (hasTable) {
+        // The list keeps the previous (unfiltered) rows visible while the
+        // filtered query refetches (keepPreviousData), so the row set may
+        // briefly still contain non-Active rows. Retry the verification
+        // until the filtered data settles.
+        await expect(async () => {
+          const rowCount = await adminSubscriptionListPage.getSubscriptionRowCount()
+          // Every visible row should have "Active" in the Status column. The
+          // column is located by header text so future column insertions or
+          // removals cannot silently shift the index.
+          const statusColumnIndex = findStatusColumnIndex(
+            await adminSubscriptionListPage.getTableHeaders()
+          )
+          for (let i = 0; i < rowCount; i++) {
+            const rowTexts = await adminSubscriptionListPage.getSubscriptionRowTexts(i)
+            const statusCell = (rowTexts[statusColumnIndex] || '').trim()
+            expect(statusCell, `Row ${i} status should be Active`).toContain('Active')
+          }
+        }).toPass({ timeout: 10000 })
         const rowCount = await adminSubscriptionListPage.getSubscriptionRowCount()
-        // Every visible row should have "Active" in the Status column (index 4)
-        for (let i = 0; i < rowCount; i++) {
-          const rowTexts = await adminSubscriptionListPage.getSubscriptionRowTexts(i)
-          expect(rowTexts[4].trim(), `Row ${i} status should be Active`).toContain('Active')
-        }
         demoLogger.testCode.log(`[Then] ${rowCount} Active-only rows verified`)
       } else if (hasEmpty) {
         demoLogger.testCode.log('[Then] No active subscriptions, empty state shown')
@@ -403,25 +434,15 @@ test.describe('[Billing Admin] Subscription Projection List (US-EM-006)', () => 
     })
 
     await test.step('Then: Empty state card with dashed border is visible', async () => {
-      await adminSubscriptionListPage.waitForDataLoaded()
-      const hasEmpty = await adminSubscriptionListPage.isTableEmpty()
-      if (hasEmpty) {
-        // Verify the empty state card is visible and has content
-        await expect(adminSubscriptionListPage.emptyState).toBeVisible()
-        const emptyText = await adminSubscriptionListPage.getEmptyStateText()
-        expect(emptyText.length, 'Empty state should have a message').toBeGreaterThan(0)
-        demoLogger.testCode.log(`[Then] Empty state shown: "${emptyText.trim()}"`)
-      } else {
-        // Table might still show rows -- filter may not fully eliminate matches
-        const hasTable = await adminSubscriptionListPage.isVisible(adminSubscriptionListPage.table)
-        if (hasTable) {
-          const rowCount = await adminSubscriptionListPage.getSubscriptionRowCount()
-          demoLogger.testCode.log(
-            `[Then] ${rowCount} rows still shown (filter may not have eliminated all)`
-          )
-        }
-        expect(hasEmpty || hasTable).toBe(true)
-      }
+      // The list keeps the previous table visible while the filtered query
+      // refetches (keepPreviousData), then swaps to the empty state. Two
+      // point-in-time checks can straddle that swap and observe neither
+      // state, so wait atomically for the empty state -- the filter value
+      // guarantees no match, hence the empty state must render.
+      await expect(adminSubscriptionListPage.emptyState).toBeVisible()
+      const emptyText = await adminSubscriptionListPage.getEmptyStateText()
+      expect(emptyText.length, 'Empty state should have a message').toBeGreaterThan(0)
+      demoLogger.testCode.log(`[Then] Empty state shown: "${emptyText.trim()}"`)
     })
   })
 

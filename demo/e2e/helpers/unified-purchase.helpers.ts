@@ -127,6 +127,24 @@ async function discoverFirstPurchasablePriceCard(
   page: Page,
   period: PurchasePeriod = 'month',
 ): Promise<{ priceId: string; period: PurchasePeriod }> {
+  // The price grids render only after the purchase-options response lands
+  // (the page shows a loading spinner until then), so a one-shot isVisible
+  // below races a slow response and misreads a still-loading page as "no
+  // cards". Wait for the data to have rendered — any grid or the empty
+  // state — before scanning; the empty state is included so a genuinely
+  // card-less realm fails fast on the descriptive error below instead of a
+  // visibility timeout.
+  const contentLoaded = page.locator(
+    [
+      SELECTORS.purchasePriceCard.subscriptionsGrid,
+      SELECTORS.purchasePriceCard.creditPacksGrid,
+      SELECTORS.purchasePriceCard.emptyState,
+    ].join(','),
+  )
+  await expect(contentLoaded.first()).toBeVisible({
+    timeout: TEST_DATA.TIMEOUTS.ELEMENT_VISIBLE,
+  })
+
   // Candidate grids in priority order: the requested-period Subscriptions
   // grid, then the Credit-packs grid (one_time). A grid may be absent (e.g.
   // no recurring options → Subscriptions section not rendered).
@@ -233,29 +251,59 @@ export async function selectPaymentMethodAndProceed(
 }
 
 /**
- * Full purchase flow: navigate -> select first price card -> select provider ->
- * complete purchase. Returns the payment attempt ID from localStorage.
+ * Full purchase flow: navigate -> select price card -> (payment step?) ->
+ * create payment attempt. Returns the payment attempt ID.
  *
  * The card-selection step is price-card driven via
- * `selectFirstMappingAndProceed` (Monthly pane by default; pass `period:'year'`
- * for annual-recurring products). The checkout `mappingId` is resolved by the
- * page from the clicked option; this helper does not pin it.
+ * `selectFirstMappingAndProceed` (`priceId` pins a specific seeded card
+ * instead of "first card" — realms with cards from multiple providers need
+ * this). The checkout `mappingId` is resolved by the page from the clicked
+ * option; this helper does not pin it.
  *
- * Auto-skip behavior: when the selected price's provider is auto-determined
- * (single-provider product / no choice needed), clicking Next on the packages
- * step fires `createPaymentMutation` immediately and the page advances straight
- * to the `processing` step (rendering the embedded Stripe Elements form). The
- * `payment` step — with its `PaymentMethodSelector` provider buttons — never
- * renders in that case. This helper handles BOTH paths:
- *   - Path A (multi-provider / explicit choice): the `payment` step renders and
- *     we run `selectPaymentMethodAndProceed` to pick the provider.
- *   - Path B (single-provider / auto-skip): the `payment` step is skipped and
- *     we just wait for the `processing` step directly.
+ * Two provider contracts (frontend 533ec22d + a71c72a4,
+ * purchase-points.tsx `createPaymentAttempt` onSuccess):
+ *
+ * - Hosted checkout (`stripe`): when the attempt POST returns a checkout URL
+ *   the page redirects the SAME TAB to the provider host
+ *   (`window.location.href`) — no in-app `processing` step renders, and after
+ *   the redirect the app's localStorage is unreadable. See
+ *   `initiateHostedCheckoutPurchaseFlow`.
+ * - WeChat (`wechat`): never redirects (no checkout URL) — the pending
+ *   Native QR / JSAPI UI IS the in-app `processing` step, and the attempt id
+ *   stays readable from localStorage. See
+ *   `initiateInAppProcessingPurchaseFlow`.
+ *
+ * NOTE: `creem` shares stripe's same-tab redirect contract in the frontend
+ * (`creemCheckoutUrl`) but has no adapted demo caller yet; it still takes the
+ * in-app branch (known-broken under the current frontend — flagged here, not
+ * silently forked).
  */
 export async function initiatePurchaseFlow(
   page: Page,
   provider: PaymentProvider,
   realmId: string = TEST_DATA.REALMS.REALM_001,
+  opts?: { period?: PurchasePeriod; priceId?: string }
+): Promise<string> {
+  if (provider === TEST_DATA.PAYMENT_PROVIDERS.STRIPE) {
+    return initiateHostedCheckoutPurchaseFlow(page, provider, realmId, opts)
+  }
+  return initiateInAppProcessingPurchaseFlow(page, provider, opts)
+}
+
+/**
+ * In-app purchase contract (WeChat): no checkout URL — the page falls back to
+ * the in-app `processing` step (the pending Native QR / JSAPI UI), so the
+ * attempt id remains readable from localStorage once the step renders.
+ *
+ * Auto-skip behavior: when the selected price's provider is auto-determined
+ * (at most one matching provider), clicking Next on the packages step fires
+ * `createPaymentMutation` immediately and the page advances straight to
+ * `processing`; the `payment` step only renders when more than one provider
+ * matches. This helper handles BOTH paths by racing the two.
+ */
+async function initiateInAppProcessingPurchaseFlow(
+  page: Page,
+  provider: PaymentProvider,
   opts?: { period?: PurchasePeriod; priceId?: string }
 ): Promise<string> {
   await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
@@ -273,11 +321,6 @@ export async function initiatePurchaseFlow(
     await selectFirstMappingAndProceed(page, opts)
   }
 
-  // After selecting a price and clicking Next, the page either shows the
-  // `payment` step (multi-provider / explicit choice) or auto-advances straight
-  // to `processing` (single-provider products skip the provider-select step and
-  // fire createPaymentMutation immediately, rendering the embedded Stripe
-  // Elements form). Race the two: whichever wins decides the path.
   const reachedPayment = await page
     .locator(SELECTORS.purchasePoints.stepPayment)
     .waitFor({ state: 'visible', timeout: 4000 })
@@ -292,6 +335,145 @@ export async function initiatePurchaseFlow(
   })
 
   return extractPaymentAttemptId(page)
+}
+
+/**
+ * Interrupt-guarded `page.goto` for the hosted-checkout branch.
+ *
+ * A previous `initiatePurchaseFlow` call in the same test leaves the tab on
+ * the aborted stripe redirect's `chrome-error://` error document, and a goto
+ * fired while that error document's load is still settling either rejects
+ * with "interrupted by another navigation" or resolves ON the error
+ * document — both leave the purchase page shell never rendering (observed in
+ * the final run: `purchase-points-page` 10s invisible from this branch's
+ * goto). Settle with `waitForLoadState`, detect the race (thrown message OR
+ * the post-goto URL still on chrome-error), and retry after 200ms, at most 3
+ * attempts. Same pattern as support-paywall-purchase-grant-demo.e2e.ts's
+ * gotoWithInterruptRetry.
+ */
+async function gotoAppPageWithInterruptRetry(page: Page, url: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.goto(url)
+      await page.waitForLoadState('domcontentloaded')
+      // Non-throwing variant of the race: the goto resolved against the
+      // still-settling error document instead of the app URL.
+      if (/chrome-error/i.test(page.url())) {
+        throw new Error(`goto landed on chrome-error document instead of ${url}`)
+      }
+      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isNavigationRace =
+        /interrupted by another navigation/i.test(message) ||
+        /ERR_ABORTED|chrome-error/i.test(message)
+      if (attempt < 3 && isNavigationRace) {
+        await page.waitForTimeout(200)
+        continue
+      }
+      throw error
+    }
+  }
+}
+
+/**
+ * Hosted-checkout purchase contract (stripe): the attempt POST's response
+ * carries `paymentContext.stripeCheckoutUrl` and the page redirects the SAME
+ * TAB to `checkout.stripe.com` — `purchase-step-processing` never renders and
+ * localStorage is unreadable after the redirect. Verified pattern from
+ * credit-bucket-purchase-consume-demo.e2e.ts:
+ *
+ * 1. Abort the provider-host navigation (registered before any navigation) so
+ *    the browser never actually loads the external checkout. The abort leaves
+ *    an error document that callers replace with their own navigation.
+ * 2. Capture the attempt id NODE-side via a route handler on the POST: the
+ *    handler proxies the real request (`route.fetch`) and fulfills the page
+ *    with the untouched response, so frontend behavior — including the
+ *    subsequent redirect — is unchanged. This is the only capture immune to
+ *    the same-tab redirect (the page's buffered response body is evicted once
+ *    the redirect starts, and localStorage is unreadable after it). The glob
+ *    matches only the POST path, not the per-attempt status polls.
+ * 3. Click through the packages/(payment?) steps and wait for the captured id.
+ *    Single-provider prices submit directly from the packages-step Next click;
+ *    multi-provider prices render the `payment` step first — race the payment
+ *    step against the attempt POST so neither path blocks on the other.
+ *
+ * The caller drives the attempt to completion itself (e.g. `fulfillPayment`)
+ * and may resume the page with
+ * `/{realm}/user/purchase-points?attemptId={id}` the way the provider bounce
+ * would — that bounce re-enters processing, polls, and renders the complete
+ * step once the attempt succeeds.
+ */
+async function initiateHostedCheckoutPurchaseFlow(
+  page: Page,
+  provider: PaymentProvider,
+  realmId: string,
+  opts?: { period?: PurchasePeriod; priceId?: string }
+): Promise<string> {
+  // Kept registered for the page's lifetime: the redirect fires only after
+  // the POST response reaches the page, which can be after this function
+  // returns.
+  await page.route('https://checkout.stripe.com/**', (route) => route.abort())
+
+  await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
+
+  let createdAttemptId = ''
+  let resolveAttemptCreated: () => void = () => {}
+  const attemptCreated = new Promise<void>((resolve) => {
+    resolveAttemptCreated = resolve
+  })
+  await page.route('**/purchase/payment-attempts', async (route) => {
+    const resp = await route.fetch()
+    if (resp.status() === 201) {
+      try {
+        createdAttemptId = ((await resp.json()) as { id: string }).id
+      } catch {
+        // Leave empty — the expect.poll below fails loudly if the id never
+        // arrives.
+      }
+    }
+    await route.fulfill({ response: resp })
+    resolveAttemptCreated()
+  })
+
+  await gotoAppPageWithInterruptRetry(page, `/${realmId}/user/purchase-points`)
+  await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
+
+  if (opts?.priceId) {
+    await selectMappingAndProceed(page, opts.priceId)
+  } else {
+    await selectFirstMappingAndProceed(page, opts)
+  }
+
+  try {
+    // The POST fires either from the packages-step Next click (single
+    // provider) or from the payment step's Complete Purchase (multi
+    // provider). Whichever happens first decides whether the
+    // provider-select click is still needed.
+    const reachedPayment = await Promise.race([
+      page
+        .locator(SELECTORS.purchasePoints.stepPayment)
+        .waitFor({ state: 'visible', timeout: TEST_DATA.TIMEOUTS.PAYMENT_POLLING })
+        .then(() => true),
+      attemptCreated.then(() => false),
+    ])
+
+    if (reachedPayment) {
+      await selectPaymentMethodAndProceed(page, provider)
+    }
+
+    // The route handler resolves the id the moment the POST completes; the
+    // (aborted) redirect that follows cannot disturb it.
+    await expect
+      .poll(() => createdAttemptId, {
+        timeout: TEST_DATA.TIMEOUTS.PAYMENT_POLLING,
+      })
+      .toBeTruthy()
+  } finally {
+    await page.unroute('**/purchase/payment-attempts')
+  }
+
+  return createdAttemptId
 }
 
 /**

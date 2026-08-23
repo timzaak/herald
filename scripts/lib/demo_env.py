@@ -218,7 +218,7 @@ def start_environment(
             stop_result = subprocess.run(
                 [sys.executable, str(REPO_ROOT / "scripts" / "demo-stop.py"), "--quiet"],
                 capture_output=True,
-                timeout=30,  # Add 30 second timeout
+                timeout=120,  # demo-stop's docker CLI calls can exceed 30s on Windows
             )
             logger.verbose_info(f"demo-stop.py completed with exit code: {stop_result.returncode}")
             if stop_result.stdout:

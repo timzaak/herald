@@ -8,8 +8,6 @@
  * - US-RA-006: User Role Assignment
  * - US-BP-001: Built-in Role and Permission Protection
  *
- * Design Doc: .ai/design/frontend-role-and-permission-management.md
- *
  * Test Phases:
  * - Phase 1: Infrastructure Setup
  * - Phase 2: Permission Definition Management (US-RA-003)
@@ -402,7 +400,15 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
         await rolesPage.cancelPermissions()
       })
 
-      await test.step('When: 为内置角色添加自定义权限', async () => {
+      await test.step('When: 为内置角色添加自定义权限（被授予者守卫拒绝）', async () => {
+        // 安全契约（commit 8c7b3aa8，
+        // backend/api-admin/src/role_definitions/permissions.rs:79）：
+        // POST /api/roles/{realmId}/define/{roleId}/permissions 要求授予者
+        // 本人持有被授予的权限。刚创建的自定义权限无人持有，把它授予内置
+        // realm-admin 角色必须被 403 拒绝（"Insufficient permissions: requires ..."）。
+        // 前端保存失败只 toast 不关对话框（role-permissions-dialog.tsx onError），
+        // 因此断言落在 API 响应与对话框保持打开的持久 UI 状态上，而非对话框关闭。
+
         // 创建自定义权限
         await permissionsPage.goto()
 
@@ -417,10 +423,20 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
         await rolesPage.goto()
         await rolesPage.clickPermissionsButton('realm-admin')
 
-        // 勾选自定义权限
+        // 勾选自定义权限并保存 — 期望被守卫 403 拒绝
         await rolesPage.setPermission(customPermission.name, true)
-        await rolesPage.savePermissions()
-        console.log('✓ Custom permission assigned to built-in role')
+        const response = await rolesPage.clickSavePermissions()
+        expect(response.status()).toBe(403)
+        const body = await response.json()
+        expect(String(body.message)).toContain('Insufficient permissions')
+        expect(String(body.message)).toContain(customPermission.name)
+        console.log(`✓ Grant rejected by guard: ${response.status()} ${body.message}`)
+
+        // 保存失败前端不关对话框 — 对话框应保持打开（若守卫被移除、保存成功，
+        // 对话框会关闭，此断言失败，保证测试在契约回退时变红）
+        await expect(rolesPage.permissionsDialog).toBeVisible()
+        await rolesPage.cancelPermissions()
+        console.log('✓ Dialog stayed open after rejected save, then cancelled')
       })
 
       await test.step('Then: 验证内置角色的权限保护机制', async () => {
@@ -438,12 +454,12 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
         expect(isCustomPermissionDisabled).toBeFalsy() // 启用 — 可修改
         console.log('✓ Custom permission checkbox is enabled (editable on built-in role)')
 
-        // 刚分配的自定义权限应处于勾选状态
-        expect(await rolesPage.isPermissionChecked(customPermissionName)).toBeTruthy()
-        console.log('✓ Custom permission is checked (just assigned)')
+        // 8c7b3aa8 守卫：被拒绝的授予不应生效 — 自定义权限保持未勾选
+        expect(await rolesPage.isPermissionChecked(customPermissionName)).toBeFalsy()
+        console.log('✓ Custom permission remains unassigned (grant was rejected by guard)')
 
         await rolesPage.cancelPermissions()
-        console.log('✓ Built-in role protection verified - built-in perms protected, custom perms editable')
+        console.log('✓ Built-in role protection verified - built-in perms protected, custom perms editable, unheld grant rejected')
       })
     })
   })
@@ -715,7 +731,13 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
           await rolesPage.cancelPermissions()
         })
 
-        await test.step('Then: 验证可以为内置角色添加自定义权限', async () => {
+        await test.step('Then: 验证内置角色的自定义权限授予受守卫保护', async () => {
+          // 安全契约（commit 8c7b3aa8，
+          // backend/api-admin/src/role_definitions/permissions.rs:79）：
+          // 授予者必须本人持有被授予的权限。刚创建的自定义权限无人持有，
+          // 授予内置 realm-admin 角色必须被 403 拒绝。前端保存失败只 toast
+          // 不关对话框，因此断言落在 API 响应与对话框保持打开的持久 UI 状态上。
+
           // 创建自定义权限
           await permissionsPage.goto()
 
@@ -726,23 +748,32 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
           await permissionsPage.createPermission(customPermission)
           console.log('✓ Custom permission created')
 
-          // 为内置角色添加自定义权限
+          // 为内置角色添加自定义权限 — 期望被守卫 403 拒绝
           await rolesPage.goto()
           await rolesPage.clickPermissionsButton('realm-admin')
 
           await rolesPage.setPermission(customPermission.name, true)
-          await rolesPage.savePermissions()
-          console.log('✓ Custom permission assigned to built-in role')
+          const response = await rolesPage.clickSavePermissions()
+          expect(response.status()).toBe(403)
+          const body = await response.json()
+          expect(String(body.message)).toContain('Insufficient permissions')
+          expect(String(body.message)).toContain(customPermission.name)
+          console.log(`✓ Grant rejected by guard: ${response.status()} ${body.message}`)
 
-          // 验证可以移除自定义权限
+          // 保存失败前端不关对话框 — 对话框应保持打开
+          await expect(rolesPage.permissionsDialog).toBeVisible()
+          await rolesPage.cancelPermissions()
+
+          // 验证授予未生效：自定义权限复选框仍启用（可编辑）但未被勾选
           await rolesPage.clickPermissionsButton('realm-admin')
 
           const isDisabled = await rolesPage.isPermissionCheckboxDisabled(customPermission.name)
           expect(isDisabled).toBeFalsy()
 
-          await rolesPage.setPermission(customPermission.name, false)
-          await rolesPage.savePermissions()
-          console.log('✓ Custom permission removed from built-in role')
+          expect(await rolesPage.isPermissionChecked(customPermission.name)).toBeFalsy()
+          console.log('✓ Custom permission remains editable but unassigned (guard held)')
+
+          await rolesPage.cancelPermissions()
         })
       })
 
@@ -760,10 +791,21 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
 
         const permission1Name = `reports_${testStartTime}.view`
         const permission2Name = `reports_${testStartTime}.manage`
+        // Step 3/7 授予并验证的权限：调用者（realm-admin）已持有的内置权限。
+        // 8c7b3aa8 契约（backend/api-admin/src/role_definitions/permissions.rs:79）
+        // 要求授予者本人持有被授予权限，刚创建的自定义权限无人持有、不可授予
+        // （见 Step 1/Step 3 注释），故闭环授予改走 Scenario 1 已验证的内置权限路径。
+        const grantedPermission1Name = 'users.view'
+        const grantedPermission2Name = 'users.manage'
         const roleName = `content-admin-${testStartTime}`
         const userEmail = `content-user-${testStartTime}@example.com`
 
-        await test.step('Step 1: 创建权限', async () => {
+        await test.step('Step 1: 创建自定义权限', async () => {
+          // 独立演示：权限定义页可创建自定义权限。
+          // 8c7b3aa8 契约（backend/api-admin/src/role_definitions/permissions.rs:79）：
+          // 授予者必须本人持有被授予的权限，而刚创建的自定义权限无人持有，
+          // 因此它们不能在 Step 3 被授予任何角色（授予会按设计被 403 拒绝，
+          // 见 Phase 6 的守卫验证步骤）。这两个自定义权限仅验证可创建，由 Cleanup 删除。
           await permissionsPage.goto()
 
           const permission1: PermissionData = {
@@ -778,7 +820,11 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
           }
           await permissionsPage.createPermission(permission2)
 
-          console.log('✓ Step 1: Created 2 permissions')
+          // 验证两个自定义权限已创建
+          expect(await permissionsPage.permissionExists(permission1Name)).toBeTruthy()
+          expect(await permissionsPage.permissionExists(permission2Name)).toBeTruthy()
+
+          console.log('✓ Step 1: Created 2 custom permissions')
         })
 
         await test.step('Step 2: 创建角色', async () => {
@@ -794,14 +840,19 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
         })
 
         await test.step('Step 3: 为角色分配权限', async () => {
+          // 8c7b3aa8 契约（backend/api-admin/src/role_definitions/permissions.rs:79）：
+          // 授予者必须本人持有被授予的权限。Step 1 新建的自定义权限无人持有，
+          // 授予必被 403 拒绝且对话框不会关闭，因此闭环演示授予调用者
+          // （realm-admin）已持有的内置权限（与通过的 Scenario 1 相同路径），
+          // 保存正常关框。
           await rolesPage.clickPermissionsButton(roleName)
 
-          await rolesPage.setPermission(permission1Name, true)
-          await rolesPage.setPermission(permission2Name, true)
+          await rolesPage.setPermission(grantedPermission1Name, true)
+          await rolesPage.setPermission(grantedPermission2Name, true)
 
           await rolesPage.savePermissions()
 
-          console.log('✓ Step 3: Assigned permissions to role')
+          console.log(`✓ Step 3: Assigned permissions to role (${grantedPermission1Name}, ${grantedPermission2Name})`)
         })
 
         await test.step('Step 4: 创建用户', async () => {
@@ -885,8 +936,8 @@ test.describe('[Realm Admin] RBAC Comprehensive Demo Tests', () => {
           await rolesPage.goto()
           await rolesPage.clickPermissionsButton(roleName)
 
-          expect(await rolesPage.isPermissionChecked(permission1Name)).toBeTruthy()
-          expect(await rolesPage.isPermissionChecked(permission2Name)).toBeTruthy()
+          expect(await rolesPage.isPermissionChecked(grantedPermission1Name)).toBeTruthy()
+          expect(await rolesPage.isPermissionChecked(grantedPermission2Name)).toBeTruthy()
 
           console.log('✓ Step 7: Verified role has correct permissions')
 

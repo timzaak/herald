@@ -2,7 +2,6 @@
  * Regular User TOTP 综合演示测试
  *
  * 用户故事: docs/user-stories/auth/totp.md
- * 设计文档: .ai/design/totp-authentication-frontend-and-demo.md
  *
  * 测试覆盖 (18/22 scenarios = 81.8%, 4 timeout scenarios skipped, 2 simplified):
  * - US-TO-002: 用户启用 TOTP 二次认证 (5 scenarios, 1 timeout scenario skipped) ✅
@@ -34,12 +33,11 @@
  * - 场景 5 修复: 在调用 disableTOTPThroughUI 前先导航到正确页面
  *
  * @see ../../../spec/demo/e2e-testing.md
- * @see .ai/design/totp-authentication-frontend-and-demo.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
-import { loginAsAdmin, loginWithCredentials } from '../helpers/auth'
+import { loginAsAdmin, loginWithCredentials, clearSessionData } from '../helpers/auth'
 import {
   generateTOTPCodeFromSecret,
   generateTOTPCodeForDate,
@@ -52,6 +50,37 @@ import { SELECTORS } from '../selectors'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const DEMO_REALM = 'admin'  // Use admin realm for testing
+
+/**
+ * Helper function to activate the "totp" tab on the /user/security page.
+ *
+ * The Security page renders TOTP content inside Radix Tabs (defaultValue
+ * "password") and inactive TabsContent is not mounted, so TOTP elements
+ * (enable/disable/regenerate buttons, status card) are unreachable until the
+ * "totp" tab is activated. The tab selection resets on every navigation or
+ * reload, so this must be re-done after each fresh landing on the page.
+ *
+ * @returns true when the tab was activated; false when the tab never appeared
+ *          (realm TOTP disabled or the current page is not the user Security
+ *          page), meaning TOTP UI elements are not reachable
+ */
+async function switchToSecurityTotpTab(page: any): Promise<boolean> {
+  const totpTab = page.getByTestId('totp-tab')
+
+  // The tab renders once the feature-availability query resolves; if it never
+  // appears, TOTP is not offered on this page.
+  try {
+    await totpTab.waitFor({ state: 'visible', timeout: 5000 })
+  } catch {
+    return false
+  }
+
+  // Clicking the already-active trigger is a no-op, so this is idempotent.
+  await totpTab.click()
+  // Radix only mounts the active tab's content; wait for the TOTP panel.
+  await expect(page.locator(SELECTORS.security.totpSectionTitle)).toBeVisible({ timeout: 5000 })
+  return true
+}
 
 /**
  * UI-based TOTP cleanup helper function
@@ -70,8 +99,18 @@ async function disableTOTPThroughUI(page: any, password: string, logger?: any) {
     }
   }
 
+  // The "Disable TOTP" button lives inside the "totp" tab, whose content is
+  // not mounted until the tab is activated. Switch first; if the tab is
+  // unavailable (realm TOTP disabled or not on the Security page) UI cleanup
+  // is not reachable and callers must fall back to other cleanup means.
+  const totpTabActivated = await switchToSecurityTotpTab(page)
+  if (!totpTabActivated) {
+    log('[Cleanup] totp tab 不可用（Realm TOTP 未启用或不在 Security 页面），无法通过 UI 禁用 TOTP')
+    return
+  }
+
   // Check if the "Disable TOTP" button is visible
-  const disableButton = page.getByTestId(SELECTORS.security.totpDisableButton)
+  const disableButton = page.locator(SELECTORS.security.totpDisableButton)
   const buttonCount = await disableButton.count()
 
   if (buttonCount > 0) {
@@ -82,10 +121,10 @@ async function disableTOTPThroughUI(page: any, password: string, logger?: any) {
     // Wait for dialog to fully render with extended timeout
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 5000 })
     // Wait for React state to stabilize (dialog is fully rendered)
-    await expect(page.getByTestId(SELECTORS.security.totpDisablePasswordInput)).toBeVisible({ timeout: 3000 })
+    await expect(page.locator(SELECTORS.security.totpDisablePasswordInput)).toBeVisible({ timeout: 3000 })
 
     // Use specific data-testid for TOTP disable password input
-    const passwordInput = page.getByTestId(SELECTORS.security.totpDisablePasswordInput)
+    const passwordInput = page.locator(SELECTORS.security.totpDisablePasswordInput)
     await expect(passwordInput).toBeVisible({ timeout: 5000 })
     await passwordInput.fill(password)
 
@@ -101,8 +140,10 @@ async function disableTOTPThroughUI(page: any, password: string, logger?: any) {
     // Verify TOTP is actually disabled by checking for "Enable TOTP" button
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
-    await expect(page.getByTestId(SELECTORS.security.totpEnableButton)).toBeVisible({ timeout: 5000 })
-    await expect(page.getByTestId(SELECTORS.security.totpDisableButton)).not.toBeVisible()
+    // Reload resets the tab selection to "password"; re-activate the TOTP tab.
+    await switchToSecurityTotpTab(page)
+    await expect(page.locator(SELECTORS.security.totpEnableButton)).toBeVisible({ timeout: 5000 })
+    await expect(page.locator(SELECTORS.security.totpDisableButton)).not.toBeVisible()
     log('[Cleanup] ✓ 验证 TOTP 已禁用')
   } else {
     log('[Cleanup] TOTP 已禁用，跳过清理')
@@ -114,7 +155,7 @@ async function disableTOTPThroughUI(page: any, password: string, logger?: any) {
  * The secret is stored as a data-secret attribute on the QR code container element.
  */
 async function extractSecretFromQRCode(page: any): Promise<string> {
-  const secretElement = page.getByTestId(SELECTORS.security.totpSecretKey)
+  const secretElement = page.locator(SELECTORS.security.totpSecretKey)
 
   const secret = await secretElement.getAttribute('data-secret', { timeout: 30000 })
   if (!secret) {
@@ -129,7 +170,7 @@ async function extractSecretFromQRCode(page: any): Promise<string> {
  * Helper function to wait for TOTP Setup Page to be loaded
  */
 async function waitForSetupPage(page: any): Promise<void> {
-  await expect(page.getByTestId(SELECTORS.security.totpSetupPage)).toBeVisible({ timeout: 5000 })
+  await expect(page.locator(SELECTORS.security.totpSetupPage)).toBeVisible({ timeout: 5000 })
 }
 
 /**
@@ -138,7 +179,7 @@ async function waitForSetupPage(page: any): Promise<void> {
  */
 async function waitForSecurityPage(page: any): Promise<void> {
   await page.waitForURL('**/user/security', { timeout: 10000 })
-  await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible({ timeout: 5000 })
+  await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible({ timeout: 5000 })
 }
 
 /**
@@ -174,24 +215,24 @@ async function setupTOTPForUser(
 
   // Navigate to security page
   await page.goto(`/user/security`)
-  await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+  await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
   // Disable TOTP if already enabled (ensure clean state)
   await disableTOTPThroughUI(page, password, logger)
-  await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+  await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
   // Click Enable TOTP button to navigate to setup page
-  await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+  await page.locator(SELECTORS.security.totpEnableButton).click()
   await waitForSetupPage(page)
   console.log('[Setup] ✓ TOTP Setup Page 已打开')
 
   // Step 1: Password Confirmation
   console.log('[Setup] Step 1: 输入密码确认...')
-  const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+  const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
   await expect(passwordInput).toBeVisible({ timeout: 5000 })
   await passwordInput.fill(password)
 
-  const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+  const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
   await expect(generateButton).toBeVisible({ timeout: 5000 })
   await expect(generateButton).toBeEnabled({ timeout: 5000 })
 
@@ -199,7 +240,7 @@ async function setupTOTPForUser(
   await generateButton.click()
 
   // Wait for QR code step to be visible
-  await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+  await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
   console.log('[Setup] ✓ Step 1 完成，进入 QR 码步骤')
 
   // Step 2: QR Code Display
@@ -208,17 +249,17 @@ async function setupTOTPForUser(
   console.log('[Setup] ✓ 已从 QR 码提取 TOTP 密钥')
 
   // Confirm saved backup codes
-  await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+  await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
   console.log('[Setup] ✓ 已确认保存备份恢复码')
 
   // Click Next to proceed to verification step
-  const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+  const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
   await expect(nextButton).toBeVisible({ timeout: 5000 })
   await expect(nextButton).toBeEnabled({ timeout: 5000 })
   await nextButton.click()
 
   // Wait for verification step to be visible
-  await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+  await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
   console.log('[Setup] ✓ Step 2 完成，进入验证步骤')
 
   // Step 3: Verification Code Input
@@ -227,14 +268,14 @@ async function setupTOTPForUser(
 
   // Enter verification code digit by digit (6 separate inputs)
   for (let i = 0; i < 6; i++) {
-    const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+    const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
     await expect(digitInput).toBeVisible({ timeout: 5000 })
     await digitInput.fill(validCode[i])
   }
   console.log('[Setup] ✓ 验证码已输入')
 
   // Submit verification
-  const submitButton = page.getByTestId(SELECTORS.security.totpVerifySubmitButton)
+  const submitButton = page.locator(SELECTORS.security.totpVerifySubmitButton)
   await expect(submitButton).toBeVisible({ timeout: 5000 })
   await expect(submitButton).toBeEnabled({ timeout: 5000 })
   await submitButton.click()
@@ -340,15 +381,15 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Navigate to security page
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
         console.log('[Scenario 1] ✓ 用户导航到 Security 页面')
 
         // Reset: Disable TOTP if already enabled (ensure clean state) - using UI
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Click Enable TOTP button to navigate to setup page
-        const enableButton = page.getByTestId(SELECTORS.security.totpEnableButton)
+        const enableButton = page.locator(SELECTORS.security.totpEnableButton)
         await expect(enableButton).toBeVisible()
         await enableButton.click()
         await waitForSetupPage(page)
@@ -356,23 +397,23 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Page Step 1: Password Confirmation
         console.log('[Scenario 1] Step 1: 密码确认')
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible()
         await passwordInput.fill(currentPassword)
         console.log('[Scenario 1] ✓ 密码已输入')
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible()
         await generateButton.click()
         console.log('[Scenario 1] ✓ 已点击 Generate QR Code 按钮')
 
         // Wait for QR code step to appear
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         console.log('[Scenario 1] ✓ 进入 QR 码步骤')
 
         // Page Step 2: QR Code Display
         console.log('[Scenario 1] Step 2: QR 码显示')
-        await expect(page.getByTestId(SELECTORS.security.totpQRCodeContainer)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpQRCodeContainer)).toBeVisible({ timeout: 15000 })
         await expect(page.getByText(/scan the qr code/i)).toBeVisible()
         console.log('[Scenario 1] ✓ QR code 已显示')
 
@@ -389,19 +430,19 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log(`[Scenario 1] ✓ 发现 ${count} 个备份恢复码`)
 
         // Confirm saved backup codes
-        const savedCheckbox = page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox)
+        const savedCheckbox = page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox)
         await expect(savedCheckbox).toBeVisible()
         await savedCheckbox.check()
         console.log('[Scenario 1] ✓ 已确认保存备份恢复码')
 
         // Click Next to proceed to verification
-        const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+        const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
         await expect(nextButton).toBeVisible()
         await expect(nextButton).toBeEnabled()
         await nextButton.click()
 
         // Wait for verification step
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
         console.log('[Scenario 1] ✓ 进入验证步骤')
 
         // Page Step 3: Verification Code Input
@@ -411,14 +452,14 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Enter verification code digit by digit (6 separate inputs)
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await expect(digitInput).toBeVisible({ timeout: 5000 })
           await digitInput.fill(validCode[i])
         }
         console.log('[Scenario 1] ✓ 验证码已输入')
 
         // Submit verification
-        const submitButton = page.getByTestId(SELECTORS.security.totpVerifySubmitButton)
+        const submitButton = page.locator(SELECTORS.security.totpVerifySubmitButton)
         await expect(submitButton).toBeVisible()
         await expect(submitButton).toBeEnabled({ timeout: 5000 })
         await submitButton.click()
@@ -430,8 +471,10 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         // Verify TOTP is enabled
         await page.reload()
         await page.waitForLoadState('domcontentloaded')
-        await expect(page.getByTestId(SELECTORS.security.totpDisableButton)).toBeVisible()
-        await expect(page.getByTestId(SELECTORS.security.totpEnableButton)).not.toBeVisible()
+        // Reload resets the tab selection; activate the TOTP tab before asserting
+        await switchToSecurityTotpTab(page)
+        await expect(page.locator(SELECTORS.security.totpDisableButton)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpEnableButton)).not.toBeVisible()
         console.log('[Scenario 1] ✓ TOTP 启用成功')
       })
 
@@ -442,51 +485,53 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Navigate to security page and start TOTP setup
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
+        // Fresh navigation resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
 
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Step 1: Password Confirmation
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible({ timeout: 5000 })
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
 
         // Extract secret
         totpSecret = await extractSecretFromQRCode(page)
 
         // Confirm backup codes and proceed to verification
-        await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-        await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
+        await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+        await page.locator(SELECTORS.security.totpSetupNextButton).click()
 
         // Wait for verification step
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
 
         // Step 3: Enter invalid TOTP code
         const invalidCode = '000000'
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await digitInput.fill(invalidCode[i])
         }
 
         // Try to submit (should fail but page remains open for retry)
-        const submitButton = page.getByTestId(SELECTORS.security.totpVerifySubmitButton)
+        const submitButton = page.locator(SELECTORS.security.totpVerifySubmitButton)
         await submitButton.click()
 
         // Verify setup page remains open (verification failed)
-        await expect(page.getByTestId(SELECTORS.security.totpSetupPage)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpSetupPage)).toBeVisible()
         console.log('[Scenario 2] ✓ 验证失败，Setup Page 未关闭')
 
         // Verify input is still editable for retry
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await expect(digitInput).toBeVisible()
           await expect(digitInput).toBeEditable()
         }
@@ -494,13 +539,13 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Navigate back through steps to return to security page
         // Click Back button to return to QR code step, then back to security page
-        await page.getByTestId(SELECTORS.security.totpVerifyBackButton).click()
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible()
-        await page.getByTestId(SELECTORS.security.totpSetupBackButton).click()
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepPassword)).toBeVisible()
+        await page.locator(SELECTORS.security.totpVerifyBackButton).click()
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackButton).click()
+        await expect(page.locator(SELECTORS.security.totpSetupStepPassword)).toBeVisible()
         // Navigate back to security page using the back button
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
 
       // 场景 3: Realm 未启用 TOTP
@@ -549,24 +594,24 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         // FIX: 先导航到 User Security 页面，再执行 TOTP 清理
         // 场景 3 结束后页面停留在 /admin/manage/settings，需要先跳转到正确页面
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Reset: Disable TOTP if already enabled (ensure clean state) - using UI
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Step 1: Password Confirmation
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible({ timeout: 5000 })
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
 
         // Extract secret from QR code displayed in the UI (UI-Only principle)
         const secret = await extractSecretFromQRCode(page)
@@ -580,16 +625,16 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log(`[Scenario 5] ✓ 发现 ${count} 个备份恢复码`)
 
         // Verify "Copy All" button is visible
-        await expect(page.getByTestId(SELECTORS.security.backupCodesCopyAllButton)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.backupCodesCopyAllButton)).toBeVisible()
         console.log('[Scenario 5] ✓ "Copy All" 按钮已显示')
 
         // Verify checkbox is unchecked by default
-        const savedCheckbox = page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox)
+        const savedCheckbox = page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox)
         await expect(savedCheckbox).toBeVisible()
         await expect(savedCheckbox).not.toBeChecked()
 
         // Verify Next button is disabled until checkbox is checked
-        const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+        const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
         await expect(nextButton).toBeVisible()
         await expect(nextButton).toBeDisabled()
         console.log('[Scenario 5] ✓ 必须确认保存备份码才能继续')
@@ -600,19 +645,19 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Complete the setup
         await nextButton.click()
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible()
 
         const validCode = generateTOTPCodeFromSecret(secret)
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await digitInput.fill(validCode[i])
         }
-        await page.getByTestId(SELECTORS.security.totpVerifySubmitButton).click()
+        await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
         await waitForSecurityPage(page)
 
         // Verify backup codes display is only shown once
         await page.reload()
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
         const backupCodesDisplay = page.getByTestId('backup-codes-display').first()
         const isVisible = await backupCodesDisplay.isVisible().catch(() => false)
         expect(isVisible).toBe(false)
@@ -624,11 +669,13 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         // User already has TOTP enabled from scenario 5
         await page.reload()
         await page.waitForLoadState('domcontentloaded')
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
 
         // Verify Disable TOTP button is shown (not Enable)
-        await expect(page.getByTestId(SELECTORS.security.totpDisableButton)).toBeVisible()
-        await expect(page.getByTestId(SELECTORS.security.totpEnableButton)).not.toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpDisableButton)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpEnableButton)).not.toBeVisible()
         console.log('[Scenario 6] ✓ 显示 Disable TOTP 按钮而非 Enable TOTP')
       })
     })
@@ -697,8 +744,10 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       // Setup: Enable TOTP for realm and user
       totpSecret = await setupTOTPForUser(page, settingsPage, DEMO_REALM, currentPassword, demoLogger)
 
-      // Logout
-      await page.context().clearCookies()
+      // Logout (cookies + storage: the app keeps its session in storage, so
+      // clearing cookies alone leaves the user authenticated and the login
+      // route redirects away to /manage)
+      await clearSessionData(page)
 
       // Login to TOTP page
       await page.goto(`/${DEMO_REALM}/auth/login`)
@@ -717,26 +766,32 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       // 输入过期验证码
       await page.getByTestId('totp-verification-code-input').fill(expiredCode)
 
-      // 验证过期验证码被拒绝
-      // 期望: 输入框仍可编辑（说明验证失败，未提交或未跳转）
+      // 验证过期验证码被拒绝：错误提示可见，输入框仍可编辑（可重试）
+      await expect(page.getByTestId('totp-verification-error')).toBeVisible({ timeout: 5000 })
       await expect(page.getByTestId('totp-verification-code-input')).toBeVisible()
       await expect(page.getByTestId('totp-verification-code-input')).toBeEditable()
       console.log('[Scenario] ✓ 过期验证码被拒绝，输入框仍可编辑')
 
-      // 验证可能显示的错误消息（如果有的话）
-      const errorMessage = page.getByText(/invalid|expired|incorrect/i)
-      const hasError = await errorMessage.count() > 0
-      if (hasError) {
-        console.log('[Scenario] ✓ 显示了验证码错误提示')
-      }
+      // 后端契约（verify_totp.rs "Delete temp token on failure"）：验证失败即
+      // 删除 temp token，同一 TOTP 页面直接重输新码必然 401 "Invalid or expired
+      // temporary token"（network log 实证：过期码 401 后 144ms 的新码请求同样
+      // 401）。需重新走密码登录获取新 temp token，再用有效码完成登录
+      console.log('[Scenario] 重新登录以获取新的验证会话...')
+      await page.goto(`/${DEMO_REALM}/auth/login`)
+      await page.getByTestId('email-input').fill(currentUserEmail)
+      await page.getByTestId('password-input').fill(currentPassword)
+      await page.getByRole('button', { name: /login|sign in/i }).click()
+      await expect(page.getByTestId('totp-verification-code-input')).toBeVisible({ timeout: 5000 })
 
-      // 完成登录: 使用当前有效验证码
+      // 完成登录: 使用当前有效验证码（在新会话就绪后生成，避免跨时间窗口）
       console.log('[Scenario] 使用当前有效验证码完成登录...')
       const freshCode = generateTOTPCodeFromSecret(totpSecret)
       await page.getByTestId('totp-verification-code-input').fill(freshCode)
 
-      // 等待导航到 dashboard（自动提交在输入 6 位数字后发生）
-      await page.waitForURL(/.*\/(dashboard)?$/, { timeout: 5000 })
+      // 等待登录完成后的跳转（自动提交在输入 6 位数字后发生）。
+      // admin 用户 TOTP 登录后落地 /manage（redirectPathForPermissions →
+      // DEFAULT_ADMIN_REDIRECT='/manage'，默认 realm 折叠 URL 前缀，无 /dashboard 路由）
+      await page.waitForURL(/\/manage/, { timeout: 5000 })
       console.log('[Scenario] ✓ 验证码过期场景测试完成')
     })
   })
@@ -764,8 +819,9 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         // Setup: Enable TOTP for realm and user
         totpSecret = await setupTOTPForUser(page, settingsPage, DEMO_REALM, currentPassword, demoLogger)
 
-        // Logout
-        await page.context().clearCookies()
+        // Logout (cookies + storage: clearing cookies alone leaves the
+        // localStorage-backed session alive and the login route redirects)
+        await clearSessionData(page)
         console.log('[Scenario 1] ✓ 用户已登出')
 
         // Login with TOTP
@@ -789,12 +845,13 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         // Enter valid TOTP code (auto-submit happens after 6 digits)
         const totpCode = generateTOTPCodeFromSecret(totpSecret)
         await page.getByTestId('totp-verification-code-input').fill(totpCode)
-        // Wait for navigation to dashboard (auto-submit happens automatically)
-        await page.waitForURL(/\/admin/, { timeout: 5000 })
+        // Wait for navigation to the admin home (auto-submit happens
+        // automatically); admin login lands on /manage
+        await page.waitForURL(/\/manage/, { timeout: 5000 })
         console.log('[Scenario 1] ✓ 已输入 TOTP 验证码（自动提交）')
 
         // Verify login success
-        await page.waitForURL(/\/admin/, { timeout: 5000 })
+        await page.waitForURL(/\/manage/, { timeout: 5000 })
 
         // Wait for page to fully load and auth state to settle
         await page.waitForLoadState('networkidle')
@@ -807,14 +864,17 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         } else {
           console.log('[Scenario 1] ⚠ Session Cookie 未找到，使用其他验证方式')
         }
+        // The default 'admin' realm collapses its URL prefix, so the admin
+        // home is served at /manage without a realm segment
         const currentUrl = page.url()
-        expect(currentUrl).toContain(DEMO_REALM)
+        expect(currentUrl).toContain('/manage')
       })
 
       // 场景 2: TOTP 验证码错误（失败场景）
       await test.step('场景 2: TOTP 验证码错误（失败场景）', async () => {
-        // Logout
-        await page.context().clearCookies()
+        // Logout (cookies + storage: clearing cookies alone leaves the
+        // localStorage-backed session alive and the login route redirects)
+        await clearSessionData(page)
         console.log('[Scenario 2] ✓ 用户已登出')
 
         // Login to TOTP page
@@ -846,8 +906,9 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       // 场景 3: TOTP 验证码过期（失败场景）
       await test.step('场景 3: TOTP 验证码过期（失败场景）', async () => {
-        // Logout
-        await page.context().clearCookies()
+        // Logout (cookies + storage: clearing cookies alone leaves the
+        // localStorage-backed session alive and the login route redirects)
+        await clearSessionData(page)
         console.log('[Scenario 3] ✓ 用户已登出')
 
         // Login to TOTP page
@@ -1041,52 +1102,54 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await settingsPage.saveTOTPConfig()
 
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Reset: Disable TOTP if already enabled (ensure clean state) - using UI
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Enable TOTP using Page flow
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Complete the 3-step flow
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible({ timeout: 5000 })
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         totpSecret = await extractSecretFromQRCode(page)
         console.log(`[Scenario 1] ✓ 已提取密钥: ${totpSecret}`)
 
-        await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-        await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
+        await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+        await page.locator(SELECTORS.security.totpSetupNextButton).click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
         const validCode = generateTOTPCodeFromSecret(totpSecret)
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await digitInput.fill(validCode[i])
         }
-        await page.getByTestId(SELECTORS.security.totpVerifySubmitButton).click()
+        await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
         await waitForSecurityPage(page)
         console.log('[Scenario 1] ✓ TOTP 已启用')
 
         // Disable TOTP
         await page.reload()
-        await expect(page.getByTestId(SELECTORS.security.totpDisableButton)).toBeVisible()
-        await page.getByTestId(SELECTORS.security.totpDisableButton).click()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
+        await expect(page.locator(SELECTORS.security.totpDisableButton)).toBeVisible()
+        await page.locator(SELECTORS.security.totpDisableButton).click()
         await expect(page.locator('[role="dialog"]')).toBeVisible()
         console.log('[Scenario 1] ✓ 已点击 Disable TOTP 按钮')
 
         // Enter password and confirm
-        const passwordInputDisable = page.getByTestId(SELECTORS.security.totpDisablePasswordInput)
+        const passwordInputDisable = page.locator(SELECTORS.security.totpDisablePasswordInput)
         await expect(passwordInputDisable).toBeVisible({ timeout: 5000 })
         await passwordInputDisable.fill(currentPassword)
         await page.getByRole('button', { name: /confirm|disable/i }).click()
@@ -1096,48 +1159,52 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(page.locator('[role="dialog"]')).toBeHidden()
         await page.reload()
         await page.waitForLoadState('domcontentloaded')
-        await expect(page.getByTestId(SELECTORS.security.totpEnableButton)).toBeVisible()
-        await expect(page.getByTestId(SELECTORS.security.totpDisableButton)).not.toBeVisible()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
+        await expect(page.locator(SELECTORS.security.totpEnableButton)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpDisableButton)).not.toBeVisible()
         console.log('[Scenario 1] ✓ TOTP 已禁用')
       })
 
       // 场景 2: 密码验证失败（失败场景）
       await test.step('场景 2: 密码验证失败（失败场景）', async () => {
         // Re-enable TOTP for testing
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Complete the 3-step flow quickly
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible({ timeout: 5000 })
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         totpSecret = await extractSecretFromQRCode(page)
 
-        await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-        await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
+        await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+        await page.locator(SELECTORS.security.totpSetupNextButton).click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
         const validCode = generateTOTPCodeFromSecret(totpSecret)
         for (let i = 0; i < 6; i++) {
-          const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+          const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
           await digitInput.fill(validCode[i])
         }
-        await page.getByTestId(SELECTORS.security.totpVerifySubmitButton).click()
+        await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
         await waitForSecurityPage(page)
 
         // Try to disable with wrong password
         await page.reload()
-        await page.getByTestId(SELECTORS.security.totpDisableButton).click()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
+        await page.locator(SELECTORS.security.totpDisableButton).click()
         await expect(page.locator('[role="dialog"]')).toBeVisible()
 
-        const passwordInputDisable = page.getByTestId(SELECTORS.security.totpDisablePasswordInput)
+        const passwordInputDisable = page.locator(SELECTORS.security.totpDisablePasswordInput)
         await passwordInputDisable.fill('wrongpassword')
         await page.getByRole('button', { name: /confirm|disable/i }).click()
 
@@ -1189,39 +1256,40 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Enable TOTP for user
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Reset: Ensure TOTP is enabled
-        const disableButton = page.getByTestId(SELECTORS.security.totpDisableButton)
+        await switchToSecurityTotpTab(page)
+        const disableButton = page.locator(SELECTORS.security.totpDisableButton)
         const hasDisableButton = await disableButton.count() > 0
 
         if (!hasDisableButton) {
           // Enable TOTP first
-          await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+          await page.locator(SELECTORS.security.totpEnableButton).click()
           await waitForSetupPage(page)
 
-          const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+          const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
           await expect(passwordInput).toBeVisible({ timeout: 5000 })
           await passwordInput.fill(currentPassword)
 
-          const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+          const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
           await expect(generateButton).toBeVisible({ timeout: 5000 })
           await expect(generateButton).toBeEnabled({ timeout: 5000 })
           await generateButton.click()
 
-          await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
           totpSecret = await extractSecretFromQRCode(page)
 
-          await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-          await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
+          await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+          await page.locator(SELECTORS.security.totpSetupNextButton).click()
 
-          await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
           const validCode = generateTOTPCodeFromSecret(totpSecret)
           for (let i = 0; i < 6; i++) {
-            const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+            const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
             await digitInput.fill(validCode[i])
           }
-          await page.getByTestId(SELECTORS.security.totpVerifySubmitButton).click()
+          await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
           await waitForSecurityPage(page)
         }
 
@@ -1231,7 +1299,16 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Navigate to security page and click "Regenerate Key" button
         await page.reload()
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
+
+        // Wait for the status card to settle before probing its buttons
+        // (the card renders no action buttons while its status query is in
+        // flight, which made the count() below race to 0 right after a reload)
+        await expect(
+          page.locator(`${SELECTORS.security.totpEnableButton}, ${SELECTORS.security.totpStatusCardEnabled}`)
+        ).toBeVisible({ timeout: 5000 })
 
         // Look for regenerate button (should exist in security settings)
         const regenerateButton = page.getByTestId('totp-regenerate-button')
@@ -1245,7 +1322,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           const passwordDialog = page.locator('[role="dialog"]')
           await expect(passwordDialog).toBeVisible({ timeout: 5000 })
 
-          const passwordInput = passwordDialog.getByTestId('password-input')
+          const passwordInput = passwordDialog.getByTestId('totp-regenerate-password-input')
           await expect(passwordInput).toBeVisible({ timeout: 5000 })
           await passwordInput.fill(currentPassword)
 
@@ -1253,13 +1330,18 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           await expect(confirmButton).toBeVisible({ timeout: 5000 })
           await confirmButton.click()
 
-          // Wait for dialog to close
-          await expect(passwordDialog).toBeHidden({ timeout: 5000 })
+          // The dialog stays open and switches to the verify phase (new QR +
+          // verification code input); it only closes after the new secret is
+          // verified. 15s matches the suite's QR-step convention: the backend
+          // regenerate endpoint is consistently slow (same work as the setup
+          // QR generation — POST /api/user/totp measured at ~9.3s in the
+          // network log), so 5s races the phase switch.
+          await expect(passwordDialog.getByTestId('totp-regenerate-form-verify')).toBeVisible({ timeout: 15000 })
           console.log('[Scenario 1] ✓ TOTP 密钥重新生成请求已发送')
 
           // Verify TOTP needs to be re-verified
           await page.waitForTimeout(1000) // Brief wait for UI update
-          const verifyMessage = page.getByText(/please verify|re-enter|re-verify/i)
+          const verifyMessage = page.getByText(/verify new|please verify|re-enter|re-verify/i)
           const needsVerification = await verifyMessage.count() > 0
 
           if (needsVerification) {
@@ -1267,28 +1349,20 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           }
 
           // Test that old secret no longer works
+          // Regeneration sets TOTP back to "disabled until the new secret is
+          // verified" (backend regenerate_secret → enabled=false), so the old
+          // secret no longer gates login: the user signs in with password
+          // only and no TOTP verification page is shown.
+          await clearSessionData(page)
           await page.goto(`/${DEMO_REALM}/auth/login`)
           await page.getByTestId('email-input').fill(currentUserEmail)
           await page.getByTestId('password-input').fill(currentPassword)
           await page.getByRole('button', { name: /login|sign in/i }).click()
 
-          // Wait for TOTP input
-          await expect(page.getByTestId('totp-verification-code-input')).toBeVisible({ timeout: 5000 })
-
-          // Try old secret
-          const oldCode = generateTOTPCodeFromSecret(oldSecret)
-          await page.getByTestId('totp-verification-code-input').fill(oldCode)
-
-          // Wait briefly to see if login proceeds
-          await page.waitForTimeout(2000)
-
-          // Verify still on login page (old code rejected)
-          const currentUrl = page.url()
-          const isStillOnLoginPage = currentUrl.includes('/login') || currentUrl.includes('/totp')
-
-          if (isStillOnLoginPage) {
-            console.log('[Scenario 1] ✓ 旧密钥验证码被拒绝')
-          }
+          // Password-only login completes and lands on the admin home
+          await page.waitForURL(/\/manage/, { timeout: 5000 })
+          await expect(page.getByTestId('totp-verification-code-input')).toHaveCount(0)
+          console.log('[Scenario 1] ✓ 旧密钥已失效（登录不再出现 TOTP 验证）')
 
           // Use new secret to complete login
           // Need to get new secret from UI or database
@@ -1301,6 +1375,57 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       // 场景 2: 使用错误密码重新生成密钥（失败场景）
       await test.step('场景 2: 使用错误密码重新生成密钥（失败场景）', async () => {
+        // 场景 1 的登录验证结束后页面不在 Security 页，且重新生成已将 TOTP
+        // 置为"待重新验证"（enabled=false）——需回到 Security 页、必要时重新
+        // 启用 TOTP，Regenerate 按钮才会出现
+        await page.goto(`/${DEMO_REALM}/user/security`)
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
+        await switchToSecurityTotpTab(page)
+        // Wait for the status card to settle before probing its buttons
+        await expect(
+          page.locator(`${SELECTORS.security.totpEnableButton}, ${SELECTORS.security.totpStatusCardEnabled}`)
+        ).toBeVisible({ timeout: 5000 })
+
+        const disableButton = page.locator(SELECTORS.security.totpDisableButton)
+        const hasDisableButton = await disableButton.count() > 0
+
+        if (!hasDisableButton) {
+          // Re-enable TOTP via the 3-step setup flow
+          await page.locator(SELECTORS.security.totpEnableButton).click()
+          await waitForSetupPage(page)
+
+          const setupPasswordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
+          await expect(setupPasswordInput).toBeVisible({ timeout: 5000 })
+          await setupPasswordInput.fill(currentPassword)
+
+          const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
+          await expect(generateButton).toBeVisible({ timeout: 5000 })
+          await expect(generateButton).toBeEnabled({ timeout: 5000 })
+          await generateButton.click()
+
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          totpSecret = await extractSecretFromQRCode(page)
+
+          await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+          await page.locator(SELECTORS.security.totpSetupNextButton).click()
+
+          await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+          const validCode = generateTOTPCodeFromSecret(totpSecret)
+          for (let i = 0; i < 6; i++) {
+            const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
+            await digitInput.fill(validCode[i])
+          }
+          await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
+          await waitForSecurityPage(page)
+          // Returning from the setup page resets the tab selection
+          await switchToSecurityTotpTab(page)
+        }
+
+        // Wait for the status card to settle before probing its buttons
+        await expect(
+          page.locator(`${SELECTORS.security.totpEnableButton}, ${SELECTORS.security.totpStatusCardEnabled}`)
+        ).toBeVisible({ timeout: 5000 })
+
         const regenerateButton = page.getByTestId('totp-regenerate-button')
         const hasRegenerateButton = await regenerateButton.count() > 0
 
@@ -1310,7 +1435,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           const passwordDialog = page.locator('[role="dialog"]')
           await expect(passwordDialog).toBeVisible({ timeout: 5000 })
 
-          const passwordInput = passwordDialog.getByTestId('password-input')
+          const passwordInput = passwordDialog.getByTestId('totp-regenerate-password-input')
           await expect(passwordInput).toBeVisible({ timeout: 5000 })
 
           // Enter wrong password
@@ -1320,8 +1445,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           await expect(confirmButton).toBeVisible({ timeout: 5000 })
           await confirmButton.click()
 
-          // Verify error message
-          const errorMessage = passwordDialog.getByText(/incorrect|invalid|wrong/i)
+          // Verify error message (shown as a toast rendered outside the dialog)
+          const errorMessage = page.getByText(/incorrect|invalid|wrong/i)
           await expect(errorMessage).toBeVisible({ timeout: 5000 })
           console.log('[Scenario 2] ✓ 错误密码被拒绝')
 
@@ -1358,14 +1483,14 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
         console.log('[Scenario] ✓ TOTP Setup Page 已打开')
       })
 
       await test.step('When: 用户使用 Tab 键导航表单字段', async () => {
         // Focus on password input
-        await page.getByTestId(SELECTORS.security.totpSetupPasswordInput).focus()
+        await page.locator(SELECTORS.security.totpSetupPasswordInput).focus()
         console.log('[Scenario] ✓ Focused on password input')
 
         // Tab through fields and verify focus order
@@ -1385,7 +1510,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       })
 
       await test.step('Then: 验证每个焦点元素有明显的焦点样式', async () => {
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
 
         // Verify focus ring on password input
         await passwordInput.focus()
@@ -1404,8 +1529,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
 
@@ -1423,11 +1548,11 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Fill password
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
         console.log('[Scenario] ✓ Password filled')
@@ -1435,7 +1560,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       await test.step('When: 用户在密码输入框中按 Enter 键', async () => {
         // Focus on password input
-        await page.getByTestId(SELECTORS.security.totpSetupPasswordInput).focus()
+        await page.locator(SELECTORS.security.totpSetupPasswordInput).focus()
 
         // Press Enter key
         await page.keyboard.press('Enter')
@@ -1444,12 +1569,12 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       await test.step('Then: 验证触发生成 QR 码', async () => {
         // Verify QR code step appeared
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         console.log('[Scenario] ✓ Enter key triggered QR code generation')
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
 
@@ -1467,23 +1592,23 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
         console.log('[Scenario] ✓ TOTP Setup Page 已打开')
       })
 
       await test.step('When: 用户点击 Back 按钮返回 Security 页面', async () => {
         // Verify setup page is visible
-        await expect(page.getByTestId(SELECTORS.security.totpSetupPage)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.totpSetupPage)).toBeVisible()
 
         // Click back to security button
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
         console.log('[Scenario] ✓ Back button clicked')
       })
 
       await test.step('Then: 验证已返回 Security 页面', async () => {
         // Verify we're back on security page
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
         console.log('[Scenario] ✓ Navigated back to Security page')
       })
     })
@@ -1502,26 +1627,26 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Complete Step 1
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
-        await page.getByTestId(SELECTORS.security.totpSetupGenerateButton).click()
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await page.locator(SELECTORS.security.totpSetupGenerateButton).click()
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
 
         // Complete Step 2
-        await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-        await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+        await page.locator(SELECTORS.security.totpSetupNextButton).click()
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
         console.log('[Scenario] ✓ Entered verification step')
       })
 
       await test.step('When: 用户使用方向键导航验证码输入框', async () => {
         // Focus on first digit input
-        const firstDigit = page.getByTestId(SELECTORS.security.totpOtpDigit(0))
+        const firstDigit = page.locator(SELECTORS.security.totpOtpDigit(0))
         await firstDigit.focus()
         console.log('[Scenario] ✓ Focused on first digit input')
 
@@ -1544,8 +1669,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
 
@@ -1563,14 +1688,14 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
         console.log('[Scenario] ✓ TOTP Setup Page 已打开')
       })
 
       await test.step('When: 用户使用 Shift+Tab 反向导航', async () => {
         // Focus on Generate button
-        await page.getByTestId(SELECTORS.security.totpSetupGenerateButton).focus()
+        await page.locator(SELECTORS.security.totpSetupGenerateButton).focus()
         console.log('[Scenario] ✓ Focused on Generate button')
 
         // Press Shift+Tab to move backwards
@@ -1585,8 +1710,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log('[Scenario] ✓ Focus moved back to password input')
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
   })
@@ -1618,17 +1743,17 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Navigate to security page
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
         console.log('[Scenario] ✓ 用户导航到 Security 页面')
       })
 
       await test.step('When: 用户点击 Enable TOTP 按钮导航到 Setup Page', async () => {
         // Disable TOTP if already enabled
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Click Enable TOTP button
-        const enableButton = page.getByTestId(SELECTORS.security.totpEnableButton)
+        const enableButton = page.locator(SELECTORS.security.totpEnableButton)
         await expect(enableButton).toBeVisible()
         await enableButton.click()
 
@@ -1638,7 +1763,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       })
 
       await test.step('Then: 验证 Setup Page 过渡动画效果已触发', async () => {
-        const setupPage = page.getByTestId(SELECTORS.security.totpSetupPage)
+        const setupPage = page.locator(SELECTORS.security.totpSetupPage)
 
         // Verify setup page is visible
         await expect(setupPage).toBeVisible()
@@ -1672,28 +1797,28 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
         console.log('[Scenario] ✓ TOTP Setup Page 已打开')
       })
 
       await test.step('When: 用户从 Step 1 (Password) 进入 Step 2 (QR Code)', async () => {
         // Step 1: Fill password
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible()
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible()
         await generateButton.click()
 
         // Wait for Step 2 to appear
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         console.log('[Scenario] ✓ 从 Step 1 进入 Step 2')
       })
 
       await test.step('Then: 验证步骤切换动画效果已触发', async () => {
-        const qrCodeStep = page.getByTestId(SELECTORS.security.totpSetupStepQRCode)
+        const qrCodeStep = page.locator(SELECTORS.security.totpSetupStepQRCode)
 
         // Verify Step 2 is visible
         await expect(qrCodeStep).toBeVisible()
@@ -1714,20 +1839,20 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       await test.step('When: 用户从 Step 2 进入 Step 3 (Verification)', async () => {
         // Confirm backup codes
-        await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+        await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
 
         // Click Next to proceed to Step 3
-        const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+        const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
         await expect(nextButton).toBeVisible()
         await nextButton.click()
 
         // Wait for Step 3 to appear
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
         console.log('[Scenario] ✓ 从 Step 2 进入 Step 3')
       })
 
       await test.step('Then: 验证另一个步骤切换动画效果已触发', async () => {
-        const verifyStep = page.getByTestId(SELECTORS.security.totpSetupStepVerify)
+        const verifyStep = page.locator(SELECTORS.security.totpSetupStepVerify)
 
         // Verify Step 3 is visible
         await expect(verifyStep).toBeVisible()
@@ -1745,8 +1870,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
 
@@ -1764,19 +1889,19 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
         console.log('[Scenario] ✓ TOTP Setup Page 已打开')
       })
 
       await test.step('When: 用户点击 Generate QR Code 按钮', async () => {
         // Fill password first
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible()
         await passwordInput.fill(currentPassword)
 
         // Get the Generate button and verify click feedback animation
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
 
         // Verify button has active scale animation class
         const hasScaleAnimation = await generateButton.evaluate((el: any) => {
@@ -1800,11 +1925,11 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log('[Scenario] ✓ Button click feedback animation verified')
 
         // Wait for QR code step to appear
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
 
@@ -1822,25 +1947,25 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         await page.goto(`/${DEMO_REALM}/user/security`)
         await disableTOTPThroughUI(page, currentPassword, demoLogger)
-        await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+        await page.locator(SELECTORS.security.totpEnableButton).click()
         await waitForSetupPage(page)
 
         // Complete Step 1
-        const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+        const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
         await expect(passwordInput).toBeVisible()
         await passwordInput.fill(currentPassword)
 
-        const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+        const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
         await expect(generateButton).toBeVisible()
         await generateButton.click()
 
-        await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
         console.log('[Scenario] ✓ 进入 QR Code 步骤')
       })
 
       await test.step('When: 用户未确认保存备份码', async () => {
         // Verify Next button is disabled initially
-        const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+        const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
         const isDisabled = await nextButton.isDisabled()
         console.log(`[Scenario] ✓ Next button initial state: disabled=${isDisabled}`)
 
@@ -1862,11 +1987,11 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       await test.step('Then: 验证确认后按钮启用样式变化', async () => {
         // Check the checkbox to enable Next button
-        const savedCheckbox = page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox)
+        const savedCheckbox = page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox)
         await savedCheckbox.check()
 
         // Verify button is now enabled
-        const nextButton = page.getByTestId(SELECTORS.security.totpSetupNextButton)
+        const nextButton = page.locator(SELECTORS.security.totpSetupNextButton)
         await expect(nextButton).toBeEnabled()
 
         // Verify enabled button styling
@@ -1883,8 +2008,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Navigate back to security page for cleanup
-        await page.getByTestId(SELECTORS.security.totpSetupBackToSecurity).click()
-        await expect(page.getByTestId(SELECTORS.security.pageTitle)).toBeVisible()
+        await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
+        await expect(page.locator(SELECTORS.security.pageTitle)).toBeVisible()
       })
     })
   })
@@ -1918,45 +2043,48 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Enable TOTP for user
         await page.goto(`/${DEMO_REALM}/user/security`)
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
         // Reset: Ensure TOTP is enabled
-        const disableButton = page.getByTestId(SELECTORS.security.totpDisableButton)
+        await switchToSecurityTotpTab(page)
+        const disableButton = page.locator(SELECTORS.security.totpDisableButton)
         const hasDisableButton = await disableButton.count() > 0
 
         if (!hasDisableButton) {
           // Enable TOTP first
-          await page.getByTestId(SELECTORS.security.totpEnableButton).click()
+          await page.locator(SELECTORS.security.totpEnableButton).click()
           await waitForSetupPage(page)
 
-          const passwordInput = page.getByTestId(SELECTORS.security.totpSetupPasswordInput)
+          const passwordInput = page.locator(SELECTORS.security.totpSetupPasswordInput)
           await expect(passwordInput).toBeVisible({ timeout: 5000 })
           await passwordInput.fill(currentPassword)
 
-          const generateButton = page.getByTestId(SELECTORS.security.totpSetupGenerateButton)
+          const generateButton = page.locator(SELECTORS.security.totpSetupGenerateButton)
           await expect(generateButton).toBeVisible({ timeout: 5000 })
           await expect(generateButton).toBeEnabled({ timeout: 5000 })
           await generateButton.click()
 
-          await expect(page.getByTestId(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
           totpSecret = await extractSecretFromQRCode(page)
 
-          await page.getByTestId(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
-          await page.getByTestId(SELECTORS.security.totpSetupNextButton).click()
+          await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
+          await page.locator(SELECTORS.security.totpSetupNextButton).click()
 
-          await expect(page.getByTestId(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepVerify)).toBeVisible({ timeout: 5000 })
           const validCode = generateTOTPCodeFromSecret(totpSecret)
           for (let i = 0; i < 6; i++) {
-            const digitInput = page.getByTestId(SELECTORS.security.totpOtpDigit(i))
+            const digitInput = page.locator(SELECTORS.security.totpOtpDigit(i))
             await digitInput.fill(validCode[i])
           }
-          await page.getByTestId(SELECTORS.security.totpVerifySubmitButton).click()
+          await page.locator(SELECTORS.security.totpVerifySubmitButton).click()
           await waitForSecurityPage(page)
         }
 
         // Look for TOTP status information on the security page
         await page.reload()
-        await expect(page.getByText("Security Settings").or(page.getByTestId(SELECTORS.security.pageTitle))).toBeVisible()
+        await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
+        // Reload resets the tab selection; activate the TOTP tab
+        await switchToSecurityTotpTab(page)
 
         // Check for TOTP enabled status
         const enabledStatus = page.getByText(/totp.*enabled|2fa.*enabled/i)
@@ -1967,7 +2095,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Check for enabled time
-        const enabledTime = page.getByTestId(SELECTORS.security.totpEnabledAt)
+        const enabledTime = page.locator(SELECTORS.security.totpEnabledAt)
         const hasEnabledTime = await enabledTime.count() > 0
 
         if (hasEnabledTime) {
@@ -1978,7 +2106,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         }
 
         // Check for last verified time
-        const lastVerifiedTime = page.getByTestId(SELECTORS.security.totpLastVerifiedAt)
+        const lastVerifiedTime = page.locator(SELECTORS.security.totpLastVerifiedAt)
         const hasLastVerifiedTime = await lastVerifiedTime.count() > 0
 
         if (hasLastVerifiedTime) {
@@ -2000,7 +2128,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       // 场景 2: 查看剩余备份恢复码数量
       await test.step('场景 2: 查看剩余备份恢复码数量', async () => {
         // Look for backup codes remaining count
-        const backupCodesCount = page.getByTestId(SELECTORS.security.totpRemainingBackupCodes)
+        const backupCodesCount = page.locator(SELECTORS.security.totpRemainingBackupCodes)
         const hasBackupCount = await backupCodesCount.count() > 0
 
         if (hasBackupCount) {

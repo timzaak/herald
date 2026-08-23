@@ -59,6 +59,9 @@ export class UsersPage extends BasePage {
   readonly resetPasswordNewPasswordText: Locator
   readonly resetPasswordCopyButton: Locator
 
+  // Edit-user dialog selectors (US-RA-021)
+  readonly editDialog: Locator
+
   // User sessions selectors (US-RA-020)
   readonly sessionsDialog: Locator
   readonly sessionsRevokeAllButton: Locator
@@ -98,6 +101,13 @@ export class UsersPage extends BasePage {
     this.resetPasswordResultDialog = page.locator(SELECTORS.resetPassword.resultDialog)
     this.resetPasswordNewPasswordText = page.locator(SELECTORS.resetPassword.newPasswordText)
     this.resetPasswordCopyButton = page.locator(SELECTORS.resetPassword.copyButton)
+
+    // Edit-user dialog (US-RA-021). The edit dialog passes its own testid to
+    // DialogContent (edit-user-dialog.tsx:88), which OVERRIDES the shared
+    // `dialog` default — ui/dialog.tsx places `data-testid="dialog"` before
+    // {...props}, so a caller-provided testid wins. Edit-dialog assertions
+    // must therefore use this locator, not the generic `dialog` one.
+    this.editDialog = page.locator('[data-testid="user-edit-dialog"]')
 
     // User sessions selectors (US-RA-020)
     this.sessionsDialog = page.locator(SELECTORS.userSessions.dialog)
@@ -319,15 +329,111 @@ export class UsersPage extends BasePage {
    * @param email User email
    */
   async clickEditUser(email: string): Promise<void> {
+    // The usersPage fixture loads this table before the test body runs, but
+    // session-setup helpers create the target user via the admin API AFTER
+    // that, so the rendered list is stale. Reload the list so the
+    // freshly-created user row is present before we search for it (same
+    // pattern as `clickManageSessions` below).
+    await this.page.reload()
+    await this.waitForReady()
+
     const row = this.findUserRow(email)
     await expect(row).toBeVisible()
 
-    // Find edit button in the row
-    const editButton = row.locator('[data-testid="edit-button"]').first()
+    // Find edit button in the row. The row renders
+    // `user-table-${row.index}-edit-button` (user-table.tsx:149); the row.index
+    // is not known to the caller, so suffix-match — the same pattern as the
+    // sibling row-action locators (`-delete-button`, `-reset-password-button`,
+    // `-sessions-button`).
+    const editButton = row.locator('[data-testid$="-edit-button"]').first()
     await this.smartClick(editButton)
 
-    await expect(this.dialog).toBeVisible()
-    await expect(this.dialogTitle).toHaveText(/Edit User|Update User/i)
+    // The edit dialog's DialogContent/DialogTitle carry edit-specific testids
+    // (`user-edit-dialog` / `user-edit-dialog-title`, edit-user-dialog.tsx:88/90)
+    // which override the shared `dialog` / `dialog-title` defaults — assert on
+    // the edit dialog's own testids (see the editDialog field note).
+    await expect(this.editDialog).toBeVisible()
+    await expect(
+      this.editDialog.locator('[data-testid="user-edit-dialog-title"]')
+    ).toHaveText(/Edit User|Update User/i)
+  }
+
+  /**
+   * Fill fields in the EDIT-user dialog (edit-user-dialog.tsx).
+   *
+   * Separate from `fillUserForm` (create-dialog flow): the edit dialog's
+   * inputs carry edit-specific testids (nickname input =
+   * `user-edit-nickname-input`, edit-user-dialog.tsx:119) and the dialog has
+   * NO role checkbox, so `fillUserForm`'s create-only assumptions (generic
+   * `nickname-input` selector + mandatory role checkbox) do not hold here.
+   *
+   * @param data Fields to fill (partial allowed).
+   */
+  async fillEditUserForm(data: { nickname?: string }): Promise<void> {
+    await expect(this.editDialog).toBeVisible()
+    if (data.nickname !== undefined) {
+      await this.fillField(
+        this.editDialog.locator('[data-testid="user-edit-nickname-input"]'),
+        data.nickname
+      )
+    }
+  }
+
+  /**
+   * Submit the EDIT-user dialog and fail loudly on a rejected PUT.
+   *
+   * Separate from `submitUserForm` (create flow): the edit dialog's submit
+   * button testid is `user-edit-submit-button` (edit-user-dialog.tsx:162) and
+   * the backend call is a PUT to `/api/users/{realmId}/{userId}` — the create
+   * helper matches a POST (and checks the generic dialog testid), so it can
+   * neither find the button nor observe the response here.
+   *
+   * Captures the PUT response and throws on 4xx/5xx, or when no PUT was
+   * observed within 10s (client-side validation kept the form from
+   * submitting). On success, waits for the dialog to close (onSuccess calls
+   * `onOpenChange(false)`, edit-user-dialog.tsx:35-37).
+   */
+  async submitEditUserForm(): Promise<void> {
+    const submitButton = this.editDialog.locator(
+      '[data-testid="user-edit-submit-button"]'
+    )
+    const isDisabled = await submitButton.isDisabled()
+    if (isDisabled) {
+      const buttonText = await submitButton.textContent()
+      throw new Error(
+        `Cannot submit edit form: Submit button is disabled. Button text: "${buttonText}"`
+      )
+    }
+
+    const putResponsePromise = this.page
+      .waitForResponse(
+        (response) =>
+          /\/api\/users\/[^/]+\/[^/]+$/.test(response.url()) &&
+          response.request().method() === 'PUT',
+        { timeout: 10_000 }
+      )
+      .catch(() => null)
+
+    await this.smartClick(submitButton)
+
+    const putResponse = await putResponsePromise
+    if (!putResponse) {
+      const dialogStillOpen = await this.isVisible(this.editDialog)
+      throw new Error(
+        `Edit user form: no PUT /api/users/{realmId}/{userId} response was ` +
+          `observed within 10s of clicking submit (dialog still open: ` +
+          `${dialogStillOpen} — client-side validation likely rejected the form).`
+      )
+    }
+    const status = putResponse.status()
+    if (status >= 400) {
+      const bodyText = await putResponse.text().catch(() => '<unreadable body>')
+      throw new Error(
+        `Edit user API failed: HTTP ${status}. Response body: ${bodyText}`
+      )
+    }
+
+    await expect(this.editDialog).toBeHidden({ timeout: 5000 })
   }
 
   /**

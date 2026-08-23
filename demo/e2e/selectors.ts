@@ -1313,8 +1313,8 @@ export const SELECTORS = {
    * `google-package-name-input` and `google-service-account-json-input` are
    * present on the shipped GooglePlayConfigForm. Use them directly; NO
    * label-based semantic fallback is required. If a testid is missing at
-   * execution time, fall back to the label→ancestor-field pattern from
-   * `entitlement-mappings-page.ts:fillPriceRow`
+   * execution time, fall back to the label→ancestor-field pattern used by
+   * the readonly-field helpers in `entitlement-mappings-page.ts`
    * (`page.locator('label', { hasText })
    *   .locator('xpath=ancestor::div[starts-with(@class,"space-y-1")][1]')
    *   .locator('input')`) and record the gap in the DE-D01 Handoff.

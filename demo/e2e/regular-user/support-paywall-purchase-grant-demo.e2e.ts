@@ -17,14 +17,18 @@
  *  - US-PW-004 场景2 (contrast): a points-only mapping (no role grant) can be
  *    purchased repeatedly (NO 409 on repeat).
  *
- * User Story (DRAFT — source of truth, NOT yet published):
- *   .ai/user-stories/billing/support-paywall.md → US-PW-002/003/004/006.
+ * User Story:
+ *   docs/user-stories/billing/support-paywall.md → US-PW-002/003/004/006.
  *
  * Frontend/backend contracts verified against:
  * - frontend/src/routes/$realmId/user/purchase-points.tsx (alreadyOwned card:
- *   onClick=undefined + `purchase-price-card-${priceId}-reason` child).
+ *   onClick=undefined + `purchase-price-card-${priceId}-reason` child;
+ *   hosted checkout since 533ec22d + a71c72a4: stripe attempts redirect the
+ *   SAME TAB to checkout.stripe.com — the flow below aborts that redirect and
+ *   resumes via `?attemptId=` through unified-purchase.helpers).
  * - frontend/src/components/shared/role-selector.tsx (RoleSelector).
- * - backend/api-ext/src/permission.rs (request `{sessionToken, rules:[{resource,action}]}`,
+ * - backend/api-ext/src/permission.rs (request `{accessToken, rules:[{resource,action}]}`
+ *   — `accessToken` since f3b8d48a replaced the `sessionToken` field —
  *   response `{allowed, userId?, error?}`; `resource` matched EXACTLY against
  *   role_policies, action hierarchy: manage > create > view).
  * - backend/infra/src/authorization/redis_permission_checker.rs (matches_policy:
@@ -52,24 +56,34 @@
  * persistent permission/check `allowed` flag, the disabled-card DOM state, or
  * the backend 409 body. No toast-only assertions.
  *
- * Demo-Seed assumption (called out — cannot be verified statically): realm-001
- * is seeded with ONE `recurring` mapping and NO `one_time` mapping. The Demo
- * Seed `provider_entitlement_mappings` insert for realm-001 is
- * `realm001-product-subscription` / billing_type=`recurring`. Therefore:
- *  - For the one_time+role alreadyOwned demo (US-PW-002/003/004 场景1) this
- *    test must first ESTABLISH a one_time+role mapping by flipping the seeded
- *    mapping's billing_type to `one_time` and granting it a role (admin
- *    beforeAll). If that edit is read-only for the seeded row, the test falls
- *    back to purchasing the recurring mapping and asserting the RBAC-grant
- *    chain + the orthogonality claim; the one_time alreadyOwned-specific
- *    assertions are then skipped (the recurring mapping is NOT alreadyOwned-
- *    gated, so the 409 is asserted for the recurring+role case which is
- *    equally load-bearing for the grant chain).
- *  The credit-bucket reference demo (credit-bucket-purchase-consume-demo) takes
- *  the same "select first purchasable card" approach for the same seed reason.
+ * Demo-Seed facts (verified against the live demo DB + source):
+ *  - realm-001's grant mapping is `realm001-product-subscription`
+ *    (`professional`: stripe, RECURRING, NULL external_price_id → priceKey IS
+ *    the mappingId). beforeAll pins it by external product id (never "first
+ *    product" — the admin list reorders between runs).
+ *  - The alreadyOwned gate (card-disable AND the 409) fires ONLY for
+ *    `one_time` + non-empty granted_role_ids (purchase_service.rs L407-430,
+ *    handlers.rs L561-591). The recurring seed is therefore NEVER gated: 用例2
+ *    asserts the documented recurring contract (card stays purchasable, repeat
+ *    POST succeeds) and keeps the full one_time disabled-card + 409 semantics
+ *    behind a billingType branch for a future one_time seed.
+ *  - Cross-run idempotency: the shared demo user keeps payment-granted role
+ *    rows across runs. beforeAll RESETS them (charge.refunded webhook chain,
+ *    see resetGrantOwnership) and afterAll cancels this run's subscriptions so
+ *    each run starts — and leaves — "not owning" the grant.
+ *  - The permission checker caches denials for 60s with best-effort SCAN
+ *    invalidation (redis_permission_checker.rs) — 用例1's post-purchase
+ *    permission/check therefore POLLS (bounded by the TTL), it does not
+ *    single-shot.
  */
 
-import { expect, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  expect,
+  request as playwrightRequest,
+  type APIRequestContext,
+  type Page,
+  type Request,
+} from '@playwright/test'
 
 import { SELECTORS } from '../selectors'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
@@ -84,6 +98,13 @@ import {
   type ApiKeyWithPermission,
 } from '../helpers/grant-points-helpers'
 import { fulfillPayment } from '../helpers/payment-simulation'
+import { initiatePurchaseFlow } from '../helpers/unified-purchase.helpers'
+import {
+  buildStripeChargeRefundedPayload,
+  buildStripeSubscriptionDeletedPayload,
+  deliverStripeChargeRefundedWebhook,
+  deliverStripeSubscriptionDeletedWebhook,
+} from '../helpers/webhook-renewal-simulation'
 
 // Shared demo fixtures: provides `demoLogger` (auto-finalized) + `loginPage`.
 import { test, cleanupTestData } from '../fixtures/demo-page.fixtures'
@@ -111,6 +132,15 @@ const CHECK_RULE = { resource: 'billing', action: 'view' }
 // is treated as an admin/unscoped api-key identity (ADMIN_API_CLIENT_ID).
 const ADMIN_API_CLIENT_ID = 'admin-api-client'
 
+// Seeded external product id of the realm-001 grant mapping
+// (`professional`: stripe, recurring, NULL external_price_id — Demo Seed
+// scripts/lib/demo_seed.py L905). PINNED instead of "first product" because
+// the admin master list reorders between runs (a save bumps updated_at), and a
+// drifting pick decoupled priceKey from the purchased card across the
+// initial/final runs (final skipped 用例2 with "card not in purchasable grid";
+// final2 entered its purchase branch on a different first product).
+const GRANT_PRODUCT_ID = 'realm001-product-subscription'
+
 /**
  * Lazily-resolved setup context. `beforeAll` populates this; individual tests
  * read from it. Throws if accessed before `beforeAll` has run (defensive).
@@ -123,10 +153,17 @@ interface SetupContext {
   mappingId: string
   /** billing type of the configured mapping ('recurring' | 'one_time'). */
   billingType: string
-  /** roleId of TEST_ROLE_NAME (bound to BOUND_PERMISSION_NAME). */
-  roleId: string
+  /** UUID of the demo regular user (resolved in beforeAll for the reset/cleanup). */
+  userId: string
 }
 let setupCtx: SetupContext | null = null
+
+/**
+ * Payment attempts fulfilled by THIS run (recorded by the tests, consumed by
+ * the afterAll cleanup so the run leaves the shared demo user "not owning"
+ * the grant — see the reset note in beforeAll).
+ */
+const runAttemptIds: string[] = []
 
 // ============================================================================
 // beforeAll — admin: configure grant mapping + bind permission + mint RBAC key
@@ -184,13 +221,13 @@ test.beforeAll(async ({ browser }) => {
         )
       }
 
-      // 4. Configure the FIRST entitlement mapping to grant this role on
-      //    purchase. The seeded realm-001 mapping is recurring; we keep its
-      //    billing type (flipping it to one_time is best-effort below).
+      // 4. Configure the SEEDED grant mapping (professional, pinned by external
+      //    product id — see GRANT_PRODUCT_ID) to grant this role on purchase.
+      //    The seeded mapping is recurring; we keep its billing type.
       const mappingsPage = new EntitlementMappingsPage(adminPage, adminLogger)
       await mappingsPage.goto(TEST_REALM)
       await mappingsPage.waitForDataLoaded()
-      await mappingsPage.selectFirstProduct()
+      await mappingsPage.selectProduct(GRANT_PRODUCT_ID)
 
       const firstRow = mappingsPage.mappingDetailPanel
         .locator('[data-testid^="price-edit-row-"]')
@@ -220,7 +257,35 @@ test.beforeAll(async ({ browser }) => {
       await mappingsPage.selectGrantedRoles(priceKey, [roleId])
       await mappingsPage.saveChanges()
 
-      // 5. Mint a third-party RBAC api key bound to the realm's admin-api-client
+      // 5. Cross-run reset — every run must start from "user does NOT own the
+      //    grant" (the shared seed user keeps payment-granted role rows across
+      //    runs; leftover rows make the post-purchase allowed=true assertion
+      //    vacuous). Revocation of payment-sourced rows is ONLY reachable via
+      //    the webhook chains (admin replace_user_roles explicitly preserves
+      //    source='payment' rows — admin_repositories.rs "Payment-granted roles
+      //    are preserved"):
+      //    a) resolve the demo user's UUID (admin users list),
+      //    b) read its role rows (admin GET user-roles returns source +
+      //       sourceId; recurring fulfillment grants carry sourceId = the
+      //       INTERNAL subscription UUID — fulfillment_service.rs L571),
+      //    c) for each TEST_ROLE_NAME payment row deliver a signed Stripe
+      //       `charge.refunded` webhook with refundType='subscription' and the
+      //       internal subscription UUID — the backend resolves it by internal
+      //       id (stripe_webhook_handlers.rs handle_charge_refunded →
+      //       find_subscription_by_id) and routes through
+      //       handle_subscription_cancel(ImmediateCancel) →
+      //       revoke_roles_by_payment_source, deleting exactly those rows.
+      //    Verified loudly afterwards: the demo user must hold NO
+      //    TEST_ROLE_NAME row when beforeAll finishes.
+      const userId = await resolveUserIdByEmail(adminApi, TEST_REALM, REGULAR_USER_EMAIL)
+      if (!userId) {
+        throw new Error(
+          `[DE-D01 beforeAll] could not resolve userId for ${REGULAR_USER_EMAIL}`,
+        )
+      }
+      await resetGrantOwnership(adminApi, TEST_REALM, userId)
+
+      // 6. Mint a third-party RBAC api key bound to the realm's admin-api-client
       //    app so `/permission/check` is unscoped (see file header rationale).
       //    createTestApiKeyWithPermission needs an admin-authenticated page; we
       //    reuse adminPage and thread the Bearer context through its optional
@@ -246,13 +311,53 @@ test.beforeAll(async ({ browser }) => {
         priceKey,
         mappingId,
         billingType,
-        roleId,
+        userId,
       }
     } finally {
       await adminApi.dispose().catch(() => {})
     }
   } finally {
     await adminContext.close()
+  }
+})
+
+// ============================================================================
+// afterAll — cancel THIS run's subscriptions so it leaves the demo user
+// "not owning" the grant (the self-cleaning counterpart of the beforeAll
+// reset; the revoke demo's proven pattern). Each fulfilled attempt's external
+// subscription id is deterministic (`demo-fulfill-{attemptId}` —
+// payment-simulation.ts), so a signed `customer.subscription.deleted`
+// (ImmediateCancel) revokes exactly this run's payment-granted role rows.
+// Fault-tolerant by design: a cleanup failure is LOGGED, not thrown — the next
+// run's beforeAll reset covers the leftover.
+// ============================================================================
+
+test.afterAll(async () => {
+  if (runAttemptIds.length === 0 || !setupCtx) return
+  const { userId } = setupCtx
+  const cleanupApi = await playwrightRequest.newContext()
+  try {
+    for (const attemptId of runAttemptIds) {
+      const payload = buildStripeSubscriptionDeletedPayload({
+        eventId: `evt_pw_cleanup_${Date.now()}_${attemptId}`,
+        subscriptionId: `demo-fulfill-${attemptId}`,
+        userId,
+        cancelAtPeriodEnd: false,
+      })
+      const result = await deliverStripeSubscriptionDeletedWebhook(
+        cleanupApi,
+        TEST_REALM,
+        payload,
+      )
+      if (!result.ok) {
+        console.error(
+          `[DE-D01 afterAll] cleanup cancel webhook failed for attempt ${attemptId}: ` +
+            `${result.status} ${result.body}`,
+        )
+      }
+    }
+  } finally {
+    await cleanupApi.dispose().catch(() => {})
   }
 })
 
@@ -277,25 +382,30 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
   test('US-PW-002 + US-PW-003 场景1: 购买授 role 映射后用户被授予 role（永久）', async ({
     page,
     request,
-    loginPage,
   }) => {
     expect(setupCtx, 'beforeAll must have configured the grant mapping').not.toBeNull()
-    const { apiKey, roleId } = setupCtx!
+    const { apiKey, priceKey } = setupCtx!
 
     // US-PW-006 precondition gate BEFORE purchase: the user must NOT yet be
     // allowed (they don't hold the granted role yet). This anchors the
     // before/after delta on persistent RBAC state.
-    // Browser Bearer token model (commit f3b8d48a): there is no X-Auth cookie;
-    // the session token IS the in-memory access token established by
-    // `loginPage.loginAsUser` in beforeEach.
-    const sessionToken = loginPage.getAccessToken()
+    // Browser Bearer token model (commit f3b8d48a): there is no X-Auth cookie.
+    // The token is captured LIVE from the page's authenticated requests (see
+    // captureLiveUserToken) — a login-time captured token can be revoked by
+    // the page's post-login switch/refresh dance, and permission/check then
+    // returns 200 + allowed=false ("token_not_found") which would silently
+    // stall the post-purchase poll.
+    const sessionToken = await captureLiveUserToken(
+      page,
+      `/${TEST_REALM}/user/purchase-points`,
+    )
 
     await test.step('Given: 购买前用户未持有该 role 权限', async () => {
       const { status, body } = await makeExtApiRequest({
         apiKey: apiKey.apiKey,
         method: 'POST',
         path: '/permission/check',
-        body: { sessionToken, rules: [CHECK_RULE] },
+        body: { accessToken: sessionToken, rules: [CHECK_RULE] },
       })
       expect(status, 'permission/check must respond 200').toBe(200)
       const resp = body as { allowed?: boolean }
@@ -312,8 +422,20 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
       // when the mapping has no points strategy (pure-entitlement). The
       // seeded recurring mapping may or may not carry points; either way the
       // fulfillment must succeed.
-      attemptId = await purchaseFirstMappingInline(page, TEST_REALM)
+      //
+      // Hosted-checkout contract (533ec22d + a71c72a4): stripe attempts
+      // redirect the SAME TAB to checkout.stripe.com, so the unified helper
+      // aborts the provider-host navigation and captures the attempt id
+      // NODE-side (route.fetch proxy on the POST). The page is left on the
+      // aborted-redirect error document; the Then step resumes it with the
+      // `?attemptId=` provider-bounce navigation. `priceId` PINS the purchase
+      // to the grant mapping configured in beforeAll (deterministic; never a
+      // "first card" discovery that could drift onto a role-less mapping).
+      attemptId = await initiatePurchaseFlow(page, 'stripe', TEST_REALM, {
+        priceId: priceKey,
+      })
       expect(attemptId, 'payment attempt must be created').toBeTruthy()
+      runAttemptIds.push(attemptId)
 
       const result = await fulfillPayment(request, TEST_REALM, attemptId)
       expect(
@@ -323,7 +445,17 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
     })
 
     await test.step('Then: 用户被授予 role（第三方凭 role 放行 — US-PW-006 场景1）', async () => {
-      // Wait for the complete step to surface (fulfillment is async).
+      // Resume the purchase page the way the provider bounce does
+      // (`?attemptId=`): the stripe redirect was aborted by the initiate
+      // helper, so the tab sits on an error document until this deliberate
+      // navigation. The page re-enters processing, polls, and renders the
+      // complete step once the fulfilled attempt reports Succeeded. The
+      // guarded goto retries when the aborted-navigation error page races the
+      // goto ("interrupted by another navigation to chrome-error://").
+      await gotoWithInterruptRetry(
+        page,
+        `/${TEST_REALM}/user/purchase-points?attemptId=${attemptId}`,
+      )
       await expect(page.locator(SELECTORS.purchasePoints.stepComplete)).toBeVisible({
         timeout: 20000,
       })
@@ -331,11 +463,38 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
       // US-PW-006: third-party app gates with one RBAC call. The granted role
       // carries `billing.view` → check `{resource:'billing',action:'view'}`
       // resolves allowed=true (exact-match policy). Persistent state, not toast.
+      //
+      // The Given-step check CACHES a denial (`principal_perm:...` denial
+      // cache, redis_permission_checker.rs L439/L454) and the fulfill-time
+      // invalidation is best-effort SCAN-based (unreliable — observed stale
+      // in the final2 run: the role row was committed yet the check returned
+      // allowed=false). The denial TTL is 60s (cache_ttl::DENIAL), so POLL up
+      // to 75s — bounded by the TTL, not a flaky sleep.
+      await expect
+        .poll(
+          async () => {
+            const { status, body } = await makeExtApiRequest({
+              apiKey: apiKey.apiKey,
+              method: 'POST',
+              path: '/permission/check',
+              body: { accessToken: sessionToken, rules: [CHECK_RULE] },
+            })
+            if (status !== 200) {
+              throw new Error(`permission/check post-purchase must be 200, got ${status}`)
+            }
+            return (body as { allowed?: boolean }).allowed === true
+          },
+          { timeout: 75_000, intervals: [1_000, 2_000, 3_000] },
+        )
+        .toBe(true)
+
+      // Authoritative single call after the poll converges (keeps the userId
+      // assertion on a concrete response object).
       const { status, body } = await makeExtApiRequest({
         apiKey: apiKey.apiKey,
         method: 'POST',
         path: '/permission/check',
-        body: { sessionToken, rules: [CHECK_RULE] },
+        body: { accessToken: sessionToken, rules: [CHECK_RULE] },
       })
       expect(status, 'permission/check must respond 200 post-purchase').toBe(200)
       const resp = body as { allowed?: boolean; userId?: string }
@@ -346,13 +505,17 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
       expect(resp.userId, 'allowed check must return userId').toBeTruthy()
 
       // Cross-check: the user's assigned roles include the granted role. The
-      // `/api/user/{realmId}/info` or roles endpoint carries assigned roles;
-      // verify against the roleId resolved in beforeAll.
-      const roles = await readUserAssignedRoleIds(page, TEST_REALM)
+      // self-service `/api/user/roles` endpoint is Bearer-only under the
+      // auth-rewrite (the realm rides inside the Bearer token — no session
+      // cookie exists, see readAssignedRoleNames) and returns role NAMES
+      // (UserProfileRolesResponse resolves ids → names server-side). The
+      // granted role was created from TEST_ROLE_NAME in beforeAll and its id
+      // bound to the mapping, so the name IS the granted role.
+      const roleNames = await readAssignedRoleNames(sessionToken)
       expect(
-        roles,
-        'the granted role id must appear in the user assigned roles (US-PW-003 permanent grant)',
-      ).toContain(roleId)
+        roleNames,
+        'the granted role must appear in the user assigned roles (US-PW-003 permanent grant)',
+      ).toContain(TEST_ROLE_NAME)
     })
   })
 
@@ -361,61 +524,119 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
     request,
   }) => {
     expect(setupCtx, 'beforeAll must have configured the grant mapping').not.toBeNull()
-    const { apiKey, priceKey } = setupCtx!
+    const { priceKey, billingType, mappingId } = setupCtx!
 
-    // US-PW-004 场景1: once owned (the previous test purchased it, OR the demo
-    // user already held it), the card must be DISABLED with a reason, and a
-    // direct repeat purchase attempt must be rejected by the backend 409.
+    // US-PW-004 场景1: once owned (the previous test purchased it), the card
+    // must be DISABLED with a reason, and a direct repeat purchase attempt
+    // must be rejected by the backend 409.
     //
-    // NOTE: the demo seed user is SHARED across the demo suite, so whether the
-    // user "already owns" depends on prior runs. The alreadyOwned gating only
-    // applies to mappings whose granted_role_ids is non-empty (the recurring
-    // grant mapping configured in beforeAll qualifies). We assert the CARD
-    // STATE directly: if alreadyOwned, the card renders disabled+reason; if
-    // not yet owned, we purchase first then re-assert (idempotent setup).
+    // Backend contract (purchase_service.rs L407-430, handlers.rs L561-591):
+    // the alreadyOwned gate (card-disable AND the 409) fires ONLY for
+    // `billing_type=one_time` + non-empty granted_role_ids. The seeded grant
+    // mapping is RECURRING, so for this seed the test asserts the documented
+    // recurring contract instead (repeatable: card stays purchasable, repeat
+    // POST is NOT 409) — ownership here = the user holds the granted role,
+    // established by 用例1 (re-established defensively below if absent). The
+    // one_time branch keeps the full disabled-card + 409 semantics for a
+    // future one_time seed.
+    // Node-side API token: captured LIVE from the page's own authenticated
+    // requests (see captureLiveUserToken), NOT loginPage.getAccessToken().
+    // That getter returns the token captured at login completion, and the
+    // page's token engine can revoke that family right afterwards (final3
+    // evidence: the post-login /manage landing fired an extra switch-client →
+    // admin-web-console which the login helper's waitForResponse captured
+    // FIRST; the subsequent browser-token/refresh and the real switch →
+    // user-account-center revoked that family — a node-side call made seconds
+    // later 401'd). A token read off the wire AFTER the dance settles is
+    // current by construction.
+    const sessionToken = await captureLiveUserToken(
+      page,
+      `/${TEST_REALM}/user/purchase-points`,
+    )
+    const isOneTime = billingType === 'one_time'
 
     await test.step('Given: 确保用户已拥有该授 role 权益', async () => {
-      // Navigate to the purchase page and inspect the target card.
-      await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-      await page.goto(`/${TEST_REALM}/user/purchase-points`)
-      await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
+      if (isOneTime) {
+        // Navigate to the purchase page and inspect the target card.
+        await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
+        await page.goto(`/${TEST_REALM}/user/purchase-points`)
+        await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
 
-      const card = page.locator(SELECTORS.purchasePriceCard.priceCard(priceKey))
-      // The card may or may not render depending on whether the configured
-      // mapping is the first purchasable card. If absent, the recurring grant
-      // mapping is not in the purchasable set — skip the disabled-card DOM
-      // assertion and rely on the backend 409 (asserted next), which is the
-      // authoritative alreadyOwned gate.
-      const cardVisible = await card.isVisible().catch(() => false)
-      if (cardVisible) {
-        const reason = card.locator(SELECTORS.purchasePriceCard.priceCardReason(priceKey))
-        const alreadyOwned = (await reason.count()) > 0
-        if (!alreadyOwned) {
-          // Not yet owned — purchase + fulfill to establish ownership, then
-          // reload and re-check the disabled state.
-          await card.click()
-          await page.locator(SELECTORS.purchasePoints.nextButton).click()
-          await page.locator(SELECTORS.paymentMethodSelector.select('stripe')).click()
-          await page.locator(SELECTORS.purchasePoints.nextButton).click()
-          await expect(page.locator(SELECTORS.purchasePoints.stepProcessing)).toBeVisible({
-            timeout: 10000,
+        const card = page.locator(SELECTORS.purchasePriceCard.priceCard(priceKey))
+        const cardVisible = await card.isVisible().catch(() => false)
+        if (cardVisible) {
+          const reason = card.locator(SELECTORS.purchasePriceCard.priceCardReason(priceKey))
+          const alreadyOwned = (await reason.count()) > 0
+          if (!alreadyOwned) {
+            // Not yet owned — purchase + fulfill to establish ownership, then
+            // reload and re-check the disabled state. The unified helper aborts
+            // the stripe hosted-checkout redirect and captures the attempt id
+            // NODE-side; `priceId` pins the configured grant-mapping card.
+            const attemptId = await initiatePurchaseFlow(page, 'stripe', TEST_REALM, {
+              priceId: priceKey,
+            })
+            runAttemptIds.push(attemptId)
+            const result = await fulfillPayment(request, TEST_REALM, attemptId)
+            expect(result.success, 'setup purchase must fulfill').toBe(true)
+            // Resume via the provider-bounce URL (guarded: the aborted
+            // redirect's error page can race the goto).
+            await gotoWithInterruptRetry(
+              page,
+              `/${TEST_REALM}/user/purchase-points?attemptId=${attemptId}`,
+            )
+            await expect(page.locator(SELECTORS.purchasePoints.stepComplete)).toBeVisible({
+              timeout: 20000,
+            })
+
+            // Reload purchase page — the card should now be disabled + reason.
+            await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
+            await page.goto(`/${TEST_REALM}/user/purchase-points`)
+            await expect(page.locator(SELECTORS.purchasePriceCard.page)).toBeVisible()
+          }
+        }
+      } else {
+        // Recurring seed: ownership = the user holds the granted role (用例1
+        // just purchased + the role grant was asserted there). Re-establish
+        // defensively only if absent (e.g. 用例1 failed), so the And-step
+        // below always evaluates the owned state.
+        const roleNames = await readAssignedRoleNames(sessionToken)
+        if (!roleNames.includes(TEST_ROLE_NAME)) {
+          const attemptId = await initiatePurchaseFlow(page, 'stripe', TEST_REALM, {
+            priceId: priceKey,
           })
-          const attemptId = await extractAttemptId(page)
+          runAttemptIds.push(attemptId)
           const result = await fulfillPayment(request, TEST_REALM, attemptId)
           expect(result.success, 'setup purchase must fulfill').toBe(true)
+          await gotoWithInterruptRetry(
+            page,
+            `/${TEST_REALM}/user/purchase-points?attemptId=${attemptId}`,
+          )
           await expect(page.locator(SELECTORS.purchasePoints.stepComplete)).toBeVisible({
             timeout: 20000,
           })
-
-          // Reload purchase page — the card should now be disabled + reason.
-          await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-          await page.goto(`/${TEST_REALM}/user/purchase-points`)
-          await expect(page.locator(SELECTORS.purchasePriceCard.page)).toBeVisible()
         }
       }
     })
 
-    await test.step('Then: 已拥有时购买卡片禁用且带原因行（持久 DOM 状态）', async () => {
+    await test.step('Then: 已拥有时的卡片状态符合 billing_type 契约（持久 DOM 状态）', async () => {
+      if (!isOneTime) {
+        // Recurring contract (purchase_service.rs L407-410: "Points packages
+        // and subscriptions remain repeatable/renewable"): even with the role
+        // held, the card is NOT alreadyOwned-gated — it must stay purchasable
+        // (no reason row). A disabled card here would mean the gate leaked
+        // into recurring mappings.
+        await page.goto(`/${TEST_REALM}/user/purchase-points`)
+        await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
+        const reason = page.locator(
+          SELECTORS.purchasePriceCard.priceCardReason(priceKey),
+        )
+        await expect(
+          reason,
+          'recurring grant card must stay purchasable (NOT alreadyOwned-gated)',
+        ).toHaveCount(0)
+        return
+      }
+
       const card = page.locator(SELECTORS.purchasePriceCard.priceCard(priceKey))
       const cardVisible = await card.isVisible().catch(() => false)
       if (!cardVisible) {
@@ -435,43 +656,53 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
       }
     })
 
-    await test.step('And: 后端直接重复购买被 409 already_owned 拦截', async () => {
-      // US-PW-004 场景1 backend gate: a direct POST to create a new payment
-      // attempt for an already-owned one_time+role (or recurring+role) mapping
-      // is rejected with 409 `already_owned`. This is the authoritative,
-      // non-toast gate.
+    await test.step('And: 后端重复购买行为符合 billing_type 契约', async () => {
+      // US-PW-004 场景1 backend gate: for an owned one_time+role mapping a
+      // direct POST creating a new payment attempt is rejected with a
+      // structured 409 `already_owned`. For the recurring seed the same POST
+      // must SUCCEED (201) — subscriptions are contractually repeatable.
       //
-      // `page.request` inherits the browser context's cookies (X-Auth session),
-      // so no explicit auth header is needed. The body is camelCase per
-      // CreatePaymentAttemptRequest (`targetType`, `targetId`, `paymentProvider`).
-      const { mappingId } = setupCtx!
-      const resp = await page.request.post(
-        `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          data: {
-            targetType: 'entitlement_mapping',
-            targetId: mappingId,
-            paymentProvider: 'stripe',
+      // The billing purchase routes are Bearer-only under the auth-rewrite —
+      // `page.request` carries only cookies and 401s. Build the Bearer context
+      // from the logged-in user's access token (same pattern as the file's
+      // other admin/user API helpers).
+      const userApi = await createBearerApiContext(sessionToken)
+      let status = 0
+      let respBody: unknown = {}
+      try {
+        const resp = await userApi.post(
+          `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
+          {
+            headers: { 'Content-Type': 'application/json' },
+            data: {
+              targetType: 'entitlement_mapping',
+              targetId: mappingId,
+              paymentProvider: 'stripe',
+            },
           },
-        },
-      )
-      // The backend either 409s (already owned — the load-bearing US-PW-004
-      // gate) or, if the shared demo user does NOT yet own it, 201s. We assert
-      // on both branches explicitly so the test is robust to demo-user state.
-      if (resp.status() === 409) {
-        const body = await resp.json().catch(() => ({}))
-        expect(
-          body.code,
-          '409 body must carry code=already_owned (US-PW-004 backend gate)',
-        ).toBe('already_owned')
+        )
+        status = resp.status()
+        respBody = await resp.json().catch(() => ({}))
+      } finally {
+        await userApi.dispose().catch(() => {})
+      }
+
+      if (isOneTime) {
+        if (status === 409) {
+          expect(
+            (respBody as { code?: string }).code,
+            '409 body must carry code=already_owned (US-PW-004 backend gate)',
+          ).toBe('already_owned')
+        } else {
+          expect(
+            status === 200 || status === 201,
+            `one_time repeat purchase expected 201/200, got ${status} ${JSON.stringify(respBody)}`,
+          ).toBe(true)
+        }
       } else {
-        // 201/200 → user did not yet own; the RBAC-grant chain test above is
-        // load-bearing for the grant, and this branch records that the
-        // alreadyOwned gate was not triggered for the shared user this run.
         expect(
-          resp.ok(),
-          'repeat purchase when not-yet-owned must succeed (201/200); alreadyOwned gate only fires when owned',
+          status === 200 || status === 201,
+          `recurring repeat purchase expected 201/200 (mappingId=${mappingId}), got ${status} ${JSON.stringify(respBody)}`,
         ).toBe(true)
       }
     })
@@ -479,47 +710,50 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
 
   test('US-PW-004 场景2 对照: 积分包（无 role 授予）可重复购买，不触发 409', async ({
     page,
-    request,
-    loginPage,
   }) => {
     // US-PW-004 场景2 contrast: a points-only mapping (granted_role_ids empty)
     // can be purchased repeatedly. We assert the NEGATIVE: a direct repeat POST
     // does NOT return 409 already_owned. This requires a points-only mapping;
     // the seeded realm-001 recurring mapping may or may not have role grants
-    // (beforeAll granted a role to the FIRST mapping). We therefore resolve a
-    // mapping with NO role grant at runtime; if none exists, this contrast test
-    // is skipped (cannot be seeded deterministically without mutating the
-    // shared demo catalog).
+    // (beforeAll granted a role to the pinned grant mapping). We therefore
+    // resolve a mapping with NO role grant at runtime; if none exists, this
+    // contrast test is skipped (cannot be seeded deterministically without
+    // mutating the shared demo catalog).
     //
-    // The entitlement-mapping list endpoint is Bearer-only under the
-    // auth-rewrite, so build a Bearer context from the logged-in user's access
-    // token and pass it to the helper (see findRoleIdByName rationale).
-    const userApi = await createBearerApiContext(loginPage.getAccessToken())
-    let pointsMappingId = ''
+    // All node-side calls use the LIVE page token (see captureLiveUserToken —
+    // the 用例2 note): a stale loginPage token made the list call 401 →
+    // silent null → WRONG skip in final3, and the old cookie-only
+    // `page.request` POST could never reach the Bearer-only billing route
+    // (401 passed the weak not-409 assertion vacuously).
+    const userApi = await createBearerApiContext(
+      await captureLiveUserToken(page, `/${TEST_REALM}/user/purchase-points`),
+    )
     try {
-      pointsMappingId = (await findPointsOnlyMappingId(userApi, TEST_REALM)) ?? ''
+      const pointsMappingId =
+        (await findPointsOnlyMappingId(userApi, TEST_REALM)) ?? ''
+
+      if (!pointsMappingId) {
+        test.skip(true, 'no points-only mapping without role grant available in realm-001')
+      } else {
+        const resp = await userApi.post(
+          `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
+          {
+            headers: { 'Content-Type': 'application/json' },
+            data: {
+              targetType: 'entitlement_mapping',
+              targetId: pointsMappingId,
+              paymentProvider: 'stripe',
+            },
+          },
+        )
+        const body = await resp.text().catch(() => '')
+        expect(
+          resp.status(),
+          `points-only mapping repeat purchase must NOT be 409 already_owned, got ${resp.status()} ${body}`,
+        ).not.toBe(409)
+      }
     } finally {
       await userApi.dispose().catch(() => {})
-    }
-
-    if (!pointsMappingId) {
-      test.skip(true, 'no points-only mapping without role grant available in realm-001')
-    } else {
-      const resp = await page.request.post(
-        `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          data: {
-            targetType: 'entitlement_mapping',
-            targetId: pointsMappingId,
-            paymentProvider: 'stripe',
-          },
-        },
-      )
-      expect(
-        resp.status(),
-        'points-only mapping repeat purchase must NOT be 409 already_owned',
-      ).not.toBe(409)
     }
   })
 })
@@ -537,74 +771,192 @@ function purchaseBaseUrl(): string {
   )
 }
 
-/** Extract the payment attempt id from localStorage (mirrors the unified helper). */
-async function extractAttemptId(page: Page): Promise<string> {
-  await page.waitForTimeout(2000)
-  const attemptId = await page.evaluate(() => {
-    const state = localStorage.getItem('cas-purchase-flow')
-    if (state) {
-      const parsed = JSON.parse(state)
-      return parsed?.state?.attemptId ?? ''
+/**
+ * Capture the user's CURRENT access token from the wire: register a request
+ * listener, navigate once, and read the `Authorization: Bearer` header off
+ * the page's own authenticated API calls (e.g. /api/user/roles), then let the
+ * post-login token dance settle — the handler's LAST write wins.
+ *
+ * Why: `loginPage.getAccessToken()` returns the token captured at login
+ * completion, which the page's token engine can revoke moments later
+ * (final3: switch-client → admin-web-console captured by the login helper's
+ * waitForResponse FIRST when the post-login landing transiently hit /manage,
+ * then browser-token/refresh + the real switch-client → user-account-center
+ * revoked that family — node-side calls seconds later 401'd). The access
+ * token is NOT in localStorage (auth-store partialize keeps only routing +
+ * PKCE state; the token family lives in the Herald SDK's memory), so the
+ * wire is the only live source. A token observed on the wire after the dance
+ * settles is valid by construction.
+ */
+async function captureLiveUserToken(page: Page, url: string): Promise<string> {
+  let liveToken = ''
+  const onRequest = (req: Request) => {
+    const auth = req.headers()['authorization'] ?? ''
+    if (auth.startsWith('Bearer ')) {
+      liveToken = auth.slice('Bearer '.length)
     }
-    return ''
-  })
-  if (!attemptId) throw new Error('[DE-D01] payment attempt id not found in localStorage')
-  return attemptId
+  }
+  page.on('request', onRequest)
+  try {
+    await gotoWithInterruptRetry(page, url)
+    await expect
+      .poll(() => liveToken !== '', { timeout: 10_000 })
+      .toBe(true)
+    // Settle window: the post-login switch/refresh dance completes within
+    // ~1.5s of landing (observed in the final3 capture); during it the token
+    // may rotate again — keep overwriting so the LAST token wins.
+    await page.waitForTimeout(1500)
+  } finally {
+    page.off('request', onRequest)
+  }
+  return liveToken
 }
 
 /**
- * Drive the inline purchase flow for the FIRST purchasable price card (mirrors
- * the credit-bucket reference demo composition): clear purchase state → goto
- * purchase page → click first enabled card across Subscriptions + Credit packs
- * grids → Next → select stripe → Next → wait for processing → return attemptId.
+ * `page.goto` guarded against the aborted-navigation race: after the unified
+ * purchase helper aborts the stripe hosted-checkout redirect, the tab sits on
+ * a `chrome-error://` error document whose load can still be settling, and a
+ * goto fired in that window fails with "interrupted by another navigation to
+ * chrome-error://" (observed in the final2 run's ?attemptId bounce-back).
+ * Pattern: settle with `waitForLoadState`, and on an interrupt/ERR_ABORTED
+ * match retry after 200ms, at most 3 attempts.
  */
-async function purchaseFirstMappingInline(
+async function gotoWithInterruptRetry(
   page: Page,
-  realmId: string,
-): Promise<string> {
-  await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-  await page.goto(`/user/purchase-points`)
-  await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
-
-  // Union the Subscriptions (month) grid and the Credit packs grid so a
-  // one_time-only realm still resolves (matches the credit-bucket demo).
-  const cards = page
-    .locator(
-      `${SELECTORS.purchasePriceCard.priceGrid('month')}, ${SELECTORS.purchasePriceCard.creditPacksGrid}`,
-    )
-    .locator('[data-testid^="purchase-price-card-"]')
-  await expect(cards.first()).toBeVisible({ timeout: 10000 })
-
-  const cardCount = await cards.count()
-  let clicked = false
-  for (let i = 0; i < cardCount; i++) {
-    const card = cards.nth(i)
-    const testid = (await card.getAttribute('data-testid')) ?? ''
-    if (testid.endsWith('-reason')) continue // reason row, not a card
-    const reason = card.locator(`[data-testid="${testid}-reason"]`)
-    if ((await reason.count()) > 0) continue // disabled card
-    await card.click()
-    clicked = true
-    break
+  url: string,
+  opts: { timeout?: number; retries?: number } = {},
+): Promise<void> {
+  const { timeout = 30_000, retries = 3 } = opts
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await page.goto(url, { timeout })
+      await page.waitForLoadState('domcontentloaded')
+      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isNavigationRace =
+        /interrupted by another navigation/i.test(message) ||
+        /ERR_ABORTED|chrome-error/i.test(message)
+      if (attempt < retries && isNavigationRace) {
+        await page.waitForTimeout(200)
+        continue
+      }
+      throw error
+    }
   }
-  expect(clicked, 'a purchasable price card must exist').toBe(true)
+}
 
-  await expect(page.locator(SELECTORS.purchasePoints.nextButton)).toBeEnabled()
-  await page.locator(SELECTORS.purchasePriceCard.nextButton).click()
-  await expect(page.locator(SELECTORS.purchasePoints.stepPayment)).toBeVisible()
+/** Resolve a user's UUID by email via the admin users list endpoint
+ * (mirrors the revoke demo's resolveUserIdByEmail — Bearer-only route). */
+async function resolveUserIdByEmail(
+  apiContext: APIRequestContext,
+  realmId: string,
+  email: string,
+): Promise<string | null> {
+  const resp = await apiContext.get(
+    `${purchaseBaseUrl()}/api/users/${realmId}?email=${encodeURIComponent(email)}`,
+  )
+  if (!resp.ok()) {
+    throw new Error(
+      `could not list users in ${realmId}: ${resp.status()} ${await resp.text().catch(() => '')}`,
+    )
+  }
+  const body = await resp.json()
+  const raw: unknown = Array.isArray(body)
+    ? body
+    : (body as { data?: unknown }).data ??
+      (body as { items?: unknown }).items ??
+      (body as { users?: unknown }).users ??
+      []
+  const users: { id: string; email?: string }[] = Array.isArray(raw) ? raw : []
+  const hit = users.find((u) => u.email === email)
+  return hit ? hit.id : null
+}
 
-  await page.locator(SELECTORS.paymentMethodSelector.select('stripe')).click()
-  await expect(
-    page.locator(SELECTORS.paymentMethodSelector.selected('stripe')),
-  ).toBeVisible()
-  await expect(page.locator(SELECTORS.purchasePoints.nextButton)).toBeEnabled()
-  await page.locator(SELECTORS.purchasePriceCard.nextButton).click()
+/**
+ * Read a user's role rows via the admin GET user-roles endpoint. Returns
+ * `{name, source, sourceId}` per row (UserRoleDetail, camelCase). Fails LOUD
+ * on non-2xx (same discipline as the revoke demo's readUserRoles).
+ */
+async function readUserRoleRows(
+  apiContext: APIRequestContext,
+  realmId: string,
+  userId: string,
+): Promise<Array<{ name: string; source: string; sourceId: string | null }>> {
+  const resp = await apiContext.get(
+    `${purchaseBaseUrl()}/api/users/${realmId}/${userId}/roles`,
+  )
+  if (!resp.ok()) {
+    throw new Error(
+      `admin GET user-roles failed for ${realmId}/${userId}: ${resp.status()} ${await resp.text().catch(() => '')}`,
+    )
+  }
+  const body = await resp.json()
+  // UserRolesResponse → { roles: [{id, name, source, sourceId, ...}] }
+  const roles: unknown = (body as { roles?: unknown }).roles ?? []
+  if (!Array.isArray(roles)) return []
+  return roles
+    .map((r) => {
+      const row = r as { name?: string; source?: string; sourceId?: string | null }
+      return {
+        name: row.name ?? '',
+        source: row.source ?? '',
+        sourceId: row.sourceId ?? null,
+      }
+    })
+    .filter((row) => row.name !== '')
+}
 
-  await expect(page.locator(SELECTORS.purchasePoints.stepProcessing)).toBeVisible({
-    timeout: 10000,
-  })
+/**
+ * Reset the demo user to "not owning the grant": revoke every payment-granted
+ * TEST_ROLE_NAME row left by prior runs, via the signed Stripe
+ * `charge.refunded` webhook chain (refundType='subscription' resolves the
+ * subscription by its INTERNAL uuid — the `sourceId` on the role row — and
+ * ImmediateCancel revokes `revoke_roles_by_payment_source`). Fails LOUD if
+ * any TEST_ROLE_NAME row survives (a manual row would need a different
+ * removal path; surface it rather than silently continuing).
+ */
+async function resetGrantOwnership(
+  apiContext: APIRequestContext,
+  realmId: string,
+  userId: string,
+): Promise<void> {
+  const rows = await readUserRoleRows(apiContext, realmId, userId)
+  const grantRows = rows.filter((r) => r.name === TEST_ROLE_NAME)
+  if (grantRows.length === 0) return
 
-  return extractAttemptId(page)
+  const stamp = Date.now()
+  for (const [index, row] of grantRows.entries()) {
+    if (row.sourceId === null) continue // manual rows handled by the verify below
+    const payload = buildStripeChargeRefundedPayload({
+      eventId: `evt_pw_reset_${stamp}_${index}`,
+      chargeId: `ch_pw_reset_${stamp}_${index}`,
+      amount: 100,
+      amountRefunded: 100,
+      userId,
+      subscriptionId: row.sourceId,
+      refundType: 'subscription',
+    })
+    const result = await deliverStripeChargeRefundedWebhook(apiContext, realmId, payload)
+    if (!result.ok) {
+      throw new Error(
+        `[DE-D01 beforeAll] reset refund webhook failed for sourceId ${row.sourceId}: ` +
+          `${result.status} ${result.body}`,
+      )
+    }
+  }
+
+  const remaining = (await readUserRoleRows(apiContext, realmId, userId)).filter(
+    (r) => r.name === TEST_ROLE_NAME,
+  )
+  if (remaining.length > 0) {
+    throw new Error(
+      `[DE-D01 beforeAll] grant ownership reset incomplete — ${remaining.length} ` +
+        `TEST_ROLE_NAME row(s) remain (${remaining
+          .map((r) => `source=${r.source},sourceId=${r.sourceId ?? 'null'}`)
+          .join('; ')}). Remove them before rerunning.`,
+    )
+  }
 }
 
 /**
@@ -740,36 +1092,38 @@ async function findPointsOnlyMappingId(
   return hit ? hit.id : null
 }
 
-/** Read the user's assigned role ids via the authenticated /api/user/roles
- * endpoint (proxied through the frontend; the browser context carries the
- * X-Auth session cookie). Returns [] if the endpoint shape is unrecognized —
- * the RBAC permission/check assertion above is the load-bearing grant proof. */
-async function readUserAssignedRoleIds(page: Page, _realmId: string): Promise<string[]> {
-  // The frontend proxies /api/* to the backend; use the frontend BASE_URL so
-  // the browser's session cookie applies. `/api/user/roles` is session-scoped
-  // (no realm path segment), so `realmId` is unused — kept in the signature for
-  // call-site clarity.
-  const frontendBase = process.env.BASE_URL || 'http://localhost:3000'
-  const resp = await page
-    .context()
-    .request.get(`${frontendBase}/api/user/roles`)
-    .catch(() => null)
-  if (!resp || !resp.ok()) return []
-  const body = await resp.json()
-  // /api/user/roles returns the current session user's roles. Shape may be a
-  // bare array of role objects, or {roles:[...]}, or {items:[...]}. Tolerate
-  // all three.
-  const roles: unknown = Array.isArray(body)
-    ? body
-    : (body as { roles?: unknown; items?: unknown }).roles ??
-      (body as { items?: unknown }).items ??
-      []
-  if (!Array.isArray(roles)) return []
-  return roles
-    .map((r) => {
-      if (typeof r === 'string') return r
-      const obj = r as { id?: string; roleId?: string; role_id?: string }
-      return obj.id ?? obj.roleId ?? obj.role_id ?? ''
-    })
-    .filter((id): id is string => Boolean(id))
+/**
+ * Read the logged-in user's assigned ROLE NAMES via the self-service
+ * `/api/user/roles` endpoint. The backend resolves role ids to names
+ * server-side (`UserProfileRolesResponse` → `{roles: [names], permissions:
+ * [names]}`), so callers match on the role NAME, not the id.
+ *
+ * `/api/user/*` is Bearer-only under the auth-rewrite (the realm rides inside
+ * the Bearer token — the browser carries NO session cookie), so this MUST use
+ * a Bearer context built from the login access token; `page.context().request`
+ * carries only cookies and 401s. Fails LOUD on non-2xx responses: the previous
+ * cookie-only call silently swallowed the 401 into [] and broke the
+ * assigned-roles assertion (same failure class the revoke demo's readUserRoles
+ * documents).
+ */
+async function readAssignedRoleNames(accessToken: string): Promise<string[]> {
+  const api = await createBearerApiContext(accessToken)
+  try {
+    const resp = await api.get(`${purchaseBaseUrl()}/api/user/roles`)
+    if (!resp.ok()) {
+      const body = await resp.text().catch(() => '')
+      throw new Error(`GET /api/user/roles failed: ${resp.status()} ${body}`)
+    }
+    const body = await resp.json()
+    // UserProfileRolesResponse → { roles: [names] }. Tolerate a wrapped
+    // {data:{roles}} shape too, but NOT a silent [] on failure — non-2xx
+    // throws above.
+    const roles: unknown =
+      (body as { roles?: unknown }).roles ??
+      ((body as { data?: { roles?: unknown } }).data?.roles ?? [])
+    if (!Array.isArray(roles)) return []
+    return roles.filter((r): r is string => typeof r === 'string')
+  } finally {
+    await api.dispose().catch(() => {})
+  }
 }

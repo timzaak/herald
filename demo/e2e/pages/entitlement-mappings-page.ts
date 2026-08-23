@@ -498,63 +498,15 @@ export class EntitlementMappingsPage extends BasePage {
     await this.page.keyboard.press('Escape')
   }
 
-  /**
-   * Fill configurable fields on a single price row. Only the supplied fields
-   * are touched. The entitlement-key input is matched by the "Entitlement Key"
-   * Field label position within the row (no dedicated testid on the input).
-   *
-   * Options:
-   * - entitlementKey: free-text input under "Entitlement Key" label
-   * - pointsPerPeriod: numeric input under "Points per period" label
-   * - billingPeriod: free-text input under "Period" label
-   *
-   * billingType / grantPeriodType / validityDays / maxPeriods / grantOnSubscribe
-   * live under the "Advanced" collapsible — callers needing them should open
-   * it first. This helper covers the common top-level fields only.
-   */
-  async fillPriceRow(
-    priceKey: string,
-    fields: {
-      entitlementKey?: string
-      pointsPerPeriod?: number
-      billingPeriod?: string
-    },
-  ): Promise<void> {
-    const row = this.getPriceEditRow(priceKey)
-    await expect(row).toBeVisible()
-
-    if (fields.entitlementKey !== undefined) {
-      // The "Entitlement Key" Field is `<div class="space-y-1"><Label>…</Label>
-      // <input/></div>`. Scope to the Field wrapper via its Label, then to the
-      // input that is a SIBLING of the Label — NOT a descendant of an ancestor
-      // div (which would match the price-id Field's readOnly input first).
-      // `locator('div', {hasText})` matches ancestors too, so we anchor on the
-      // Label element and go up to its immediate Field wrapper.
-      const keyField = row
-        .locator('label', { hasText: 'Entitlement Key' })
-        .locator('xpath=ancestor::div[starts-with(@class,"space-y-1")][1]')
-      const keyInput = keyField.locator('input').first()
-      await this.fillField(keyInput, fields.entitlementKey)
-    }
-    if (fields.pointsPerPeriod !== undefined) {
-      const pointsField = row
-        .locator('label', { hasText: 'Points per period' })
-        .locator('xpath=ancestor::div[starts-with(@class,"space-y-1")][1]')
-      const pointsInput = pointsField.locator('input[type="number"]').first()
-      await this.fillField(pointsInput, String(fields.pointsPerPeriod))
-    }
-    if (fields.billingPeriod !== undefined) {
-      // `hasText:'Period'` is case-insensitive substring, so it ALSO matches the
-      // "Points per period" Field label. Match a <label> whose text is EXACTLY
-      // "Period" (frontend i18n key billing.field_period → "Period") to avoid
-      // landing on the points input.
-      const periodField = row
-        .locator("xpath=./label[normalize-space()='Period']")
-        .locator('xpath=ancestor::div[starts-with(@class,"space-y-1")][1]')
-      const periodInput = periodField.locator('input').first()
-      await this.fillField(periodInput, fields.billingPeriod)
-    }
-  }
+  // fillPriceRow was REMOVED — dead path under the current contract
+  // (frontend commit 2ef33cc8 made the entitlement key provider-owned): the
+  // detail panel's Entitlement Key, Period, and legacy "Points per period"
+  // inputs are read-only or gone, so none of its fill branches had a valid
+  // target. Points policy is configured via `configureFixedPointRule`;
+  // readonly values are read via `getEntitlementKeyValue` /
+  // `getBillingPeriodValue`. The create-mapping page
+  // (`fillCreateMappingForm`) still accepts a writable entitlement key and is
+  // unaffected.
 
   private async getReadonlyFieldValue(priceKey: string, label: string): Promise<string> {
     const input = this.getReadonlyFieldInput(priceKey, label)

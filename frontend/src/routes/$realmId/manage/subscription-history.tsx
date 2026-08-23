@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SubscriptionHistoryList } from '@/components/billing/subscription-history-list'
 import { SubscriptionHistoryFilter } from '@/components/billing/subscription-history-filter'
 import { globalSubscriptionHistoryQueryOptions, requireFeature } from '@/data/query-options'
+import { initializeAuth } from '@/lib/auth-utils'
+import { ADMIN_WEB_CONSOLE_CLIENT_ID } from '@/lib/constants/auth-constants'
 import type { HistoryFilters } from '@/types/billing'
 import { PageHeader, ListPagination } from '@/components/shared'
 import { m } from '@/paraglide/messages'
@@ -13,11 +15,22 @@ import { useResolvedRealmId } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
 
 export const Route = createFileRoute('/$realmId/manage/subscription-history')({
-  beforeLoad: ({ context, params }) =>
-    requireFeature(context.queryClient, params.realmId, (f) => f.admin.subscriptionHistoryVisible, {
-      to: '/$realmId/manage',
-      params: { realmId: params.realmId },
-    }),
+  beforeLoad: async ({ context, params }) => {
+    // Route beforeLoads run ahead of the __root loader, so on a cold reload
+    // the feature query below would fire before initializeAuth restores the
+    // Bearer token (401 → route error boundary). Idempotent: short-circuits
+    // once the realm/client is initialized.
+    await initializeAuth(params.realmId, ADMIN_WEB_CONSOLE_CLIENT_ID)
+    await requireFeature(
+      context.queryClient,
+      params.realmId,
+      (f) => f.admin.subscriptionHistoryVisible,
+      {
+        to: '/$realmId/manage',
+        params: { realmId: params.realmId },
+      }
+    )
+  },
   component: SubscriptionHistoryRoute,
 })
 
