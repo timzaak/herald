@@ -25,12 +25,14 @@ RUN cargo chef prepare --recipe-path recipe.json
 # Stage 3: Build backend
 FROM backend-chef AS backend-builder
 COPY --from=backend-planner /app/recipe.json recipe.json
+# Cook parses every workspace manifest too, so the Rust SDK path-dep target
+# must exist before the cook step (same reason as in backend-planner).
+COPY sdk/rust/ /sdk/rust/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo chef cook --release --bin herald-app --recipe-path recipe.json
 
-# Copy actual source files (plus the Rust SDK path-dep target, see backend-planner)
-COPY sdk/rust/ /sdk/rust/
+# Copy actual source files
 COPY backend/ ./
 
 # Build the actual backend binary
