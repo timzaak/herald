@@ -3,7 +3,7 @@
  *
  * This is the single hand-maintained module that adapts the generated
  * `@hey-api` client to the Bearer access/refresh token family owned by the
- * `@herald/web` SDK client (`lib/herald-client.ts`, DEC-js-sdk-013):
+ * `herald-auth-web` SDK client (`lib/herald-client.ts`, DEC-js-sdk-013):
  *
  *   - a **request interceptor** injects `Authorization: Bearer {accessToken}`
  *     from the SDK's in-memory token holder onto every generated-client

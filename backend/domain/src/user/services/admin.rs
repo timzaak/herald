@@ -1784,6 +1784,24 @@ where
             .await?;
         }
 
+        // Self-holds guard for the PoliceWrap (role ← policy) grant: this
+        // path attaches an arbitrary (resource, action) to a role, so the
+        // caller must hold that permission themselves — otherwise a delegated
+        // policies.manage holder could grant a role a permission they lack
+        // and benefit from it via the role. Mirrors add_policy_to_role and
+        // direct user-permission assignment.
+        if let (Some(res), Some(act)) = (&resource, &action) {
+            require_permission(
+                &*self.permission_checker,
+                &identity,
+                realm_id,
+                res,
+                act,
+                "Cannot grant a permission you do not hold",
+            )
+            .await?;
+        }
+
         // Create role policy
         if let (Some(rid), Some(res), Some(act)) = (role_id, resource, action) {
             self.role_policy_repository
@@ -3215,6 +3233,93 @@ mod tests {
             add_calls.load(Ordering::SeqCst),
             1,
             "the user-role write must run for a peer-level caller"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_permission_blocks_policy_the_caller_cannot_hold() {
+        // Self-holds guard on the PoliceWrap path: a delegated sub-admin
+        // holding ONLY policies.manage must not attach ("users","manage") to
+        // a role — the three sibling grant surfaces (add_policy_to_role,
+        // role-definition permissions, direct user permissions) all reject
+        // this, so this endpoint must too or it is the odd-one-out
+        // escalation hole.
+        let rid = Uuid::now_v7();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let svc = PermissionManagementServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![role_entity(rid, "r")],
+                policies: vec![],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("policies", "manage")],
+            }),
+            Arc::new(MockAuditRepo),
+        );
+
+        let res = svc
+            .create_permission(
+                admin_identity("r"),
+                audit_ctx(),
+                "r",
+                "admin-web-console",
+                Some(rid),
+                None,
+                None,
+                Some("users".to_string()),
+                Some("manage".to_string()),
+            )
+            .await;
+        match res {
+            Err(UserAdminError::PermissionDenied(msg)) => {
+                assert!(
+                    msg.contains("permission you do not hold"),
+                    "unexpected deny message: {msg}"
+                );
+            }
+            other => panic!("expected PermissionDenied, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_permission_allows_policy_the_caller_holds() {
+        // Positive control: a caller who already holds the granted
+        // (resource, action) may attach it to a role — the guard must not
+        // break legitimate policy management.
+        let rid = Uuid::now_v7();
+
+        let repo = MockUserRoleRepo::for_user_realm("r");
+        let svc = PermissionManagementServiceImpl::new(
+            Arc::new(repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![role_entity(rid, "r")],
+                policies: vec![],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("policies", "manage"), ("users", "manage")],
+            }),
+            Arc::new(MockAuditRepo),
+        );
+
+        let res = svc
+            .create_permission(
+                admin_identity("r"),
+                audit_ctx(),
+                "r",
+                "admin-web-console",
+                Some(rid),
+                None,
+                None,
+                Some("users".to_string()),
+                Some("manage".to_string()),
+            )
+            .await;
+        assert!(
+            res.is_ok(),
+            "peer-level policy grant must succeed: {:?}",
+            res
         );
     }
 

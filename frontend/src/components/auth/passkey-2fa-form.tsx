@@ -6,7 +6,7 @@ import { m } from '@/paraglide/messages'
 import { withTimeout } from '@/lib/totp-utils'
 import { isConsentRequired } from '@/lib/auth-utils'
 import { isWebAuthnSupported, prepareRequestOptions, serializeAssertion } from '@/lib/passkey-utils'
-import type { AssertionResultJSON } from '@herald/web'
+import type { AssertionResultJSON } from 'herald-auth-web'
 import { mapLoginResultToResponse } from '@/lib/auth-service'
 import { ensureHeraldClient } from '@/lib/herald-client'
 import type {

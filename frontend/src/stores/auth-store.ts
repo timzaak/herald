@@ -5,7 +5,7 @@
  * Uses DevTools integration for debugging and persist middleware for localStorage.
  *
  * Token model (Bearer access/refresh token family), owned by the
- * `@herald/web` SDK client (`lib/herald-client.ts`):
+ * `herald-auth-web` SDK client (`lib/herald-client.ts`):
  * - The rotating **refresh token** is persisted by the SDK's storage adapter
  *   (`herald.refreshToken`) so the app can restore the session on startup by
  *   refreshing; it is no longer part of this store.

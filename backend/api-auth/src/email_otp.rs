@@ -465,8 +465,11 @@ pub async fn verify(
 ) -> Result<impl IntoResponse, ApiError> {
     let user_agent = user_agent_from_headers(&headers);
 
-    // 1. Realm must have OTP login enabled.
-    if !is_email_otp_enabled(&state, &realm_id).await? {
+    // 1. Realm must have OTP login enabled. Load the settings row once and
+    //    reuse the `auto_register` flag below (auto-register branch) instead
+    //    of re-reading the same row — mirrors `send`.
+    let otp_settings = load_email_otp_settings(&state, &realm_id).await?;
+    if !otp_settings.enabled {
         return Err(ApiError::bad_request(
             "Email OTP login is not enabled for this realm".to_string(),
         ));
@@ -623,6 +626,25 @@ pub async fn verify(
     let user = match user_result {
         Ok(u) => u,
         Err(CoreError::NotFound) => {
+            // Auto-register policy gates must hold at consumption time too.
+            // The code was issued for an account that existed at `send`; if
+            // that account was deleted within the code's TTL, a realm that
+            // has since disabled registration (or auto-register) must not
+            // mint a fresh account from the stale code. Mirrors the send-side
+            // gates and the OAuth find_or_create consumption-time check.
+            if !is_registration_enabled(&state, &realm_id).await? || !otp_settings.auto_register {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    email = %email,
+                    "OTP verify auto-register blocked: registration or auto-register no longer enabled"
+                );
+                return Err(ApiError::conflict_json(EmailOtpConflictResponse {
+                    code: "email_not_registered".to_string(),
+                    consent_required: None,
+                    agreements: None,
+                    message: "This email is not registered. Please sign up first.".to_string(),
+                }));
+            }
             // Auto-register path. create_user_without_password starts in
             // WaitVerified (status 0); activate_user flips it to Normal before
             // create_token_family (which requires an active user).

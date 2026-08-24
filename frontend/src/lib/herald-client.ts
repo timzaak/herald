@@ -1,6 +1,6 @@
 /**
  * Herald SDK binding — the own frontend as the first-party consumer of
- * `@herald/web` (DEC-js-sdk-013).
+ * `herald-auth-web` (DEC-js-sdk-013).
  *
  * One client instance per realm (a browser session operates in a single realm
  * context at a time). The SDK owns the token family end-to-end:
@@ -18,7 +18,7 @@
  * the app (DEC-js-sdk-008).
  */
 
-import { createHeraldClient, type HeraldClient, type SessionEvent } from '@herald/web'
+import { createHeraldClient, type HeraldClient, type SessionEvent } from 'herald-auth-web'
 import { useAuthStore } from '@/stores/auth-store'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/constants/auth-constants'
 

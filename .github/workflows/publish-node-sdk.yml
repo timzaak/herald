@@ -1,0 +1,65 @@
+name: Publish Node SDK
+
+# Publishes the Node server SDK (`herald-sdk`, in sdk-node/) to the public npm
+# registry. It is the TypeScript counterpart of the Rust `herald-sdk` crate —
+# final name per decision-log Q-js-sdk-002: the `@herald` scope is unavailable
+# (the npm name `herald` is taken). Manual only (workflow_dispatch) — mirrors
+# the Rust `publish-sdk.yml` trigger model. Version comes from
+# sdk-node/package.json and is kept in sync with the main project version by
+# the release script (t-release); commit any pending bump, then run this
+# workflow.
+#
+# Unlike publish-web-sdk.yml this needs NO Rust toolchain: the Node SDK is a
+# hand-rolled fetch client with no OpenAPI-generated sources to regenerate.
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Run npm publish in dry-run mode (builds & validates, no upload)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  publish-node-sdk:
+    name: Publish herald-sdk to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: sdk-node/package-lock.json
+          # Writes ~/.npmrc auth from NODE_AUTH_TOKEN on the publish step.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: sdk-node
+        run: npm ci
+
+      - name: Type check
+        working-directory: sdk-node
+        run: npm run type-check
+
+      - name: Test
+        working-directory: sdk-node
+        run: npm run test:run
+
+      - name: Build
+        working-directory: sdk-node
+        run: npm run build
+
+      - name: Publish to npm
+        working-directory: sdk-node
+        run: |
+          args=(--access public)
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          npm publish "${args[@]}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

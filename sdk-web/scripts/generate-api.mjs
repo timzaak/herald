@@ -4,7 +4,7 @@
 //    consumes) into ./api.json.
 // 2. Generate the self-contained typed fetch client into ./src/generated.
 //
-// Run from the sdk-js package root: `npm run generate-api`.
+// Run from the sdk-web package root: `npm run generate-api`.
 import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'

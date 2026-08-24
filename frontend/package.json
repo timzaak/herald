@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@hey-api/client-axios": "^0.9.1",
-    "@herald/web": "file:../sdk-js",
+    "herald-auth-web": "file:../sdk-web",
     "@inlang/paraglide-js": "^2.18.2",
     "@marsidev/react-turnstile": "^1.0.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",

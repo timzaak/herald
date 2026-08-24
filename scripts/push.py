@@ -68,8 +68,10 @@ def detect_areas(files: list[str]) -> set[str]:
             areas.add("frontend")
         elif path.startswith("demo/"):
             areas.add("demo")
-        elif path.startswith("sdk-js/"):
-            areas.add("sdk-js")
+        elif path.startswith("sdk-web/"):
+            areas.add("sdk-web")
+        elif path.startswith("sdk-node/"):
+            areas.add("sdk-node")
     return areas
 
 
@@ -275,24 +277,33 @@ def demo_steps() -> list[Step]:
     return steps
 
 
-def sdk_js_steps() -> list[Step]:
-    # `sdk-js/` is the Herald browser SDK package (DEC-js-sdk-005): a separate
-    # npm package with its own type-check/build/test, so it is its own CI area
-    # rather than part of `frontend/`.
-    sdk_dir = REPO_ROOT / "sdk-js"
+def npm_package_steps(label: str, package_dir_name: str) -> list[Step]:
+    # The Herald JS SDK packages (`sdk-web/` browser + `sdk-node/` server,
+    # DEC-js-sdk-005) are separate npm packages with their own
+    # type-check/build/test, so each is its own CI area rather than part of
+    # `frontend/`.
+    pkg_dir = REPO_ROOT / package_dir_name
     steps: list[Step] = []
-    format_fix = npm_format_fix_step("SDK-JS format fix", sdk_dir, optional=True)
+    format_fix = npm_format_fix_step(f"{label} format fix", pkg_dir, optional=True)
     if format_fix:
         steps.append(format_fix)
     for name, script, optional in (
-        ("SDK-JS type check", "type-check", False),
-        ("SDK-JS build", "build", False),
-        ("SDK-JS tests", "test:run", True),
+        (f"{label} type check", "type-check", False),
+        (f"{label} build", "build", False),
+        (f"{label} tests", "test:run", True),
     ):
-        step = npm_script_step(name, sdk_dir, script, optional=optional)
+        step = npm_script_step(name, pkg_dir, script, optional=optional)
         if step:
             steps.append(step)
     return steps
+
+
+def sdk_web_steps() -> list[Step]:
+    return npm_package_steps("SDK-WEB", "sdk-web")
+
+
+def sdk_node_steps() -> list[Step]:
+    return npm_package_steps("SDK-NODE", "sdk-node")
 
 
 def run_steps(area: str, steps: list[Step]) -> None:
@@ -309,7 +320,8 @@ def run_ci(areas: set[str], *, ci_session: str, force_checks: bool = False) -> N
         "backend": backend_steps,
         "frontend": frontend_steps,
         "demo": demo_steps,
-        "sdk-js": sdk_js_steps,
+        "sdk-web": sdk_web_steps,
+        "sdk-node": sdk_node_steps,
     }
     cache = {} if force_checks else load_ci_cache(ci_session)
     selected: dict[str, list[Step]] = {}
@@ -325,7 +337,7 @@ def run_ci(areas: set[str], *, ci_session: str, force_checks: bool = False) -> N
         if areas:
             print("All selected CI areas are unchanged since their last successful run in this t-push session.", flush=True)
         else:
-            print("No backend/frontend/demo/sdk-js changes detected; skipping local CI.", flush=True)
+            print("No backend/frontend/demo/sdk changes detected; skipping local CI.", flush=True)
         return
 
     failures: list[str] = []

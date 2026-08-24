@@ -185,7 +185,7 @@ Herald 已具备完整的第三方网页跨域认证能力（浏览器 Bearer to
 
 **适用性**: 适用（SDK 本身即前端集成制品）
 
-- **页面入口**：SDK 以独立可发布包形式提供（工作包名 `@herald/web`，最终 npm scope 与是否本轮发布属发布运营决策，见决策账本 Q-js-sdk-002）。集成方在自家网页安装并初始化后使用，Herald 不托管集成方页面。
+- **页面入口**：SDK 以独立可发布包形式提供（npm 包名 `herald-auth-web`，无 scope——`@herald` 不可用，npm 名 `herald` 已被第三方占用，Q-js-sdk-002 已裁决，见决策账本 DEC-js-sdk-015）。集成方在自家网页安装并初始化后使用，Herald 不托管集成方页面。
 - **关键交互**：初始化配置（Realm/Client App 上下文、可选存储适配器）→ 调用认证生命周期方法（注册/邮箱验证/找回重置/密码登录+多因素/无密码邮箱验证码登录/状态/登出）→ 业务请求由 SDK 自动注入凭证与静默刷新。
 - **状态反馈**：会话状态变化（登录/刷新失败/整族吊销/登出）以可订阅的会话事件暴露；各类异常以可编程判别的类型化错误暴露。
 - **权限/边界可见性**：来源未授权、需要二因素、需要同意协议、需要重登、Client App 被禁用等情形均返回可区分的错误类别，便于开发者给出准确提示与跳转。
@@ -204,10 +204,10 @@ Herald 已具备完整的第三方网页跨域认证能力（浏览器 Bearer to
 | `DEC-js-sdk-002` | Applied | framework.agnostic-core | 本轮只交付框架无关纯 TS 核心；React/Vue 适配层为后续可选项 | §2.1 / §2.2 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-003` | Applied | supersedes.custom-user-ui-d-scope-03 | 本轮交付官方 JS 浏览器 SDK，取代 `docs/prd/integration/custom-user-ui.md` D-SCOPE-03「不交付官方 JS SDK」的表述 | §2.2 / §3.1 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-004` | Applied | transport.openapi-generated | SDK HTTP 层复用后端 OpenAPI 生成管线，fetch 类型化客户端；运行时零依赖 | §2.3 / §6 | `.ai/decision-log/js-sdk.md` |
-| `DEC-js-sdk-005` | Applied | packaging.location-and-build | 新建仓库顶层独立包（与 `backend/sdk/` 对称），工作包名 `@herald/web` | §2.1 / §7 | `.ai/decision-log/js-sdk.md` |
+| `DEC-js-sdk-005` | Applied | packaging.location-and-build | 新建仓库顶层独立包 `sdk-web/`（与 `backend/sdk/` 对称），npm 包名 `herald-auth-web`（DEC-js-sdk-015） | §2.1 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-006` | Applied | token.storage-strategy | access token 仅内存；refresh token 经可插拔 `TokenStorage` 管理，默认浏览器存储；提供 SSR 安全守卫 | §2.1 / §4.1 / §4.2 / §5 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-007` | Applied | refresh.semantics | 单飞刷新 + 单次重放 + 防循环 header + 失败清会话发事件 | §4.1 / §4.2 / §5.1（FR-6） | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-008` | Applied | scope.credential-class | 浏览器 SDK 面向 `CustomUserUi`，不经 PKCE 换 `FirstParty` | §2.2 / §4.1 / §6 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-010` | Applied | api.login-surface-and-email-otp | 密码登录返回判别分支（成功 / 需二因素（仅 totp、passkey）/ 需同意协议 / OAuth 跳转）；邮箱验证码登录是独立的无密码第一因素流程，非密码登录二因素；登录可携带协议同意标识以通过 consent 门 | §4.1 / §4.2 / §5.1（FR-5） | `.ai/decision-log/js-sdk.md` |
 
-> 本表只记录带稳定 DEC ID、且影响产品语义的已确认结论。其余实现级决策（OpenAPI 注解修正 DEC-js-sdk-011、浏览器产物打包格式 DEC-js-sdk-012 等）保留在 `.ai/decision-log/js-sdk.md`，不进 PRD。延期问题 Q-js-sdk-002（最终 npm scope 与是否本轮发布）为发布运营决策，不影响 SDK 构建/测试/集成可行性，登记于决策账本，owner stage `t-task`、`Must Resolve Before` `t-run`。
+> 本表只记录带稳定 DEC ID、且影响产品语义的已确认结论。其余实现级决策（OpenAPI 注解修正 DEC-js-sdk-011、浏览器产物打包格式 DEC-js-sdk-012、最终 npm 命名 DEC-js-sdk-015、Node SDK 交付 DEC-js-sdk-016 等）保留在 `.ai/decision-log/js-sdk.md`，不进 PRD。原延期问题 Q-js-sdk-002（最终 npm scope 与是否本轮发布）已裁决：`herald-auth-web`（浏览器，`sdk-web/`）+ `herald-sdk`（Node 服务端，`sdk-node/`，Rust crate 同名对应物），均无 scope。

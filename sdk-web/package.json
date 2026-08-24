@@ -1,5 +1,5 @@
 {
-  "name": "@herald/web",
+  "name": "herald-auth-web",
   "version": "0.5.0",
   "description": "Herald official browser JavaScript SDK for third-party web integration. Framework-agnostic, zero runtime dependencies.",
   "type": "module",

@@ -1,0 +1,41 @@
+{
+  "name": "herald-sdk",
+  "version": "0.5.0",
+  "description": "Node.js SDK for Herald — multi-tenant auth, billing & points API client. Server-side TypeScript counterpart of the Rust herald-sdk crate. Zero runtime dependencies.",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/timzaak/herald",
+    "directory": "sdk-node"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsup",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "msw": "^2.7.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
+  }
+}

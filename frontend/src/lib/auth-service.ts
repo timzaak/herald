@@ -5,7 +5,7 @@
  * This service bypasses React Query to provide direct, synchronous
  * access to auth data for Zustand store updates.
  *
- * Login-family calls (login, logout, status) go through the `@herald/web` SDK
+ * Login-family calls (login, logout, status) go through the `herald-auth-web` SDK
  * client (`lib/herald-client.ts`), which owns the token family and its
  * silent-refresh transport. Everything else (permissions, profile,
  * switch-client, PKCE exchange) uses the generated `@hey-api` client, which
@@ -29,7 +29,7 @@ import type {
   BrowserTokenResponse,
   SwitchClientResponse,
 } from '@/lib/api-generated'
-import type { ConsentAgreement, LoginResult } from '@herald/web'
+import type { ConsentAgreement, LoginResult } from 'herald-auth-web'
 import { ensureHeraldClient, getActiveHeraldClient } from '@/lib/herald-client'
 import { useAuthStore } from '@/stores/auth-store'
 import { ADMIN_REALM_ID } from '@/lib/constants/auth-constants'

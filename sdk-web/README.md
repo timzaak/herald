@@ -1,4 +1,4 @@
-# @herald/web
+# herald-auth-web
 
 Official Herald browser JavaScript SDK for **third-party web integration**.
 
@@ -8,12 +8,10 @@ authentication lifecycle — register, email verification, password reset, login
 (with TOTP / passkey second factors and passwordless email-OTP), silent access
 token refresh, logout, and status.
 
-> Package name `@herald/web` is a working name; the final npm scope is TBD.
-
 ## Install
 
 ```bash
-npm install @herald/web
+npm install herald-auth-web
 ```
 
 The package is **ESM-only** (`import`/`export`). Modern bundlers (Vite, webpack 5+,
@@ -27,7 +25,7 @@ A minified IIFE bundle exposing a `Herald` global is published for third-party
 pages that integrate via a script tag:
 
 ```html
-<script src="https://unpkg.com/@herald/web"></script>
+<script src="https://unpkg.com/herald-auth-web"></script>
 <script>
   const client = Herald.createHeraldClient({
     baseUrl: 'https://auth.example.com',
@@ -38,7 +36,7 @@ pages that integrate via a script tag:
 ```
 
 The `unpkg`/`jsdelivr` package fields resolve to `dist/index.global.js`, so the
-bare URL above works; `https://cdn.jsdelivr.net/npm/@herald/web` works too.
+bare URL above works; `https://cdn.jsdelivr.net/npm/herald-auth-web` works too.
 
 > Building from source requires regenerating the typed client from the Herald
 > backend: `npm run generate-api` (needs `cargo` + the backend), then `npm run build`.
@@ -47,7 +45,7 @@ bare URL above works; `https://cdn.jsdelivr.net/npm/@herald/web` works too.
 ## Quick start
 
 ```ts
-import { createHeraldClient, HeraldError } from '@herald/web'
+import { createHeraldClient, HeraldError } from 'herald-auth-web'
 
 const client = createHeraldClient({
   baseUrl: 'https://auth.example.com', // Herald API origin
@@ -119,7 +117,7 @@ reuse detection + absolute TTL + short-lived access tokens. For higher security,
 inject `memoryStorage()` (no persistence across reloads) or a custom adapter:
 
 ```ts
-import { createHeraldClient, memoryStorage } from '@herald/web'
+import { createHeraldClient, memoryStorage } from 'herald-auth-web'
 
 const client = createHeraldClient({
   baseUrl: 'https://auth.example.com',
@@ -140,7 +138,7 @@ Inject an explicit adapter in non-browser environments.
 Passkey login is two steps with a browser WebAuthn assertion in between:
 
 ```ts
-import { performPasskeyAssertion } from '@herald/web'
+import { performPasskeyAssertion } from 'herald-auth-web'
 
 // 1FA passkey login
 const begin = await client.passkey.loginBegin({})

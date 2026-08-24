@@ -146,7 +146,7 @@ test.describe('[Regular User] Account Registration Demo Tests', () => {
       })
 
       await test.step('Step 6: Verify registration success', async () => {
-        // Contract: registration does NOT create a session. @herald/web's
+        // Contract: registration does NOT create a session. herald-auth-web's
         // register() returns {message, verificationRequired} (no token, unlike
         // login()), and the register page's success handler navigates to
         // /auth/verify-email or /auth/login. realm-001's demo seed has email

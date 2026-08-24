@@ -23,7 +23,7 @@
 
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ConsentAgreement } from '@herald/web'
+import type { ConsentAgreement } from 'herald-auth-web'
 import type { EmailOtpSendResponse, LegalAgreementSummary } from '@/lib/api-generated'
 import { ensureHeraldClient } from '@/lib/herald-client'
 import { m } from '@/paraglide/messages'
