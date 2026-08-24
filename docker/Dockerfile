@@ -16,6 +16,9 @@ RUN apk add --no-cache \
 
 # Stage 2: Analyze backend dependency graph
 FROM backend-chef AS backend-planner
+# Copy the Rust SDK first: backend/integration-tests depends on it via a
+# `../../sdk/rust` path dep, which resolves to /sdk/rust from /app/integration-tests.
+COPY sdk/rust/ /sdk/rust/
 COPY backend/ ./
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -26,7 +29,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo chef cook --release --bin herald-app --recipe-path recipe.json
 
-# Copy actual source files
+# Copy actual source files (plus the Rust SDK path-dep target, see backend-planner)
+COPY sdk/rust/ /sdk/rust/
 COPY backend/ ./
 
 # Build the actual backend binary

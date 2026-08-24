@@ -20,7 +20,7 @@ function run(command) {
   })
 }
 
-run('cargo run --manifest-path ../backend/app/Cargo.toml --bin herald-app -- --export-openapi api.json')
+run('cargo run --manifest-path ../../backend/app/Cargo.toml --bin herald-app -- --export-openapi api.json')
 run('npx --no-install openapi-ts')
 
 console.log('Herald SDK: OpenAPI spec exported and client generated.')

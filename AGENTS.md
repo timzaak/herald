@@ -57,10 +57,3 @@ If you genuinely think a convention is harmful, surface it. Don't fork silently.
 "Completed" is wrong if anything was skipped silently.
 "Tests pass" is wrong if any were skipped.
 Default to surfacing uncertainty, not hiding it.
-
-## Release
-本仓库发布一律用项目自己的脚本，不要用插件版 t-release（其版本文件清单已过时）：
-`python scripts/release.py [版本号]`
-脚本覆盖 6 个版本位（backend workspace、sdk/rust、frontend、demo、sdk/web、sdk/node），
-刷新全部 lockfile，跑验证后创建 `chore: bump version to X` commit + `vX.Y.Z` tag 并推送。
-SDK 发布到 npm/crates.io 是另外三个手动 workflow（publish-web-sdk / publish-node-sdk / publish-sdk）。
