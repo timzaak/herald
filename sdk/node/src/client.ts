@@ -1,6 +1,6 @@
 /**
  * Herald server SDK client — a 1:1 TypeScript port of the Rust `herald-sdk`
- * crate (`backend/sdk/src/lib.rs`), which is this SDK's source of truth.
+ * crate (`sdk/rust/src/lib.rs`), which is this SDK's source of truth.
  *
  * Auth model: every call carries the realm/service `X-API-Key` header against
  * the external API surface (`/api/ext/*`). `checkPermission` additionally

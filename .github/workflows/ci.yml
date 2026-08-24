@@ -30,8 +30,14 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # The Rust SDK is a standalone crate outside backend/'s Cargo
+              # workspace; its lint job rides along with backend-ci.
+              - 'sdk/rust/**'
             frontend:
               - 'frontend/**'
+              # The browser SDK is a file: dependency of the frontend; SDK
+              # changes must run the frontend checks (type-check first).
+              - 'sdk/web/**'
             demo:
               - 'demo/**'
 
@@ -57,7 +63,9 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: |
+            backend -> target
+            sdk/rust -> target
 
       - name: Check formatting
         working-directory: backend
@@ -65,6 +73,14 @@ jobs:
 
       - name: Run clippy
         working-directory: backend
+        run: cargo clippy --all-targets --all-features --no-deps -- -D warnings
+
+      - name: Check formatting (Rust SDK)
+        working-directory: sdk/rust
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy (Rust SDK)
+        working-directory: sdk/rust
         run: cargo clippy --all-targets --all-features --no-deps -- -D warnings
 
   frontend-ci:

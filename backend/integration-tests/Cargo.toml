@@ -9,7 +9,7 @@ license.workspace = true
 # This is intentionally not a library crate
 
 [dependencies]
-herald-sdk = { path = "../sdk" }
+herald-sdk = { path = "../../sdk/rust" }
 herald-test-support = { path = "../test-support" }
 herald-core = { path = "../core" }
 

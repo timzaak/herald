@@ -1,5 +1,5 @@
 /**
- * Authentication orchestration (design §5.5 / DEC-js-sdk-008 / DEC-js-sdk-010).
+ * Authentication orchestration (DEC-js-sdk-008 / DEC-js-sdk-010).
  *
  * Each method calls a generated op through the per-instance transport client
  * (auto Bearer + silent refresh), maps the result to SDK public types, and

@@ -1,10 +1,10 @@
-// Cross-platform OpenAPI generation entry for CI / npm scripts (design §5.6).
+// Cross-platform OpenAPI generation entry for CI / npm scripts.
 //
 // 1. Export the OpenAPI spec from the Herald backend (same source the frontend
 //    consumes) into ./api.json.
 // 2. Generate the self-contained typed fetch client into ./src/generated.
 //
-// Run from the sdk-web package root: `npm run generate-api`.
+// Run from the sdk/web package root: `npm run generate-api`.
 import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'

@@ -1,5 +1,5 @@
 /**
- * Client factory (design §5.1 / §4.4.1 / US-JS-001).
+ * Client factory (US-JS-001).
  *
  * `createHeraldClient` wires the in-memory access-token holder, the pluggable
  * refresh-token storage, the session store, the transport interceptors, and the

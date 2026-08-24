@@ -1,5 +1,5 @@
 /**
- * herald-auth-web — Herald official browser JavaScript SDK (design §4.4 / §5).
+ * herald-auth-web — Herald official browser JavaScript SDK.
  *
  * Framework-agnostic, zero runtime dependencies. See README for integration.
  */

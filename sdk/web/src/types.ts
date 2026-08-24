@@ -1,5 +1,5 @@
 /**
- * Public SDK types (design §5.1 / §5.2 / DEC-js-sdk-010).
+ * Public SDK types (DEC-js-sdk-010).
  *
  * DTO response types are re-exported from the (internal) generated layer so
  * consumers get a stable, typed surface without depending on generated paths.

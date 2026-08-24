@@ -68,10 +68,12 @@ def detect_areas(files: list[str]) -> set[str]:
             areas.add("frontend")
         elif path.startswith("demo/"):
             areas.add("demo")
-        elif path.startswith("sdk-web/"):
+        elif path.startswith("sdk/web/"):
             areas.add("sdk-web")
-        elif path.startswith("sdk-node/"):
+        elif path.startswith("sdk/node/"):
             areas.add("sdk-node")
+        elif path.startswith("sdk/rust/"):
+            areas.add("backend")
     return areas
 
 
@@ -204,14 +206,11 @@ def npm_format_fix_step(name: str, app_dir: Path, *, optional: bool = False) -> 
     )
 
 
-def backend_steps() -> list[Step]:
-    backend_dir = REPO_ROOT / "backend"
-    if not (backend_dir / "Cargo.toml").is_file():
-        raise RuntimeError("Backend changes detected, but backend/Cargo.toml was not found.")
+def cargo_lint_steps(label: str, pkg_dir: Path) -> list[Step]:
     cargo = require_executable("cargo")
     return [
         Step(
-            name="Backend clippy fix",
+            name=f"{label} clippy fix",
             command=[
                 cargo,
                 "clippy",
@@ -224,14 +223,14 @@ def backend_steps() -> list[Step]:
                 "-D",
                 "warnings",
             ],
-            cwd=backend_dir,
+            cwd=pkg_dir,
         ),
-        Step(name="Backend format", command=[cargo, "fmt", "--all"], cwd=backend_dir),
+        Step(name=f"{label} format", command=[cargo, "fmt", "--all"], cwd=pkg_dir),
         # `cargo clippy --fix` exits 0 even when it cannot auto-resolve a denied
         # lint (it emits a warning instead), so a clean non-fixing check is needed
         # to actually enforce `-D warnings` and surface unfixable lints as failures.
         Step(
-            name="Backend clippy check",
+            name=f"{label} clippy check",
             command=[
                 cargo,
                 "clippy",
@@ -241,9 +240,20 @@ def backend_steps() -> list[Step]:
                 "-D",
                 "warnings",
             ],
-            cwd=backend_dir,
+            cwd=pkg_dir,
         ),
     ]
+
+
+def backend_steps() -> list[Step]:
+    backend_dir = REPO_ROOT / "backend"
+    if not (backend_dir / "Cargo.toml").is_file():
+        raise RuntimeError("Backend changes detected, but backend/Cargo.toml was not found.")
+    # The Rust SDK (sdk/rust/) is a standalone crate outside backend/'s Cargo
+    # workspace, so its clippy/format trio runs alongside the backend's.
+    return cargo_lint_steps("Backend", backend_dir) + cargo_lint_steps(
+        "Rust SDK", REPO_ROOT / "sdk" / "rust"
+    )
 
 
 def frontend_steps() -> list[Step]:
@@ -278,7 +288,7 @@ def demo_steps() -> list[Step]:
 
 
 def npm_package_steps(label: str, package_dir_name: str) -> list[Step]:
-    # The Herald JS SDK packages (`sdk-web/` browser + `sdk-node/` server,
+    # The Herald JS SDK packages (`sdk/web/` browser + `sdk/node/` server,
     # DEC-js-sdk-005) are separate npm packages with their own
     # type-check/build/test, so each is its own CI area rather than part of
     # `frontend/`.
@@ -299,11 +309,20 @@ def npm_package_steps(label: str, package_dir_name: str) -> list[Step]:
 
 
 def sdk_web_steps() -> list[Step]:
-    return npm_package_steps("SDK-WEB", "sdk-web")
+    steps = npm_package_steps("SDK-WEB", "sdk/web")
+    # The frontend consumes this package via a `file:` dependency, so SDK
+    # changes must also type-check the frontend — a broken link or changed
+    # types surface there first, not in the SDK's own checks.
+    frontend_type_check = npm_script_step(
+        "Frontend type check (SDK consumer)", REPO_ROOT / "frontend", "type-check"
+    )
+    if frontend_type_check:
+        steps.append(frontend_type_check)
+    return steps
 
 
 def sdk_node_steps() -> list[Step]:
-    return npm_package_steps("SDK-NODE", "sdk-node")
+    return npm_package_steps("SDK-NODE", "sdk/node")
 
 
 def run_steps(area: str, steps: list[Step]) -> None:

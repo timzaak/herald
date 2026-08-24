@@ -20,7 +20,6 @@ members = [
     "api",
     "worker",
     "app",
-    "sdk",
     "test-db",
     "test-support",
     "integration-tests",

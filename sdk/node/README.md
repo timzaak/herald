@@ -3,11 +3,11 @@
 Node.js SDK for [Herald](https://github.com/timzaak/herald) — a multi-tenant
 authentication, authorization, billing & points system. This is the
 server-side TypeScript counterpart of the Rust
-[`herald-sdk`](../backend/sdk) crate, with the same API surface and caching
+[`herald-sdk`](../rust) crate, with the same API surface and caching
 behaviour. Zero runtime dependencies (native `fetch`, Node 18+).
 
 For browser end-user authentication (login flows, token refresh, WebAuthn)
-use [`herald-auth-web`](../sdk-web) instead.
+use [`herald-auth-web`](../web) instead.
 
 ## Features
 

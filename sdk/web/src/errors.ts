@@ -1,5 +1,5 @@
 /**
- * Typed, programmatically-discriminable error union (design §5.3 / US-JS-008).
+ * Typed, programmatically-discriminable error union (US-JS-008).
  *
  * Every public SDK method rejects with a `HeraldError`. Branch on the stable
  * `kind` field instead of parsing messages.

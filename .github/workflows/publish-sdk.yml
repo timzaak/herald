@@ -1,5 +1,9 @@
 name: Publish SDK
 
+# Publishes the Rust `herald-sdk` crate (sdk/rust/) to crates.io. Manual only
+# (workflow_dispatch). Version comes from sdk/rust/Cargo.toml (standalone
+# crate, kept in sync with the main project by scripts/release.py); commit any
+# pending bump, then run this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -28,10 +32,10 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: sdk/rust -> target
 
       - name: Publish herald-sdk
-        working-directory: backend
-        run: cargo publish -p herald-sdk
+        working-directory: sdk/rust
+        run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}

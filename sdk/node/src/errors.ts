@@ -1,6 +1,6 @@
 /**
  * Error type for the Herald Node SDK, mirroring the Rust `herald_sdk::Error`
- * variants (`backend/sdk/src/lib.rs`): every non-2xx or transport failure is
+ * variants (`sdk/rust/src/lib.rs`): every non-2xx or transport failure is
  * thrown as a `HeraldSdkError` carrying a stable machine-readable `code`.
  */
 

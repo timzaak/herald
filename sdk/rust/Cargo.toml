@@ -1,0 +1,32 @@
+[workspace]
+
+[package]
+name = "herald-sdk"
+version = "0.5.0"
+authors = ["Timzaak <zsy.evan@gmail.com>"]
+edition = "2024"
+license = "Apache-2.0"
+description = "Rust SDK for Herald — multi-tenant auth, billing & points API client"
+repository = "https://github.com/timzaak/herald"
+readme = "README.md"
+keywords = ["herald", "auth", "billing", "sdk"]
+categories = ["authentication", "api-bindings", "web-programming"]
+
+# Standalone crate (own workspace above): lives outside backend/'s Cargo
+# workspace, so dependency versions are pinned here instead of inherited.
+# Keep them in sync with backend/Cargo.toml [workspace.dependencies] and the
+# crate version with the main project release.
+[dependencies]
+reqwest = { version = "0.12.26", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.19", features = ["v4", "v7", "serde"] }
+moka = { version = "0.12", features = ["future"] }
+thiserror = "2.0"
+dashmap = "6.1"
+tracing = "0.1"
+futures = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["full"] }
+wiremock = "0.6"

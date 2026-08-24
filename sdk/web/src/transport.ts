@@ -1,5 +1,5 @@
 /**
- * Transport layer (design §5.4 / DEC-js-sdk-007): wraps a generated fetch client
+ * Transport layer (DEC-js-sdk-007): wraps a generated fetch client
  * instance with the Bearer access/refresh token model.
  *
  *   - request interceptor: inject `Authorization: Bearer {accessToken}` from
@@ -63,7 +63,7 @@ function refreshTokens(client: Client, deps: TransportDeps): Promise<BrowserToke
   const rt = deps.storage.getRefreshToken()
   if (!rt) {
     // No stored refresh token → the session cannot be restored. Signal expiry
-    // (design §5.4: 无 rt → 直接 session-expired) and let the 401 propagate.
+    // and let the 401 propagate.
     deps.session.emit({ type: 'session-expired', reason: 'refresh-failed' })
     return Promise.resolve(null)
   }

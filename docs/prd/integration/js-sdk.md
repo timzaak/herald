@@ -204,10 +204,10 @@ Herald 已具备完整的第三方网页跨域认证能力（浏览器 Bearer to
 | `DEC-js-sdk-002` | Applied | framework.agnostic-core | 本轮只交付框架无关纯 TS 核心；React/Vue 适配层为后续可选项 | §2.1 / §2.2 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-003` | Applied | supersedes.custom-user-ui-d-scope-03 | 本轮交付官方 JS 浏览器 SDK，取代 `docs/prd/integration/custom-user-ui.md` D-SCOPE-03「不交付官方 JS SDK」的表述 | §2.2 / §3.1 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-004` | Applied | transport.openapi-generated | SDK HTTP 层复用后端 OpenAPI 生成管线，fetch 类型化客户端；运行时零依赖 | §2.3 / §6 | `.ai/decision-log/js-sdk.md` |
-| `DEC-js-sdk-005` | Applied | packaging.location-and-build | 新建仓库顶层独立包 `sdk-web/`（与 `backend/sdk/` 对称），npm 包名 `herald-auth-web`（DEC-js-sdk-015） | §2.1 / §7 | `.ai/decision-log/js-sdk.md` |
+| `DEC-js-sdk-005` | Superseded | packaging.location-and-build | ~~新建仓库顶层独立包 `sdk-web/`~~ → 目录布局由 `DEC-js-sdk-017` 取代（`sdk/web`）；tsup 构建/ES2020+ 部分仍有效 | §2.1 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-006` | Applied | token.storage-strategy | access token 仅内存；refresh token 经可插拔 `TokenStorage` 管理，默认浏览器存储；提供 SSR 安全守卫 | §2.1 / §4.1 / §4.2 / §5 / §7 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-007` | Applied | refresh.semantics | 单飞刷新 + 单次重放 + 防循环 header + 失败清会话发事件 | §4.1 / §4.2 / §5.1（FR-6） | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-008` | Applied | scope.credential-class | 浏览器 SDK 面向 `CustomUserUi`，不经 PKCE 换 `FirstParty` | §2.2 / §4.1 / §6 | `.ai/decision-log/js-sdk.md` |
 | `DEC-js-sdk-010` | Applied | api.login-surface-and-email-otp | 密码登录返回判别分支（成功 / 需二因素（仅 totp、passkey）/ 需同意协议 / OAuth 跳转）；邮箱验证码登录是独立的无密码第一因素流程，非密码登录二因素；登录可携带协议同意标识以通过 consent 门 | §4.1 / §4.2 / §5.1（FR-5） | `.ai/decision-log/js-sdk.md` |
 
-> 本表只记录带稳定 DEC ID、且影响产品语义的已确认结论。其余实现级决策（OpenAPI 注解修正 DEC-js-sdk-011、浏览器产物打包格式 DEC-js-sdk-012、最终 npm 命名 DEC-js-sdk-015、Node SDK 交付 DEC-js-sdk-016 等）保留在 `.ai/decision-log/js-sdk.md`，不进 PRD。原延期问题 Q-js-sdk-002（最终 npm scope 与是否本轮发布）已裁决：`herald-auth-web`（浏览器，`sdk-web/`）+ `herald-sdk`（Node 服务端，`sdk-node/`，Rust crate 同名对应物），均无 scope。
+> 本表只记录带稳定 DEC ID、且影响产品语义的已确认结论。其余实现级决策（OpenAPI 注解修正 DEC-js-sdk-011、浏览器产物打包格式 DEC-js-sdk-012、最终 npm 命名 DEC-js-sdk-015、Node SDK 交付 DEC-js-sdk-016、SDK 目录统一 `sdk/{web,node,rust}` DEC-js-sdk-017 等）保留在 `.ai/decision-log/js-sdk.md`，不进 PRD。原延期问题 Q-js-sdk-002（最终 npm scope 与是否本轮发布）已裁决：`herald-auth-web`（浏览器，`sdk/web/`）+ `herald-sdk`（Node 服务端，`sdk/node/`，Rust crate `sdk/rust/` 同名对应物），均无 scope。

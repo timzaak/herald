@@ -1,5 +1,5 @@
 /**
- * In-memory access-token holder + session state + events (design §5.4 / §5.6).
+ * In-memory access-token holder + session state + events.
  *
  * Mirrors the Herald own-frontend pattern (`frontend/src/stores/auth-store.ts`
  * `accessTokenHolder` + persist), with all framework (Zustand/React) coupling

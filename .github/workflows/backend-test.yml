@@ -67,10 +67,18 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: backend -> target
+          workspaces: |
+            backend -> target
+            sdk/rust -> target
 
       - name: Run nextest
         run: python scripts/backend-test.py
+
+      # The Rust SDK's wiremock unit tests used to run via the backend
+      # workspace's `nextest --workspace`; the crate is standalone now.
+      - name: Run Rust SDK unit tests
+        working-directory: sdk/rust
+        run: cargo nextest run
 
       - name: Upload backend test log
         if: always()

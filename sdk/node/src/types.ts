@@ -1,7 +1,7 @@
 /**
  * Wire types for the Herald external API (`/api/ext/*`).
  *
- * Ported 1:1 from the Rust `herald-sdk` crate (`backend/sdk/src/lib.rs`), which
+ * Ported 1:1 from the Rust `herald-sdk` crate (`sdk/rust/src/lib.rs`), which
  * is the source of truth for this SDK: field names follow the backend's
  * camelCase JSON contract, optionality mirrors the Rust `Option` fields (fields
  * the backend always emits as `null` are typed `| null`; fields the backend

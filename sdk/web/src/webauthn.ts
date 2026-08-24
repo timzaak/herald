@@ -1,5 +1,5 @@
 /**
- * WebAuthn passkey LOGIN assertion helper (design §5.4).
+ * WebAuthn passkey LOGIN assertion helper.
  *
  * Only `navigator.credentials.get` (assertion) — no registration/create. The
  * SDK never manages authenticators (DEC-js-sdk-001). The integrator passes the

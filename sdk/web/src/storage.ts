@@ -1,5 +1,5 @@
 /**
- * Pluggable refresh-token storage (design §5.6 / DEC-js-sdk-006).
+ * Pluggable refresh-token storage (DEC-js-sdk-006).
  *
  * The access token NEVER passes through `TokenStorage` — it lives only in the
  * in-memory holder (`session.ts`). The default implementation persists the
