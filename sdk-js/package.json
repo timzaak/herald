@@ -1,6 +1,6 @@
 {
   "name": "@herald/web",
-  "version": "0.1.0",
+  "version": "0.4.2",
   "description": "Herald official browser JavaScript SDK for third-party web integration. Framework-agnostic, zero runtime dependencies.",
   "type": "module",
   "types": "./dist/index.d.ts",

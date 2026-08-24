@@ -2,8 +2,9 @@ name: Publish JS SDK
 
 # Publishes the browser JS SDK (`@herald/web`, in sdk-js/) to the public npm
 # registry. Manual only (workflow_dispatch) — mirrors the Rust `publish-sdk.yml`
-# trigger model. Version comes from sdk-js/package.json; bump it there, commit,
-# then run this workflow.
+# trigger model. Version comes from sdk-js/package.json and is kept in sync with
+# the main project version by the release script (t-release); commit any pending
+# bump, then run this workflow.
 #
 # Build prerequisite: the typed client under sdk-js/src/generated/ is gitignored
 # and must be regenerated from the backend OpenAPI spec (needs cargo + backend),
