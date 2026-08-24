@@ -33,6 +33,13 @@ pub use crate::application::http::server::api_entities::ErrorResponse;
 const SETTINGS_KEY: &str = "settings";
 const CUSTOM_DOMAIN_CLAIM_LOCK_ID: i64 = 0x4845_5241_4C44;
 
+// Failure budget for the `X-Herald-Ask-Key` shared-secret gate below. Own
+// instance so ask-key guessing cannot lock out (or be masked by) the internal
+// API-key gate's budget.
+static ASK_KEY_FAILURE_THROTTLE:
+    herald_api_base::application::http::internal_auth::FailureThrottle =
+    herald_api_base::application::http::internal_auth::FailureThrottle::new();
+
 // ---------------------------------------------------------------------------
 // Response / request DTOs
 // ---------------------------------------------------------------------------
@@ -276,16 +283,27 @@ pub async fn handle_custom_domain_authorize(
     // (build_app_state_with_migrations), so an empty configured
     // key cannot reach here in production. Compared in constant time, matching
     // the internal-api-key gate (`internal_auth::constant_time_compare`).
+    // Non-empty failed comparisons are throttled with the same sliding-window
+    // budget so the secret is not brute-forceable at network speed (own
+    // instance — see `FailureThrottle` for why gates do not share budgets).
+    // A missing header reveals no secret material and stays a plain 401.
     let provided = headers
         .get("x-herald-ask-key")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if provided.is_empty()
-        || !herald_api_base::application::http::internal_auth::constant_time_compare(
+    let attempt_is_guess = !provided.is_empty();
+    if attempt_is_guess && !ASK_KEY_FAILURE_THROTTLE.allows_attempt() {
+        return Err(ApiError::too_many_requests("Too many ask key attempts"));
+    }
+    let key_matches = attempt_is_guess
+        && herald_api_base::application::http::internal_auth::constant_time_compare(
             provided,
             &state.custom_domain_ask_key,
-        )
-    {
+        );
+    if !key_matches {
+        if attempt_is_guess {
+            ASK_KEY_FAILURE_THROTTLE.record_failure();
+        }
         return Err(ApiError::unauthorized("Invalid ask key"));
     }
 

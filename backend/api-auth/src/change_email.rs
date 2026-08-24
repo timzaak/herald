@@ -125,7 +125,18 @@ async fn request_email_change_internal(
 ) -> Result<String, ApiError> {
     let code = ChangeEmailCode::generate(realm_id, user_id);
 
-    // Store verification code in database
+    // Newest code wins (mirrors the verification-code repository): the confirm
+    // path reads the latest row, so older unconsumed change-email codes are
+    // invalidated instead of staying usable for the full TTL.
+    sqlx::query("DELETE FROM email_verification_code WHERE email = $1 AND type = 'change_email'")
+        .bind(new_email)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to invalidate previous change-email code: {}", e);
+            ApiError::internal("Failed to create verification code")
+        })?;
+
     sqlx::query(
         "INSERT INTO email_verification_code (email, type, verification_code) VALUES ($1, $2, $3)",
     )

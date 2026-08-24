@@ -498,16 +498,16 @@ async fn test_scenario_resend_verification_email(ctx: &mut TestContext) {
     println!("[Step 2] ✓ 用户注册成功，状态为 0（等待验证）");
 
     // ============================================================================
-    // Step 3: 记录初始验证码数量
+    // Step 3: 记录当前最新验证码
     // ============================================================================
-    println!("[Step 3] 记录初始验证码数量");
-    let initial_code_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM email_verification_code WHERE email = $1")
+    println!("[Step 3] 记录当前最新验证码");
+    let initial_latest_code: Option<String> =
+        sqlx::query_scalar("SELECT verification_code FROM email_verification_code WHERE email = $1 ORDER BY id DESC LIMIT 1")
             .bind(email)
-            .fetch_one(&ctx._app_state.pool)
+            .fetch_optional(&ctx._app_state.pool)
             .await
-            .expect("Failed to count verification codes");
-    println!("[Step 3] ✓ 初始验证码数量: {}", initial_code_count);
+            .expect("Failed to read latest verification code");
+    println!("[Step 3] ✓ 初始验证码: {:?}", initial_latest_code);
 
     // ============================================================================
     // Step 4: 调用重新发送验证邮件 API
@@ -560,22 +560,21 @@ async fn test_scenario_resend_verification_email(ctx: &mut TestContext) {
     // ============================================================================
     // Step 6: 验证新的验证码已生成
     // ============================================================================
+    // Issuing a new code invalidates prior ones (newest-code-wins), so the
+    // assertion is on the code VALUE changing, not on the row count growing.
     println!("[Step 6] 验证新的验证码已生成");
-    let final_code_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM email_verification_code WHERE email = $1")
+    let final_latest_code: Option<String> =
+        sqlx::query_scalar("SELECT verification_code FROM email_verification_code WHERE email = $1 ORDER BY id DESC LIMIT 1")
             .bind(email)
-            .fetch_one(&ctx._app_state.pool)
+            .fetch_optional(&ctx._app_state.pool)
             .await
-            .expect("Failed to count verification codes");
+            .expect("Failed to read latest verification code");
 
     assert!(
-        final_code_count > initial_code_count,
-        "New verification code should be generated"
+        final_latest_code.is_some() && final_latest_code != initial_latest_code,
+        "Resend should replace the previous verification code with a new one"
     );
-    println!(
-        "[Step 6] ✓ 新验证码已生成: {} -> {}",
-        initial_code_count, final_code_count
-    );
+    println!("[Step 6] ✓ 新验证码已生成: {:?}", final_latest_code);
 
     // 清理测试数据
     sqlx::query("DELETE FROM email_verification_code WHERE email = $1")

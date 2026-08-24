@@ -36,45 +36,69 @@ pub fn constant_time_compare(a: &str, b: &str) -> bool {
     result == 0
 }
 
-// Failure throttle for the shared-secret gate. The endpoints behind this
-// middleware mutate billing/points state and have no other authentication,
-// so the key must not be brute-forceable at network speed: after
-// MAX_FAILURES_PER_WINDOW failed key comparisons inside a sliding
-// FAILURE_WINDOW, every further request is rejected until the window rolls —
-// turning an online guessing attack into ≤ MAX failures/minute. In-process
-// state is sufficient: the API server is a single process and the secret is
-// global (not per-instance).
+// Failure throttle for shared-secret gates. The endpoints behind such gates
+// (internal billing/points routes, the Caddy on-demand-TLS ask route) mutate
+// state or authorize issuance and have no other authentication, so the secret
+// must not be brute-forceable at network speed: after MAX_FAILURES_PER_WINDOW
+// failed comparisons inside a sliding FAILURE_WINDOW, every further request is
+// rejected until the window rolls — turning an online guessing attack into
+// ≤ MAX failures/minute. In-process state is sufficient: the API server is a
+// single process and each secret is global (not per-instance). Each gate keeps
+// its own throttle instance so hammering one secret does not lock out the
+// other.
 const MAX_FAILURES_PER_WINDOW: usize = 10;
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
-static FAILURE_WINDOW_START_MS: AtomicU64 = AtomicU64::new(0);
-static FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Sliding-window failure budget for one shared-secret gate. See the module
+/// comment for the threat model; use one instance per secret.
+pub struct FailureThrottle {
+    window_start_ms: AtomicU64,
+    failure_count: AtomicUsize,
+}
+
+impl FailureThrottle {
+    pub const fn new() -> Self {
+        Self {
+            window_start_ms: AtomicU64::new(0),
+            failure_count: AtomicUsize::new(0),
+        }
+    }
+
+    /// Whether the failure budget still allows another key comparison. Opens a
+    /// fresh window when the previous one has expired; returns false when the
+    /// throttle is tripped and the attempt must be rejected without comparing.
+    pub fn allows_attempt(&self) -> bool {
+        let now = now_epoch_ms();
+        let window_ms = FAILURE_WINDOW.as_millis() as u64;
+        let start = self.window_start_ms.load(Ordering::Relaxed);
+        if now.saturating_sub(start) >= window_ms {
+            // Window expired (or never opened): reset. A racing writer can only
+            // reset to the same "fresh window" state, so no lock is needed.
+            self.window_start_ms.store(now, Ordering::Relaxed);
+            self.failure_count.store(0, Ordering::Relaxed);
+            return true;
+        }
+        self.failure_count.load(Ordering::Relaxed) < MAX_FAILURES_PER_WINDOW
+    }
+
+    pub fn record_failure(&self) {
+        self.failure_count.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl Default for FailureThrottle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static INTERNAL_KEY_THROTTLE: FailureThrottle = FailureThrottle::new();
 
 fn now_epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-/// Whether the failure budget still allows another key comparison. Opens a
-/// fresh window when the previous one has expired; returns false when the
-/// throttle is tripped and the attempt must be rejected without comparing.
-fn throttle_allows_attempt() -> bool {
-    let now = now_epoch_ms();
-    let window_ms = FAILURE_WINDOW.as_millis() as u64;
-    let start = FAILURE_WINDOW_START_MS.load(Ordering::Relaxed);
-    if now.saturating_sub(start) >= window_ms {
-        // Window expired (or never opened): reset. A racing writer can only
-        // reset to the same "fresh window" state, so no lock is needed.
-        FAILURE_WINDOW_START_MS.store(now, Ordering::Relaxed);
-        FAILURE_COUNT.store(0, Ordering::Relaxed);
-        return true;
-    }
-    FAILURE_COUNT.load(Ordering::Relaxed) < MAX_FAILURES_PER_WINDOW
-}
-
-fn record_failure() {
-    FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Middleware that validates the `X-Internal-API-Key` header against the
@@ -100,7 +124,7 @@ pub async fn internal_api_key_middleware(req: Request, next: Next) -> Response {
     // stay plain 401s and never trip the lockout.
     let attempt_is_guess = provided_key.is_some() && expected_key.is_some();
 
-    if attempt_is_guess && !throttle_allows_attempt() {
+    if attempt_is_guess && !INTERNAL_KEY_THROTTLE.allows_attempt() {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
 
@@ -113,7 +137,7 @@ pub async fn internal_api_key_middleware(req: Request, next: Next) -> Response {
         next.run(req).await
     } else {
         if attempt_is_guess {
-            record_failure();
+            INTERNAL_KEY_THROTTLE.record_failure();
         }
         StatusCode::UNAUTHORIZED.into_response()
     }
@@ -123,9 +147,11 @@ pub async fn internal_api_key_middleware(req: Request, next: Next) -> Response {
 mod tests {
     use super::*;
 
-    fn reset_throttle() {
-        FAILURE_COUNT.store(0, Ordering::SeqCst);
-        FAILURE_WINDOW_START_MS.store(now_epoch_ms(), Ordering::SeqCst);
+    fn reset_throttle(throttle: &FailureThrottle) {
+        throttle.failure_count.store(0, Ordering::SeqCst);
+        throttle
+            .window_start_ms
+            .store(now_epoch_ms(), Ordering::SeqCst);
     }
 
     #[test]
@@ -134,24 +160,41 @@ mod tests {
         // the gate must cap online key-guessing at MAX_FAILURES_PER_WINDOW
         // per window — otherwise the shared secret is brute-forceable at
         // network speed.
-        reset_throttle();
+        let throttle = FailureThrottle::new();
+        reset_throttle(&throttle);
         for _ in 0..MAX_FAILURES_PER_WINDOW {
-            assert!(throttle_allows_attempt());
-            record_failure();
+            assert!(throttle.allows_attempt());
+            throttle.record_failure();
         }
         assert!(
-            !throttle_allows_attempt(),
+            !throttle.allows_attempt(),
             "throttle must trip after the failure budget is spent"
         );
-        assert!(!throttle_allows_attempt());
+        assert!(!throttle.allows_attempt());
 
         // Window expiry reopens the budget (a locked-out operator must not
         // be denied forever).
-        FAILURE_WINDOW_START_MS.store(
+        throttle.window_start_ms.store(
             now_epoch_ms().saturating_sub(FAILURE_WINDOW.as_millis() as u64 + 1),
             Ordering::SeqCst,
         );
-        assert!(throttle_allows_attempt());
+        assert!(throttle.allows_attempt());
+    }
+
+    #[test]
+    fn independent_throttles_do_not_share_budget() {
+        // WHY this matters: the Caddy ask gate and the internal API key gate
+        // protect different secrets; exhausting one budget must not lock out
+        // the other route.
+        let a = FailureThrottle::new();
+        let b = FailureThrottle::new();
+        reset_throttle(&a);
+        reset_throttle(&b);
+        for _ in 0..MAX_FAILURES_PER_WINDOW {
+            a.record_failure();
+        }
+        assert!(!a.allows_attempt());
+        assert!(b.allows_attempt());
     }
 
     #[test]

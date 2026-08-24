@@ -54,6 +54,16 @@ jobs:
         working-directory: frontend
         run: npm run generate-api
 
+      # The browser SDK is a file: dependency of the frontend; dist/ is
+      # gitignored and only exists after a build, and the vite dev server
+      # started below needs it to resolve herald-auth-web imports.
+      - name: Build browser SDK
+        working-directory: sdk/web
+        run: |
+          npm ci --legacy-peer-deps
+          npm run generate-api
+          npm run build
+
       - name: Start demo environment
         run: python scripts/demo-start.py --timeout 300
 

@@ -89,6 +89,10 @@ pub const OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 /// /authorize seeds OAuth state in Redis and does a client_app DB read per
 /// request; allowed a higher ceiling since legitimate SPAs hit it per login.
 pub const OAUTH_AUTHORIZE_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+/// /token does a Redis GETDEL plus client_app/user DB reads per request;
+/// same ceiling as /authorize so an unauthenticated code flood cannot
+/// hammer Redis/DB at network speed.
+pub const OAUTH_TOKEN_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 pub const DEVICE_AUTHORIZE_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 
 // --- JWT ---

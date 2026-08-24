@@ -115,6 +115,21 @@ async fn process_wechat_callback(
     let signature = read_header(headers, "Wechatpay-Signature")?;
     let serial = read_header(headers, "Wechatpay-Serial")?;
 
+    // Replay protection mirroring the Stripe gate: the signature stays valid
+    // forever, so a captured request could otherwise be replayed indefinitely
+    // (event-id idempotency only prevents double fulfilment, not re-execution).
+    // WeChat re-delivers notifications as fresh requests with a new timestamp,
+    // so a live sender is never outside the window.
+    let timestamp_i64: i64 = timestamp
+        .parse()
+        .map_err(|_| CoreError::BadRequest("invalid Wechatpay-Timestamp".to_string()))?;
+    let age_seconds = chrono::Utc::now().timestamp() - timestamp_i64;
+    if !(-900..=900).contains(&age_seconds) {
+        return Err(CoreError::BadRequest(format!(
+            "Wechatpay-Timestamp outside the accepted window: {age_seconds} seconds"
+        )));
+    }
+
     let client = get_wechat_client_for_realm(&app_state.pool, realm_id).await?;
 
     // Verify the request signature using the platform certificate for `serial`

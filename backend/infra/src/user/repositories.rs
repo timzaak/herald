@@ -417,8 +417,16 @@ impl UserVerificationRepository for PostgresVerificationRepository {
         use herald_entity::email_verification_code;
 
         let now = chrono::Utc::now();
-        // 使用 UUID v7 生成验证码 ID
         let id = herald_domain::common::entities::generate_uuid_v7();
+
+        // Newest code wins: every consumer reads the latest row for an
+        // (email, type), so older unconsumed codes are dead weight that only
+        // widens the window in which a leaked older email stays valid.
+        email_verification_code::Entity::delete_many()
+            .filter(email_verification_code::Column::Email.eq(email))
+            .filter(email_verification_code::Column::Type.eq(code_type))
+            .exec(&*self.db)
+            .await?;
 
         let active_model = email_verification_code::ActiveModel {
             id: sea_orm::Set(id),

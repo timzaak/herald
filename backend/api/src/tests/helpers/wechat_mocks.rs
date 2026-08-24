@@ -180,9 +180,10 @@ pub fn build_notification(
 }
 
 /// Build the canonical callback message and sign it with the test platform key.
-/// Returns `(timestamp, nonce, signature)`.
+/// Returns `(timestamp, nonce, signature)`. The timestamp is the current wall
+/// clock so the callback passes the handler's replay window.
 pub fn sign_signed_headers(body: &str) -> (String, String, String) {
-    let timestamp = "1700000000".to_string();
+    let timestamp = chrono::Utc::now().timestamp().to_string();
     let nonce = "nonce-abc".to_string();
     let signature = platform_key().sign_callback(&timestamp, &nonce, body);
     (timestamp, nonce, signature)

@@ -10,12 +10,15 @@ use axum::{
 };
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::auth::util::{
+    ClientIp, rate_limit_hit, user_agent_from_headers,
+};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::common::entities::app_errors::CoreError;
+use herald_core::domain::security_constants::OAUTH_TOKEN_IP_RATE_LIMIT;
 use herald_core::domain::user::UserRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use serde::{Deserialize, Serialize};
@@ -100,6 +103,17 @@ pub async fn oauth_token(
     headers: HeaderMap,
     Json(req): Json<TokenRequest>,
 ) -> Result<Json<TokenResponse>, ApiError> {
+    // Per-IP cap mirroring /authorize: each request costs a Redis GETDEL plus
+    // client_app/user DB reads, so an unauthenticated code flood must not hit
+    // Redis/DB at network speed.
+    rate_limit_hit(
+        &state,
+        format!("rl:oauth-token:ip:{ip}"),
+        OAUTH_TOKEN_IP_RATE_LIMIT.0,
+        OAUTH_TOKEN_IP_RATE_LIMIT.1,
+    )
+    .await?;
+
     let user_agent = user_agent_from_headers(&headers);
 
     if req.grant_type != "authorization_code" {

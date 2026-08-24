@@ -144,7 +144,69 @@ async fn test_scenario_delete_policy_from_role(ctx: &mut SchemaTestContext) {
 }
 
 // ============================================================================
-// Scenario 3: Policy Uniqueness Constraint
+// Scenario 3: Delete Policy via Mismatched Role Path
+// ============================================================================
+
+/// **Given**: 角色 role-a 与 role-b 各有策略，role-b 的策略 policy-b 仍然生效
+/// **When**: DELETE /api/permission/roles/role-a/policies/{policy_b}（policy 属于 role-b）
+/// **Then**: HTTP 404，policy-b 保持存在
+///
+/// WHY: 删除必须同时校验 policy 属于路径中的 role。否则同 realm 管理员可用
+/// role-a 的路径删掉 role-b 的策略，且缓存失效会打在未校验的 roleId 上——
+/// 真正受影响的 role-b 会继续从缓存拿到已被"撤销"的权限，撤销不即时生效。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_delete_policy_with_mismatched_role_rejected(ctx: &mut SchemaTestContext) {
+    let (token, user_id) = create_admin_session_with_user(ctx, "test-admin", 1800).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+
+    // Given: two roles; the policy belongs to role-b
+    let role_a = create_role(ctx, &ctx._realm_id, &token, "role-a", "Role A").await;
+    let role_b = create_role(ctx, &ctx._realm_id, &token, "role-b", "Role B").await;
+
+    let policy_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO role_policies (id, realm_id, role_id, resource, action)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(policy_id)
+    .bind(&ctx._realm_id)
+    .bind(role_b)
+    .bind("users")
+    .bind("view")
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("Failed to insert policy");
+
+    // When: address the policy through role-a's path
+    let app = ctx.create_unified_test_router();
+    let req = Request::builder()
+        .method("DELETE")
+        .uri(format!(
+            "/api/permission/roles/{}/policies/{}",
+            role_a, policy_id
+        ))
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    // Then: rejected and the policy survives
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let policy_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM role_policies WHERE id = $1")
+        .bind(policy_id)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .expect("Failed to query role_policies");
+    assert_eq!(
+        policy_count, 1,
+        "Role-b's policy must not be deletable via role-a's path"
+    );
+}
+
+// ============================================================================
+// Scenario 4: Policy Uniqueness Constraint
 // ============================================================================
 
 /// **Given**: 角色 role-a 已有 users.view 策略

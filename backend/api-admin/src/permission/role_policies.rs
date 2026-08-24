@@ -284,8 +284,13 @@ pub async fn remove_policy_from_role(
         .require_permission(&state, "policies", "manage")
         .await?;
 
+    // The policy must actually be attached to the path role: otherwise a
+    // caller could delete a realm-mate role's policy while the cache
+    // invalidation below targets the unverified path roleId — the affected
+    // role would keep serving the removed permission from cache until TTL.
     let result = role_policies::Entity::delete_many()
         .filter(role_policies::Column::Id.eq(policy_id))
+        .filter(role_policies::Column::RoleId.eq(role_id))
         .exec(state.db.as_ref())
         .await
         .map_err(|e| {
