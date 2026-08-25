@@ -74,8 +74,10 @@ pub struct Config {
 
 ```toml
 [dependencies]
-herald-sdk = "0.3"
+herald-sdk = "0.5"
 ```
+
+后端是 TypeScript？看下面的 [Node.js SDK](#7-nodejs-sdk-typescript) 一节，npm 上有同名包，方法和这个 crate 一一对应。
 
 ### 初始化
 
@@ -525,7 +527,7 @@ pub fn create_router(
 
 ## 3. 前端集成
 
-前端负责 token 存储，并在每次请求带 `Authorization: Bearer`。它要处理四件事：探测认证状态、登录后持有 token、附加 Bearer 头、401 时刷新。
+前端负责 token 存储，并在每次请求带 `Authorization: Bearer`。它要处理四件事：探测认证状态、登录后持有 token、附加 Bearer 头、401 时刷新。这一节用原生 `fetch` 手写这些管线。另一种前端形态是浏览器从你自己的登录页直接调 Herald，那种形态有专门的 SDK，见 [浏览器 SDK (herald-auth-web)](#8-浏览器-sdk-herald-auth-web) 和 [White-label / 自定义用户 UI](/docs/zh/ui-custom)。
 
 ### 探测认证状态
 
@@ -868,7 +870,259 @@ if sub.status == "active" {
 
 订阅权益由支付平台产品同步到 Herald 的 `entitlement_key`。支付流程由 Herald 和支付平台处理，你的后端只需要调 SDK 查订阅状态和当前权益。
 
-## 7. 部署
+## 7. Node.js SDK (TypeScript)
+
+Rust crate 有一个 TypeScript 对应版本，发布在 npm 上，包名同样是 `herald-sdk`（源码在 `sdk/node`）。它是 1:1 移植：方法名换成 camelCase，缓存行为一致，线上类型与 crate 的公开结构体对应。零运行时依赖，直接用原生 `fetch`（Node 18+），ESM 和 CommonJS 双格式构建。后端是 Node 而不是 Rust 时，第 2、4、5、6 节里所有走 `herald_sdk::Client` 的调用，这里都有同名方法。
+
+### 安装
+
+```bash
+npm install herald-sdk
+```
+
+### 初始化
+
+```ts
+import { HeraldClient } from 'herald-sdk'
+
+const client = new HeraldClient(
+  'http://127.0.0.1:13000', // base URL，与 Rust 配置里的 [herald].base_url 同值
+  'sk-your-api-key',        // realm API Key，以 X-API-Key 头发送
+  300,                      // 权限缓存 TTL 秒数；默认 300
+)
+```
+
+每个调用都以 `X-API-Key` 头携带 API Key，访问 Herald 的外部 API（`/api/ext/*`）。第三个构造参数是权限缓存 TTL，对应 Rust `Client::new` 的第三个参数。
+
+### 权限检查
+
+```ts
+const resp = await client.checkPermission({
+  accessToken: browserToken, // 前端转发过来的 Bearer token
+  clientId: 'admin-web-console',
+  rules: [{ resource: 'product', action: 'read' }],
+})
+if (resp.allowed) {
+  // resp.userId 是 Herald 用户 id
+}
+```
+
+缓存行为与 Rust crate 一致：按完整请求（token + clientId + rules，规则顺序参与区分）缓存结果，TTL 内命中缓存；一个 token 超过 5 分钟没被检查过，下次检查前先清掉它的缓存条目。你在 Herald 里改了用户权限、希望下次检查落到服务端时，主动清掉该 token 的缓存：
+
+```ts
+client.invalidateCache(browserToken)
+```
+
+### 计费与资源管理
+
+订阅、积分、管理类调用与第 4-6 节一一对应，换成 camelCase：
+
+```ts
+// 订阅状态（第 6 节）
+const sub = await client.getSubscription('my-realm', 'my-client-app')
+
+// 积分（第 5 节）
+const balance = await client.getBalance('my-realm', userId)
+const result = await client.consumePoints(
+  'my-realm', userId, 'my-client-app',
+  100, 'AI API 调用', 'unique-request-id',
+)
+console.log(result.transactions[0].balanceAfter)
+
+// 发放积分必须指定明确的 Credit Bucket（第 5 节）
+await client.grantPoints('my-realm', userId, 'bucket-id', 500, 'welcome bonus')
+
+// Realm / 用户 / Client App 管理（第 4 节）
+const realm = await client.createRealm({
+  name: 'my-app',
+  description: '我的应用',
+  adminUser: { email: 'admin@example.com', password: 'secure-password' },
+})
+const apps = await client.listClientApps('my-realm')
+```
+
+扣减结果里每个受影响的 Credit Bucket 对应一条 transaction（单池时长度为 1）。第 5 节的幂等规则原样适用：consume 每次都传幂等 key，扣哪个账户由 `clientAppId` 决定。
+
+### 错误处理
+
+调用失败抛 `HeraldSdkError`，带稳定的 `code`：
+
+```ts
+import { HeraldSdkError } from 'herald-sdk'
+
+try {
+  await client.getBalance('my-realm', userId)
+} catch (error) {
+  if (error instanceof HeraldSdkError && error.code === 'forbidden') {
+    // 跨 realm 访问或权限不足
+  }
+}
+```
+
+`code` 取值：`unauthorized`、`forbidden`、`not-found`、`internal-server-error`、`api-error`、`network`、`parse`。收到过响应时，HTTP `status` 和原始 `body` 会挂在错误上。
+
+## 8. 浏览器 SDK (herald-auth-web)
+
+第 2、3 节假设的是 BFF 形态：浏览器只跟你的后端通信。另一种形态是浏览器从你自己的登录页直接调 Herald，即 [White-label / 自定义用户 UI](/docs/zh/ui-custom) 讲的场景。这种形态有专门的 SDK：`herald-auth-web`（源码在 `sdk/web`），框架无关，零运行时依赖（原生 `fetch`、`WebCrypto`、`localStorage`）。它把凭证生命周期整个包下来：注册、触发邮箱验证、请求重置密码、登录（带 TOTP / passkey 第二因素）、免密邮箱 OTP、静默刷新 access token、登出、查状态。
+
+SDK 包装的是直接签发的 `CustomUserUi` 凭证类（`POST /api/auth/{realmId}/login`）。它不执行第 2 节的 PKCE 交换；给 `login` 传 OAuth 上下文时，后端回答 `redirectTo`，后续交换由你的代码自己完成。
+
+### 安装
+
+```bash
+npm install herald-auth-web
+```
+
+包是 ESM-only，面向打包器。没有构建步骤的页面可以用发布的 IIFE 压缩包，暴露 `Herald` 全局变量：
+
+```html
+<script src="https://unpkg.com/herald-auth-web"></script>
+<script>
+  const client = Herald.createHeraldClient({
+    baseUrl: 'https://auth.example.com',
+    realmId: '<your-realm>',
+    clientId: '<your-client-app>',
+  })
+</script>
+```
+
+### 先登记页面来源
+
+Herald 的 CORS 策略把请求来源与 Client App 的 `allowed_origins` 精确匹配。接 SDK 之前，先把页面来源（协议 + 主机 + 端口，如 `https://app.example.com`）加到控制台里。来源没登记时表现为 `HeraldError { kind: 'network' }`：浏览器区分不了 CORS 拒绝和普通网络失败。
+
+### 创建客户端并登录
+
+```ts
+import { createHeraldClient } from 'herald-auth-web'
+
+const client = createHeraldClient({
+  baseUrl: 'https://auth.example.com',
+  realmId: 'my-realm',
+  clientId: 'my-client-app',
+  onSessionChange: (event) => {
+    if (event.type === 'session-expired') {
+      // 跳转到你的登录页
+    }
+  },
+})
+```
+
+会话事件有 `authenticated`、`session-expired`、`logged-out` 三种。不想用事件可以轮询：`await client.getStatus()` 返回会话快照（`authenticated`、`userId`、`permissions`、`scopes`）；`await client.logout()` 清掉 token 并在服务端结束会话。
+
+`login` 对控制流结果返回可判别的联合类型，不靠抛异常：
+
+```ts
+const result = await client.login({ email: 'user@example.com', password: '••••••••' })
+switch (result.kind) {
+  case 'success':
+    // 已登录；result.session
+    break
+  case 'requires-second-factor': {
+    // result.secondFactors 是 ['totp', 'passkey'] 的子集；result.tempToken
+    const final = await client.verifyTotp({ tempToken: result.tempToken, code: '123456' })
+    break
+  }
+  case 'consent-required':
+    // 渲染 result.agreements，然后带着它们重调 login：
+    // await client.login({ email, password, agreements: result.agreements })
+    break
+  case 'oauth-redirect':
+    window.location.href = result.redirectTo
+    break
+}
+```
+
+`verifyTotp` 没有验证器时可以用 `backupCode` 代替 `code`。注册和账号恢复是同样的套路：
+
+```ts
+await client.register({ email: 'user@example.com', password: '••••••••' })
+await client.triggerVerifyEmail({ email: 'user@example.com' })
+await client.requestPasswordReset({ email: 'user@example.com' })
+```
+
+后端发的验证或重置链接会落到你预先登记的 Client App 页面上，SDK 只负责触发发送。
+
+### Passkey 登录
+
+Passkey 登录是两次 SDK 调用，中间夹一次浏览器 WebAuthn 断言：
+
+```ts
+import { performPasskeyAssertion } from 'herald-auth-web'
+
+// 1FA passkey 登录
+const begin = await client.passkey.loginBegin({})
+const assertion = await performPasskeyAssertion(begin.options)
+const result = await client.passkey.loginFinish({ authToken: begin.authToken, assertion })
+
+// 2FA：requires-second-factor 结果之后，改传它的 tempToken
+// const begin = await client.passkey.loginBegin({ tempToken })
+```
+
+Passkey 的 RP 隔离要求页面来源与 Client App 预登记的来源一致，也就是必须出现在 `allowed_origins` 里的那个来源。
+
+### 免密邮箱 OTP 登录
+
+邮箱 OTP 是独立的免密第一因素，不是第二因素。`send` 把两个 409 控制流结果解析成 `{ kind: 'conflict' }` 而不是抛异常：`consent_required`（自动注册的同意门）和 `email_not_registered`（自动注册关闭）：
+
+```ts
+const sent = await client.loginWithEmailOtp.send({ email: 'user@example.com' })
+if (sent.kind === 'conflict' && sent.code === 'consent_required') {
+  // 渲染 sent.agreements，然后带着接受的条目重发
+  await client.loginWithEmailOtp.send({
+    email: 'user@example.com',
+    agreements: sent.agreements.map(({ agreementType, versionId }) => ({ agreementType, versionId })),
+  })
+}
+
+// verify 成功时写入签发的 token 集合，行为与 login 一致。
+const result = await client.loginWithEmailOtp.verify({ email: 'user@example.com', code: '123456' })
+```
+
+### token 存储
+
+access token 只存内存；页面刷新即丢失，SDK 在下次请求时静默刷新。refresh token 走可插拔的 `TokenStorage`，默认 `localStorage`，每次刷新轮换、复用时吊销整个家族，模型与 [token 生命周期](#token-生命周期)一节相同。
+
+refresh token 放 `localStorage` 能被 XSS 读到。这与 Herald 自生前端的风险姿态一致，靠轮换、复用检测和短期 access token 缓解。要求更高时注入 `memoryStorage()`（刷新后不保留）或自定义适配器：
+
+```ts
+import { createHeraldClient, memoryStorage } from 'herald-auth-web'
+
+const client = createHeraldClient({
+  baseUrl: 'https://auth.example.com',
+  realmId: 'my-realm',
+  clientId: 'my-client-app',
+  storage: memoryStorage(),
+})
+```
+
+SSR 或 Node 环境没有 `localStorage`，不注入适配器时 `createHeraldClient` 抛 `HeraldError { kind: 'ssr-no-storage' }`。
+
+SDK 自己的请求自动注入 `Authorization: Bearer` 并在 401 时静默刷新。要给你自己后端的调用附带 token，读 `client.tokens.getAccessToken()`。
+
+### Turnstile 与错误
+
+realm 强制 Cloudflare Turnstile 时，把 token 放进每个方法 payload 的 `turnstileToken` 字段。
+
+所有方法失败时抛 `HeraldError`，带稳定的 `kind`：`validation`（400）、`unauthorized`（401）、`forbidden`（403）、`not-found`（404）、`rate-limited`（429）、`api`（其他非 2xx）、`network`（fetch 失败或 CORS），外加刷新拿不到可用 token 时的 `session-expired`：
+
+```ts
+import { HeraldError } from 'herald-auth-web'
+
+try {
+  await client.login({ email, password })
+} catch (e) {
+  if (e instanceof HeraldError) {
+    switch (e.kind) {
+      case 'unauthorized': // 凭证错误
+      case 'rate-limited': // 429
+      case 'validation':   // 400
+      case 'network':      // fetch 失败 / CORS
+    }
+  }
+}
+```
+
+## 9. 部署
 
 ### 基于 Token 的部署
 

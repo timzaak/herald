@@ -72,8 +72,10 @@ pub struct Config {
 
 ```toml
 [dependencies]
-herald-sdk = "0.3"
+herald-sdk = "0.5"
 ```
+
+TypeScript backend? The [Node.js SDK](#7-nodejs-sdk-typescript) section covers the npm package of the same name; it mirrors this crate method for method.
 
 ### Initialization
 
@@ -523,7 +525,7 @@ The `match` branch is the key. Without `[herald]` in config, `herald_client` is 
 
 ## 3. Frontend Integration
 
-The frontend owns token storage and sends `Authorization: Bearer` on every request. It handles four things: detect auth state, hold tokens after login, attach the Bearer header, and refresh on 401.
+The frontend owns token storage and sends `Authorization: Bearer` on every request. It handles four things: detect auth state, hold tokens after login, attach the Bearer header, and refresh on 401. This section hand-rolls that plumbing with plain `fetch`. The other frontend shape, where the browser calls Herald directly from your own login page, has a dedicated SDK; see [Browser SDK (herald-auth-web)](#8-browser-sdk-herald-auth-web) and [White-label / Custom User UI](/docs/ui-custom).
 
 ### Detect Auth State
 
@@ -866,7 +868,259 @@ if sub.status == "active" {
 
 Subscription entitlements are synced from payment-provider products into Herald `entitlement_key` values. Payment is handled between Herald and the payment provider; your backend only queries subscription status and the current entitlement via SDK.
 
-## 7. Deployment
+## 7. Node.js SDK (TypeScript)
+
+The Rust crate has a TypeScript counterpart published as `herald-sdk` on npm (source at `sdk/node`). It is a 1:1 port: same method names in camelCase, same caching behavior, wire types matching the crate's public structs. Zero runtime dependencies on native `fetch`, Node 18+, ESM and CommonJS dual build. When your backend is Node instead of Rust, every `herald_sdk::Client` call shown in sections 2, 4, 5, and 6 has a same-named method here.
+
+### Install
+
+```bash
+npm install herald-sdk
+```
+
+### Initialization
+
+```ts
+import { HeraldClient } from 'herald-sdk'
+
+const client = new HeraldClient(
+  'http://127.0.0.1:13000', // base URL, same value as [herald].base_url in the Rust setup
+  'sk-your-api-key',        // realm API key, sent as X-API-Key
+  300,                      // permission cache TTL seconds; default 300
+)
+```
+
+Every call carries the API key in the `X-API-Key` header against Herald's external API (`/api/ext/*`). The third constructor argument is the permission cache TTL, the same knob as the Rust `Client::new` third argument.
+
+### Permission check
+
+```ts
+const resp = await client.checkPermission({
+  accessToken: browserToken, // the Bearer token your frontend forwarded
+  clientId: 'admin-web-console',
+  rules: [{ resource: 'product', action: 'read' }],
+})
+if (resp.allowed) {
+  // resp.userId is the Herald user id
+}
+```
+
+Caching mirrors the Rust crate: results are cached per exact request (token + clientId + rules, rule order significant) for the TTL, and a token not checked for over 5 minutes has its entries invalidated before the next check. After you change a user's permissions in Herald and want the next check to hit the server, drop the cache for that token:
+
+```ts
+client.invalidateCache(browserToken)
+```
+
+### Billing and resource management
+
+The subscription, points, and admin calls match sections 4-6 one for one, in camelCase:
+
+```ts
+// Subscription status (section 6)
+const sub = await client.getSubscription('my-realm', 'my-client-app')
+
+// Points (section 5)
+const balance = await client.getBalance('my-realm', userId)
+const result = await client.consumePoints(
+  'my-realm', userId, 'my-client-app',
+  100, 'AI API call', 'unique-request-id',
+)
+console.log(result.transactions[0].balanceAfter)
+
+// Grants must target an explicit Credit Bucket (section 5)
+await client.grantPoints('my-realm', userId, 'bucket-id', 500, 'welcome bonus')
+
+// Realm / user / client-app admin (section 4)
+const realm = await client.createRealm({
+  name: 'my-app',
+  description: 'My application',
+  adminUser: { email: 'admin@example.com', password: 'secure-password' },
+})
+const apps = await client.listClientApps('my-realm')
+```
+
+The consume result carries one transaction per affected Credit Bucket (length 1 for a single pool). The idempotency rules from section 5 apply unchanged: always pass an idempotency key on consume, and remember the debit target is decided by `clientAppId`.
+
+### Errors
+
+Failed calls throw `HeraldSdkError` with a stable `code`:
+
+```ts
+import { HeraldSdkError } from 'herald-sdk'
+
+try {
+  await client.getBalance('my-realm', userId)
+} catch (error) {
+  if (error instanceof HeraldSdkError && error.code === 'forbidden') {
+    // cross-realm access or insufficient permission
+  }
+}
+```
+
+`code` is one of `unauthorized`, `forbidden`, `not-found`, `internal-server-error`, `api-error`, `network`, `parse`. The HTTP `status` and raw `body` are attached when a response was received.
+
+## 8. Browser SDK (herald-auth-web)
+
+Sections 2 and 3 assume a BFF: the browser talks only to your backend. The other shape is the browser calling Herald directly from your own login page, the Custom User UI scenario of [White-label / Custom User UI](/docs/ui-custom). That shape has its own SDK: `herald-auth-web` (source at `sdk/web`), framework-agnostic with zero runtime dependencies (native `fetch`, `WebCrypto`, `localStorage`). It wraps the credential lifecycle end to end: register, email verification trigger, password reset request, login with TOTP or passkey second factors, passwordless email-OTP, silent access-token refresh, logout, and status.
+
+The SDK wraps the direct-signed `CustomUserUi` credential class (`POST /api/auth/{realmId}/login`). It does not perform the PKCE exchange from section 2; pass an OAuth context to `login` and the backend answers with `redirectTo`, which your code follows and completes itself.
+
+### Install
+
+```bash
+npm install herald-auth-web
+```
+
+The package is ESM-only for bundlers. For pages with no build step, a minified IIFE bundle exposing a `Herald` global is published:
+
+```html
+<script src="https://unpkg.com/herald-auth-web"></script>
+<script>
+  const client = Herald.createHeraldClient({
+    baseUrl: 'https://auth.example.com',
+    realmId: '<your-realm>',
+    clientId: '<your-client-app>',
+  })
+</script>
+```
+
+### Register your origin first
+
+Herald's CORS policy matches the request origin against the Client App's `allowed_origins` exactly. Add your page origin (scheme + host + port, e.g. `https://app.example.com`) in the console before wiring the SDK. An unregistered origin surfaces as `HeraldError { kind: 'network' }`: the browser cannot distinguish a CORS rejection from a generic network failure.
+
+### Create the client and log in
+
+```ts
+import { createHeraldClient } from 'herald-auth-web'
+
+const client = createHeraldClient({
+  baseUrl: 'https://auth.example.com',
+  realmId: 'my-realm',
+  clientId: 'my-client-app',
+  onSessionChange: (event) => {
+    if (event.type === 'session-expired') {
+      // redirect to your login page
+    }
+  },
+})
+```
+
+Session events are `authenticated`, `session-expired`, and `logged-out`. For polling instead of events, `await client.getStatus()` returns the session snapshot (`authenticated`, `userId`, `permissions`, `scopes`), and `await client.logout()` clears the tokens and ends the session server-side.
+
+`login` returns a discriminated result instead of throwing for control-flow outcomes:
+
+```ts
+const result = await client.login({ email: 'user@example.com', password: '••••••••' })
+switch (result.kind) {
+  case 'success':
+    // logged in; result.session
+    break
+  case 'requires-second-factor': {
+    // result.secondFactors is a subset of ['totp', 'passkey']; result.tempToken
+    const final = await client.verifyTotp({ tempToken: result.tempToken, code: '123456' })
+    break
+  }
+  case 'consent-required':
+    // render result.agreements, then re-call login with them:
+    // await client.login({ email, password, agreements: result.agreements })
+    break
+  case 'oauth-redirect':
+    window.location.href = result.redirectTo
+    break
+}
+```
+
+`verifyTotp` also accepts `backupCode` in place of `code`. Registration and account recovery follow the same pattern:
+
+```ts
+await client.register({ email: 'user@example.com', password: '••••••••' })
+await client.triggerVerifyEmail({ email: 'user@example.com' })
+await client.requestPasswordReset({ email: 'user@example.com' })
+```
+
+The backend emails a verification or reset link that lands on your pre-registered Client App page; the SDK only triggers the send.
+
+### Passkey login
+
+Passkey login is two SDK calls with a browser WebAuthn assertion in between:
+
+```ts
+import { performPasskeyAssertion } from 'herald-auth-web'
+
+// 1FA passkey login
+const begin = await client.passkey.loginBegin({})
+const assertion = await performPasskeyAssertion(begin.options)
+const result = await client.passkey.loginFinish({ authToken: begin.authToken, assertion })
+
+// 2FA: after a requires-second-factor result, pass its tempToken instead
+// const begin = await client.passkey.loginBegin({ tempToken })
+```
+
+Passkey RP isolation requires your page origin to match the Client App's pre-registered origin, the same origin that must be in `allowed_origins`.
+
+### Passwordless email-OTP
+
+Email-OTP is a first factor of its own, not a second factor. `send` resolves two 409 control-flow outcomes as `{ kind: 'conflict' }` instead of throwing: `consent_required` (auto-register consent gate) and `email_not_registered` (auto-register off):
+
+```ts
+const sent = await client.loginWithEmailOtp.send({ email: 'user@example.com' })
+if (sent.kind === 'conflict' && sent.code === 'consent_required') {
+  // render sent.agreements, then re-send with the accepted pairs
+  await client.loginWithEmailOtp.send({
+    email: 'user@example.com',
+    agreements: sent.agreements.map(({ agreementType, versionId }) => ({ agreementType, versionId })),
+  })
+}
+
+// On success, verify applies the issued token set, same as login.
+const result = await client.loginWithEmailOtp.verify({ email: 'user@example.com', code: '123456' })
+```
+
+### Token storage
+
+The access token lives only in memory; a page reload clears it and the SDK silently refreshes on the next request. The refresh token goes through a pluggable `TokenStorage` whose default is `localStorage`, rotated on every refresh with family revocation on reuse, the same model as [Token Lifecycle](#token-lifecycle).
+
+A refresh token in `localStorage` is readable by XSS. That matches the risk posture of Herald's own frontend and is mitigated by rotation, reuse detection, and short-lived access tokens. For higher security, inject `memoryStorage()` (no persistence across reloads) or a custom adapter:
+
+```ts
+import { createHeraldClient, memoryStorage } from 'herald-auth-web'
+
+const client = createHeraldClient({
+  baseUrl: 'https://auth.example.com',
+  realmId: 'my-realm',
+  clientId: 'my-client-app',
+  storage: memoryStorage(),
+})
+```
+
+In SSR or Node, where `localStorage` is unavailable, `createHeraldClient` throws `HeraldError { kind: 'ssr-no-storage' }` unless you inject an adapter.
+
+The SDK injects `Authorization: Bearer` and silently refreshes on 401 for its own calls. To attach the token to calls against your own backend, read `client.tokens.getAccessToken()`.
+
+### Turnstile and errors
+
+If the realm enforces Cloudflare Turnstile, pass the token via the `turnstileToken` field of each method payload.
+
+Every method rejects with a `HeraldError` carrying a stable `kind`: `validation` (400), `unauthorized` (401), `forbidden` (403), `not-found` (404), `rate-limited` (429), `api` (other non-2xx), `network` (fetch failed or CORS), plus `session-expired` when a refresh has no usable token left:
+
+```ts
+import { HeraldError } from 'herald-auth-web'
+
+try {
+  await client.login({ email, password })
+} catch (e) {
+  if (e instanceof HeraldError) {
+    switch (e.kind) {
+      case 'unauthorized': // bad credentials
+      case 'rate-limited': // 429
+      case 'validation':   // 400
+      case 'network':      // fetch failed / CORS
+    }
+  }
+}
+```
+
+## 9. Deployment
 
 ### Token-Based Deployment
 
