@@ -272,3 +272,113 @@ async fn test_scenario_assign_role_requires_roles_manage(ctx: &mut SchemaTestCon
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
+
+// ============================================================================
+// Scenario 6: 自助角色列表过滤跨 realm 引用（仓储层 realm 谓词兜底）
+// ============================================================================
+
+/// **WHY**: `RoleRepository::find_by_ids` 曾按 ID 全表取角色（无 realm 谓词），
+/// 自助角色列表 `/api/user/roles` 的租户隔离完全依赖"user_roles 不会出现跨
+/// realm 引用"这一上游数据完整性假设。一旦任一写入路径出现缺陷（或数据被
+/// 直接污染），A realm 用户就能看到 B realm 的角色名。修复后仓储层强制
+/// realm 过滤：即使关联表存在脏数据，外域角色也不会出现在返回中——租户
+/// 边界由读取路径自身保证，而非依赖上游无缺陷。
+///
+/// **Given**: 用户在本 realm 拥有一个正常角色
+/// **And**: user_roles 中存在一条指向外 realm 角色的脏引用
+/// **When**: 用户 GET /api/user/roles
+/// **Then**: 本 realm 角色正常返回，外 realm 角色名不出现
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_user_roles_hides_cross_realm_role_references(ctx: &mut SchemaTestContext) {
+    // Given: 创建并登录普通用户
+    let (user_uuid, token) = crate::tests::helpers::test_setup_helpers::create_user_and_login(
+        ctx,
+        "roles-leak-canary@example.com",
+        "SecurePassword123!",
+    )
+    .await;
+
+    // 本 realm 的正常角色（保证返回列表非空，避免测试假阳性）
+    let local_role_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles (id, name, description, realm_id, client_id, is_builtin)
+         VALUES ($1, 'legit-local-role', NULL, $2, $3, false)",
+    )
+    .bind(local_role_id)
+    .bind(&ctx._realm_id)
+    .bind(&ctx._client_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("Failed to create local role");
+
+    // And: 外 realm 的金丝雀角色 + 一条脏的 user_roles 引用（模拟上游写入
+    // 缺陷或数据污染：本 realm 的 user_roles 行指向外 realm 角色）
+    let foreign_realm = format!("{}-foreign", ctx._realm_id);
+    let foreign_role_id = uuid::Uuid::now_v7();
+    let foreign_role_name = format!("foreign-canary-{}", foreign_role_id.simple());
+    sqlx::query(
+        "INSERT INTO roles (id, name, description, realm_id, client_id, is_builtin)
+         VALUES ($1, $2, NULL, $3, $4, false)",
+    )
+    .bind(foreign_role_id)
+    .bind(&foreign_role_name)
+    .bind(&foreign_realm)
+    .bind(&ctx._client_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("Failed to create foreign realm role");
+
+    for role_id in [local_role_id, foreign_role_id] {
+        sqlx::query(
+            "INSERT INTO user_roles (id, user_id, role_id, realm_id, client_id, principal_type, principal_id)
+             VALUES ($1, $2, $3, $4, $5, 'user', $2::text)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(user_uuid)
+        .bind(role_id)
+        .bind(&ctx._realm_id)
+        .bind(&ctx._client_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to create user role binding");
+    }
+
+    // 直插 SQL 绕过了缓存失效路径，主动失效以保证读取走 DB
+    use herald_core::domain::authorization::permission_service::PermissionService;
+    ctx._app_state
+        .permission_checker
+        .invalidate_user_role_cache(&ctx._realm_id, &user_uuid.to_string())
+        .await
+        .expect("Failed to invalidate user role cache");
+
+    // When: 获取自助角色列表
+    let app = ctx.create_unified_test_router();
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/user/roles")
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+
+    // Then: 本 realm 角色返回，外 realm 角色名被过滤
+    assert_eq!(resp.status(), StatusCode::OK, "获取自助角色应返回 200");
+    let result: serde_json::Value = response_json(resp).await;
+
+    let roles: Vec<String> = result["roles"]
+        .as_array()
+        .expect("roles should be an array")
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+
+    assert!(
+        roles.contains(&"legit-local-role".to_string()),
+        "same-realm role must be returned, got: {roles:?}"
+    );
+    assert!(
+        !roles.contains(&foreign_role_name),
+        "cross-realm role name must not leak into the self-service role list, got: {roles:?}"
+    );
+}

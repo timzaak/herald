@@ -74,7 +74,7 @@ impl AuthorizationRepository for PermissionCheckerAuthorizationRepository {
 
         // Query role details from database
         let repo = PostgresRoleRepository::new(self.db.clone());
-        let roles = repo.find_by_ids(role_uuids).await?;
+        let roles = repo.find_by_ids(realm_id, role_uuids).await?;
 
         Ok(roles)
     }
@@ -156,8 +156,9 @@ impl RoleRepository for PostgresRoleRepository {
         Ok(role)
     }
 
-    async fn get_role_by_id(&self, id: Uuid) -> Result<Role, CoreError> {
+    async fn get_role_by_id(&self, realm_id: &str, id: Uuid) -> Result<Role, CoreError> {
         let result = roles::Entity::find_by_id(id)
+            .filter(roles::Column::RealmId.eq(realm_id))
             .one(&*self.db)
             .await?
             .ok_or(CoreError::NotFound)?;
@@ -192,19 +193,24 @@ impl RoleRepository for PostgresRoleRepository {
         Ok(results.iter().map(Self::to_domain).collect())
     }
 
-    async fn delete_role(&self, id: Uuid) -> Result<(), CoreError> {
-        roles::Entity::delete_by_id(id).exec(&*self.db).await?;
+    async fn delete_role(&self, realm_id: &str, id: Uuid) -> Result<(), CoreError> {
+        roles::Entity::delete_many()
+            .filter(roles::Column::Id.eq(id))
+            .filter(roles::Column::RealmId.eq(realm_id))
+            .exec(&*self.db)
+            .await?;
 
         Ok(())
     }
 
-    async fn find_by_ids(&self, ids: Vec<Uuid>) -> Result<Vec<Role>, CoreError> {
+    async fn find_by_ids(&self, realm_id: &str, ids: Vec<Uuid>) -> Result<Vec<Role>, CoreError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let results = roles::Entity::find()
             .filter(roles::Column::Id.is_in(ids))
+            .filter(roles::Column::RealmId.eq(realm_id))
             .all(&*self.db)
             .await?;
 
@@ -271,8 +277,13 @@ impl PermissionRepository for PostgresPermissionRepository {
         Ok(Self::to_domain(&result))
     }
 
-    async fn get_permission_by_id(&self, id: Uuid) -> Result<Permission, CoreError> {
+    async fn get_permission_by_id(
+        &self,
+        realm_id: &str,
+        id: Uuid,
+    ) -> Result<Permission, CoreError> {
         let result = permissions::Entity::find_by_id(id)
+            .filter(permissions::Column::RealmId.eq(realm_id))
             .one(&*self.db)
             .await?
             .ok_or(CoreError::NotFound)?;
@@ -289,8 +300,10 @@ impl PermissionRepository for PostgresPermissionRepository {
         Ok(results.iter().map(Self::to_domain).collect())
     }
 
-    async fn delete_permission(&self, id: Uuid) -> Result<(), CoreError> {
-        permissions::Entity::delete_by_id(id)
+    async fn delete_permission(&self, realm_id: &str, id: Uuid) -> Result<(), CoreError> {
+        permissions::Entity::delete_many()
+            .filter(permissions::Column::Id.eq(id))
+            .filter(permissions::Column::RealmId.eq(realm_id))
             .exec(&*self.db)
             .await?;
 

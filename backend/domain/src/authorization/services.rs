@@ -28,25 +28,17 @@ where
         Self { role_repository }
     }
 
-    /// Internal method: batch query roles without permission check
+    /// Internal method: batch query roles scoped to the realm. The
+    /// repository filters by `realm_id`, so a foreign-realm ID in the input
+    /// is simply absent from the output.
     pub async fn list_roles_internal(
         &self,
         realm_id: &str,
         role_ids: &[Uuid],
     ) -> Result<Vec<Role>, CoreError> {
-        let roles = self.role_repository.find_by_ids(role_ids.to_vec()).await?;
-
-        // Validate all roles belong to the specified realm
-        for role in &roles {
-            if role.realm_id != realm_id {
-                return Err(CoreError::BadRequest(format!(
-                    "Role {} does not belong to realm {}",
-                    role.id, realm_id
-                )));
-            }
-        }
-
-        Ok(roles)
+        self.role_repository
+            .find_by_ids(realm_id, role_ids.to_vec())
+            .await
     }
 }
 
@@ -71,8 +63,12 @@ where
         self.role_repository.list_roles(&realm_id, &client_id).await
     }
 
-    async fn delete_role(&self, _identity: Identity, id: Uuid) -> Result<(), CoreError> {
-        self.role_repository.delete_role(id).await
+    async fn delete_role(&self, identity: Identity, id: Uuid) -> Result<(), CoreError> {
+        // The repository scopes the delete to the caller's realm: an id from
+        // another realm matches zero rows instead of deleting it.
+        self.role_repository
+            .delete_role(&identity.realm_id(), id)
+            .await
     }
 }
 
@@ -118,8 +114,11 @@ where
         self.permission_repository.list_permissions(&realm_id).await
     }
 
-    async fn delete_permission(&self, _identity: Identity, id: Uuid) -> Result<(), CoreError> {
-        self.permission_repository.delete_permission(id).await
+    async fn delete_permission(&self, identity: Identity, id: Uuid) -> Result<(), CoreError> {
+        // Realm-scoped like delete_role: a foreign-realm id is a no-op.
+        self.permission_repository
+            .delete_permission(&identity.realm_id(), id)
+            .await
     }
 }
 

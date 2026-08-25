@@ -74,7 +74,7 @@ pub async fn get_user_roles(
         if role_uuids.is_empty() {
             Vec::new()
         } else {
-            match role_repo.find_by_ids(role_uuids).await {
+            match role_repo.find_by_ids(&realm_id, role_uuids).await {
                 Ok(roles) => roles.into_iter().map(|r| r.name).collect(),
                 Err(e) => {
                     tracing::error!("Failed to fetch role details: {}", e);

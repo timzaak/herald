@@ -136,7 +136,14 @@ pub trait RoleRepository: Send + Sync {
         request: CreateRoleRequest,
     ) -> impl Future<Output = Result<Role, CoreError>> + Send;
 
-    fn get_role_by_id(&self, id: Uuid) -> impl Future<Output = Result<Role, CoreError>> + Send;
+    /// Fetch a role by ID, scoped to `realm_id`. A role outside the realm
+    /// resolves to `NotFound` — the repository enforces the tenant boundary
+    /// so callers cannot forget it.
+    fn get_role_by_id(
+        &self,
+        realm_id: &str,
+        id: Uuid,
+    ) -> impl Future<Output = Result<Role, CoreError>> + Send;
 
     fn find_by_name(
         &self,
@@ -151,11 +158,20 @@ pub trait RoleRepository: Send + Sync {
         client_id: &str,
     ) -> impl Future<Output = Result<Vec<Role>, CoreError>> + Send;
 
-    fn delete_role(&self, id: Uuid) -> impl Future<Output = Result<(), CoreError>> + Send;
+    /// Delete a role scoped to `realm_id`. Deleting a role outside the
+    /// realm affects zero rows (idempotent no-op), never another tenant's row.
+    fn delete_role(
+        &self,
+        realm_id: &str,
+        id: Uuid,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
-    /// Batch query roles by IDs (for validating role assignments)
+    /// Batch query roles by IDs (for validating role assignments), scoped to
+    /// `realm_id`: IDs resolving to roles in other realms are silently absent
+    /// from the result.
     fn find_by_ids(
         &self,
+        realm_id: &str,
         ids: Vec<Uuid>,
     ) -> impl Future<Output = Result<Vec<Role>, CoreError>> + Send;
 }
@@ -167,8 +183,11 @@ pub trait PermissionRepository: Send + Sync {
         request: CreatePermissionRequest,
     ) -> impl Future<Output = Result<Permission, CoreError>> + Send;
 
+    /// Fetch a permission by ID, scoped to `realm_id`. A permission outside
+    /// the realm resolves to `NotFound`.
     fn get_permission_by_id(
         &self,
+        realm_id: &str,
         id: Uuid,
     ) -> impl Future<Output = Result<Permission, CoreError>> + Send;
 
@@ -177,7 +196,13 @@ pub trait PermissionRepository: Send + Sync {
         realm_id: &str,
     ) -> impl Future<Output = Result<Vec<Permission>, CoreError>> + Send;
 
-    fn delete_permission(&self, id: Uuid) -> impl Future<Output = Result<(), CoreError>> + Send;
+    /// Delete a permission scoped to `realm_id`. Deleting a permission
+    /// outside the realm affects zero rows, never another tenant's row.
+    fn delete_permission(
+        &self,
+        realm_id: &str,
+        id: Uuid,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 }
 
 #[cfg_attr(test, mockall::automock)]
