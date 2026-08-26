@@ -128,18 +128,22 @@ async fn request_email_change_internal(
     // Newest code wins (mirrors the verification-code repository): the confirm
     // path reads the latest row, so older unconsumed change-email codes are
     // invalidated instead of staying usable for the full TTL.
-    sqlx::query("DELETE FROM email_verification_code WHERE email = $1 AND type = 'change_email'")
-        .bind(new_email)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to invalidate previous change-email code: {}", e);
-            ApiError::internal("Failed to create verification code")
-        })?;
+    sqlx::query(
+        "DELETE FROM email_verification_code WHERE realm_id = $1 AND email = $2 AND type = 'change_email'",
+    )
+    .bind(realm_id)
+    .bind(new_email)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to invalidate previous change-email code: {}", e);
+        ApiError::internal("Failed to create verification code")
+    })?;
 
     sqlx::query(
-        "INSERT INTO email_verification_code (email, type, verification_code) VALUES ($1, $2, $3)",
+        "INSERT INTO email_verification_code (realm_id, email, type, verification_code) VALUES ($1, $2, $3, $4)",
     )
+    .bind(realm_id)
     .bind(new_email)
     .bind("change_email")
     .bind(&code)
@@ -261,8 +265,9 @@ async fn confirm_email_change_internal(
     let code_cutoff =
         chrono::Utc::now() - chrono::Duration::seconds(EMAIL_VERIFICATION_CODE_TTL_SECONDS as i64);
     let new_email: Option<String> = sqlx::query_scalar(
-        "SELECT email FROM email_verification_code WHERE verification_code = $1 AND type = 'change_email' AND created_at >= $2 ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        "SELECT email FROM email_verification_code WHERE realm_id = $1 AND verification_code = $2 AND type = 'change_email' AND created_at >= $3 ORDER BY id DESC LIMIT 1 FOR UPDATE",
     )
+    .bind(current_realm_id)
     .bind(code)
     .bind(code_cutoff)
     .fetch_optional(&mut *tx)
@@ -288,7 +293,8 @@ async fn confirm_email_change_internal(
     match update_result {
         Ok(_) => {
             // Delete the verification code after successful update
-            sqlx::query("DELETE FROM email_verification_code WHERE verification_code = $1 AND type = 'change_email'")
+            sqlx::query("DELETE FROM email_verification_code WHERE realm_id = $1 AND verification_code = $2 AND type = 'change_email'")
+                .bind(current_realm_id)
                 .bind(code)
                 .execute(&mut *tx)
                 .await

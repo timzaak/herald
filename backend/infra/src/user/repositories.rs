@@ -410,6 +410,7 @@ impl PostgresVerificationRepository {
 impl UserVerificationRepository for PostgresVerificationRepository {
     async fn create_verification_code(
         &self,
+        realm_id: &str,
         email: &str,
         code_type: &str,
         code: &str,
@@ -423,6 +424,7 @@ impl UserVerificationRepository for PostgresVerificationRepository {
         // (email, type), so older unconsumed codes are dead weight that only
         // widens the window in which a leaked older email stays valid.
         email_verification_code::Entity::delete_many()
+            .filter(email_verification_code::Column::RealmId.eq(realm_id))
             .filter(email_verification_code::Column::Email.eq(email))
             .filter(email_verification_code::Column::Type.eq(code_type))
             .exec(&*self.db)
@@ -430,6 +432,7 @@ impl UserVerificationRepository for PostgresVerificationRepository {
 
         let active_model = email_verification_code::ActiveModel {
             id: sea_orm::Set(id),
+            realm_id: sea_orm::Set(realm_id.to_string()),
             email: sea_orm::Set(email.to_string()),
             r#type: sea_orm::Set(code_type.to_string()),
             verification_code: sea_orm::Set(code.to_string()),
@@ -442,6 +445,7 @@ impl UserVerificationRepository for PostgresVerificationRepository {
 
     async fn verify_code(
         &self,
+        realm_id: &str,
         email: &str,
         code_type: &str,
         code: &str,
@@ -453,6 +457,7 @@ impl UserVerificationRepository for PostgresVerificationRepository {
             - chrono::Duration::seconds(EMAIL_VERIFICATION_CODE_TTL_SECONDS as i64))
         .fixed_offset();
         let result = email_verification_code::Entity::find()
+            .filter(email_verification_code::Column::RealmId.eq(realm_id))
             .filter(email_verification_code::Column::Email.eq(email))
             .filter(email_verification_code::Column::Type.eq(code_type))
             .filter(email_verification_code::Column::VerificationCode.eq(code))
@@ -463,10 +468,11 @@ impl UserVerificationRepository for PostgresVerificationRepository {
         Ok(result.is_some())
     }
 
-    async fn consume_code(&self, code: &str) -> Result<(), CoreError> {
+    async fn consume_code(&self, realm_id: &str, code: &str) -> Result<(), CoreError> {
         use herald_entity::email_verification_code;
 
         email_verification_code::Entity::delete_many()
+            .filter(email_verification_code::Column::RealmId.eq(realm_id))
             .filter(email_verification_code::Column::VerificationCode.eq(code))
             .exec(&*self.db)
             .await?;
@@ -474,7 +480,11 @@ impl UserVerificationRepository for PostgresVerificationRepository {
         Ok(())
     }
 
-    async fn get_email_by_code(&self, code: &str) -> Result<Option<String>, CoreError> {
+    async fn get_email_by_code(
+        &self,
+        realm_id: &str,
+        code: &str,
+    ) -> Result<Option<String>, CoreError> {
         use herald_domain::security_constants::EMAIL_VERIFICATION_CODE_TTL_SECONDS;
         use herald_entity::email_verification_code;
 
@@ -482,6 +492,7 @@ impl UserVerificationRepository for PostgresVerificationRepository {
             - chrono::Duration::seconds(EMAIL_VERIFICATION_CODE_TTL_SECONDS as i64))
         .fixed_offset();
         let result = email_verification_code::Entity::find()
+            .filter(email_verification_code::Column::RealmId.eq(realm_id))
             .filter(email_verification_code::Column::VerificationCode.eq(code))
             .filter(email_verification_code::Column::CreatedAt.gte(cutoff))
             .one(&*self.db)
@@ -490,10 +501,16 @@ impl UserVerificationRepository for PostgresVerificationRepository {
         Ok(result.map(|r| r.email))
     }
 
-    async fn delete_code_by_type(&self, email: &str, code_type: &str) -> Result<(), CoreError> {
+    async fn delete_code_by_type(
+        &self,
+        realm_id: &str,
+        email: &str,
+        code_type: &str,
+    ) -> Result<(), CoreError> {
         use herald_entity::email_verification_code;
 
         email_verification_code::Entity::delete_many()
+            .filter(email_verification_code::Column::RealmId.eq(realm_id))
             .filter(email_verification_code::Column::Email.eq(email))
             .filter(email_verification_code::Column::Type.eq(code_type))
             .exec(&*self.db)

@@ -1078,9 +1078,10 @@ async fn test_custom_user_ui_verify_email_redirect(ctx: &mut SchemaTestContext) 
 
     let code = format!("verify-{}", Uuid::now_v7());
     sqlx::query(
-        "INSERT INTO email_verification_code (email, type, verification_code)
-         VALUES ($1, 'register', $2)",
+        "INSERT INTO email_verification_code (realm_id, email, type, verification_code)
+         VALUES ($1, $2, 'register', $3)",
     )
+    .bind(&ctx._realm_id)
     .bind(&email)
     .bind(&code)
     .execute(&ctx.app_state.pool)
@@ -1108,9 +1109,10 @@ async fn test_custom_user_ui_verify_email_redirect(ctx: &mut SchemaTestContext) 
         .unwrap();
     let fallback_code = format!("verify-fallback-{}", Uuid::now_v7());
     sqlx::query(
-        "INSERT INTO email_verification_code (email, type, verification_code)
-         VALUES ($1, 'register', $2)",
+        "INSERT INTO email_verification_code (realm_id, email, type, verification_code)
+         VALUES ($1, $2, 'register', $3)",
     )
+    .bind(&ctx._realm_id)
     .bind(&email)
     .bind(&fallback_code)
     .execute(&ctx.app_state.pool)

@@ -116,6 +116,7 @@ pub trait UserRepository: Send + Sync {
 pub trait UserVerificationRepository: Send + Sync {
     fn create_verification_code(
         &self,
+        realm_id: &str,
         email: &str,
         code_type: &str,
         code: &str,
@@ -123,22 +124,29 @@ pub trait UserVerificationRepository: Send + Sync {
 
     fn verify_code(
         &self,
+        realm_id: &str,
         email: &str,
         code_type: &str,
         code: &str,
     ) -> impl Future<Output = Result<bool, CoreError>> + Send;
 
-    fn consume_code(&self, code: &str) -> impl Future<Output = Result<(), CoreError>> + Send;
+    fn consume_code(
+        &self,
+        realm_id: &str,
+        code: &str,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
-    /// Get email address by verification code
+    /// Get email address by verification code within a realm
     fn get_email_by_code(
         &self,
+        realm_id: &str,
         code: &str,
     ) -> impl Future<Output = Result<Option<String>, CoreError>> + Send;
 
-    /// Delete verification codes by type for a specific email
+    /// Delete verification codes by type for a specific email within a realm
     fn delete_code_by_type(
         &self,
+        realm_id: &str,
         email: &str,
         code_type: &str,
     ) -> impl Future<Output = Result<(), CoreError>> + Send;

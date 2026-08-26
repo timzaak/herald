@@ -195,7 +195,7 @@ where
         // Get email from verification code
         let email = self
             .verification_repository
-            .get_email_by_code(code)
+            .get_email_by_code(realm_id, code)
             .await?
             .ok_or(CoreError::BadRequest(
                 "verification code not found".to_string(),
@@ -211,7 +211,9 @@ where
         self.user_repository.update_user_status(user.id, 1).await?;
 
         // Consume verification code
-        self.verification_repository.consume_code(code).await?;
+        self.verification_repository
+            .consume_code(realm_id, code)
+            .await?;
 
         Ok(user)
     }
@@ -229,7 +231,7 @@ where
             chrono::Utc::now().timestamp()
         );
         self.verification_repository
-            .create_verification_code(email, code_type, &code)
+            .create_verification_code(realm_id, email, code_type, &code)
             .await?;
         Ok(code)
     }
@@ -429,7 +431,7 @@ where
             chrono::Utc::now().timestamp()
         );
         self.verification_repository
-            .create_verification_code(email, code_type, &code)
+            .create_verification_code(realm_id, email, code_type, &code)
             .await?;
         Ok(code)
     }
@@ -451,7 +453,7 @@ where
         // Get email from verification code
         let email = self
             .verification_repository
-            .get_email_by_code(code)
+            .get_email_by_code(realm_id, code)
             .await?
             .ok_or(CoreError::BadRequest("reset code not found".to_string()))?;
 
@@ -470,7 +472,9 @@ where
             .await?;
 
         // Consume verification code
-        self.verification_repository.consume_code(code).await?;
+        self.verification_repository
+            .consume_code(realm_id, code)
+            .await?;
 
         Ok(user.id)
     }
@@ -555,18 +559,22 @@ mod tests {
         let code_for_lookup = code.clone();
         verification_repository
             .expect_get_email_by_code()
-            .withf(move |actual_code| actual_code == code_for_lookup)
+            .withf(move |actual_realm_id, actual_code| {
+                actual_realm_id == realm_id && *actual_code == code_for_lookup
+            })
             .times(1)
-            .return_once(move |_| {
+            .return_once(move |_, _| {
                 Box::pin(async move { Ok(Some(email.to_string())) })
                     as Pin<Box<dyn Future<Output = Result<Option<String>, CoreError>> + Send>>
             });
         let code_for_consume = code.clone();
         verification_repository
             .expect_consume_code()
-            .withf(move |actual_code| actual_code == code_for_consume)
+            .withf(move |actual_realm_id, actual_code| {
+                actual_realm_id == realm_id && *actual_code == code_for_consume
+            })
             .times(1)
-            .return_once(|_| {
+            .return_once(|_, _| {
                 Box::pin(async { Ok(()) })
                     as Pin<Box<dyn Future<Output = Result<(), CoreError>> + Send>>
             });
