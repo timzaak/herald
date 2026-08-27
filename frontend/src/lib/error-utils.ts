@@ -25,7 +25,24 @@ export function resolveApiError(error: unknown): ResolvedApiError {
     }
   }
 
-  if (error instanceof Error) return { message: error.message }
+  if (error instanceof Error) {
+    // SDK failures (herald-auth-web `HeraldError`) are Error subclasses that
+    // still carry the HTTP status/code on the instance; the early Error
+    // return must not drop them, or status-keyed mappings (LDAP 503/429,
+    // email-OTP 429) silently degrade to the verbatim backend message.
+    const carrier = error as Error & {
+      status?: unknown
+      code?: unknown
+      requestId?: unknown
+    }
+    return {
+      status: typeof carrier.status === 'number' ? carrier.status : undefined,
+      code: typeof carrier.code === 'string' ? carrier.code : undefined,
+      message: error.message,
+      details: (error as { details?: unknown }).details,
+      requestId: typeof carrier.requestId === 'string' ? carrier.requestId : undefined,
+    }
+  }
   if (typeof error === 'string') return { message: error }
 
   const outer = asRecord(error)

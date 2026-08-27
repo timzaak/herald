@@ -10,7 +10,7 @@
 |-------|----------|--------------|
 | 租户与运营 | 创建 Realm → 配置 → Dashboard 运营 → 审计 | [Admin Realm](core/admin-realm.md)、[自助开通 Realm](core/realm-create.md)、[Realm Admin](core/realm-admin.md)、[审计](core/audit.md)、[内置保护](core/builtin-protection.md) |
 | 用户生命周期与合规 | 注册/登录 → 资料维护 → 协议确认 → 账户注销 | [普通用户](core/regular-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
-| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
+| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md) |
 | 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md) |
@@ -121,6 +121,10 @@
 | US-OT-001 | 通过 One Tap 在第三方应用一键登录 | Regular User | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-1通过-one-tap-在第三方应用一键登录-us-ot-001) |
 | US-OT-002 | 第三方应用集成 One Tap | 第三方应用开发者 | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-2第三方应用集成-one-tap-us-ot-002) |
 | US-OT-003 | One Tap 用户与已有账号关联 | Regular User | P1 | [auth/google-one-tap](auth/google-one-tap.md#故事-3one-tap-用户与已有账号关联-us-ot-003) |
+| US-LD-001 | 用企业账号（LDAP）登录 | Regular User | P0 | [auth/support-ldap](auth/support-ldap.md#故事-1用企业账号ldap登录-us-ld-001) |
+| US-LD-002 | 首次企业账号登录自动创建账号 | Regular User | P0 | [auth/support-ldap](auth/support-ldap.md#故事-2首次企业账号登录自动创建账号-us-ld-002) |
+| US-LD-003 | Realm 管理员配置和管理本 Realm 的 LDAP 目录 | Realm Admin | P0 | [auth/support-ldap](auth/support-ldap.md#故事-3realm-管理员配置和管理本-realm-的-ldap-目录-us-ld-003) |
+| US-LD-004 | 企业账号登录与其他登录及安全能力共存 | Regular User | P1 | [auth/support-ldap](auth/support-ldap.md#故事-4企业账号登录与其他登录及安全能力共存-us-ld-004) |
 | US-BI-006 | 查看订阅列表 | Billing User | P0 | [billing/subscription](billing/subscription.md#故事-6查看订阅列表-us-bi-006) |
 | US-BI-007 | 第三方应用查询套餐状态（SDK 集成） | Billing User | P0 | [billing/subscription](billing/subscription.md#故事-7第三方应用查询套餐状态sdk-集成-us-bi-007) |
 | US-BI-008 | 查看订阅变更历史 | Billing User | P1 | [billing/subscription](billing/subscription.md#故事-8查看订阅变更历史-us-bi-008) |
@@ -302,6 +306,7 @@
 | Google One Tap | [auth/google-one-tap.md](auth/google-one-tap.md) | [Google One Tap PRD](/docs/prd/auth/google-one-tap.md) |
 | WeChat OAuth | [auth/wechat-oauth.md](auth/wechat-oauth.md) | [WeChat OAuth PRD](/docs/prd/auth/wechat-oauth.md) |
 | Apple Native Login | [auth/support-mobile-apple-login.md](auth/support-mobile-apple-login.md) | [Apple native 登录 PRD](/docs/prd/auth/support-mobile-apple-login.md) |
+| LDAP 企业目录登录 | [auth/support-ldap.md](auth/support-ldap.md) | [LDAP 企业目录登录 PRD](/docs/prd/auth/support-ldap.md) |
 | Device Code | [auth/device-code.md](auth/device-code.md) | [Device Code PRD](/docs/prd/auth/device-code.md) |
 
 ### Billing 计费相关

@@ -225,6 +225,19 @@ export class SettingsPage extends BasePage {
   readonly emailOtpAutoRegisterSwitch: Locator
   readonly emailOtpSaveButton: Locator
 
+  // LDAP (corporate directory) Configuration — standalone `ldap` tab. The form
+  // card root has no testid; the url input doubles as the form-ready anchor.
+  readonly ldapTab: Locator
+  readonly ldapEnabledSwitch: Locator
+  readonly ldapUrlInput: Locator
+  readonly ldapStarttlsSwitch: Locator
+  readonly ldapBaseDnInput: Locator
+  readonly ldapBindDnInput: Locator
+  readonly ldapBindPasswordInput: Locator
+  readonly ldapUserFilterInput: Locator
+  readonly ldapMailAttributeInput: Locator
+  readonly ldapSaveButton: Locator
+
   constructor(page: Page, logger?: UnifiedLogger, realmId: string = 'admin') {
     super(page, logger)
     this.realmId = realmId
@@ -336,6 +349,19 @@ export class SettingsPage extends BasePage {
     this.emailOtpEnabledSwitch = page.getByTestId('email-otp-enabled-switch')
     this.emailOtpAutoRegisterSwitch = page.getByTestId('email-otp-auto-register-switch')
     this.emailOtpSaveButton = page.getByTestId('email-otp-save-button')
+
+    // LDAP (corporate directory) Configuration — anchors live in the shared
+    // SELECTORS.ldap registry (demo/e2e/selectors.ts).
+    this.ldapTab = page.locator(SELECTORS.ldap.settingsTab)
+    this.ldapEnabledSwitch = page.locator(SELECTORS.ldap.enabledSwitch)
+    this.ldapUrlInput = page.locator(SELECTORS.ldap.urlInput)
+    this.ldapStarttlsSwitch = page.locator(SELECTORS.ldap.starttlsSwitch)
+    this.ldapBaseDnInput = page.locator(SELECTORS.ldap.baseDnInput)
+    this.ldapBindDnInput = page.locator(SELECTORS.ldap.bindDnInput)
+    this.ldapBindPasswordInput = page.locator(SELECTORS.ldap.bindPasswordInput)
+    this.ldapUserFilterInput = page.locator(SELECTORS.ldap.userFilterInput)
+    this.ldapMailAttributeInput = page.locator(SELECTORS.ldap.mailAttributeInput)
+    this.ldapSaveButton = page.locator(SELECTORS.ldap.saveButton)
   }
 
   /**
@@ -971,7 +997,7 @@ export class SettingsPage extends BasePage {
   // white-label-config-form (frontend/src/components/realm-config/white-label-
   // config-form.tsx). Background is a {type,value} object edited through a type
   // select + conditional value textarea (only renders when type !== 'none').
-  // @see .ai/design/ui-custom.md §6.2
+  // @see docs/user-stories/core/white-label.md, docs/prd/core/ui-custom.md
   // ============================================================================
 
   /**
@@ -1307,7 +1333,7 @@ export class SettingsPage extends BasePage {
   // merged into the `email` tab's EmailConfigForm by frontend commit 364767b2
   // (frontend/src/components/realm-config/email-config-form.tsx). The two
   // switches carry `data-testid` via the shared config-switch-field.tsx.
-  // @see .ai/design/email-otp-login.md
+  // @see docs/user-stories/auth/email-otp-login.md
   // ============================================================================
 
   /**
@@ -1417,6 +1443,125 @@ export class SettingsPage extends BasePage {
       // Teardown must never hard-fail the test run; log and continue.
       console.warn(`[SettingsPage] resetEmailOtpConfig failed for realm "${this.realmId}":`, error)
     }
+  }
+
+  // ============================================================================
+  // LDAP (Corporate Directory) Configuration Methods
+  //
+  // Drives the standalone `ldap` tab: Radix Switch toggles via setSwitch, text
+  // fields via fillField (blur included so TanStack Form validation runs),
+  // save + wait for the button text to settle back to 'Save'.
+  // ============================================================================
+
+  /**
+   * Switch to the Corporate directory (LDAP) tab.
+   *
+   * Asserts the URL input is visible to confirm the tab content loaded — the
+   * form card root has no testid, so the first field doubles as the anchor.
+   */
+  async switchToLdapTab(): Promise<void> {
+    await this.smartClick(this.ldapTab)
+    await expect(this.ldapUrlInput).toBeVisible({ timeout: 10000 })
+  }
+
+  /**
+   * Fill the LDAP config form. Only the provided fields are touched; the
+   * enable switch is driven separately via setLdapEnabled (its own gate
+   * semantics — enable with a bindDn requires a stored password — deserve an
+   * explicit step in the demos).
+   */
+  async fillLdapConfig(values: {
+    url?: string
+    baseDn?: string
+    bindDn?: string
+    bindPassword?: string
+    userFilter?: string
+    mailAttribute?: string
+  }): Promise<void> {
+    if (values.url !== undefined) {
+      await this.fillField(this.ldapUrlInput, values.url)
+    }
+    if (values.baseDn !== undefined) {
+      await this.fillField(this.ldapBaseDnInput, values.baseDn)
+    }
+    if (values.bindDn !== undefined) {
+      await this.fillField(this.ldapBindDnInput, values.bindDn)
+    }
+    if (values.bindPassword !== undefined) {
+      await this.fillField(this.ldapBindPasswordInput, values.bindPassword)
+    }
+    if (values.userFilter !== undefined) {
+      await this.fillField(this.ldapUserFilterInput, values.userFilter)
+    }
+    if (values.mailAttribute !== undefined) {
+      await this.fillField(this.ldapMailAttributeInput, values.mailAttribute)
+    }
+  }
+
+  /**
+   * Read back the current LDAP form values (persistence assertions after a
+   * reload). The password field reads as '' — the stored value is masked
+   * server-side and never echoed back.
+   */
+  async getLdapFormValues(): Promise<{
+    url: string
+    baseDn: string
+    bindDn: string
+    bindPassword: string
+    userFilter: string
+    mailAttribute: string
+    enabled: boolean
+  }> {
+    return {
+      url: await this.ldapUrlInput.inputValue(),
+      baseDn: await this.ldapBaseDnInput.inputValue(),
+      bindDn: await this.ldapBindDnInput.inputValue(),
+      bindPassword: await this.ldapBindPasswordInput.inputValue(),
+      userFilter: await this.ldapUserFilterInput.inputValue(),
+      mailAttribute: await this.ldapMailAttributeInput.inputValue(),
+      enabled: await this.isLdapEnabled(),
+    }
+  }
+
+  /**
+   * Whether the LDAP enable switch is on. Reads the Radix Switch `data-state`
+   * (consistent with getEmailOtpConfig / isPlatformSignupEnabled), NOT
+   * isChecked(), to avoid reading mid-transition.
+   */
+  async isLdapEnabled(): Promise<boolean> {
+    const state = await this.ldapEnabledSwitch.getAttribute('data-state')
+    return state === 'checked'
+  }
+
+  /**
+   * Whether the StartTLS switch is locked off — the form disables it while the
+   * URL is ldaps:// (TLS comes from the scheme; StartTLS would be redundant
+   * and is rejected by the backend).
+   */
+  async isLdapStarttlsLocked(): Promise<boolean> {
+    return this.ldapStarttlsSwitch.isDisabled()
+  }
+
+  /**
+   * Enable/disable corporate account login for the realm.
+   */
+  async setLdapEnabled(enabled: boolean): Promise<void> {
+    await this.setSwitch(this.ldapEnabledSwitch, enabled)
+  }
+
+  /**
+   * Save LDAP Configuration.
+   *
+   * Mirrors savePlatformSignupConfig: clicks save and waits for the button
+   * text to return to 'Save' (indicates the batch upsert settled).
+   */
+  async saveLdapConfig(): Promise<void> {
+    await this.smartClick(this.ldapSaveButton)
+
+    await expect(async () => {
+      const buttonText = await this.ldapSaveButton.textContent()
+      expect(buttonText).toBe('Save')
+    }).toPass({ timeout: 15000 })
   }
 
   // ============================================================================

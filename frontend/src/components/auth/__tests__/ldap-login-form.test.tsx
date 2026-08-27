@@ -66,6 +66,7 @@ vi.mock('@/components/legal/AgreementLinks', () => ({
 
 import { LdapLoginForm } from '../ldap-login-form'
 import { resolveLdapLoginError } from '@/lib/auth-utils'
+import { HeraldError } from 'herald-auth-web'
 
 const defaultProps = {
   realmId: 'corp',
@@ -159,5 +160,23 @@ describe('resolveLdapLoginError (submit-boundary error mapping)', () => {
 
   it('passes plain Error instances through', () => {
     expect(resolveLdapLoginError(new Error('network down'))).toBe('network down')
+  })
+
+  // The login family submits through the herald-auth-web SDK, which rejects
+  // with `HeraldError` — an Error SUBCLASS carrying `status` on the instance.
+  // A mapping that only reads status off plain objects misses it and shows the
+  // raw English backend sentence instead of the localized key (caught by the
+  // LDAP demo against the real 503 directory-unavailable branch).
+  it('maps SDK HeraldError instances (Error subclass with status) to the dedicated keys', () => {
+    expect(
+      resolveLdapLoginError(
+        new HeraldError({ kind: 'api', status: 503, message: 'Upstream service unavailable' })
+      )
+    ).toBe('[auth.ldap.unavailable]')
+    expect(
+      resolveLdapLoginError(
+        new HeraldError({ kind: 'rate-limited', status: 429, message: 'slow down' })
+      )
+    ).toBe('[auth.ldap.rate_limited]')
   })
 })

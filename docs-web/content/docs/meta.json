@@ -18,6 +18,7 @@
     "auth-passkey",
     "auth-email-otp",
     "auth-apple-native",
+    "auth-ldap",
     "ui-custom",
     "realm-custom-domain",
     "points-quota",

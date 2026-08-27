@@ -1297,6 +1297,53 @@ export const SELECTORS = {
   },
 
   /**
+   * Corporate-directory (LDAP) login — login route + admin Settings tab.
+   *
+   * Anchors calibrated against shipped source (data-testid verified):
+   * - frontend/src/routes/$realmId/auth/login.tsx (`ldap-toggle` entry,
+   *   rendered only when the public ldap-status query reports enabled===true)
+   * - frontend/src/components/auth/ldap-login-form.tsx (form + fields + submit
+   *   + back; failures render in the route's shared `login-error-message`
+   *   region — reuse SELECTORS.login.errorMessage)
+   * - frontend/src/components/realm-config/ldap-config-form.tsx (admin form
+   *   fields; switches via ConfigSwitchField `${id}-switch`)
+   *
+   * The form card root has NO `ldap-config-form` testid — treat
+   * `ldap-url-input` visibility as the form-ready signal.
+   *
+   * User stories: US-LD-001/US-LD-002 (login + JIT), US-LD-003 (admin config).
+   *
+   * @see docs/user-stories/auth/support-ldap.md
+   */
+  ldap: {
+    // --- Login route (end-user) ------------------------------------------------
+    loginRouteToggle: '[data-testid="ldap-toggle"]',
+    form: '[data-testid="ldap-login-form"]',
+    usernameInput: '[data-testid="ldap-username-input"]',
+    passwordInput: '[data-testid="ldap-password-input"]',
+    submitButton: '[data-testid="ldap-submit-button"]',
+    backButton: '[data-testid="ldap-back-button"]',
+
+    // --- Admin Settings → Corporate directory (LDAP) tab -----------------------
+    settingsTab: '[data-testid="ldap-tab"]',
+    enabledSwitch: '[data-testid="ldap-enabled-switch"]',
+    urlInput: '[data-testid="ldap-url-input"]',
+    starttlsSwitch: '[data-testid="ldap-starttls-switch"]',
+    baseDnInput: '[data-testid="ldap-basedn-input"]',
+    bindDnInput: '[data-testid="ldap-binddn-input"]',
+    bindPasswordInput: '[data-testid="ldap-bind-password-input"]',
+    userFilterInput: '[data-testid="ldap-user-filter-input"]',
+    mailAttributeInput: '[data-testid="ldap-mail-attribute-input"]',
+    saveButton: '[data-testid="ldap-save-button"]',
+    // Encryption-channel cross-field violation (ldap:// without StartTLS,
+    // ldaps:// with StartTLS) attaches to the starttls field.
+    starttlsError: '[data-testid="ldap-starttls-error"]',
+    // Blocked-save gate: enabling with a service-account DN but neither a
+    // stored nor a newly-typed password.
+    bindPasswordError: '[data-testid="ldap-bind-password-error"]',
+  },
+
+  /**
    * IAP (App Store / Google Play) — provider configuration + create-mapping page
    *
    * Anchors calibrated against shipped source (all `data-testid` verified in the
