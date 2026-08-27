@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { WhiteLabelConfigForm, type WhiteLabelConfigFormProps } from '../white-label-config-form'
 import { emptyWhiteLabelConfig } from '@/lib/realm-config-utils'
@@ -97,12 +97,18 @@ describe('WhiteLabelConfigForm', () => {
   it('GIVEN user types into fields WHEN editing THEN should call onSaveDraft with the new values on submit', async () => {
     const screen = render(<WhiteLabelConfigForm {...defaultProps} />)
 
-    await userEvent.type(
-      screen.getByTestId('white-label-logo-url'),
-      'https://cdn.example.com/logo.svg'
-    )
-    await userEvent.type(screen.getByTestId('white-label-footer-text'), '© Example Inc.')
-    await userEvent.type(screen.getByTestId('white-label-login-title'), 'Sign in to Example')
+    // Long values go in as single change events: per-keystroke typing against
+    // this live-preview form drops characters when the worker is CPU-starved,
+    // which scrambles the asserted payload.
+    fireEvent.change(screen.getByTestId('white-label-logo-url'), {
+      target: { value: 'https://cdn.example.com/logo.svg' },
+    })
+    fireEvent.change(screen.getByTestId('white-label-footer-text'), {
+      target: { value: '© Example Inc.' },
+    })
+    fireEvent.change(screen.getByTestId('white-label-login-title'), {
+      target: { value: 'Sign in to Example' },
+    })
 
     await userEvent.click(screen.getByTestId('white-label-save-draft'))
 
@@ -164,7 +170,11 @@ describe('WhiteLabelConfigForm', () => {
 
     const screen = render(<WhiteLabelConfigForm {...defaultProps} initialConfig={initialConfig} />)
 
-    await userEvent.type(screen.getByTestId('white-label-login-title'), 'New Title')
+    // Single change event — see the draft test above for why long values are
+    // not typed keystroke-by-keystroke.
+    fireEvent.change(screen.getByTestId('white-label-login-title'), {
+      target: { value: 'New Title' },
+    })
     await userEvent.click(screen.getByTestId('white-label-publish'))
 
     await waitFor(() => {

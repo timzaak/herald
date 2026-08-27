@@ -13,6 +13,7 @@ import {
   handlePasskeyOptions,
   handlePasskeyVerify,
   handleVerifyTotp,
+  ldapLogin,
   login,
   logout,
   register,
@@ -81,6 +82,19 @@ export interface VerifyTotpPayload {
   code?: string
   backupCode?: string
   agreements?: ConsentAgreement[]
+}
+
+export interface LdapLoginPayload {
+  /** Directory login identifier (uid / sAMAccountName / UPN). */
+  username: string
+  password: string
+  turnstileToken?: string
+  /** Agreements to satisfy a prior `consent-required` gate. */
+  agreements?: ConsentAgreement[]
+  /** Optional OAuth context, identical to `LoginPayload`. */
+  oauthClientId?: string
+  redirectUri?: string
+  state?: string
 }
 
 export interface PasskeyLoginBeginPayload {
@@ -278,6 +292,32 @@ export function createAuth(deps: AuthDeps) {
             password: payload.password,
             ...(payload.username ? { username: payload.username } : {}),
             ...(payload.email ? { email: payload.email } : {}),
+            ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
+            ...(payload.agreements ? { agreements: payload.agreements } : {}),
+            ...(payload.oauthClientId ? { oauthClientId: payload.oauthClientId } : {}),
+            ...(payload.redirectUri ? { redirectUri: payload.redirectUri } : {}),
+            ...(payload.state ? { state: payload.state } : {}),
+          },
+        }),
+      )
+      return toLoginResult(body, deps)
+    },
+
+    /**
+     * Corporate-directory (LDAP) login. Mirrors `login()`: the directory
+     * credentials are verified server-side (search-then-bind) and the 200 body
+     * is normalized through the same `toLoginResult` multi-branch handling
+     * (success tokens / second-factor / consent / oauth-redirect).
+     */
+    async loginWithLdap(payload: LdapLoginPayload): Promise<LoginResult> {
+      const body = await resolveOp<unknown>(
+        ldapLogin({
+          client,
+          path: { realmId },
+          body: {
+            clientId: deps.clientId,
+            username: payload.username,
+            password: payload.password,
             ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
             ...(payload.agreements ? { agreements: payload.agreements } : {}),
             ...(payload.oauthClientId ? { oauthClientId: payload.oauthClientId } : {}),

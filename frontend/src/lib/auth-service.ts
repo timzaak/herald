@@ -124,6 +124,21 @@ export function mapLoginResultToResponse(result: LoginResult): LoginResponse {
 }
 
 /**
+ * Shared first-factor context spread: the optional Turnstile/consent/OAuth
+ * fields pass through identically for password and corporate-directory (LDAP)
+ * logins — new context fields must land here once, not per performer.
+ */
+function firstFactorContext(credentials: LoginRequestPayload) {
+  return {
+    turnstileToken: credentials.turnstileToken ?? undefined,
+    ...(credentials.agreements ? { agreements: credentials.agreements as ConsentAgreement[] } : {}),
+    ...(credentials.oauthClientId ? { oauthClientId: credentials.oauthClientId } : {}),
+    ...(credentials.redirectUri ? { redirectUri: credentials.redirectUri } : {}),
+    ...(credentials.state ? { state: credentials.state } : {}),
+  }
+}
+
+/**
  * Perform login with credentials (via the Herald SDK client).
  *
  * The SDK applies the issued token set itself on the success branch; the
@@ -146,11 +161,30 @@ export async function performLogin(
     email: credentials.email ?? undefined,
     username: credentials.username ?? undefined,
     password: credentials.password,
-    turnstileToken: credentials.turnstileToken ?? undefined,
-    ...(credentials.agreements ? { agreements: credentials.agreements as ConsentAgreement[] } : {}),
-    ...(credentials.oauthClientId ? { oauthClientId: credentials.oauthClientId } : {}),
-    ...(credentials.redirectUri ? { redirectUri: credentials.redirectUri } : {}),
-    ...(credentials.state ? { state: credentials.state } : {}),
+    ...firstFactorContext(credentials),
+  })
+  return mapLoginResultToResponse(result)
+}
+
+/**
+ * Perform a corporate-directory (LDAP) login (via the Herald SDK client).
+ *
+ * The directory username is NOT split into email/username — it is a directory
+ * login identifier passed through verbatim. Otherwise mirrors `performLogin`:
+ * the SDK applies the issued token set itself on the success branch, and the
+ * OAuth/PKCE context passes through so the backend can answer with
+ * `redirectTo`.
+ */
+export async function performLdapLogin(
+  realmId: string,
+  credentials: LoginRequestPayload
+): Promise<LoginResponse> {
+  const herald = ensureHeraldClient(realmId)
+  herald.tokens.bindClientId(credentials.clientId)
+  const result = await herald.loginWithLdap({
+    username: credentials.username ?? '',
+    password: credentials.password,
+    ...firstFactorContext(credentials),
   })
   return mapLoginResultToResponse(result)
 }

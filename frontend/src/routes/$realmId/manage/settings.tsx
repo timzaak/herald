@@ -19,6 +19,7 @@ import { RegistrationConfigForm as RegistrationConfigFormComponent } from '@/com
 import { PlatformSignupConfigForm as PlatformSignupConfigFormComponent } from '@/components/realm-config/platform-signup-config-form'
 import { EmailConfigForm as EmailConfigFormComponent } from '@/components/realm-config/email-config-form'
 import { TurnstileConfigForm as TurnstileConfigFormComponent } from '@/components/realm-config/turnstile-config-form'
+import { LdapConfigForm as LdapConfigFormComponent } from '@/components/realm-config/ldap-config-form'
 import { WhiteLabelConfigForm as WhiteLabelConfigFormComponent } from '@/components/realm-config/white-label-config-form'
 import { CustomDomainConfigForm as CustomDomainConfigFormComponent } from '@/components/realm-config/custom-domain-config-form'
 import { ProviderConfigPage } from '@/components/oauth-config/provider-config-page'
@@ -35,6 +36,7 @@ import type {
   TurnstileConfigForm,
   PasskeyConfigForm,
   EmailOtpConfigForm,
+  LdapConfigForm,
   WhiteLabelConfigForm as WhiteLabelConfigFormValues,
   CustomDomainConfigForm as CustomDomainConfigFormValues,
 } from '@/lib/schemas/realm-config'
@@ -49,6 +51,8 @@ import {
   buildPlatformSignupConfigRequest,
   buildEmailConfigRequest,
   buildTurnstileConfigRequest,
+  parseLdapConfig,
+  buildLdapConfigRequest,
   normalizeWhiteLabelConfig,
   toUpdateWhiteLabelConfigRequest,
   normalizeCustomDomainConfig,
@@ -62,6 +66,7 @@ import {
   emailStatusQueryOptions,
   passkeyRealmConfigQueryOptions,
   emailOtpRealmConfigQueryOptions,
+  ldapRealmConfigQueryOptions,
   whiteLabelRealmConfigQueryOptions,
   customDomainRealmConfigQueryOptions,
 } from '@/data/query-options'
@@ -179,6 +184,21 @@ function resolveErrorMessage(error: unknown, fallback: string): string {
   return resolveApiError(error).message ? getErrorMessage(error) : fallback
 }
 
+/**
+ * Maps a config-save mutation error to the toast message shared by every
+ * settings-tab mutation: 401/403 get their dedicated permission copy, any
+ * other failure falls back to the generic save-failed text (surfacing the
+ * backend message when present).
+ */
+function resolveConfigSaveError(error: unknown): string {
+  const status = resolveApiError(error).status
+  return status === 401
+    ? m['settings.config_save_unauthorized']()
+    : status === 403
+      ? m['settings.config_save_forbidden']()
+      : resolveErrorMessage(error, m['settings.config_save_failed']())
+}
+
 export function SettingsPage() {
   const fallbackRealmId = useResolvedRealmId()
   const routeParams = useOptionalRouteParams<{ realmId?: string }>(Route)
@@ -225,6 +245,15 @@ export function SettingsPage() {
     enabled: !!realmId && canViewConfig,
   })
 
+  // LDAP directory config rows via the generic configs by-type list
+  // (GET /api/configs/{realmId}/ldap). Requires `settings.view`; consumed by
+  // the Settings "Corporate directory (LDAP)" tab. Dedicated query (instead of
+  // the page-wide list-all) so saving only invalidates the LDAP keys.
+  const { data: ldapConfigData, isLoading: isLdapConfigLoading } = useQuery({
+    ...ldapRealmConfigQueryOptions(realmId),
+    enabled: !!realmId && canViewConfig,
+  })
+
   // White-label management state (published / draft / hasPrevious) via
   // GET /api/realms/{realmId}/config/white-label. Requires `settings.view`.
   const { data: whiteLabelConfigData, isLoading: isWhiteLabelLoading } = useQuery({
@@ -256,16 +285,7 @@ export function SettingsPage() {
     },
     onError: (error: unknown) => {
       console.error('Failed to save config:', error)
-
-      const status = resolveApiError(error).status
-      const errorMessage =
-        status === 401
-          ? m['settings.config_save_unauthorized']()
-          : status === 403
-            ? m['settings.config_save_forbidden']()
-            : resolveErrorMessage(error, m['settings.config_save_failed']())
-
-      toast.error(errorMessage)
+      toast.error(resolveConfigSaveError(error))
     },
   })
 
@@ -291,16 +311,7 @@ export function SettingsPage() {
     },
     onError: (error: unknown) => {
       console.error('Failed to save passkey config:', error)
-
-      const status = resolveApiError(error).status
-      const errorMessage =
-        status === 401
-          ? m['settings.config_save_unauthorized']()
-          : status === 403
-            ? m['settings.config_save_forbidden']()
-            : resolveErrorMessage(error, m['settings.config_save_failed']())
-
-      toast.error(errorMessage)
+      toast.error(resolveConfigSaveError(error))
     },
   })
 
@@ -325,16 +336,31 @@ export function SettingsPage() {
     },
     onError: (error: unknown) => {
       console.error('Failed to save email-otp config:', error)
+      toast.error(resolveConfigSaveError(error))
+    },
+  })
 
-      const status = resolveApiError(error).status
-      const errorMessage =
-        status === 401
-          ? m['settings.config_save_unauthorized']()
-          : status === 403
-            ? m['settings.config_save_forbidden']()
-            : resolveErrorMessage(error, m['settings.config_save_failed']())
-
-      toast.error(errorMessage)
+  // LDAP directory config mutation (generic configs batch upsert). Saving the
+  // `settings` row can flip the login-page entry visibility, so it also
+  // invalidates the public `ldapStatus` query (same rationale as white-label
+  // publish invalidating `publicConfig`).
+  const ldapMutation = useMutation({
+    mutationFn: (config: LdapConfigForm) =>
+      batchUpsertRealmConfigs({
+        path: { realmId },
+        body: { configs: buildLdapConfigRequest(config) },
+      }).then((response) => {
+        if (response.error) throw response.error
+        return response.data
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ldapRealmConfig(realmId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.ldapStatus(realmId) })
+      toast.success(m['settings.config_saved_success']())
+    },
+    onError: (error: unknown) => {
+      console.error('Failed to save LDAP config:', error)
+      toast.error(resolveConfigSaveError(error))
     },
   })
 
@@ -557,6 +583,15 @@ export function SettingsPage() {
     await emailOtpMutation.mutateAsync(config).catch(() => {})
   }
 
+  async function saveLdapConfig(config: LdapConfigForm) {
+    if (!canUpdateConfig) {
+      toast.error(m['settings.config_modify_denied']())
+      return
+    }
+
+    await ldapMutation.mutateAsync(config).catch(() => {})
+  }
+
   // --- White-label action wrappers --------------------------------------------
   // Each wrapper guards `settings.manage` (matching sibling forms) and swallows
   // the rejected promise — the mutation's `onError` already surfaces the toast.
@@ -632,6 +667,9 @@ export function SettingsPage() {
           <TabsTrigger value="email" data-testid="email-tab">
             {m['settings.tab_email']()}
           </TabsTrigger>
+          <TabsTrigger value="ldap" data-testid="ldap-tab">
+            {m['settings.ldap.tab']()}
+          </TabsTrigger>
           <TabsTrigger value="providers" data-testid="providers-tab">
             {m['settings.tab_providers']()}
           </TabsTrigger>
@@ -706,6 +744,28 @@ export function SettingsPage() {
             emailOtpInitialConfig={emailOtpConfigData ?? undefined}
             onSaveEmailOtp={saveEmailOtpConfig}
           />
+        </TabsContent>
+
+        <TabsContent value="ldap">
+          {(() => {
+            // Fail-closed defaults while the query loads or on a malformed
+            // stored row; once data arrives the query re-renders the form.
+            const ldapState = parseLdapConfig(ldapConfigData ?? [])
+
+            if (isLdapConfigLoading && !ldapConfigData) {
+              return <div>{m['settings.config_loading']()}</div>
+            }
+
+            return (
+              <LdapConfigFormComponent
+                initialConfig={ldapState}
+                hasBindPassword={ldapState.hasBindPassword}
+                onSave={saveLdapConfig}
+                isLoading={isLdapConfigLoading}
+                disabled={!canUpdateConfig}
+              />
+            )
+          })()}
         </TabsContent>
 
         <TabsContent value="providers">

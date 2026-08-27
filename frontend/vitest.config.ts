@@ -52,6 +52,12 @@ export default defineConfig({
     // Keep enough per-test budget for the full suite under parallel JSDOM load.
     testTimeout: 15000,
 
+    // Cap parallel workers below the logical-CPU count: a fully-subscribed
+    // worker pool starves individual JSDOM workers on dev machines that also
+    // run editors/dev servers, which scrambles userEvent typing order and
+    // trips real-timer waits in otherwise-green form tests.
+    maxWorkers: 8,
+
     // Don't fail tests on unhandled promise rejections (handled by try-catch in components)
     errorOnUnhandledRejections: false,
 

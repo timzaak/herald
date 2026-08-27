@@ -48,6 +48,15 @@ POSTGRES_CONTAINER = "cas-demo-postgres"
 REDIS_CONTAINER = "cas-demo-redis"
 # Removed state file names: BACKEND_STATE_NAME, FRONTEND_STATE_NAME
 
+# 与测试环境 (scripts/test-start.py) 相同的 OpenLDAP 目录：镜像按 digest 固定，
+# 证书与种子数据复用 backend/infra/tests/ldap-directory-assets 固件。
+# Demo 沿用原生端口直映射（同 postgres/redis），与测试环境的 13890/13636 不冲突。
+LDAP_CONTAINER = "cas-demo-ldap"
+LDAP_IMAGE = "osixia/openldap@sha256:80a577d7d4471c4db662195111e5709665b6fcbd6679094d05402b8c620e2607"
+LDAP_ASSETS = REPO_ROOT / "backend" / "infra" / "tests" / "ldap-directory-assets"
+LDAP_STARTTLS_PORT = 3890
+LDAP_LDAPS_PORT = 6360
+
 DEFAULT_ADMIN_REALM = "admin"
 DEFAULT_ADMIN_EMAIL = "admin@cas.com"
 DEFAULT_ADMIN_PASSWORD = "password"
@@ -95,6 +104,96 @@ def check_redis_container(status: HealthStatus) -> bool:
         return False
 
     status.add_service("redis", "healthy")
+    return True
+
+
+def _ldap_ready() -> bool:
+    """通过认证的 StartTLS 搜索验证 LDAP 目录就绪（容器内探测，端口为容器内部端口）。"""
+    probe = (
+        "LDAPTLS_CACERT=/container/services/openldap/assets/certs/ca.crt "
+        "ldapsearch -x -ZZ -H ldap://127.0.0.1:3890 "
+        "-D cn=admin,dc=herald,dc=test -w svc-password "
+        "-b dc=herald,dc=test '(uid=alice)' dn"
+    )
+    code, out = docker.exec_check(LDAP_CONTAINER, ["sh", "-c", probe])
+    return code == 0 and "uid=alice,ou=people" in out
+
+
+def _start_ldap(logger: "Logger") -> bool:
+    """启动 OpenLDAP Demo 容器（StartTLS 在 3890，LDAPS 在 6360）。"""
+    logger.info("Starting OpenLDAP demo container...")
+    certs_dir = LDAP_ASSETS / "certs"
+    seed_ldif = LDAP_ASSETS / "seed.ldif"
+    if not certs_dir.is_dir() or not seed_ldif.is_file():
+        logger.error(f"LDAP fixtures missing under {LDAP_ASSETS}")
+        return False
+
+    if not docker.run_detached(
+        [
+            "--name",
+            LDAP_CONTAINER,
+            "--memory=256m",
+            "--restart=unless-stopped",
+            "--log-opt",
+            "max-size=10m",
+            "--log-opt",
+            "max-file=3",
+            "-e",
+            "OPENLDAP_BOOTSTRAP_SUFFIX=dc=herald,dc=test",
+            "-e",
+            "OPENLDAP_BOOTSTRAP_TLS=true",
+            "-e",
+            "OPENLDAP_BOOTSTRAP_DATA_ROOT_PASSWORD_HASHED={SSHA}/oGEfntBnpHAZEkLsEDHKBZGVD65KQQv",
+            "-p",
+            f"{LDAP_STARTTLS_PORT}:3890",
+            "-p",
+            f"{LDAP_LDAPS_PORT}:6360",
+            "-v",
+            f"{certs_dir.as_posix()}:/container/services/openldap/assets/certs:ro",
+            "-v",
+            f"{seed_ldif.as_posix()}:/container/services/openldap-bootstrap/assets/ldif/data/custom/10-seed.ldif:ro",
+            LDAP_IMAGE,
+        ]
+    ):
+        logger.error("OpenLDAP demo container failed to start")
+        return False
+
+    for _attempt in range(30):
+        if _ldap_ready():
+            logger.info("OpenLDAP demo container is ready")
+            return True
+        time.sleep(1)
+
+    logger.error("OpenLDAP demo container failed to start")
+    logs = subprocess.run(
+        ["docker", "logs", LDAP_CONTAINER, "--tail", "30"],
+        capture_output=True,
+        text=True,
+    )
+    log_output = (logs.stdout or logs.stderr).strip()
+    if log_output:
+        logger.error(log_output)
+    return False
+
+
+def check_ldap_container(status: HealthStatus) -> bool:
+    """检查 LDAP 容器状态。"""
+    if not docker.container_exists(LDAP_CONTAINER):
+        status.add_error(f"LDAP container '{LDAP_CONTAINER}' not found")
+        status.add_service("ldap", "not found")
+        return False
+
+    if not docker.container_running(LDAP_CONTAINER):
+        status.add_error(f"LDAP container '{LDAP_CONTAINER}' not running")
+        status.add_service("ldap", "stopped")
+        return False
+
+    if not _ldap_ready():
+        status.add_error("LDAP not ready (authenticated StartTLS search failed)")
+        status.add_service("ldap", "not ready")
+        return False
+
+    status.add_service("ldap", "healthy")
     return True
 
 
@@ -146,6 +245,9 @@ def check_environment_health(require_frontend: bool = False) -> HealthStatus:
     # 检查 Redis
     redis_ok = check_redis_container(status)
 
+    # 检查 LDAP
+    ldap_ok = check_ldap_container(status)
+
     # 检查后端
     backend_ok = check_backend_process(status)
 
@@ -157,7 +259,7 @@ def check_environment_health(require_frontend: bool = False) -> HealthStatus:
         frontend_ok = True
 
     # 更新环境状态
-    if pg_ok and redis_ok and backend_ok:
+    if pg_ok and redis_ok and ldap_ok and backend_ok:
         status.healthy = True
 
     # Skip environment state file updating - it may be inaccurate
@@ -209,7 +311,7 @@ def start_environment(
     logger.info("Starting Demo environment...")
 
     # Skip environment state file tracking - it may be inaccurate
-    total_steps = 6
+    total_steps = 7
 
     # Step 1: Stop old environment (if running)
     with logger.step(1, total_steps, "Stopping old environment"):
@@ -295,6 +397,11 @@ def start_environment(
         # Wait for Redis to fully initialize
         time.sleep(5)
 
+    # Step 4: Start OpenLDAP container
+    with logger.step(4, total_steps, "Starting OpenLDAP"):
+        if not _start_ldap(logger):
+            return False
+
     # Prepare log paths
     backend_log_base = LOG_DIR / "backend-demo.log"
     frontend_log_base = LOG_DIR / "frontend-demo.log"
@@ -306,8 +413,8 @@ def start_environment(
     cargo = require_executable("cargo")
     npm = require_executable("npm", windows_fallback="npm.cmd")
 
-    # Step 4: Start backend process
-    with logger.step(4, total_steps, "Starting backend"):
+    # Step 5: Start backend process
+    with logger.step(5, total_steps, "Starting backend"):
         backend_env = dict(os.environ)
         backend_env["HERALD_CONFIG"] = str((REPO_ROOT / "backend" / "config" / "demo.toml").resolve())
         backend_env["TOTP_SECRET_KEY"] = "demo-totp-encryption-key-32-bytes-long"
@@ -338,8 +445,8 @@ def start_environment(
             logger.error(f"Backend health check failed. Check {backend_out}")
             return False
 
-    # Step 5: Start frontend process
-    with logger.step(5, total_steps, "Starting frontend"):
+    # Step 6: Start frontend process
+    with logger.step(6, total_steps, "Starting frontend"):
         spawn_background(
             name=None,
             command=[npm, "run", "dev"],
@@ -360,13 +467,14 @@ def start_environment(
             logger.error(f"  - {error}")
         return False
 
-    with logger.step(6, total_steps, "Seeding demo data"):
+    with logger.step(7, total_steps, "Seeding demo data"):
         if not ensure_demo_seed_data(logger):
             logger.error("Demo seed data setup failed")
             return False
 
     # Skip environment state file saving - it may be inaccurate
-    logger.info("Demo Environment started")
+    logger.info("Demo Environment started "
+                f"(LDAP StartTLS=localhost:{LDAP_STARTTLS_PORT} LDAPS=localhost:{LDAP_LDAPS_PORT})")
     return True
 
 
@@ -434,6 +542,8 @@ def stop_environment() -> bool:
         docker.stop_container(REDIS_CONTAINER)
     if docker.container_exists(POSTGRES_CONTAINER):
         docker.stop_container(POSTGRES_CONTAINER)
+    if docker.container_exists(LDAP_CONTAINER):
+        docker.stop_container(LDAP_CONTAINER)
 
     time.sleep(1.0)
 
@@ -441,6 +551,8 @@ def stop_environment() -> bool:
         docker.rm_force_container(REDIS_CONTAINER)
     if docker.container_exists(POSTGRES_CONTAINER):
         docker.rm_force_container(POSTGRES_CONTAINER)
+    if docker.container_exists(LDAP_CONTAINER):
+        docker.rm_force_container(LDAP_CONTAINER)
 
     print("Demo environment stopped")
     return True

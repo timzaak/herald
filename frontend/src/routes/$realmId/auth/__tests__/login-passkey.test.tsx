@@ -91,6 +91,12 @@ vi.mock('@/data/query-options', () => ({
     queryKey: ['email-otp-status', 'test-realm'],
     queryFn: () => Promise.resolve({ enabled: false }),
   }),
+  // LDAP entry gate; default disabled keeps the corporate-account entry
+  // hidden in these password-flow tests (fail-closed).
+  ldapStatusQueryOptions: () => ({
+    queryKey: ['ldap-status', 'test-realm'],
+    queryFn: () => Promise.resolve({ enabled: false }),
+  }),
   // Passkey enabled by default so the PasskeyLoginForm entry mounts and the
   // per-test MSW handlers on /login/passkey/options drive the real behaviour.
   passkeyStatusQueryOptions: () => ({

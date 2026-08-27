@@ -72,6 +72,8 @@ export const QUERY_KEYS = {
   PASSKEY_STATUS: 'passkey-status',
   SIGNUP_STATUS: 'signup-status',
   EMAIL_OTP_REALM_CONFIG: 'email-otp-realm-config',
+  LDAP_STATUS: 'ldap-status',
+  LDAP_REALM_CONFIG: 'ldap-realm-config',
   USER_SUBSCRIPTIONS: 'user-subscriptions',
   SUBSCRIPTION_DETAILS: 'subscription-details',
   SUBSCRIPTION: 'subscription',

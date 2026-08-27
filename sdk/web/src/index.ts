@@ -45,6 +45,7 @@ export type {
 export type {
   EmailOtpSendPayload,
   EmailOtpVerifyPayload,
+  LdapLoginPayload,
   LoginPayload,
   PasskeyLoginBeginPayload,
   PasskeyLoginFinishPayload,

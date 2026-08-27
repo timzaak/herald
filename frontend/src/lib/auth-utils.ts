@@ -46,6 +46,8 @@ import {
   getSafeRedirectPath,
 } from '@/lib/constants/auth-constants'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
+import { getErrorMessage, resolveApiError } from '@/lib/error-utils'
+import { m } from '@/paraglide/messages'
 import { generatePkcePair, generateStateToken, extractAuthorizationCode } from '@/lib/pkce-utils'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/constants/auth-constants'
 
@@ -82,6 +84,21 @@ export function isConsentRequired(response: {
     !!response.consentRequired ||
     !!(response as { consent_required?: boolean | null }).consent_required
   )
+}
+
+/**
+ * Map an LDAP (corporate-directory) login failure to a user-facing message.
+ * 503 (directory unreachable) and 429 (rate limited) use dedicated localized
+ * keys — the backend's 503 body is an English generic sentence. Every other
+ * failure surfaces the backend message verbatim: the 401 anti-enumeration
+ * copy is the authoritative user-facing text, identical in shape to password
+ * login.
+ */
+export function resolveLdapLoginError(error: unknown): string {
+  const status = resolveApiError(error).status
+  if (status === 503) return m['auth.ldap.unavailable']()
+  if (status === 429) return m['auth.ldap.rate_limited']()
+  return getErrorMessage(error)
 }
 
 /**
@@ -380,6 +397,17 @@ async function hydrateAuthenticatedSession(
 }
 
 /**
+ * First-factor performer contract. `loginFlow` is factor-agnostic: password
+ * logins use the default `performLogin`, LDAP logins inject `performLdapLogin`
+ * — the PKCE bootstrap, consent early-return, and post-login hydration are
+ * shared by every first factor.
+ */
+export type LoginPerformer = (
+  realmId: string,
+  credentials: LoginRequestPayload
+) => Promise<LoginResponse>
+
+/**
  * Login flow
  * Handles the complete login process including API call and state update.
  *
@@ -390,12 +418,15 @@ async function hydrateAuthenticatedSession(
  *
  * @param realmId - The realm ID to login to
  * @param credentials - Login credentials
+ * @param options.performer - First-factor performer (default `performLogin`).
+ *   LDAP login passes `performLdapLogin`; everything else is factor-agnostic.
  * @returns Login response data
  * @throws Error if login fails or requires TOTP
  */
 export async function loginFlow(
   realmId: string,
-  credentials: LoginRequestPayload
+  credentials: LoginRequestPayload,
+  options?: { performer?: LoginPerformer }
 ): Promise<LoginFlowResult> {
   const store = useAuthStore.getState()
   // True once the Bearer token family has been issued + persisted (PKCE exchange
@@ -421,7 +452,7 @@ export async function loginFlow(
       }
     }
 
-    const loginResponse = await performLogin(realmId, loginCredentials)
+    const loginResponse = await (options?.performer ?? performLogin)(realmId, loginCredentials)
 
     if (loginResponse.requiresTotp) {
       // 2FA detour: keep the PKCE state so the post-TOTP exchange can complete.

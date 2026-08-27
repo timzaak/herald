@@ -13,6 +13,20 @@ export const loginSchema = z.object({
   password: passwordSchema,
 })
 
+// Directory credentials are owned by the enterprise directory, not Herald:
+// only non-empty bounds apply (no local 8..36 password policy, wider username
+// space than local usernames).
+export const ldapLoginSchema = z.object({
+  username: z
+    .string()
+    .min(1, { error: () => m['auth.ldap.username_required']() })
+    .max(254, { error: () => m['auth.ldap.username_max_length']() }),
+  password: z
+    .string()
+    .min(1, { error: () => m['auth.ldap.password_required']() })
+    .max(512, { error: () => m['auth.ldap.password_max_length']() }),
+})
+
 export const createUserSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
@@ -44,6 +58,7 @@ export const changePasswordSchema = z
   })
 
 export type LoginFormData = z.infer<typeof loginSchema>
+export type LdapLoginFormData = z.infer<typeof ldapLoginSchema>
 export type CreateUserData = z.infer<typeof createUserSchema>
 export type CreateUserFormData = z.infer<typeof createUserSchema>
 export type UpdateUserFormData = z.infer<typeof updateUserSchema>

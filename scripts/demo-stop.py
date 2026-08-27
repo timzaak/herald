@@ -152,7 +152,7 @@ def main() -> int:
 
     if should_print(quiet):
         print("Stopping containers...")
-    containers_to_stop = ["cas-demo-redis", "cas-demo-postgres"]
+    containers_to_stop = ["cas-demo-redis", "cas-demo-postgres", "cas-demo-ldap"]
     for container in containers_to_stop:
         if docker.container_exists(container):
             log_verbose(f"Stopping container: {container}")

@@ -22,6 +22,8 @@ import {
   getTurnstileStatus,
   status2 as emailOtpStatus,
   status3 as passkeyStatus,
+  ldapStatus,
+  listRealmConfigsByType,
   getSignupStatus,
   getProfile,
   handleGetTotpStatus,
@@ -176,6 +178,8 @@ export const queryKeys = {
     [QUERY_KEYS.TURNSTILE_STATUS, realmId, clientId] as const,
   emailOtpStatus: (realmId: string) => [QUERY_KEYS.EMAIL_OTP_STATUS, realmId] as const,
   passkeyStatus: (realmId: string) => [QUERY_KEYS.PASSKEY_STATUS, realmId] as const,
+  ldapStatus: (realmId: string) => [QUERY_KEYS.LDAP_STATUS, realmId] as const,
+  ldapRealmConfig: (realmId: string) => [QUERY_KEYS.LDAP_REALM_CONFIG, realmId] as const,
   signupStatus: (realmId: string) => [QUERY_KEYS.SIGNUP_STATUS, realmId] as const,
   subscription: (realmId: string, clientAppId: string) =>
     [QUERY_KEYS.SUBSCRIPTION, realmId, clientAppId] as const,
@@ -628,6 +632,25 @@ export const passkeyStatusQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
+// ==================== LDAP Status (public) ====================
+//
+// Reads the Realm's corporate-directory login enablement flag
+// (`GET /api/auth/{realmId}/ldap/status`). Public; consumed by the login route
+// to gate the "corporate account" entry visibility. Fail-closed: the entry is
+// rendered only on an explicit `enabled === true` (missing/failed → hidden).
+export const ldapStatusQueryOptions = (realmId: string) =>
+  queryOptions({
+    queryKey: queryKeys.ldapStatus(realmId),
+    queryFn: async () => {
+      const response = await ldapStatus({ path: { realmId } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+    gcTime: GC_TIME_5_MIN,
+  })
+
 // ==================== Signup Status (public) ====================
 //
 // Reads the platform self-service realm-signup enablement flag
@@ -707,6 +730,25 @@ export const emailOtpRealmConfigQueryOptions = (realmId: string) =>
     queryKey: queryKeys.emailOtpRealmConfig(realmId),
     queryFn: async () => {
       const response = await handleGetRealmEmailOtpConfig({ path: { realmId } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+    gcTime: GC_TIME_5_MIN,
+  })
+
+// ==================== LDAP Realm Config (admin) ====================
+//
+// Reads a realm's LDAP directory config rows (`GET /api/configs/{realmId}/ldap`,
+// the generic configs by-type list). Requires `settings.view`; consumed by the
+// Settings → LDAP tab. `bind_password` values are masked to null server-side;
+// only the row's existence matters (parsed into `hasBindPassword`).
+export const ldapRealmConfigQueryOptions = (realmId: string) =>
+  queryOptions({
+    queryKey: queryKeys.ldapRealmConfig(realmId),
+    queryFn: async () => {
+      const response = await listRealmConfigsByType({ path: { realmId, configType: 'ldap' } })
       if (response.error) throw response.error
       return response.data
     },

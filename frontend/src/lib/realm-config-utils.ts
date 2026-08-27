@@ -2,6 +2,7 @@ import type {
   RealmConfigResponse,
   UpdateWhiteLabelConfigRequest,
   UpdateCustomDomainConfigRequest,
+  UpsertRealmConfigRequest,
 } from '@/lib/api-generated'
 import {
   whiteLabelConfigSchema,
@@ -14,6 +15,8 @@ import {
   type WhiteLabelConfigForm,
   type WhiteLabelBackgroundForm,
   type CustomDomainConfigForm,
+  type LdapConfigForm,
+  type LdapConfigState,
 } from '@/lib/schemas/realm-config'
 
 /**
@@ -244,6 +247,99 @@ export function buildEmailConfigRequest(config: EmailConfigForm) {
     configValue: entry.configValue,
     isSecret: entry.isSecret,
   }))
+}
+
+// ==================== LDAP 目录配置 ====================
+
+/** LDAP 表单默认值（从未配置过的 Realm 打开即为该默认表单，无空态页面）。 */
+export function emptyLdapConfig(): LdapConfigState {
+  return {
+    enabled: false,
+    url: '',
+    starttls: false,
+    baseDn: '',
+    bindDn: '',
+    bindPassword: '',
+    userFilter: '',
+    mailAttribute: 'mail',
+    hasBindPassword: false,
+  }
+}
+
+/**
+ * Parses LDAP directory configuration from realm config rows
+ * (`configType='ldap'`)：`settings` 行 JSON 回显（线传输 camelCase），畸形
+ * JSON 回退默认值（fail-closed）；`bind_password` 行值恒掩码 null，密码字段
+ * 一律置空并以行存在性推断 `hasBindPassword`。
+ */
+export function parseLdapConfig(configs: RealmConfigResponse[]): LdapConfigState {
+  const defaults = emptyLdapConfig()
+  const hasBindPassword = configs.some(
+    (c) => c.configType === 'ldap' && c.configKey === 'bind_password'
+  )
+  const settings = configs.find((c) => c.configType === 'ldap' && c.configKey === 'settings')
+  if (!settings) {
+    return { ...defaults, hasBindPassword }
+  }
+
+  try {
+    const parsed = JSON.parse(settings.configValue ?? '{}') as Record<string, unknown>
+    return {
+      enabled: typeof parsed['enabled'] === 'boolean' ? parsed['enabled'] : false,
+      url: typeof parsed['url'] === 'string' ? parsed['url'] : '',
+      starttls: typeof parsed['starttls'] === 'boolean' ? parsed['starttls'] : false,
+      baseDn: typeof parsed['baseDn'] === 'string' ? parsed['baseDn'] : '',
+      bindDn: typeof parsed['bindDn'] === 'string' ? parsed['bindDn'] : '',
+      bindPassword: '',
+      userFilter: typeof parsed['userFilter'] === 'string' ? parsed['userFilter'] : '',
+      mailAttribute:
+        typeof parsed['mailAttribute'] === 'string' && parsed['mailAttribute']
+          ? parsed['mailAttribute']
+          : 'mail',
+      hasBindPassword,
+    }
+  } catch (error) {
+    console.error('Failed to parse LDAP config:', error)
+    return { ...defaults, hasBindPassword }
+  }
+}
+
+/**
+ * Builds LDAP config rows for the batch upsert operation.
+ * `settings` 行：行级 `enabled` 与 JSON `enabled` 同值提交（后端以 JSON 为
+ * 唯一判定源，行级列仅作展示冗余）；`bind_password` 行仅在填写了新密码时
+ * 提交——留空即省略该行，后端按“留空保留旧值”沿用已存密码。
+ */
+export function buildLdapConfigRequest(config: LdapConfigForm): UpsertRealmConfigRequest[] {
+  const rows: UpsertRealmConfigRequest[] = [
+    {
+      configType: 'ldap',
+      configKey: 'settings',
+      configValue: JSON.stringify({
+        enabled: config.enabled,
+        url: config.url,
+        starttls: config.starttls,
+        baseDn: config.baseDn,
+        bindDn: config.bindDn ? config.bindDn : null,
+        userFilter: config.userFilter,
+        mailAttribute: config.mailAttribute,
+      }),
+      isSecret: false,
+      enabled: config.enabled,
+    },
+  ]
+
+  if (config.bindPassword) {
+    rows.push({
+      configType: 'ldap',
+      configKey: 'bind_password',
+      configValue: config.bindPassword,
+      isSecret: true,
+      enabled: config.enabled,
+    })
+  }
+
+  return rows
 }
 
 // ==================== White-label 配置 ====================

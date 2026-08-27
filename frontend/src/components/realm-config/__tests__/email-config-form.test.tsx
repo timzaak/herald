@@ -180,7 +180,11 @@ describe('EmailConfigForm', () => {
   })
 
   it('GIVEN save is in progress WHEN submitting THEN should disable save button', async () => {
-    mockOnSave.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    // The pending window must span the assertion deterministically: a fixed
+    // setTimeout races against form state updates under CPU contention and the
+    // button can already be re-enabled by the time waitFor polls.
+    let finishSave!: () => void
+    mockOnSave.mockImplementation(() => new Promise<void>((resolve) => (finishSave = resolve)))
 
     renderWithProviders(<EmailConfigForm {...defaultProps} />)
 
@@ -190,6 +194,7 @@ describe('EmailConfigForm', () => {
     await waitFor(() => {
       expect(saveButton).toBeDisabled()
     })
+    finishSave()
   })
 
   it('GIVEN emailStatus is configured WHEN rendering THEN should show green badge', () => {

@@ -5,9 +5,15 @@ import {
   emptyCustomDomainConfig,
   normalizeCustomDomainConfig,
   toUpdateCustomDomainConfigRequest,
+  parseLdapConfig,
+  buildLdapConfigRequest,
 } from '../realm-config-utils'
-import type { RealmConfigResponse, UpdateCustomDomainConfigRequest } from '@/lib/api-generated'
-import type { CustomDomainConfigForm } from '@/lib/schemas/realm-config'
+import type {
+  RealmConfigResponse,
+  UpdateCustomDomainConfigRequest,
+  UpsertRealmConfigRequest,
+} from '@/lib/api-generated'
+import type { CustomDomainConfigForm, LdapConfigForm } from '@/lib/schemas/realm-config'
 
 const makeConfig = (
   configType: string,
@@ -286,5 +292,154 @@ describe('toUpdateCustomDomainConfigRequest', () => {
       hostname: 'login.acme.com',
     })
     expect(result).toEqual({ hostname: 'login.acme.com' })
+  })
+})
+
+// ==================== LDAP directory config ====================
+
+/**
+ * `bind_password` rows come back with `configValue: null` (server-side
+ * masking); the string-typed factory above cannot express that.
+ */
+const makeLdapRow = (
+  configKey: 'settings' | 'bind_password',
+  configValue: string | null,
+  enabled: boolean
+): RealmConfigResponse =>
+  ({
+    configType: 'ldap',
+    configKey,
+    configValue,
+    enabled,
+    isSecret: configKey === 'bind_password',
+    id: `ldap-${configKey}`,
+    realmId: 'test-realm',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  }) as RealmConfigResponse
+
+const LDAP_SETTINGS_JSON = JSON.stringify({
+  enabled: true,
+  url: 'ldaps://directory.corp.example.com:636',
+  starttls: false,
+  baseDn: 'dc=corp,dc=example,dc=com',
+  bindDn: 'cn=herald,ou=services,dc=corp,dc=example,dc=com',
+  userFilter: '(&(objectClass=user)(sAMAccountName={login}))',
+  mailAttribute: 'mail',
+})
+
+describe('parseLdapConfig', () => {
+  test('returns fail-closed defaults when no ldap rows exist', () => {
+    const result = parseLdapConfig([])
+
+    expect(result).toEqual({
+      enabled: false,
+      url: '',
+      starttls: false,
+      baseDn: '',
+      bindDn: '',
+      bindPassword: '',
+      userFilter: '',
+      mailAttribute: 'mail',
+      hasBindPassword: false,
+    })
+  })
+
+  test('masked bind_password row yields an empty password field but hasBindPassword=true', () => {
+    // The stored service-account password must never surface in the admin
+    // form: the server masks the value to null, and the parse maps that to an
+    // empty field plus a row-existence signal.
+    const result = parseLdapConfig([
+      makeLdapRow('settings', LDAP_SETTINGS_JSON, true),
+      makeLdapRow('bind_password', null, true),
+    ])
+
+    expect(result.enabled).toBe(true)
+    expect(result.url).toBe('ldaps://directory.corp.example.com:636')
+    expect(result.bindDn).toBe('cn=herald,ou=services,dc=corp,dc=example,dc=com')
+    expect(result.userFilter).toBe('(&(objectClass=user)(sAMAccountName={login}))')
+    expect(result.bindPassword).toBe('')
+    expect(result.hasBindPassword).toBe(true)
+  })
+
+  test('settings row without a bind_password row marks hasBindPassword=false', () => {
+    const result = parseLdapConfig([makeLdapRow('settings', LDAP_SETTINGS_JSON, true)])
+
+    expect(result.hasBindPassword).toBe(false)
+  })
+
+  test('malformed settings JSON falls back to defaults while keeping the row signal', () => {
+    const result = parseLdapConfig([
+      makeLdapRow('settings', '{not json', true),
+      makeLdapRow('bind_password', null, true),
+    ])
+
+    expect(result.enabled).toBe(false)
+    expect(result.url).toBe('')
+    expect(result.hasBindPassword).toBe(true)
+  })
+
+  test('fills mailAttribute default when the stored JSON omits it', () => {
+    const partial = JSON.parse(LDAP_SETTINGS_JSON)
+    delete partial.mailAttribute
+    const result = parseLdapConfig([makeLdapRow('settings', JSON.stringify(partial), true)])
+
+    expect(result.mailAttribute).toBe('mail')
+  })
+})
+
+describe('buildLdapConfigRequest', () => {
+  const baseForm: LdapConfigForm = {
+    enabled: true,
+    url: 'ldaps://directory.corp.example.com:636',
+    starttls: false,
+    baseDn: 'dc=corp,dc=example,dc=com',
+    bindDn: 'cn=herald,ou=services,dc=corp,dc=example,dc=com',
+    bindPassword: '',
+    userFilter: '(&(objectClass=user)(sAMAccountName={login}))',
+    mailAttribute: 'mail',
+  }
+
+  test('omits the bind_password row when the password is empty (keep-stored-value)', () => {
+    // Empty-secret preservation: sending no row (rather than an empty secret
+    // row) is what makes the backend keep the stored password.
+    const rows = buildLdapConfigRequest(baseForm)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].configKey).toBe('settings')
+  })
+
+  test('includes the bind_password secret row only when a new password is entered', () => {
+    const rows = buildLdapConfigRequest({ ...baseForm, bindPassword: 'new-pass' })
+
+    expect(rows).toHaveLength(2)
+    const secretRow = rows.find((r) => r.configKey === 'bind_password')
+    expect(secretRow?.configValue).toBe('new-pass')
+    expect(secretRow?.isSecret).toBe(true)
+  })
+
+  test('settings row-level enabled mirrors the JSON enabled (single source of truth)', () => {
+    const rows = buildLdapConfigRequest({ ...baseForm, enabled: false })
+
+    expect(rows[0].enabled).toBe(false)
+    expect(JSON.parse(rows[0].configValue).enabled).toBe(false)
+  })
+
+  test('settings JSON round-trips through parseLdapConfig with the same editable values', () => {
+    const rows = buildLdapConfigRequest(baseForm)
+    const parsed = parseLdapConfig(rows as RealmConfigResponse[])
+
+    expect({ ...parsed, hasBindPassword: false }).toEqual({ ...baseForm, hasBindPassword: false })
+  })
+
+  test('normalizes an empty bindDn to null (anonymous search)', () => {
+    const rows = buildLdapConfigRequest({ ...baseForm, bindDn: '' })
+
+    expect(JSON.parse(rows[0].configValue).bindDn).toBeNull()
+  })
+
+  test('returns rows assignable to the generated UpsertRealmConfigRequest shape', () => {
+    const rows: UpsertRealmConfigRequest[] = buildLdapConfigRequest(baseForm)
+    expect(rows.every((r) => r.configType === 'ldap')).toBe(true)
   })
 })

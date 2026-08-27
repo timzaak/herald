@@ -80,7 +80,11 @@ describe('PasskeyConfigForm', () => {
   })
 
   it('GIVEN form is submitting WHEN save is in progress THEN should disable the save button', async () => {
-    mockOnSave.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    // The pending window must span the assertion deterministically: a fixed
+    // setTimeout races against form state updates under CPU contention and the
+    // button can already be re-enabled by the time waitFor polls.
+    let finishSave!: () => void
+    mockOnSave.mockImplementation(() => new Promise<void>((resolve) => (finishSave = resolve)))
 
     const screen = render(<PasskeyConfigForm {...defaultProps} />)
     const saveButton = screen.getByTestId('passkey-save-button')
@@ -89,5 +93,6 @@ describe('PasskeyConfigForm', () => {
     await waitFor(() => {
       expect(saveButton).toBeDisabled()
     })
+    finishSave()
   })
 })

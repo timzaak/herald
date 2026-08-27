@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -161,12 +161,14 @@ async function fillCreateForm(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('create-mapping-provider-select'))
   await user.click(await screen.findByRole('option', { name: 'App Store' }))
 
-  await user.type(
-    screen.getByTestId('create-mapping-external-product-id-input'),
-    'com.example.app.premium'
-  )
-
-  await user.type(screen.getByTestId('create-mapping-entitlement-key-input'), 'premium')
+  // Text fields are set with single change events — keystroke-by-keystroke
+  // typing drops characters on CPU-starved workers and corrupts the payload.
+  fireEvent.change(screen.getByTestId('create-mapping-external-product-id-input'), {
+    target: { value: 'com.example.app.premium' },
+  })
+  fireEvent.change(screen.getByTestId('create-mapping-entitlement-key-input'), {
+    target: { value: 'premium' },
+  })
 
   // Billing Type = recurring (so billingPeriod becomes visible + required)
   await user.click(screen.getByTestId('create-mapping-billing-type-select'))
@@ -201,19 +203,21 @@ async function fillCreateFormNonRenewing(user: ReturnType<typeof userEvent.setup
   await user.click(screen.getByTestId('create-mapping-provider-select'))
   await user.click(await screen.findByRole('option', { name: 'App Store' }))
 
-  await user.type(
-    screen.getByTestId('create-mapping-external-product-id-input'),
-    'com.example.app.premium'
-  )
-
-  await user.type(screen.getByTestId('create-mapping-entitlement-key-input'), 'premium')
+  fireEvent.change(screen.getByTestId('create-mapping-external-product-id-input'), {
+    target: { value: 'com.example.app.premium' },
+  })
+  fireEvent.change(screen.getByTestId('create-mapping-entitlement-key-input'), {
+    target: { value: 'premium' },
+  })
 
   // Billing Type = non_renewing (option label = billing.billing_type_non_renewing).
   await user.click(screen.getByTestId('create-mapping-billing-type-select'))
   await user.click(await screen.findByRole('option', { name: /non-renewing/i }))
 
   // Conditional non-renewing duration field.
-  await user.type(screen.getByTestId('create-mapping-service-duration-days-input'), '30')
+  fireEvent.change(screen.getByTestId('create-mapping-service-duration-days-input'), {
+    target: { value: '30' },
+  })
 
   await user.click(screen.getByTestId('point-rule-add'))
   await user.click(screen.getByTestId('point-rule-bucket'))

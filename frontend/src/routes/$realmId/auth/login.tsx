@@ -19,9 +19,11 @@ import {
   completeLoginAfterEmailOtp,
   completeLoginAfterOneTap,
   isConsentRequired,
+  resolveLdapLoginError,
   getSafeRedirect,
   validateOAuthParams,
 } from '@/lib/auth-utils'
+import { performLdapLogin } from '@/lib/auth-service'
 import { firstPartyClientForPath } from '@/lib/constants/auth-constants'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,6 +33,7 @@ import { TotpVerificationForm } from '@/components/auth/totp-verification-form'
 import { PasskeyLoginForm } from '@/components/auth/passkey-login-form'
 import { Passkey2FaForm } from '@/components/auth/passkey-2fa-form'
 import { EmailOtpLoginForm } from '@/components/auth/email-otp-login-form'
+import { LdapLoginForm, type LdapLoginFormValues } from '@/components/auth/ldap-login-form'
 import { OneTapLogin } from '@/components/auth/one-tap-login'
 import { TurnstileWidget } from '@/components/auth/turnstile-widget'
 import {
@@ -39,6 +42,7 @@ import {
   turnstileStatusQueryOptions,
   emailOtpStatusQueryOptions,
   passkeyStatusQueryOptions,
+  ldapStatusQueryOptions,
 } from '@/data/query-options'
 import { Link } from '@tanstack/react-router'
 import { useOAuthLogin } from '@/hooks/use-oauth-login'
@@ -64,9 +68,26 @@ interface TotpStep {
   tempToken: string
 }
 
+/** Which first factor produced the pending login/consent submission. */
+type LoginFactor = 'password' | 'ldap'
+
+/** Values accepted by the shared `loginMutation` (both first factors). */
+interface LoginMutationValues {
+  factor: LoginFactor
+  username: string
+  password: string
+  agreements?: AuthConsentAgreement[]
+  turnstileToken?: string
+}
+
 interface ConsentStep {
   agreements: LegalAgreementSummary[]
-  originalPayload: LoginRequestPayload
+  /**
+   * Verbatim first-factor values that triggered the consent gate; replayed
+   * with `agreements` attached. The forms are not editable while the consent
+   * view is mounted, so the snapshot equals the current field values.
+   */
+  originalPayload: LoginMutationValues
 }
 
 /**
@@ -132,6 +153,11 @@ export function LoginPage() {
   // when the public OTP-status query reports `enabled`, so the
   // entry is hidden entirely for realms with OTP login off.
   const [otpMode, setOtpMode] = useState(false)
+  // LDAP (corporate account) mode toggle. Same shape as `otpMode`: swapped-in
+  // `LdapLoginForm` card body, back button returns to the password form. The
+  // entry is rendered only on an explicit `enabled === true` from the public
+  // LDAP status query — loading and failed queries keep it hidden (fail-closed).
+  const [ldapMode, setLdapMode] = useState(false)
 
   const { data: publicConfig, isLoading } = useQuery(publicConfigQueryOptions(realmId))
   // Resolved Client App id used for both the password form's Turnstile status
@@ -145,6 +171,13 @@ export function LoginPage() {
   // Anonymous; safe to query unconditionally.
   const { data: emailOtpStatus } = useQuery(emailOtpStatusQueryOptions(realmId))
   const emailOtpEnabled = emailOtpStatus?.enabled === true
+
+  // Public corporate-directory (LDAP) login enablement flag. Gates the
+  // "corporate account" entry visibility. Strictly `=== true` — loading and
+  // failed queries must NOT surface the entry (fail-closed). Anonymous; safe
+  // to query unconditionally.
+  const { data: ldapStatus } = useQuery(ldapStatusQueryOptions(realmId))
+  const ldapEnabled = ldapStatus?.enabled === true
 
   // Public Passkey enablement flag. The PRIMARY gate for the passkey entry:
   // when the realm has passkey disabled we skip mounting PasskeyLoginForm
@@ -177,13 +210,10 @@ export function LoginPage() {
   const oneTapEligible = Boolean(googleProvider?.clientId) && !oauthParams
 
   const loginMutation = useMutation({
-    mutationFn: async (values: {
-      username: string
-      password: string
-      agreements?: AuthConsentAgreement[]
-      turnstileToken?: string
-    }) => {
-      const isEmail = values.username.includes('@')
+    mutationFn: async (values: LoginMutationValues) => {
+      const isLdap = values.factor === 'ldap'
+      // LDAP usernames are directory identifiers — never split into email.
+      const isEmail = !isLdap && values.username.includes('@')
       const clientId = resolvedClientId
 
       const loginData: LoginRequestPayload = {
@@ -196,8 +226,13 @@ export function LoginPage() {
         ...(oauthParams ?? {}),
       }
 
-      const result = await loginFlow(realmId, loginData)
-      return { result, payload: loginData }
+      // Both first factors share this flow: PKCE bootstrap, consent
+      // early-return, token exchange, and post-login hydration are
+      // factor-agnostic; only the credential performer differs.
+      const result = await loginFlow(realmId, loginData, {
+        performer: isLdap ? performLdapLogin : undefined,
+      })
+      return { result, values }
     },
     onSuccess: async (data) => {
       setGlobalError(null)
@@ -238,7 +273,7 @@ export function LoginPage() {
       if (isConsentRequired(response)) {
         const agreements = response.agreements ?? []
         if (agreements.length > 0) {
-          setConsentStep({ agreements, originalPayload: data.payload })
+          setConsentStep({ agreements, originalPayload: data.values })
           return
         }
       }
@@ -272,6 +307,17 @@ export function LoginPage() {
     },
   })
 
+  /**
+   * Shared error surface for every `loginMutation.mutate` call site: the
+   * factor selects its error mapping (LDAP gets the dedicated 503/429 copy),
+   * then the message lands in both the toast and the shared error region.
+   */
+  function handleLoginError(error: unknown, factor: LoginFactor) {
+    const message = factor === 'ldap' ? resolveLdapLoginError(error) : getErrorMessage(error)
+    toast.error(message)
+    setGlobalError(message)
+  }
+
   const form = useForm({
     defaultValues: { username: '', password: '', turnstileToken: '' },
     onSubmit: async ({ value }) => {
@@ -279,16 +325,13 @@ export function LoginPage() {
       if (hasPartialOAuth) return
       loginMutation.mutate(
         {
+          factor: 'password',
           username: value.username,
           password: value.password,
           turnstileToken: value.turnstileToken || undefined,
         },
         {
-          onError: (error: unknown) => {
-            const message = getErrorMessage(error)
-            toast.error(message)
-            setGlobalError(message)
-          },
+          onError: (error: unknown) => handleLoginError(error, 'password'),
         }
       )
     },
@@ -299,18 +342,14 @@ export function LoginPage() {
     setGlobalError(null)
 
     const agreements = toAuthConsentAgreements(consentStep.agreements)
-    const username = form.getFieldValue('username')
-    const password = form.getFieldValue('password')
-    const turnstileToken = form.getFieldValue('turnstileToken') || undefined
 
+    // Replay the exact first-factor submission with the agreements attached.
+    // The factor snapshot selects the same performer (password vs LDAP) and
+    // the same error mapping as the original attempt.
     loginMutation.mutate(
-      { username, password, agreements, turnstileToken },
+      { ...consentStep.originalPayload, agreements },
       {
-        onError: (error: unknown) => {
-          const message = getErrorMessage(error)
-          toast.error(message)
-          setGlobalError(message)
-        },
+        onError: (error: unknown) => handleLoginError(error, consentStep.originalPayload.factor),
       }
     )
   }
@@ -318,6 +357,28 @@ export function LoginPage() {
   function handleConsentDecline() {
     setConsentStep(null)
     setGlobalError(null)
+  }
+
+  /**
+   * LDAP first-factor submission. Errors route through
+   * `resolveLdapLoginError`: 503/429 get dedicated localized messages; every
+   * other failure surfaces the backend message verbatim (the 401
+   * anti-enumeration copy is shared with password login).
+   */
+  function handleLdapSubmit(values: LdapLoginFormValues) {
+    setGlobalError(null)
+    if (hasPartialOAuth) return
+    loginMutation.mutate(
+      {
+        factor: 'ldap',
+        username: values.username,
+        password: values.password,
+        turnstileToken: values.turnstileToken,
+      },
+      {
+        onError: (error: unknown) => handleLoginError(error, 'ldap'),
+      }
+    )
   }
 
   /**
@@ -551,6 +612,15 @@ export function LoginPage() {
               onBack={() => setOtpMode(false)}
               registerPath={realmPath(realmContext, '/auth/register')}
             />
+          ) : ldapMode ? (
+            <LdapLoginForm
+              realmId={realmId}
+              isPending={loginMutation.isPending}
+              hasPartialOAuth={hasPartialOAuth}
+              turnstileStatus={turnstileStatus}
+              onSubmit={handleLdapSubmit}
+              onBack={() => setLdapMode(false)}
+            />
           ) : (
             <>
               {emailOtpEnabled && (
@@ -564,6 +634,21 @@ export function LoginPage() {
                     data-testid="email-otp-toggle"
                   >
                     {m['auth.email_otp.toggle_entry']()}
+                  </Button>
+                </div>
+              )}
+
+              {ldapEnabled && (
+                <div className="mb-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setLdapMode(true)}
+                    disabled={loginMutation.isPending}
+                    data-testid="ldap-toggle"
+                  >
+                    {m['auth.ldap.toggle_entry']()}
                   </Button>
                 </div>
               )}
