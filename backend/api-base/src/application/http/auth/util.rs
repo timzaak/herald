@@ -7,6 +7,7 @@ use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::client::entities::ClientApp;
+use herald_core::domain::ldap::{LdapDirectorySettings, LdapLoginConfig};
 
 // Re-export rate limiting functions from the dedicated module
 pub use crate::application::http::rate_limit::rate_limit_hit;
@@ -493,6 +494,98 @@ pub async fn load_email_otp_settings(
 pub async fn is_email_otp_enabled(state: &AppState, realm_id: &str) -> Result<bool, ApiError> {
     let settings = load_email_otp_settings(state, realm_id).await?;
     Ok(settings.enabled)
+}
+
+/// Parse and gate the `ldap/settings` JSON: `None` when malformed, not
+/// enabled, or the credential channel is insecure (legacy `ldap://` rows
+/// without StartTLS fail closed). Shared by the full config load (login
+/// path) and the enablement-only read (status path).
+fn parse_enabled_ldap_settings(raw: &str) -> Option<LdapDirectorySettings> {
+    let settings: LdapDirectorySettings = serde_json::from_str(raw).unwrap_or_else(|e| {
+        tracing::error!("Failed to parse LDAP settings JSON: {e}; treating as disabled");
+        LdapDirectorySettings::default()
+    });
+    (settings.enabled && settings.is_credential_channel_secure()).then_some(settings)
+}
+
+/// Load the LDAP directory login configuration for a realm (design
+/// support-ldap §9.2): the `ldap/settings` row plus the separately-stored
+/// `ldap/bind_password` row.
+///
+/// Returns `Ok(None)` — treated as "not enabled" by both `ldap_status`
+/// (enabled:false) and the login gate (400) — when the settings row is
+/// missing, malformed, not enabled, or carries an insecure credential
+/// channel (`ldap://` without StartTLS legacy rows fail closed).
+pub async fn load_ldap_config(
+    state: &AppState,
+    realm_id: &str,
+) -> Result<Option<LdapLoginConfig>, ApiError> {
+    // Both keys are known upfront; one round trip instead of two serial ones.
+    // No row-level `enabled` filter: the JSON `enabled` field is the sole
+    // enablement signal by design (§4.2.3); the row-level column is
+    // display redundancy only.
+    let rows = sqlx::query_as::<_, (String, String)>(
+        "SELECT config_key, config_value FROM realm_config
+         WHERE realm_id = $1 AND config_type = 'ldap'
+           AND config_key IN ('settings', 'bind_password')",
+    )
+    .bind(realm_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to query LDAP config: {e}");
+        ApiError::internal("Failed to query LDAP config")
+    })?;
+
+    let mut raw_settings: Option<String> = None;
+    let mut bind_password: Option<String> = None;
+    for (key, value) in rows {
+        match key.as_str() {
+            "settings" => raw_settings = Some(value),
+            "bind_password" => bind_password = Some(value),
+            _ => {}
+        }
+    }
+
+    let settings = raw_settings
+        .as_deref()
+        .and_then(parse_enabled_ldap_settings);
+
+    let Some(settings) = settings else {
+        return Ok(None);
+    };
+
+    // An absent bind_password row + configured bind_dn is a directory
+    // misconfiguration the adapter reports as "unavailable" (the adapter
+    // owns that classification).
+    Ok(Some(LdapLoginConfig {
+        settings,
+        bind_password,
+    }))
+}
+
+/// Public enablement signal for `GET /api/auth/{realmId}/ldap/status` —
+/// true only when a well-formed, enabled, encrypted-channel `ldap/settings`
+/// row exists (fail-closed, mirrors `is_email_otp_enabled`).
+///
+/// Reads only the settings row: the unauthenticated status endpoint must not
+/// load the `bind_password` secret.
+pub async fn is_ldap_enabled(state: &AppState, realm_id: &str) -> Result<bool, ApiError> {
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT config_value FROM realm_config
+         WHERE realm_id = $1 AND config_type = 'ldap' AND config_key = 'settings'",
+    )
+    .bind(realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to query LDAP settings config: {e}");
+        ApiError::internal("Failed to query LDAP config")
+    })?;
+
+    Ok(row
+        .and_then(|(raw,)| parse_enabled_ldap_settings(&raw))
+        .is_some())
 }
 
 /// Check if a user has a specific permission with timeout

@@ -73,6 +73,17 @@ pub const DUMMY_BCRYPT_HASH: &str = "$2b$12$B2i4fbJ4ISySJJSPyi13iu4.LRUsShzTJ1o/
 /// an emailed link must not stay usable forever.
 pub const EMAIL_VERIFICATION_CODE_TTL_SECONDS: u64 = 1800;
 
+// --- LDAP directory login (design support-ldap §8, D2-7) ---
+/// TCP/TLS connection establishment timeout for the LDAP directory adapter.
+/// Bounded so an unreachable directory fails fast instead of hanging the
+/// login request.
+pub const LDAP_CONNECT_TIMEOUT_SECONDS: u64 = 5;
+/// Hard wall-clock budget for the entire search-then-bind sequence
+/// (connect + service bind + search + user bind). Exceeding it fails the
+/// login as `directory_unavailable` (503) rather than pinning request
+/// workers on a slow directory.
+pub const LDAP_TIMEOUT_SECONDS: u64 = 10;
+
 // --- HTTP ---
 pub const DEFAULT_HTTP_CLIENT_TIMEOUT_SECS: u64 = 30;
 pub const DEFAULT_HTTP_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;

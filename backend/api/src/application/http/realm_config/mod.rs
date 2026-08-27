@@ -59,12 +59,20 @@ fn is_empty_secret_to_preserve(
         ConfigType::Apple => config_key == "private_key_p8",
         ConfigType::Google => config_key == "service_account_json",
         ConfigType::Wechat => matches!(config_key, "private_key" | "v3_key"),
+        // LDAP service-account password: an empty submit preserves the
+        // stored secret, same admin-edit UX as the payment providers
+        // (design support-ldap §4.2.3).
+        ConfigType::Ldap => config_key == "bind_password",
         _ => false,
     };
-    if is_preservable_secret {
-        provider_string_for_config_type(config_type)
-    } else {
-        None
+    if !is_preservable_secret {
+        return None;
+    }
+    match config_type {
+        // LDAP is not a payment provider; its own config_type string is the
+        // reload key for preserving the stored secret row.
+        ConfigType::Ldap => Some(config_type.as_static_str()),
+        _ => provider_string_for_config_type(config_type),
     }
 }
 
@@ -99,6 +107,9 @@ fn is_sensitive_config_key(config_type: &ConfigType, config_key: &str) -> bool {
         ConfigType::Wechat => matches!(config_key, "private_key" | "v3_key"),
         ConfigType::Turnstile => config_key == "secret_key",
         ConfigType::Email => matches!(config_key, "resend_api_key" | "smtp_password"),
+        // LDAP service-account password is always masked on read, even if a
+        // caller clears the client-side is_secret flag.
+        ConfigType::Ldap => config_key == "bind_password",
         // Realm-wide TOTP encryption key: every key of this type is a
         // credential (internally written as `version_1` with is_secret=true).
         // Force the flag so the generic config API can neither store it with
@@ -106,6 +117,28 @@ fn is_sensitive_config_key(config_type: &ConfigType, config_key: &str) -> bool {
         ConfigType::TotpKey => true,
         _ => false,
     }
+}
+
+/// Validate an LDAP `settings` row before persisting (shape + credential
+/// channel, design support-ldap §4.2.3). Shared by the single upsert and
+/// batch upsert paths so both enforce identical rules. Admin surface, so
+/// field-specific 400 messages are intended.
+fn validate_ldap_settings_row(
+    config_type: &ConfigType,
+    config_key: &str,
+    config_value: &str,
+) -> Result<(), ApiError> {
+    if *config_type != ConfigType::Ldap || config_key != "settings" {
+        return Ok(());
+    }
+    herald_core::domain::ldap::validate_ldap_settings_json(config_value)
+        .map(|_| ())
+        .map_err(|e| match e {
+            herald_core::domain::common::entities::app_errors::CoreError::BadRequest(msg) => {
+                ApiError::bad_request(msg)
+            }
+            _ => ApiError::bad_request("Invalid LDAP settings".to_string()),
+        })
 }
 
 /// Block deletion of a payment provider's configuration while that provider
@@ -497,6 +530,14 @@ pub async fn upsert_realm_config(
         }
     }
 
+    // LDAP settings row: shape/encryption-channel validation before persisting
+    // (admin surface, so field-specific 400 messages are intended).
+    validate_ldap_settings_row(
+        &request.config_type,
+        &request.config_key,
+        &request.config_value,
+    )?;
+
     let config = realm_config_service
         .upsert_config(identity, realm_id, request)
         .await
@@ -619,6 +660,12 @@ pub async fn batch_upsert_realm_configs(
                 "Cannot enable email verification without email configuration".to_string(),
             ));
         }
+    }
+
+    // LDAP settings row: shape/encryption-channel validation before persisting
+    // (same rules as the single upsert path).
+    for r in &requests {
+        validate_ldap_settings_row(&r.config_type, &r.config_key, &r.config_value)?;
     }
 
     for (index, req) in requests.iter().enumerate() {

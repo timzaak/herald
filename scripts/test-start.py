@@ -3,6 +3,7 @@ import platform
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from lib import docker
 from lib.net import is_port_open
@@ -10,11 +11,92 @@ from lib.paths import REPO_ROOT
 
 
 def _ports_free() -> bool:
-    ports = [15433, 6382, 16432]
+    ports = [15433, 6382, 16432, 13890, 13636]
     occupied = [port for port in ports if is_port_open("127.0.0.1", port)]
     if not occupied:
         return True
     print("ERROR: Occupied test ports:", ", ".join(str(p) for p in occupied))
+    return False
+
+
+# Real OpenLDAP directory for the herald-infra LDAP integration tests
+# (backend/infra/tests/ldap_directory.rs). Pinned by digest: "2.6.10-alpha" is
+# the only current release of the v2 line and we must not drift silently.
+# Contract verified against this digest: internal ports 3890/6360, cert files
+# cert.crt/cert.key/ca.crt, rootDN password via SSHA env, data/custom LDIF seed.
+LDAP_IMAGE = "osixia/openldap@sha256:80a577d7d4471c4db662195111e5709665b6fcbd6679094d05402b8c620e2607"
+LDAP_ASSETS = REPO_ROOT / "backend" / "infra" / "tests" / "ldap-directory-assets"
+
+
+def _start_ldap() -> bool:
+    """Start the OpenLDAP test container (StartTLS on 13890, LDAPS on 13636).
+
+    The TLS key pair and CA are committed fixtures; the integration tests
+    trust the same CA via the realm setting caCertPem. The rootDN password
+    matches the SSHA hash below.
+    """
+    print("Starting OpenLDAP test container...")
+    certs_dir = LDAP_ASSETS / "certs"
+    seed_ldif = LDAP_ASSETS / "seed.ldif"
+    if not certs_dir.is_dir() or not seed_ldif.is_file():
+        print("ERROR: LDAP test fixtures missing under", LDAP_ASSETS)
+        return False
+
+    if not docker.run_detached(
+        [
+            "--name",
+            "cas-test-ldap",
+            "--memory=256m",
+            "--restart=unless-stopped",
+            "--log-opt",
+            "max-size=10m",
+            "--log-opt",
+            "max-file=3",
+            "-e",
+            "OPENLDAP_BOOTSTRAP_SUFFIX=dc=herald,dc=test",
+            "-e",
+            "OPENLDAP_BOOTSTRAP_TLS=true",
+            # SSHA hash of "svc-password" (slappasswd), fixed so the tests
+            # can bind without parsing generated passwords from the logs.
+            "-e",
+            "OPENLDAP_BOOTSTRAP_DATA_ROOT_PASSWORD_HASHED={SSHA}/oGEfntBnpHAZEkLsEDHKBZGVD65KQQv",
+            "-p",
+            "13890:3890",
+            "-p",
+            "13636:6360",
+            "-v",
+            f"{certs_dir.as_posix()}:/container/services/openldap/assets/certs:ro",
+            "-v",
+            f"{seed_ldif.as_posix()}:/container/services/openldap-bootstrap/assets/ldif/data/custom/10-seed.ldif:ro",
+            LDAP_IMAGE,
+        ]
+    ):
+        print("ERROR: OpenLDAP test container failed to start")
+        return False
+
+    # Wait until an authenticated StartTLS search returns a seeded entry.
+    probe = (
+        "LDAPTLS_CACERT=/container/services/openldap/assets/certs/ca.crt "
+        "ldapsearch -x -ZZ -H ldap://127.0.0.1:3890 "
+        "-D cn=admin,dc=herald,dc=test -w svc-password "
+        "-b dc=herald,dc=test '(uid=alice)' dn"
+    )
+    for _attempt in range(30):
+        code, out = docker.exec_check("cas-test-ldap", ["sh", "-c", probe])
+        if code == 0 and "uid=alice,ou=people" in out:
+            print("OpenLDAP test container is ready")
+            return True
+        time.sleep(1)
+
+    print("ERROR: OpenLDAP test container failed to start")
+    logs = subprocess.run(
+        ["docker", "logs", "cas-test-ldap", "--tail", "30"],
+        capture_output=True,
+        text=True,
+    )
+    log_output = (logs.stdout or logs.stderr).strip()
+    if log_output:
+        print(log_output)
     return False
 
 
@@ -279,6 +361,15 @@ END $$;"""
         print("ERROR: Redis test container failed to start")
         return 1
 
+    # Start OpenLDAP for herald-infra LDAP integration tests
+    if docker.container_running("cas-test-ldap"):
+        docker.stop_container("cas-test-ldap")
+    if docker.container_exists("cas-test-ldap"):
+        docker.rm_container("cas-test-ldap")
+
+    if not _start_ldap():
+        return 1
+
     # Start PgDog proxy
     if not _start_pgdog():
         return 1
@@ -301,7 +392,8 @@ END $$;"""
         print("ERROR: PgDog verification failed")
         return 1
 
-    print("Test environment is ready. PgDog=localhost:16432 Redis=localhost:6382")
+    print("Test environment is ready. PgDog=localhost:16432 Redis=localhost:6382 "
+          "LDAP StartTLS=localhost:13890 LDAPS=localhost:13636")
     return 0
 
 

@@ -33,8 +33,13 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
+ldap3 = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+rustls-native-certs = { workspace = true }
 ironpress = "1"
 
 [dev-dependencies]
 herald-test-db = { path = "../test-db" }
 futures = { workspace = true }
+tokio = { workspace = true }

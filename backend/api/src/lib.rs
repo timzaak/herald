@@ -529,6 +529,9 @@ pub async fn build_app_state_with_migrations(
         custom_domain_ask_key: config.custom_domain.ask_key.clone(),
         google_jwks_url: config.google_oauth.jwks_url.clone(),
         apple_jwks_url: config.apple_oauth.jwks_url.clone(),
+        ldap_authenticator: std::sync::Arc::new(
+            herald_core::infrastructure::ldap::Ldap3Authenticator::default(),
+        ),
     });
 
     // Initialize Redis Functions using the final state's redis_manager

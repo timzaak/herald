@@ -151,6 +151,16 @@ app-store-server-library = { version = "4.3", features = ["api-client-reqwest"] 
 # `http` types are surfaced by the app-store-server-library Transport trait.
 http = "1.4"
 
+# LDAP client (enterprise directory login). default-features off to avoid
+# the `tls` feature (= native-tls); rustls/ring backend matches the existing
+# rustls 0.23 + ring tree (decision DEC-support-ldap-004).
+ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
+# Direct rustls access for the LDAP adapter's extra-CA injection; feature set
+# mirrors ldap3's own rustls dependency (no aws-lc-rs) so the tree stays unified.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rustls-native-certs = "0.8"
+
 # URL parsing
 url = "2.5"
 

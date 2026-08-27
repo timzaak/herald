@@ -1,0 +1,38 @@
+dn: ou=people,dc=herald,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=contractors,dc=herald,dc=test
+objectClass: organizationalUnit
+ou: contractors
+
+dn: uid=alice,ou=people,dc=herald,dc=test
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Anderson
+sn: Anderson
+mail: alice@example.com
+userPassword: alicepass
+
+dn: uid=bob,ou=people,dc=herald,dc=test
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Brown
+sn: Brown
+userPassword: bobpass
+
+dn: uid=dup,ou=people,dc=herald,dc=test
+objectClass: inetOrgPerson
+uid: dup
+cn: Dup One
+sn: One
+mail: dup1@example.com
+userPassword: duponepass
+
+dn: uid=dup,ou=contractors,dc=herald,dc=test
+objectClass: inetOrgPerson
+uid: dup
+cn: Dup Two
+sn: Two
+mail: dup2@example.com
+userPassword: duptwopass

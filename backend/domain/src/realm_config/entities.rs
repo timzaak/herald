@@ -457,6 +457,17 @@ pub enum ConfigType {
     /// ```
     EmailOtp,
 
+    /// Enterprise LDAP directory login configuration
+    ///
+    /// Stored as two rows reusing the `realm_config` KV table (no DDL):
+    /// - config_key: `settings` — non-sensitive JSON with
+    ///   `{"enabled", "url", "starttls", "baseDn", "bindDn", "userFilter", "mailAttribute"}`
+    ///   (validated by `domain::ldap::validate_ldap_settings_json` on the
+    ///   configs-CRUD write path)
+    /// - config_key: `bind_password` — service-account password, server-forced
+    ///   `is_secret=true` (masked on read; empty submit preserves the old value)
+    Ldap,
+
     /// Platform self-service realm signup toggle
     ///
     /// A platform-level switch owned by the admin realm that controls whether
@@ -499,6 +510,7 @@ impl ConfigType {
             "invoice_policy" => ConfigType::InvoicePolicy,
             "email_otp" => ConfigType::EmailOtp,
             "platform_signup" => ConfigType::PlatformSignup,
+            "ldap" => ConfigType::Ldap,
             _ => return Err(format!("Invalid config type: {}", s)),
         };
         Ok(config_type)
@@ -526,6 +538,7 @@ impl ConfigType {
             ConfigType::InvoicePolicy => "invoice_policy",
             ConfigType::EmailOtp => "email_otp",
             ConfigType::PlatformSignup => "platform_signup",
+            ConfigType::Ldap => "ldap",
         }
     }
 }

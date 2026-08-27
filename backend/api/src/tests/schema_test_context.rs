@@ -471,6 +471,11 @@ impl AsyncTestContext for SchemaTestContext {
             // `create_unified_test_router_with_state`.
             apple_jwks_url:
                 herald_core::infrastructure::oauth::apple::AppleOAuthProvider::JWKS_URL.to_string(),
+            // Production adapter; LDAP scenarios replace it with a mock via
+            // `create_unified_test_router_with_state`.
+            ldap_authenticator: std::sync::Arc::new(
+                herald_core::infrastructure::ldap::Ldap3Authenticator::default(),
+            ),
         });
 
         // 13. 初始化 Redis Functions（只运行一次）

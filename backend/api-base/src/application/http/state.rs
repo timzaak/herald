@@ -305,7 +305,13 @@ pub struct AppState {
 
     /// Apple JWKS endpoint used to validate Apple native login identity token
     /// signatures. Same injection pattern as `google_jwks_url`: read from
-    /// AppState so scenario tests override it on a private copy to point at a
-    /// wiremock JWKS without process-wide mutation.
+    /// AppState so scenario tests override it on a private copy to point at
+    /// a wiremock JWKS without process-wide mutation.
     pub apple_jwks_url: String,
+
+    /// LDAP directory authenticator (enterprise login). Injected as a trait
+    /// object so scenario tests replace it with a mock via
+    /// `create_unified_test_router_with_state` (same override pattern as the
+    /// JWKS URL fields above).
+    pub ldap_authenticator: std::sync::Arc<dyn herald_core::domain::ldap::LdapAuthenticator>,
 }

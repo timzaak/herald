@@ -20,6 +20,7 @@ pub mod client_app;
 pub mod common;
 pub mod custom_domain;
 pub mod dashboard;
+pub mod ldap;
 pub mod legal;
 pub mod oauth;
 pub mod payment_attempt;

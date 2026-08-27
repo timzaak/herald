@@ -5,6 +5,7 @@ pub mod browser_token;
 pub mod change_email;
 pub mod consent_gate;
 pub mod email_otp;
+pub mod ldap_login;
 pub mod login;
 pub mod logout;
 mod mailflow;
@@ -48,6 +49,8 @@ pub use change_email::__path_request as __path_change_email_request;
 pub use email_otp::__path_send as __path_email_otp_send;
 pub use email_otp::__path_status as __path_email_otp_status;
 pub use email_otp::__path_verify as __path_email_otp_verify;
+pub use ldap_login::__path_ldap_login;
+pub use ldap_login::__path_ldap_status;
 pub use login::__path_login;
 pub use logout::__path_logout;
 pub use reauth::{__path_handle_begin_reauth, __path_handle_verify_reauth};
@@ -87,6 +90,8 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::email_otp::send,
         crate::email_otp::verify,
         crate::email_otp::status,
+        crate::ldap_login::ldap_login,
+        crate::ldap_login::ldap_status,
         crate::register::register,
         crate::reauth::handle_begin_reauth,
         crate::reauth::handle_verify_reauth,
@@ -130,6 +135,8 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::email_otp::EmailOtpVerifyRequest,
         crate::email_otp::EmailOtpStatusResponse,
         crate::email_otp::EmailOtpConflictResponse,
+        crate::ldap_login::LdapLoginRequest,
+        crate::ldap_login::LdapStatusResponse,
         crate::register::RegisterRequest,
         crate::register::RegisterResponse,
         crate::reauth::ReauthBeginRequest,
@@ -189,9 +196,11 @@ pub fn auth_router() -> Router<AppState> {
         .route("/signup", post(signup::signup))
         .route("/signup/status", get(signup::get_signup_status))
         .route("/login", post(login::login))
+        .route("/login/ldap", post(ldap_login::ldap_login))
         .route("/login/email-otp/send", post(email_otp::send))
         .route("/login/email-otp/verify", post(email_otp::verify))
         .route("/email-otp/status", get(email_otp::status))
+        .route("/ldap/status", get(ldap_login::ldap_status))
         .route("/passkey/status", get(verify_passkey::status))
         .route("/login/verify-totp", post(verify_totp::handle_verify_totp))
         .route(

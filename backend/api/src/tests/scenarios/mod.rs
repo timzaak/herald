@@ -108,3 +108,7 @@ pub mod google_one_tap_scenarios;
 
 // Apple native login scenarios.
 pub mod apple_native_scenarios;
+
+// LDAP enterprise-directory login scenarios (login flow + admin config).
+pub mod ldap_login_scenarios;
+pub mod realm_ldap_config_scenarios;

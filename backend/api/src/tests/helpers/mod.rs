@@ -44,10 +44,17 @@ pub mod google_one_tap_helpers;
 
 // Apple native login test-only helpers (test identity token mint + wiremock
 // JWKS at Apple's `/auth/keys` path). Reuses the provider-agnostic RSA keypair
-// fixtures from `google_one_tap_helpers`. Not exported via `pub use` —
-// imported explicitly by `apple_native_scenarios.rs`.
+// fixtures from `google_one_tap_helpers`. Not exported via `pub use` — imported
+// explicitly by `apple_native_scenarios.rs`.
 #[cfg(test)]
 pub mod apple_native_helpers;
+
+// LDAP login test-only helpers (mock directory implementing the
+// LdapAuthenticator port + realm_config inserters). Not exported via
+// `pub use` — imported explicitly by the LDAP scenario tests, mirroring the
+// `otp_helpers` pattern.
+#[cfg(test)]
+pub mod ldap_helpers;
 
 pub use auth_helpers::*;
 pub use billing_helpers::*;

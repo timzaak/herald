@@ -39,6 +39,16 @@ impl Entity for OAuthProviderConfig {
 
 impl OAuthProviderConfig {
     pub fn new(config: CreateOAuthProviderConfigRequest) -> Result<Self, CoreError> {
+        // LDAP identity links reuse the `provider` table (type='ldap') but are
+        // never created through the OAuth provider configuration surface;
+        // refusing here keeps the admin API from minting an OAuth config row
+        // that would collide with directory-login links (design D2-2).
+        if config.provider_type == ProviderType::Ldap {
+            return Err(CoreError::BadRequest(
+                "LDAP is not an OAuth provider".to_string(),
+            ));
+        }
+
         let now = Utc::now();
         let scopes = config
             .scopes
@@ -73,6 +83,9 @@ fn default_scopes(provider_type: &ProviderType) -> Vec<String> {
         ProviderType::Apple => vec!["name".to_string(), "email".to_string()],
         ProviderType::WeChat => vec!["snsapi_login".to_string()],
         ProviderType::WeChatMiniProgram => vec![],
+        // LDAP links carry no OAuth scope concept; the variant exists so the
+        // `provider` table round-trips type='ldap' rows (design D2-2).
+        ProviderType::Ldap => vec![],
     }
 }
 
@@ -96,6 +109,9 @@ fn validate_scopes(provider_type: &ProviderType, scopes: &[String]) -> Result<()
             ));
         }
         ProviderType::WeChatMiniProgram => {}
+        // Unreachable via OAuthProviderConfig::new, which rejects Ldap;
+        // listed so the match stays exhaustive as the enum grows.
+        ProviderType::Ldap => {}
         // Other providers accept any scope for now
         // Could add more strict validation in the future
         _ => {}
@@ -132,6 +148,12 @@ impl Entity for OAuthProvider {
 }
 
 /// OAuth provider type
+///
+/// The `Ldap` variant is NOT an OAuth provider: it exists so the `provider`
+/// identity-link table can round-trip `type='ldap'` rows created by LDAP
+/// login (`PostgresOAuthRepository` parses the type column through this
+/// enum). `OAuthProviderConfig::new` rejects it, keeping the OAuth
+/// configuration surface from producing ldap rows (design D2-2).
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderType {
@@ -141,6 +163,7 @@ pub enum ProviderType {
     Apple,
     WeChat,
     WeChatMiniProgram,
+    Ldap,
 }
 
 impl FromStr for ProviderType {
@@ -154,6 +177,7 @@ impl FromStr for ProviderType {
             "apple" => Ok(ProviderType::Apple),
             "wechat" => Ok(ProviderType::WeChat),
             "wechat_miniprogram" => Ok(ProviderType::WeChatMiniProgram),
+            "ldap" => Ok(ProviderType::Ldap),
             _ => Err(format!("Unknown provider type: {}", s)),
         }
     }
@@ -168,6 +192,7 @@ impl ProviderType {
             ProviderType::Apple => "apple",
             ProviderType::WeChat => "wechat",
             ProviderType::WeChatMiniProgram => "wechat_miniprogram",
+            ProviderType::Ldap => "ldap",
         }
     }
 
@@ -179,6 +204,7 @@ impl ProviderType {
             ProviderType::Apple => "Apple",
             ProviderType::WeChat => "WeChat",
             ProviderType::WeChatMiniProgram => "WeChat Mini Program",
+            ProviderType::Ldap => "LDAP",
         }
     }
 }

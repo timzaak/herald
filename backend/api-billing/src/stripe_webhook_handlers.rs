@@ -3533,7 +3533,7 @@ pub async fn handle_stripe_webhook(
             error!("Failed to load webhook secret from database: {}", e);
             CoreError::InternalServerError(format!("Database error: {}", e))
         })?
-        .filter(|c| c.enabled)
+        .filter(|c| c.enabled && !c.config_value.trim().is_empty())
         .map(|c| c.config_value)
         .ok_or_else(|| {
             error!(

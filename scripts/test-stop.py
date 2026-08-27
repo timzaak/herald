@@ -20,6 +20,11 @@ def main() -> int:
     if docker.container_exists("cas-test-redis"):
         docker.rm_container("cas-test-redis")
 
+    if docker.container_running("cas-test-ldap"):
+        docker.stop_container("cas-test-ldap")
+    if docker.container_exists("cas-test-ldap"):
+        docker.rm_container("cas-test-ldap")
+
     print("Backend test environment stopped")
     return 0
 
