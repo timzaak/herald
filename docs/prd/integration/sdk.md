@@ -86,13 +86,13 @@
 - 使用统一 Principal + RBAC 模型，API Key 不携带 runtime/management scope，能力由 Principal 的角色和 role policy 决定
 - Realm 隔离：用户和 Client App 操作仅限 API Key 所属 Realm
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限，普通 Realm 的 API Key 不可创建 Realm（RBAC 初始化仅对 admin realm 注册 `realm:manage` 权限）
-- Admin Realm 跨租户特权：`require_realm_membership` 对 admin realm 的 Principal（包括 API Key）始终放行，即 admin realm 的 API Key 可跨 Realm 操作用户、Client App 等资源，不受 Realm 隔离限制
+- 严格的 Realm 等值边界：`require_realm_membership` 要求 Principal 所属 Realm 与目标 Realm 严格相等；admin realm 的 Principal（包括 API Key）不享有任何跨 Realm 放行，任何 Principal 只能操作自身所属 Realm 的用户、Client App 等资源（admin realm 的特殊之处仅在于持有 `realm.view`/`realm.manage` 等 Admin Realm 专属权限）
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
 - 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
 
 ### 4.2 关键状态与异常
 
-- 跨 Realm 操作被拒绝时返回权限不足错误（admin realm 的 Principal 除外，见 4.1 Admin Realm 跨租户特权）
+- 跨 Realm 操作被拒绝时返回权限不足错误（对所有 Realm 一致生效，admin realm 的 Principal 无豁免，见 4.1 严格的 Realm 等值边界）
 - Realm 创建时需校验 API Key Principal 属于 admin realm 且具备 `realm:manage` 权限
 
 ---
@@ -120,7 +120,7 @@
 
 - 3 个用户故事的全部验收场景通过
 - SDK 新增方法与现有方法风格一致（方法命名、错误处理、参数模式）
-- 所有新增 ext 端点遵循 Realm 隔离原则：API Key 只能操作所属 Realm 的资源（admin realm 的 API Key 享有跨租户特权，见 4.1）
+- 所有新增 ext 端点遵循 Realm 隔离原则：API Key 只能操作所属 Realm 的资源（对所有 Realm 一致，admin realm 的 API Key 无跨租户例外，见 4.1）
 - 所有新增资源管理端点要求 API Key Principal 具备对应权限
 - Realm 创建需额外校验 API Key Principal 属于 admin realm 且具备 `realm:manage`
 
@@ -137,7 +137,7 @@
 - 权限模型：使用统一 Principal + RBAC 模型，能力由 Principal 的角色和 role policy 决定
 - Realm 隔离：用户和 Client App 操作仅限 API Key 所属 Realm
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限
-- Admin Realm 跨租户特权：`require_realm_membership` 对 admin realm 的 Principal 始终放行，admin realm 的 API Key 可跨 Realm 操作资源
+- Realm 等值边界：`require_realm_membership` 对所有 Principal（含 admin realm 的 Principal 与 API Key）一律要求所属 Realm 与目标 Realm 严格相等，不存在跨 Realm 超级管理员
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
 - 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
 
@@ -159,8 +159,8 @@
 ### 接口能力边界
 
 - Realm：创建、列表、详情（需对应权限；创建还需 admin realm `realm:manage` 权限）
-- User：创建、列表、详情（需对应权限，限本 Realm；admin realm 的 API Key 可跨 Realm）
-- Client App：创建、列表、详情（需对应权限，限本 Realm；admin realm 的 API Key 可跨 Realm）
+- User：创建、列表、详情（需对应权限，限本 Realm，无跨 Realm 例外）
+- Client App：创建、列表、详情（需对应权限，限本 Realm，无跨 Realm 例外）
 - 积分交易查询单笔（`get_transaction_ext`）：端点挂载于 `/api/ext/points/{realmId}/transactions/{transactionId}`，并已注册到 OpenAPI 文档
 
 ---

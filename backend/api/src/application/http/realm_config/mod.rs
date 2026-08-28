@@ -3,7 +3,10 @@ pub use herald_api_base::application::http::common::public_helper;
 use axum::{
     Json,
     extract::{Extension, Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
+};
+use herald_core::domain::audit::{
+    AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType, NewAuditEvent,
 };
 use herald_core::domain::authentication::Identity;
 use serde::{Deserialize, Serialize};
@@ -14,6 +17,7 @@ use validator::Validate;
 use crate::application::http::server::api_entities::{ApiError, ErrorResponse};
 use crate::application::http::state::AppState;
 use herald_api_base::application::http::auth::util::is_email_configured;
+use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::rate_limit::rate_limit_hit_forced;
 use herald_core::domain::authorization::PermissionService;
@@ -185,6 +189,53 @@ async fn ensure_provider_config_deletable(
     }
 
     Ok(())
+}
+
+/// Best-effort audit write for payment-provider config changes (PRD
+/// wechat-support §4.1: "所有 WeChat 配置变更与支付操作必须记录审计日志").
+/// Audits every payment provider config type, not only WeChat, since all of
+/// them share this single config write path. An audit failure must never fail
+/// the already-succeeded config write.
+async fn audit_payment_config_change(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    provider: &str,
+    config_key: &str,
+    action: AuditAction,
+    ip: String,
+    user_agent: Option<String>,
+) {
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Billing,
+            action,
+            actor_id: identity.user_id(),
+            actor_type: None,
+            actor_name: identity.as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::Realm,
+            target_id: realm_id.to_string(),
+            target_name: Some(format!("{provider}/{config_key}")),
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "provider": provider,
+                "config_key": config_key,
+            })),
+            ip_address: Some(ip),
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(
+            error = %e,
+            realm_id = %realm_id,
+            provider = %provider,
+            "Failed to record payment config audit event"
+        );
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
@@ -454,6 +505,8 @@ pub async fn upsert_realm_config(
     Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(payload): Json<UpsertRealmConfigValidator>,
 ) -> Result<Json<RealmConfigResponse>, ApiError> {
     payload
@@ -539,7 +592,7 @@ pub async fn upsert_realm_config(
     )?;
 
     let config = realm_config_service
-        .upsert_config(identity, realm_id, request)
+        .upsert_config(identity.clone(), realm_id.clone(), request)
         .await
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
@@ -550,6 +603,23 @@ pub async fn upsert_realm_config(
                 ApiError::internal("Failed to upsert realm config")
             }
         })?;
+
+    // Payment-provider credential/config writes are security-relevant and
+    // audit-logged (PRD wechat-support §4.1); other config types are not.
+    if let Some(provider) = provider_string_for_config_type(&config.config_type) {
+        let user_agent = user_agent_from_headers(&headers);
+        audit_payment_config_change(
+            &state,
+            &identity,
+            &realm_id,
+            provider,
+            &config.config_key,
+            AuditAction::PaymentConfigUpdate,
+            ip,
+            user_agent,
+        )
+        .await;
+    }
 
     Ok(Json(to_response(config)))
 }
@@ -575,6 +645,8 @@ pub async fn batch_upsert_realm_configs(
     Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(payload): Json<BatchUpsertRealmConfigValidator>,
 ) -> Result<Json<Vec<RealmConfigResponse>>, ApiError> {
     tracing::debug!(
@@ -680,12 +752,22 @@ pub async fn batch_upsert_realm_configs(
         );
     }
 
+    // Collect payment-provider rows before `requests` is moved into the domain
+    // call, so the post-write audit knows what was persisted.
+    let payment_rows: Vec<(&'static str, String)> = requests
+        .iter()
+        .filter_map(|r| {
+            provider_string_for_config_type(&r.config_type)
+                .map(|provider| (provider, r.config_key.clone()))
+        })
+        .collect();
+
     let mut configs = if requests.is_empty() {
         Vec::new()
     } else {
         realm_config_service
             .batch_upsert_configs(
-                identity,
+                identity.clone(),
                 realm_id.clone(),
                 herald_core::domain::realm_config::BatchUpsertRealmConfigRequest {
                     configs: requests,
@@ -703,6 +785,25 @@ pub async fn batch_upsert_realm_configs(
             })?
     };
     configs.extend(skipped_existing);
+
+    // Payment-provider credential/config writes are security-relevant and
+    // audit-logged (PRD wechat-support §4.1); other config types are not.
+    if !payment_rows.is_empty() {
+        let user_agent = user_agent_from_headers(&headers);
+        for (provider, config_key) in payment_rows {
+            audit_payment_config_change(
+                &state,
+                &identity,
+                &realm_id,
+                provider,
+                &config_key,
+                AuditAction::PaymentConfigUpdate,
+                ip.clone(),
+                user_agent.clone(),
+            )
+            .await;
+        }
+    }
 
     tracing::debug!(
         realm_id = %realm_id,
@@ -762,6 +863,8 @@ pub async fn delete_realm_config(
     Path((realm_id, config_type, config_key)): Path<(String, String, String)>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {
     let realm_config_service = state.service.realm_config_service();
 
@@ -785,8 +888,16 @@ pub async fn delete_realm_config(
         ensure_provider_config_deletable(&state, &realm_id, &parsed).await?;
     }
 
+    // Capture the payment-provider identity of the row before it is consumed
+    // by the delete call, so the post-write audit knows what was removed.
+    let deleted_payment_row = parse_config_type(config_type.clone())
+        .ok()
+        .and_then(|parsed| {
+            provider_string_for_config_type(&parsed).map(|provider| (provider, config_key.clone()))
+        });
+
     realm_config_service
-        .delete_config(identity, realm_id, config_type, config_key)
+        .delete_config(identity.clone(), realm_id.clone(), config_type, config_key)
         .await
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
@@ -800,6 +911,23 @@ pub async fn delete_realm_config(
                 ApiError::internal("Failed to delete realm config")
             }
         })?;
+
+    // Payment-provider credential/config deletions are security-relevant and
+    // audit-logged (PRD wechat-support §4.1); other config types are not.
+    if let Some((provider, config_key)) = deleted_payment_row {
+        let user_agent = user_agent_from_headers(&headers);
+        audit_payment_config_change(
+            &state,
+            &identity,
+            &realm_id,
+            provider,
+            &config_key,
+            AuditAction::PaymentConfigDelete,
+            ip,
+            user_agent,
+        )
+        .await;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

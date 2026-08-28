@@ -182,6 +182,12 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | `realm.create` | Realm 创建 | `realm.manage`（仅限创建 Realm，不含编辑其他 Realm 元数据；Realm 删除当前不支持） |
 | `realm.admin:{realm_id}` 特殊策略 | 判断是否能进入管理端 | 具体权限检查 + `Identity::has_access_to_realm` |
 
+**防提权约束（授予方权限自持）**:
+
+1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在 `policies.manage`/`roles.manage` 之外，必须自身持有被授予的 `resource.action` 权限
+2. 为用户指派 "user" 以外的内置角色时，调用者必须持有该角色授予的全部权限（普通 "user" 内置角色豁免，作为默认终端用户角色）
+3. 该规则防止仅持部分管理权限的 delegated-admin 通过授权操作自我提权（例如把高权限内置角色或自身不具备的权限授予自己）；权限不满足时返回权限不足错误
+
 **Realm 操作权限**:
 
 | 操作 | 权限 |
@@ -296,8 +302,8 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | Users | `users.view` | `users.manage` |
 | Permissions | `permissions.view` | `permissions.manage` |
 | Roles | `roles.view` | `roles.manage` |
-| Role policy assignment | `roles.view` | `roles.manage` |
-| User role assignment | `users.view` | `roles.manage` |
+| Role policy assignment | `roles.view` | 角色策略（旧 API）`policies.manage`；角色权限（新 API `/define`）`roles.manage`；均需自持被授予权限 |
+| User role assignment | `users.view` | `roles.manage`（指派 "user" 以外内置角色需自持其全部权限） |
 | API Keys | `api_keys.view` | `api_keys.manage` |
 | API Key role assignment | `api_keys.view` | `roles.manage` |
 | Products / Plans / Invoices / Providers | `billing.view` | `billing.manage` |

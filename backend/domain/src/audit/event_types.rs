@@ -58,6 +58,14 @@ pub enum AuditAction {
     ProductUpdate,
     #[serde(rename = "product.delete")]
     ProductDelete,
+    #[serde(rename = "payment_config.update")]
+    PaymentConfigUpdate,
+    #[serde(rename = "payment_config.delete")]
+    PaymentConfigDelete,
+    #[serde(rename = "payment.webhook")]
+    PaymentWebhook,
+    #[serde(rename = "payment.replay")]
+    PaymentReplay,
     #[serde(rename = "oauth_config.create")]
     OAuthConfigCreate,
     #[serde(rename = "oauth_config.update")]
@@ -89,6 +97,7 @@ pub enum AuditTargetType {
     Session,
     Product,
     OAuthConfig,
+    Payment,
 }
 
 /// Outcome of the audited operation.
@@ -133,6 +142,10 @@ mod tests {
             (AuditAction::AuthLogout, "auth.logout"),
             (AuditAction::AuthClientSwitch, "auth.client_switch"),
             (AuditAction::AuthLoginFailed, "auth.login_failed"),
+            (AuditAction::PaymentConfigUpdate, "payment_config.update"),
+            (AuditAction::PaymentConfigDelete, "payment_config.delete"),
+            (AuditAction::PaymentWebhook, "payment.webhook"),
+            (AuditAction::PaymentReplay, "payment.replay"),
             (AuditAction::OAuthConfigCreate, "oauth_config.create"),
             (AuditAction::OAuthConfigUpdate, "oauth_config.update"),
             (AuditAction::OAuthConfigDelete, "oauth_config.delete"),

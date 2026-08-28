@@ -100,7 +100,7 @@
 ### 4.1 业务规则
 
 - **Realm 数据隔离**：Realm Admin 只能访问自己 Realm 的用户，不能访问其他 Realm 的用户资源
-- **角色分配约束**：创建用户时必须分配至少一个角色；默认预选 "user" 角色；Super Admin 可以分配任意角色（realm-admin、user），Realm Admin 只能分配 "user" 角色
+- **角色分配约束**：创建用户时可不分配角色（无角色用户不持有任何权限，后续可通过角色分配端点补充分配，SDK ext API 即按无角色用户创建）；所有传入角色必须存在于目标 Realm。持 `roles.manage` 的调用方可分配任意角色（其中指派 "user" 以外的内置角色还受防提权校验约束，见 Permissions PRD）；未持 `roles.manage` 的调用方仅能创建无角色或仅含 "user" 内置角色的用户
 - **角色管理**：角色通过独立端点 `PUT /api/users/{realmId}/{userId}/roles` 管理，编辑用户时角色字段为只读展示（需要 `users.view` + `roles.manage` 权限，详见 Permissions PRD）
 - **编辑时密码不可变**：编辑用户时密码字段不显示
 - **邮箱只读**：用户邮箱在创建后不可修改。
@@ -164,7 +164,7 @@
 
 - **页面入口**：管理后台左侧导航栏 Users 菜单项（权限控制可见性）；顶部 Header 用户头像下拉菜单提供 Profile 和 Security 入口
 - **用户列表页面**：展示用户基本信息（ID、Email、Nickname、Status、Created At）；右上角提供 "Add User" 按钮；操作列提供 Edit、Reset Password、Delete 按钮
-- **创建用户**：通过对话框表单实现，包含 Email（必填）、Password（创建时必填，最小 8 位）、Nickname（可选，最大 50 字符）、Status（默认 Normal）、Roles（必选，至少一个）字段
+- **创建用户**：通过对话框表单实现，包含 Email（必填）、Password（创建时必填，最小 8 位）、Nickname（可选，最大 50 字符）、Status（默认 Normal）、Roles（可选，可不分配；不分配则创建无角色用户）字段
 - **编辑用户**：复用创建对话框，密码字段隐藏，角色字段只读
 - **重置密码交互**：点击确认后执行，成功后展示新密码并提供复制按钮
 - **删除交互**：弹出确认对话框，确认后执行

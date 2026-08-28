@@ -76,7 +76,7 @@
 - **非续期订阅建模**：WeChat 订阅型产品复用履约模型扩展引入的非续期订阅（`docs/prd/billing/pay_model.md`）
 - **既有 Stripe/Creem 集成模式**：作为新增 WeChat 渠道的结构与边界参考（`docs/prd/billing/stripe-payment.md`）
 - **既有微信 OAuth 登录**：JSAPI 场景的 openid 来源（`docs/prd/auth/wechat-oauth.md`）
-- **Realm 管理与权限系统**：配置写入需 `billing.manage`，查看需 `billing.view`
+- **Realm 管理与权限系统**：配置写入需 `settings.manage`，查看需 `settings.view`（与 Stripe/Creem 等所有支付平台配置共用统一的 Realm 配置权限面；`billing.*` 权限用于账单与产品管理面）
 - **微信商户资质**：Realm Admin 需自行在微信支付平台完成商户入驻并取得凭据
 
 ---
@@ -106,7 +106,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 - WeChat 特有配置项：appId、mchId、商户私钥（PEM 文本）、证书序列号、APIv3 Key、回调通知地址；平台公钥可选，手工配置时作为验签覆盖来源，未配置时由系统运行时自动下载平台证书用于验签
 - 敏感字段（商户私钥、APIv3 Key）必须以 `is_secret` 标记存储；查看时显示脱敏信息
 - 编辑时敏感字段为可选，留空则保留现有值；非敏感字段正常更新（与现有 Stripe/Creem 行为一致）
-- 只有 Realm Admin（`billing.manage`）可查看与更新 WeChat 配置
+- 只有持 `settings.manage` 的管理员可更新、持 `settings.view` 可查看 WeChat 配置（与其他 Realm 配置共用统一配置权限面）
 - 删除配置前必须检查是否有活跃订阅，存在活跃订阅时拒绝删除（与现有 provider 删除保护一致）
 
 **平台证书规则**：
@@ -140,7 +140,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 - 商户私钥、APIv3 Key 不得暴露给前端
 - 回调端点必须验证微信签名
 - 所有支付操作必须通过 HTTPS
-- 所有 WeChat 配置变更与支付操作必须记录审计日志
+- 所有 WeChat 配置变更与支付操作必须记录审计日志：配置写入与删除、回调处理结果（履约成功、非成功状态、金额不符等拒绝分支）与补偿重放均写入系统审计事件，供 Realm Admin 审计查询
 
 ### 4.2 关键状态与异常
 
@@ -199,7 +199,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 - 验签失败、金额不符、解密失败的回调被拒绝且不触发履约
 - JSAPI 缺失 openid 时下单被拒绝
 - 不同 Realm 的 WeChat 配置与支付数据完全隔离
-- 所有 WeChat 配置变更与支付操作记录审计日志
+- 所有 WeChat 配置变更与支付操作记录审计日志（配置写入/删除、回调处理结果、补偿重放可在系统审计日志中查询）
 
 ---
 
@@ -208,7 +208,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 **适用性**: 适用
 
 - **接口能力范围**：WeChat 配置的读写复用通用支付平台配置能力；下单复用统一支付尝试发起能力；回调接收为 WeChat 专用的公共端点（与 Stripe/Creem 的公共回调端点并列）；履约复用统一履约链路。不在 PRD 中列出端点、schema 或状态码细节。
-- **访问控制原则**：必须遵守 realm 隔离；配置写入需 `billing.manage`，查看需 `billing.view`；回调端点为公共端点但必须通过微信签名验证；金额与积分变更必须可追溯；回调必须幂等。
+- **访问控制原则**：必须遵守 realm 隔离；配置写入需 `settings.manage`，查看需 `settings.view`（与所有支付平台配置共用统一 Realm 配置权限面）；回调端点为公共端点但必须通过微信签名验证；金额与积分变更必须可追溯；回调必须幂等。
 - **租户/realm 边界**：每个 Realm 使用独立的 WeChat 回调地址，realm_id 从路径提取实现多租户隔离（与 Stripe/Creem 一致）。
 - **兼容性要求**：WeChat 不参与既有 provider 产品目录同步；entitlement mapping 中 WeChat 的 external_product_id/价格由管理员手工配置。与微信 API、积分账本、订阅系统的详细契约应下沉到技术设计或接口说明。
 

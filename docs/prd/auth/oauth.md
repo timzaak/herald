@@ -104,7 +104,6 @@
 - 用户主动授权/拒绝授权页面（当前授权自动完成，用户无需手动批准）
 - Implicit Flow（已被 OAuth 2.1 废弃）
 - API Key 管理界面（后续优化）
-- 速率限制（后续优化）
 - 审计日志（后续优化）
 - Webhooks 和 GraphQL 支持（后续优化）
 
@@ -173,6 +172,7 @@
 - PKCE 的 code_challenge 必须使用 S256 方法（SHA256）
 - 无 OAuth 参数时，登录行为与现有普通登录完全一致
 - OAuth 参数不完整时（缺少任意一项），应显示错误提示，不静默降级为普通登录
+- 未认证 OAuth 端点实施 per-IP 速率限制，超限返回 429：`/authorize` 与 `/token` 默认 30 次/分钟/IP；发起 Provider 登录（含上游 JWKS/code2session 拉取）与 Device Authorization Grant 的 authorize 端点默认 10 次/分钟/IP（阈值为后端统一常量管理的运行默认值，第三方集成方须处理 429）
 
 **第三方 API 接入:**
 - 第三方应用使用 API Key（通过 X-API-Key header）认证，与 session token 认证体系分离
@@ -190,7 +190,7 @@
 - Herald 作为 OAuth Client 通过 `/api/oauth/{realmId}/{provider}/login` 发起第三方 Provider 授权
 - 回调路径 `/{provider}/callback` 接收 Provider 授权结果，创建或关联 OAuth 用户账户，完成 SSO 登录
 - 支持所有已配置的 Provider 类型（Google、GitHub、Facebook、Apple、WeChat、WeChat Mini Program）
-- OAuth 账户通过 open_id 关联用户，Email 冲突时自动关联（需验证用户当前未登录）
+- OAuth 账户通过 open_id 关联用户，Email 冲突时自动关联（需验证用户当前未登录，且 Provider 返回的邮箱必须已验证：未验证邮箱不得用于关联既有账号，返回禁止登录错误——防止经 Provider 未验证邮箱接管既有密码账号，如 GitHub 非主邮箱）
 - **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Provider 凭证未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，OAuth 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。该原则与邮箱验证码登录一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」），对所有 OAuth Provider（Google、GitHub、Facebook、Apple、WeChat 等）统一适用。
 
 **Herald 作为身份 Broker（brokered downstream-state redirect）:**
@@ -209,13 +209,13 @@
 - State Token 验证失败（不存在或已过期）：提示"登录链接已过期，请重新发起登录"
 - 授权码无效或过期：提示"授权失败，请重新登录"
 - 获取用户信息失败：提示"无法获取用户信息，请联系管理员"
-- Email 冲突：自动关联 OAuth 账户到已有用户（需验证用户当前未登录）
+- Email 冲突：自动关联 OAuth 账户到已有用户（需验证用户当前未登录，且 Provider 邮箱已验证；Provider 邮箱未验证时拒绝登录并提示无法以该邮箱关联既有账号）
 - Provider 被禁用/删除：在列表 API 中过滤掉禁用的 Provider
 
 ### 4.2 关键状态与异常
 
 - **Provider 状态**: Enabled / Disabled — 禁用的 Provider 不在登录页展示、不参与授权流程
-- **Client App 状态**: Enabled / Disabled — 禁用的 Client App 拒绝 OAuth 授权
+- **Client App 状态**: Enabled / Disabled — 禁用的 Client App 拒绝 OAuth 授权；该检查实时生效，禁用同时使其名下 API Key 的鉴权立即失效（包括缓存命中路径，返回 401）
 - **API Key 状态**: Enabled / Disabled / Expired — 无效状态均返回 401
 - **authorization_code**: 一次性，使用后立即失效（Redis 删除）
 - **state token**: 一次性，校验后立即失效（Redis 删除），TTL 5 分钟

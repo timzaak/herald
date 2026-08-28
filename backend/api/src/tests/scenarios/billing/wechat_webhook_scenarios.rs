@@ -28,10 +28,11 @@ mod tests {
     use crate::tests::helpers::wechat_mocks::{
         TEST_V3_KEY, build_notification, insert_wechat_realm_config, wechat_webhook_request,
     };
+    use crate::tests::helpers::{create_admin_session_with_user, grant_realm_admin_role};
     use crate::tests::schema_test_context::SchemaTestContext;
     use axum::{
         body::{Body, to_bytes},
-        http::{Request, StatusCode},
+        http::{Request, StatusCode, header},
     };
     use serde_json::json;
     use test_context::test_context;
@@ -235,6 +236,27 @@ mod tests {
         .unwrap()
     }
 
+    /// WHY: PRD wechat-support §4.1 requires WeChat config changes and payment
+    /// operations to land in audit_events — fulfilments and rejections must be
+    /// administrator-visible, not just server logs.
+    async fn count_payment_audit_events(
+        ctx: &WechatWebhookContext,
+        realm_id: &str,
+        action: &str,
+        result: &str,
+    ) -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events
+             WHERE realm_id = $1 AND action = $2 AND result = $3",
+        )
+        .bind(realm_id)
+        .bind(action)
+        .bind(result)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap()
+    }
+
     // =========================================================================
     // Tests
     // =========================================================================
@@ -290,6 +312,10 @@ mod tests {
             "one-time fulfilment must grant the topup points"
         );
         assert_eq!(count_wechat_events(ctx, &realm_id).await, 1);
+        assert!(
+            count_payment_audit_events(ctx, &realm_id, "payment.webhook", "success").await >= 1,
+            "fulfilled callback must be audit-logged"
+        );
     }
 
     /// User Story: docs/user-stories/billing/wechat-support.md (US-WP-002, scenario 4: NonRenewing subscription) — a valid
@@ -444,6 +470,149 @@ mod tests {
             topup_granted(ctx, &realm_id, user_id).await,
             0,
             "amount mismatch must NOT grant points"
+        );
+        assert!(
+            count_payment_audit_events(ctx, &realm_id, "payment.webhook", "failure").await >= 1,
+            "amount-mismatch rejection must be audit-logged"
+        );
+    }
+
+    /// PRD wechat-support §4.1 — "所有 WeChat 配置变更与支付操作必须记录审计日志":
+    /// a WeChat config write through the generic configs API must land a
+    /// payment_config.update audit row, while a non-payment config write on the
+    /// same surface must not (payment credentials are the security-relevant
+    /// surface; auditing every config row would bury them in noise).
+    #[test_context(WechatWebhookContext)]
+    #[tokio::test]
+    async fn test_wechat_config_write_is_audited(ctx: &mut WechatWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        let app = ctx.create_unified_test_router();
+        let (token, user_id) =
+            create_admin_session_with_user(ctx, "wechat-cfg-audit@test.com", 1800).await;
+        grant_realm_admin_role(ctx, &user_id).await;
+
+        let put_config = |config_type: &str, config_key: &str, config_value: &str| {
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/configs/{realm_id}"))
+                .header("content-type", "application/json")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::from(
+                    json!({
+                        "configType": config_type,
+                        "configKey": config_key,
+                        "configValue": config_value,
+                        "isSecret": false,
+                        "enabled": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+        };
+
+        let resp = app
+            .clone()
+            .oneshot(put_config("wechat", "app_id", "wx-audit-test-app"))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "wechat config write must succeed"
+        );
+        let _ = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+
+        // Negative control on the same surface: a non-payment config write.
+        let resp = app
+            .clone()
+            .oneshot(put_config("registration", "enabled", "true"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let _ = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+
+        let audited = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM audit_events
+             WHERE realm_id = $1 AND action = 'payment_config.update'
+               AND details->>'provider' = 'wechat' AND details->>'config_key' = 'app_id'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            audited, 1,
+            "wechat config write must be audit-logged exactly once"
+        );
+
+        let other = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM audit_events
+             WHERE realm_id = $1 AND action = 'payment_config.update'
+               AND details->>'config_key' = 'enabled'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            other, 0,
+            "non-payment config writes must not be audit-logged"
+        );
+    }
+
+    /// PRD wechat-support §4.1 — manual compensation replays must be
+    /// audit-logged as payment.replay so administrators can distinguish replay
+    /// outcomes from live webhook processing. Drives the real
+    /// `reprocess_wechat_event` entry (not a mock) on a pending attempt.
+    #[test_context(WechatWebhookContext)]
+    #[tokio::test]
+    async fn test_wechat_compensation_replay_is_audited(ctx: &mut WechatWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        insert_wechat_realm_config(&ctx.app_state.pool, &realm_id).await;
+
+        let user_id = create_test_user(ctx, "wechat-replay@test.com").await;
+        create_points_wallet(ctx, user_id, &realm_id).await;
+        let mapping_id =
+            create_wechat_one_time_mapping(ctx, &realm_id, "wx-points-replay", 100).await;
+        let attempt_id = create_pending_wechat_attempt(
+            ctx,
+            &realm_id,
+            user_id,
+            mapping_id,
+            "CAS_test_replay_001",
+            1000,
+            "one_time",
+        )
+        .await;
+
+        let body = build_notification(
+            "evt-replay-1",
+            "CAS_test_replay_001",
+            "wx-txn-replay-1",
+            "SUCCESS",
+            1000,
+            TEST_V3_KEY,
+        );
+        let payload: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        let outcome = herald_api_billing::wechat_webhook_handlers::reprocess_wechat_event(
+            ctx.app_state.as_ref().clone(),
+            realm_id.clone(),
+            payload,
+            "TRANSACTION.SUCCESS".to_string(),
+        )
+        .await;
+        assert!(outcome.is_ok(), "replay must fulfil the pending attempt");
+
+        assert_eq!(
+            attempt_status(ctx, attempt_id).await,
+            Some("Succeeded".to_string()),
+            "replay must flip the attempt to Succeeded"
+        );
+        assert_eq!(topup_granted(ctx, &realm_id, user_id).await, 100);
+        assert!(
+            count_payment_audit_events(ctx, &realm_id, "payment.replay", "success").await >= 1,
+            "compensation replay must be audit-logged"
         );
     }
 

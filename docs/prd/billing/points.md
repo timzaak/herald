@@ -364,6 +364,7 @@
 - 接口能力范围包括：积分账户查询类（含窗口剩余 + 充值余额双维度）、积分消费类（SDK，含混合消费协调）、积分充值/发放类、交易历史查询类、Entitlement Mapping 积分策略配置类（随 mapping 管理的 `points_distribution_rules`）、Realm 注册积分分发规则管理类（`registration-rules`，`owner_type=realm_registration`）、Webhook 回调处理类
 - 访问控制：SDK 消耗接口需 API Key 授权（ThirdParty 身份）；管理类接口需 Realm Admin 权限；用户查询类接口仅允许查询本人数据
 - SDK 消耗积分时校验 API Key 对 client_app 的作用域（client_app_scope），确保 API Key 只能操作其授权范围内的 client_app 积分
+- API Key 鉴权实时校验其绑定 Client App 的启用状态（包括缓存命中路径）：Client App 被禁用后，其 API Key 立即失效并返回 401，不依赖缓存 TTL 过期
 - 限流策略：realm 级别 100 次/分钟，user 级别 20 次/分钟
 - 管理接口权限：所有管理端点使用 `require_authenticated_user_in_realm` + `require_permission` 进行权限控制：
   - 积分数据查询（wallets、transactions）：`points.view`
