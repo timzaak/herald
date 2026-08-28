@@ -1,6 +1,6 @@
 {
   "name": "herald-auth-web",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Herald official browser JavaScript SDK for third-party web integration. Framework-agnostic, zero runtime dependencies.",
   "type": "module",
   "types": "./dist/index.d.ts",
