@@ -168,6 +168,27 @@ pub struct GrantPointsResponse {
     pub expires_at: Option<String>,
 }
 
+/// Points transaction detail (single-transaction query response)
+///
+/// Mirrors the api-ext `ExtTransactionResponse` shape. The backend serializes
+/// absent optional fields as `null` (no omit), so no `skip_serializing_if`
+/// here either — the struct round-trips the exact wire form.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionDetail {
+    pub transaction_id: String,
+    pub wallet_id: String,
+    pub user_id: String,
+    pub transaction_type: String,
+    pub amount: i64,
+    pub balance_after: i64,
+    pub description: Option<String>,
+    pub client_app_id: Option<String>,
+    pub subscription_id: Option<String>,
+    pub external_ref_id: Option<String>,
+    pub created_at: String,
+}
+
 /// Per-credit-type balances (`balancesByType`).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -685,6 +706,41 @@ impl Client {
         let status = response.status();
         let resp = handle_response(response).await;
         debug!(status = %status, "API Response for grant_points: {:?}", resp);
+        resp
+    }
+
+    /// Get a single points transaction by ID
+    ///
+    /// # Arguments
+    ///
+    /// * `realm_id` - The realm ID
+    /// * `transaction_id` - The transaction ID (UUID)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(TransactionDetail)` if the request succeeds
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Error::Unauthorized)` if the API key is invalid
+    /// Returns `Err(Error::Forbidden)` if cross-realm access is attempted
+    /// Returns `Err(Error::NotFound)` if the transaction is not found
+    /// Returns `Err(Error::ApiError)` if the transaction ID is not a valid UUID (400)
+    pub async fn get_transaction(
+        &self,
+        realm_id: &str,
+        transaction_id: &str,
+    ) -> Result<TransactionDetail, Error> {
+        let url = format!(
+            "{}/api/ext/points/{}/transactions/{}",
+            self.base_url, realm_id, transaction_id
+        );
+
+        let response = self.build_request(Method::GET, &url).send().await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for get_transaction: {:?}", resp);
         resp
     }
 
@@ -1654,6 +1710,80 @@ mod tests {
                 "test",
                 None,
             )
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::NotFound(_) => {}
+            other => panic!("Expected NotFound, got: {:?}", other),
+        }
+
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_transaction_success() {
+        let server = MockServer::start().await;
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None);
+
+        // Wire shape mirrors the api-ext `ExtTransactionResponse`: absent
+        // optionals come back as explicit `null`, never omitted.
+        let transaction_response = json!({
+            "transactionId": "0198e5d2-0000-7000-8000-000000000001",
+            "walletId": "wallet-001",
+            "userId": "user-001",
+            "transactionType": "consume",
+            "amount": 100,
+            "balanceAfter": 400,
+            "description": null,
+            "clientAppId": "app-001",
+            "subscriptionId": null,
+            "externalRefId": null,
+            "createdAt": "2025-01-01T00:00:00Z"
+        });
+
+        Mock::given(method("GET"))
+            .and(path(
+                "/api/ext/points/realm1/transactions/0198e5d2-0000-7000-8000-000000000001",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&transaction_response))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = client
+            .get_transaction("realm1", "0198e5d2-0000-7000-8000-000000000001")
+            .await;
+        assert!(
+            result.is_ok(),
+            "get_transaction should succeed, got: {:?}",
+            result
+        );
+        let tx = result.unwrap();
+        assert_eq!(tx.transaction_type, "consume");
+        assert_eq!(tx.amount, 100);
+        assert_eq!(tx.balance_after, 400);
+        assert_eq!(tx.client_app_id, Some("app-001".to_string()));
+        assert_eq!(tx.description, None);
+
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_transaction_not_found() {
+        let server = MockServer::start().await;
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None);
+
+        Mock::given(method("GET"))
+            .and(path(
+                "/api/ext/points/realm1/transactions/00000000-0000-0000-0000-000000000000",
+            ))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = client
+            .get_transaction("realm1", "00000000-0000-0000-0000-000000000000")
             .await;
         assert!(result.is_err());
         match result.unwrap_err() {

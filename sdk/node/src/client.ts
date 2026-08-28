@@ -33,6 +33,7 @@ import type {
   RealmInfo,
   RealmItem,
   SubscriptionDetail,
+  TransactionDetail,
   UserInfo,
 } from './types'
 
@@ -242,6 +243,14 @@ export class HeraldClient {
         validityDays,
       },
     })
+  }
+
+  /** Single points transaction detail by transaction ID. */
+  getTransaction(realmId: string, transactionId: string): Promise<TransactionDetail> {
+    return this.requestJson(
+      'GET',
+      `/api/ext/points/${encodeURIComponent(realmId)}/transactions/${encodeURIComponent(transactionId)}`,
+    )
   }
 
   // --- Realms ---

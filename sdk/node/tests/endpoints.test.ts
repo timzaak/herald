@@ -144,6 +144,32 @@ describe('points', () => {
     })
     expect(result.expiresAt).toBe('2026-07-01T00:00:00Z')
   })
+
+  it('getTransaction hits the per-transaction path and parses null optionals', async () => {
+    server.use(
+      http.get(`${BASE_URL}/api/ext/points/realm1/transactions/tx-1`, () =>
+        HttpResponse.json({
+          transactionId: 'tx-1',
+          walletId: 'wallet-1',
+          userId: 'user-1',
+          transactionType: 'consume',
+          amount: 100,
+          balanceAfter: 400,
+          description: null,
+          clientAppId: 'app-1',
+          subscriptionId: null,
+          externalRefId: null,
+          createdAt: '2025-01-01T00:00:00Z',
+        }),
+      ),
+    )
+
+    const tx = await client().getTransaction('realm1', 'tx-1')
+
+    expect(tx.transactionType).toBe('consume')
+    expect(tx.clientAppId).toBe('app-1')
+    expect(tx.description).toBeNull()
+  })
 })
 
 describe('realms', () => {

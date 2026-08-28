@@ -43,6 +43,10 @@ async fn main() {
     let balance = client.get_balance("realm-id", "user-id").await.unwrap();
     println!("balance: {}", balance.balance);
 
+    // Get a single points transaction by ID
+    let tx = client.get_transaction("realm-id", "transaction-id").await.unwrap();
+    println!("type: {}, balanceAfter: {}", tx.transaction_type, tx.balance_after);
+
     // Consume points
     let result = client.consume_points(
         "realm-id",

@@ -55,6 +55,10 @@ console.log('subscription status:', sub.status)
 const balance = await client.getBalance('realm-id', 'user-id')
 console.log('balance:', balance.balance)
 
+// Get a single points transaction by ID
+const tx = await client.getTransaction('realm-id', 'transaction-id')
+console.log('type:', tx.transactionType, 'balanceAfter:', tx.balanceAfter)
+
 // Consume points (idempotent via idempotencyKey)
 const result = await client.consumePoints(
   'realm-id',

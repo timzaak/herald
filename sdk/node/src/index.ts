@@ -36,6 +36,7 @@ export type {
   RealmItem,
   Rule,
   SubscriptionDetail,
+  TransactionDetail,
   UserInfo,
   WalletByBucket,
 } from './types'

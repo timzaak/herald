@@ -101,6 +101,24 @@ export interface GrantPointsResponse {
   expiresAt?: string
 }
 
+/** Points transaction detail (single-transaction query).
+ *
+ * Absent optionals are serialized by the backend as `null` (not omitted),
+ * hence `| null` rather than `?`. */
+export interface TransactionDetail {
+  transactionId: string
+  walletId: string
+  userId: string
+  transactionType: string
+  amount: number
+  balanceAfter: number
+  description: string | null
+  clientAppId: string | null
+  subscriptionId: string | null
+  externalRefId: string | null
+  createdAt: string
+}
+
 /** Per-credit-type balances (`balancesByType`). */
 export interface BalancesByType {
   topup?: number
