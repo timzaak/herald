@@ -1,16 +1,16 @@
 name: Publish SDK
 
-# Publishes the Rust `herald-sdk` crate (sdk/rust/) to crates.io. Manual only
-# (workflow_dispatch). Version comes from sdk/rust/Cargo.toml (standalone
-# crate, kept in sync with the main project by scripts/release.py); commit any
-# pending bump, then run this workflow.
+# Publishes the Rust `herald-sdk` crate (sdk/rust/) to crates.io. Called by the
+# CD pipeline and available manually (workflow_dispatch). Version comes from
+# sdk/rust/Cargo.toml (standalone crate, kept in sync with the main project by
+# scripts/release.py). Select the release tag when running this workflow
+# manually.
 on:
+  workflow_call:
+    secrets:
+      CRATES_TOKEN:
+        required: true
   workflow_dispatch:
-    inputs:
-      sdk-version:
-        description: 'SDK version to publish (e.g. v0.1.0, or leave empty to use HEAD)'
-        required: false
-        type: string
 
 jobs:
   publish-sdk:

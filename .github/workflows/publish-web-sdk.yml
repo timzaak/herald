@@ -2,8 +2,9 @@ name: Publish Web SDK
 
 # Publishes the browser JS SDK (`herald-auth-web`, in sdk/web/) to the public npm
 # registry (final name per decision-log Q-js-sdk-002: the `@herald` scope is
-# unavailable — the npm name `herald` is taken). Manual only (workflow_dispatch)
-# — mirrors the Rust `publish-sdk.yml` trigger model. Version comes from
+# unavailable — the npm name `herald` is taken). Called by the CD pipeline and
+# available manually (workflow_dispatch) — mirrors the Rust `publish-sdk.yml`
+# trigger model. Version comes from
 # sdk/web/package.json and is kept in sync with the main project version by
 # the project release script (scripts/release.py); commit any pending bump,
 # then run this workflow.
@@ -12,6 +13,15 @@ name: Publish Web SDK
 # and must be regenerated from the backend OpenAPI spec (needs cargo + backend),
 # exactly like frontend-ci. We therefore install Rust before building.
 on:
+  workflow_call:
+    inputs:
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      NPM_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       dry-run:

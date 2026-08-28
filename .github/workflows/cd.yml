@@ -114,9 +114,39 @@ jobs:
           delete-untagged: true
           validate: true
 
+  publish-rust-sdk:
+    name: Publish Rust SDK
+    needs: merge
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-sdk.yml
+    secrets:
+      CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+
+  publish-node-sdk:
+    name: Publish Node SDK
+    needs: merge
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-node-sdk.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-web-sdk:
+    name: Publish Web SDK
+    needs: merge
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-web-sdk.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   release:
     name: Create GitHub Release
-    needs: merge
+    needs:
+      - publish-rust-sdk
+      - publish-node-sdk
+      - publish-web-sdk
     runs-on: ubuntu-latest
     permissions:
       contents: write
