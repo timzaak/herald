@@ -2,6 +2,10 @@
 
 [中文](README-zh.md) | English
 
+[![CI Pipeline](https://github.com/timzaak/herald/actions/workflows/ci.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/ci.yml)
+[![CD Pipeline](https://github.com/timzaak/herald/actions/workflows/cd.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/cd.yml)
+[![Release](https://img.shields.io/github/v/release/timzaak/herald)](https://github.com/timzaak/herald/releases/latest)
+
 **Open-source, self-hosted infrastructure for AI products.**
 
 Start with multi-tenant authentication, billing, payments, credits, and an admin console already connected. Adapt the open codebase with AI-assisted development, then spend your iterations on the product logic customers actually pay for.

@@ -2,6 +2,10 @@
 
 中文 | [English](README.md)
 
+[![CI Pipeline](https://github.com/timzaak/herald/actions/workflows/ci.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/ci.yml)
+[![CD Pipeline](https://github.com/timzaak/herald/actions/workflows/cd.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/cd.yml)
+[![Release](https://img.shields.io/github/v/release/timzaak/herald)](https://github.com/timzaak/herald/releases/latest)
+
 **面向 AI 产品的开源、自托管基础设施。**
 
 从已经打通的多租户认证、计费、支付、积分和管理后台开始，借助 AI 辅助开发持续改造开放代码，把每一次迭代都用在客户真正愿意付费的产品逻辑上。
