@@ -42,6 +42,11 @@ pub mod ext {
     pub use herald_api_ext::*;
 }
 
+// mcp module: re-exported from herald_api_mcp
+pub mod mcp {
+    pub use herald_api_mcp::*;
+}
+
 // oauth module: re-exported from herald_api_oauth
 pub mod oauth {
     pub use herald_api_oauth::*;

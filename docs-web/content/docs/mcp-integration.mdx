@@ -1,0 +1,127 @@
+---
+title: MCP Integration for AI Agents
+description: "Connect Claude Code, Cursor, VS Code, or any MCP client to your Herald realm with a Client API Key and query users, points, audit logs, and config status through five read-only tools."
+---
+
+Herald ships an official MCP (Model Context Protocol) server, so your AI agent can query your realm's data with structured tool semantics instead of reading REST docs and hand-writing calls. Connect once with a Client API Key and the agent gets five read-only tools covering the day-to-day operations surface.
+
+The endpoint is a standard MCP Streamable HTTP endpoint (`/mcp`, protocol version 2026-07-28) served by your Herald instance — the same domain as the REST API, no separate deployment.
+
+## 1. Prepare an API Key
+
+1. In the Herald admin console, create a **Client API Key** for your realm.
+2. Bind it to one or more **roles** that carry the permissions for the tools you want:
+
+| Tool | Required permission |
+|------|--------------------|
+| `query_users` | `users.view` |
+| `get_points_balance` | `points.view` |
+| `list_points_transactions` | `points.view` |
+| `list_audit_logs` | `audit.view` |
+| `get_realm_config_status` | `settings.view` |
+
+3. **Create a dedicated key for agent access and grant only the query permissions you need** (least privilege). A key without a tool's permission gets a clear `permission_denied` error and zero data — you can widen access later by editing its roles.
+
+New to Client API Keys and role binding? The [third-party integration guide](/docs/third-party-integration) walks through the same admin-console preparation in detail.
+
+Every call is rate-limited to 60 requests per 60 seconds per key.
+
+## 2. Connect Your Agent Client
+
+The server accepts the API key either as `X-API-Key` or as `Authorization: Bearer`. Use whichever your client supports.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http herald https://your-herald-host/mcp \
+  --header "X-API-Key: sk-your-api-key"
+```
+
+**Cursor** (`.cursor/mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "herald": {
+      "url": "https://your-herald-host/mcp",
+      "headers": { "X-API-Key": "sk-your-api-key" }
+    }
+  }
+}
+```
+
+**VS Code** (`.vscode/mcp.json`, or via MCP: Add Server → HTTP)
+
+```json
+{
+  "servers": {
+    "herald": {
+      "type": "http",
+      "url": "https://your-herald-host/mcp",
+      "headers": { "X-API-Key": "sk-your-api-key" }
+    }
+  }
+}
+```
+
+For clients that only support `Authorization`, use `"Authorization": "Bearer sk-your-api-key"` instead of the `X-API-Key` header — Herald interprets the Bearer credential as the API key.
+
+A missing, invalid, disabled, or expired key (or a key whose Client App was disabled) is rejected at connection time with HTTP 401.
+
+## 3. Connectivity Self-Check
+
+After connecting, ask the agent:
+
+> Use the herald `get_realm_config_status` tool.
+
+This tool takes no arguments and reads the least data of the five. A successful result — the realm id echoed back with the list of configuration entries and their enabled flags — proves the whole chain works: connection, API key, RBAC, and data access.
+
+## 4. The Tools
+
+### query_users
+
+List or look up users in the key's realm. Requires `users.view`.
+
+| Argument | Type | Required | Notes |
+|----------|------|----------|-------|
+| `userId` | UUID | no | Fetch one user's detail |
+| `email` | string | no | Exact email filter (list mode) |
+| `page` | int | no | 1-based, default 1 |
+| `pageSize` | int | no | Default 20, max 100 |
+
+Returns `{users[], page, pageSize, total}` with `id`, `email`, `nickname`, `status` (1=normal), `createdAt` per user.
+
+### get_points_balance
+
+A user's points balance. Requires `points.view`. Takes a required `userId` (UUID). The `scope` field tells you what the balance covers: `"realm"` (all buckets) or `"client_app"` (only buckets covered by the key's bound client app).
+
+### list_points_transactions
+
+A user's points history, newest first. Requires `points.view`. Takes a required `userId`, optional `transactionType` (`recharge`, `consume`, `subscription_grant`, …), optional `startTime`/`endTime` (RFC 3339), and `page`/`pageSize`. `amount` is signed — consumption is negative.
+
+### list_audit_logs
+
+Audit events for the realm. Requires `audit.view`. Optional filters: `category` (`user_management`, `rbac`, `auth`, …), `action` (e.g. `user.create`), `actorId`, `startTime`/`endTime` (RFC 3339 or `YYYY-MM-DD`), `page`/`pageSize`.
+
+### get_realm_config_status
+
+Which configuration entries exist and whether they are enabled. Requires `settings.view`. No arguments. Configuration **values are never returned** — not even non-sensitive ones.
+
+## 5. Error Semantics
+
+Business errors come back as tool-level errors the agent can read and act on, never as raw stack traces:
+
+| Code | Meaning | What to do |
+|------|---------|------------|
+| `permission_denied` | The key lacks the tool's permission | Ask your realm admin to grant it to a role bound to the key |
+| `not_found` | Resource does not exist in this realm | Check the id; cross-realm ids always read as not found |
+| `invalid_argument` | Malformed UUID / enum / timestamp / page | Follow the message — it names the field and expected format |
+| `internal_error` | Server-side failure | Retry later |
+
+Tools never return partial data alongside an error.
+
+## 6. Data Minimization
+
+Tool outputs are deliberately narrow because agents may carry results into third-party models: audit tools never expose IP addresses, user agents, trace ids, or event details; config status never exposes values; transaction listings omit wallet/bucket/correlation attribution; balance queries omit lifetime totals.
+
+Read-only is also deliberate. Five query tools are the entire surface — write operations (creating users, granting points, changing config) are excluded on purpose and will only arrive tool-by-tool after a per-tool security review. For writes, or for the full field surface, use the REST API with the same API key: see the [third-party integration guide](/docs/third-party-integration) and the [OpenAPI reference](/docs/openapi).

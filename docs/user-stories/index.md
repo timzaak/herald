@@ -12,7 +12,7 @@
 | 用户生命周期与合规 | 注册/登录 → 资料维护 → 协议确认 → 账户注销 | [普通用户](core/regular-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
 | 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
-| 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md) |
+| 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
 | 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md) |
 | 积分与余额 | 策略配置 → 免费/付费发放 → 分账户持有和消费 → 查询历史 | [积分管理](billing/points-admin.md)、[免费积分](billing/points-free-user.md)、[积分包购买](billing/points-package-purchase.md)、[用户积分](billing/points-user.md)、[异步支付积分](billing/async-payment-points.md)、[积分账户](billing/credit-bucket.md)、[多钱包分发规则](billing/multi-wallet-grant-rules.md) |
 | 发票与退款凭证 | 支付归属 → 发票同步/开具 → 退款和 Credit Note | [发票与 Provider Fallback](billing/invoice.md)、[支付-发票归属](billing/payment-invoice-mapping.md) |
@@ -277,6 +277,12 @@
 | US-MC-004 | 按（显式选定的）货币价格行发起购买 | Regular User | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-4按显式选定的货币价格行发起购买-us-mc-004) |
 | US-MC-005 | 查询可购权益支持的货币集合 | Third-Party App | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-5查询可购权益支持的货币集合-us-mc-005) |
 | US-MC-006 | Creem / IAP / WeChat Pay 单一价格降级展示 | Regular User | P2 | [billing/multiple-currency](billing/multiple-currency.md#故事-6creem--iap--wechat-pay-单一价格降级展示-us-mc-006) |
+| US-MCP-001 | 把 Herald 接入 AI agent 客户端 | Third-Party App | P0 | [integration/mcp-server](integration/mcp-server.md#故事-1把-herald-接入-ai-agent-客户端-us-mcp-001) |
+| US-MCP-002 | 通过 agent 查询用户 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-2通过-agent-查询用户-us-mcp-002) |
+| US-MCP-003 | 通过 agent 查询积分余额 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-3通过-agent-查询积分余额-us-mcp-003) |
+| US-MCP-004 | 通过 agent 查询积分交易流水 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-4通过-agent-查询积分交易流水-us-mcp-004) |
+| US-MCP-005 | 通过 agent 查询审计日志 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-5通过-agent-查询审计日志-us-mcp-005) |
+| US-MCP-006 | 通过 agent 查询 Realm 配置状态 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-6通过-agent-查询-realm-配置状态-us-mcp-006) |
 
 ---
 
@@ -335,6 +341,7 @@
 | SDK | [integration/sdk.md](integration/sdk.md) | [SDK PRD](/docs/prd/integration/sdk.md) |
 | JS 浏览器 SDK | [integration/js-sdk.md](integration/js-sdk.md) | [JS 浏览器 SDK PRD](/docs/prd/integration/js-sdk.md) |
 | 自建用户 UI | [integration/custom-user-ui.md](integration/custom-user-ui.md) | [自建用户 UI PRD](/docs/prd/integration/custom-user-ui.md) |
+| MCP Server | [integration/mcp-server.md](integration/mcp-server.md) | [MCP Server PRD](/docs/prd/integration/mcp-server.md) |
 
 ## 特殊文档
 

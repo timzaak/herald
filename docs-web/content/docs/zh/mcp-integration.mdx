@@ -1,0 +1,127 @@
+---
+title: MCP 集成（AI Agent 接入）
+description: "用 Client API Key 把 Claude Code、Cursor、VS Code 等 MCP 客户端接入 Herald 租户，通过五个只读工具查询用户、积分、审计日志与配置状态。"
+---
+
+Herald 提供官方 MCP（Model Context Protocol）服务，你的 AI agent 可以用结构化的工具语义查询租户数据，而不必阅读 REST 文档后手写调用。用 Client API Key 完成一次接入，agent 即获得覆盖日常运营数据面的五个只读工具。
+
+端点是标准 MCP Streamable HTTP 端点（`/mcp`，协议版本 2026-07-28），由你的 Herald 实例自身提供——与 REST API 同域名，无需独立部署。
+
+## 1. 准备 API Key
+
+1. 在 Herald 管理后台为你的租户创建一个 **Client API Key**。
+2. 为它绑定携带所需权限的**角色**：
+
+| 工具 | 所需权限 |
+|------|----------|
+| `query_users` | `users.view` |
+| `get_points_balance` | `points.view` |
+| `list_points_transactions` | `points.view` |
+| `list_audit_logs` | `audit.view` |
+| `get_realm_config_status` | `settings.view` |
+
+3. **为 agent 接入创建专用 key，只授予需要的查询权限**（最小权限）。缺少权限的工具会返回清晰的 `permission_denied` 错误且不返回任何数据——之后可以随时通过调整角色放宽。
+
+第一次创建 Client API Key 和绑定角色？[第三方后端集成指南](/docs/zh/third-party-integration)对同一套管理后台准备步骤有完整走查。
+
+每个 key 的调用限额为 60 次 / 60 秒。
+
+## 2. 连接你的 Agent 客户端
+
+服务端接受 `X-API-Key` 或 `Authorization: Bearer` 两种凭证形态，任选客户端支持的一种。
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http herald https://your-herald-host/mcp \
+  --header "X-API-Key: sk-your-api-key"
+```
+
+**Cursor**（`.cursor/mcp.json`）
+
+```json
+{
+  "mcpServers": {
+    "herald": {
+      "url": "https://your-herald-host/mcp",
+      "headers": { "X-API-Key": "sk-your-api-key" }
+    }
+  }
+}
+```
+
+**VS Code**（`.vscode/mcp.json`，或 MCP: Add Server → HTTP）
+
+```json
+{
+  "servers": {
+    "herald": {
+      "type": "http",
+      "url": "https://your-herald-host/mcp",
+      "headers": { "X-API-Key": "sk-your-api-key" }
+    }
+  }
+}
+```
+
+仅支持 `Authorization` 定制的客户端可改用 `"Authorization": "Bearer sk-your-api-key"`——Herald 会把 Bearer 凭证按 API Key 解释。
+
+凭证缺失、无效、已禁用、已过期，或其绑定的 Client App 被禁用时，连接在 HTTP 401 层被直接拒绝。
+
+## 3. 连通性自检
+
+连接完成后，让 agent 执行：
+
+> 使用 herald 的 `get_realm_config_status` 工具。
+
+该工具零入参、读取的数据量最小。返回成功（回显租户 ID 与各配置项及其启用状态）即证明「连接 + API Key + RBAC + 取数」全链路可用。
+
+## 4. 工具清单
+
+### query_users
+
+查询本租户用户列表或详情。需要 `users.view`。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `userId` | UUID | 否 | 查询单个用户详情 |
+| `email` | string | 否 | 按邮箱精确过滤（列表模式） |
+| `page` | int | 否 | 1 起，默认 1 |
+| `pageSize` | int | 否 | 默认 20，最大 100 |
+
+返回 `{users[], page, pageSize, total}`，每个用户含 `id`、`email`、`nickname`、`status`（1=正常）、`createdAt`。
+
+### get_points_balance
+
+查询用户积分余额。需要 `points.view`。必填 `userId`（UUID）。`scope` 字段标明余额口径：`"realm"`（全部桶）或 `"client_app"`（仅 key 绑定的 client app 覆盖的桶）。
+
+### list_points_transactions
+
+查询用户积分流水，最新在前。需要 `points.view`。必填 `userId`；可选 `transactionType`（`recharge`、`consume`、`subscription_grant` 等）、`startTime`/`endTime`（RFC 3339）、`page`/`pageSize`。`amount` 带符号——消耗为负。
+
+### list_audit_logs
+
+查询本租户审计日志。需要 `audit.view`。可选过滤：`category`（`user_management`、`rbac`、`auth` 等）、`action`（如 `user.create`）、`actorId`、`startTime`/`endTime`（RFC 3339 或 `YYYY-MM-DD`）、`page`/`pageSize`。
+
+### get_realm_config_status
+
+查询各配置项的存在与启用状态。需要 `settings.view`。零入参。**任何情况下都不返回配置值**——非敏感值也一样。
+
+## 5. 错误语义
+
+业务错误以工具级错误返回，agent 可读、可行动，绝不暴露内部细节：
+
+| Code | 含义 | 处理方式 |
+|------|------|----------|
+| `permission_denied` | key 缺少该工具所需权限 | 请租户管理员为 key 绑定的角色授予权限 |
+| `not_found` | 资源在本租户不存在 | 检查 id；跨租户 id 一律表现为 not found |
+| `invalid_argument` | UUID / 枚举 / 时间 / 分页参数非法 | 按错误文案修正——文案会指明字段与期望格式 |
+| `internal_error` | 服务端错误 | 稍后重试 |
+
+工具出错时不返回任何部分数据。
+
+## 6. 数据最小化
+
+工具返回字段刻意收窄——agent 可能把结果带入第三方模型：审计工具不透出 IP、User Agent、Trace ID 与事件详情；配置状态不透出任何配置值；流水不透出钱包/桶/关联归属字段；余额不透出生命周期统计。
+
+只读同样是刻意设计。五个查询工具就是当前的全部能力——写操作（创建用户、发放积分、修改配置）被有意排除，只会在逐工具安全评审后按工具逐步加入。需要写入数据或完整字段面时，用同一 API Key 走 REST API：参见[第三方后端集成指南](/docs/zh/third-party-integration)与 [OpenAPI 参考](/docs/openapi)。

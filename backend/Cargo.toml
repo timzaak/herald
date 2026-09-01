@@ -15,6 +15,7 @@ members = [
     "api-admin",
     "api-auth",
     "api-ext",
+    "api-mcp",
     "api-oauth",
     "api-points",
     "api",
@@ -160,6 +161,11 @@ ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ri
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-native-certs = "0.8"
+
+# MCP official Rust SDK: locked to the 3.1 minor line (3.2+ exists; the
+# integration surface is narrow — single transport + tool macros — and minor
+# releases have already renamed config types, so keep upgrades deliberate).
+rmcp = { version = "~3.1", features = ["schemars", "transport-streamable-http-server"] }
 
 # URL parsing
 url = "2.5"

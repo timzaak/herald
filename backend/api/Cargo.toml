@@ -26,6 +26,7 @@ herald-api-billing = { path = "../api-billing" }
 herald-api-admin = { path = "../api-admin" }
 herald-api-auth = { path = "../api-auth" }
 herald-api-ext = { path = "../api-ext" }
+herald-api-mcp = { path = "../api-mcp" }
 herald-api-oauth = { path = "../api-oauth" }
 herald-api-points = { path = "../api-points" }
 
@@ -103,3 +104,9 @@ ciborium = "0.2"
 # Google One Tap scenario tests sign test OIDC ID Tokens (RS256 JWT) with the
 # `rsa` keypair above.
 jsonwebtoken = { workspace = true }
+# MCP scenario tests: real rmcp client transport against the /mcp route.
+rmcp = { workspace = true, features = ["transport-streamable-http-client", "transport-streamable-http-client-reqwest", "client"] }
+# rmcp 3.1's StreamableHttpClient impl targets reqwest 0.13; the workspace
+# reqwest is 0.12. Renamed dep gives the tests the same reqwest copy rmcp
+# uses (feature set mirrors rmcp's own [dependencies.reqwest]).
+rmcp-test-reqwest = { package = "reqwest", version = "0.13", default-features = false, features = ["json", "stream"] }

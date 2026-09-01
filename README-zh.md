@@ -80,8 +80,16 @@ Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/cont
 - **完整文档全文（LLM）：** https://www.fornetcode.com/llms-full.txt
 - **单页 Markdown：** 在任意文档 URL 后加 `.md`，例如 https://www.fornetcode.com/zh/docs/auth-passkey.md
 - **API 参考（OpenAPI）：** [`docs-web/openapi.json`](docs-web/openapi.json)
+- **MCP 服务：** 用 Client API Key 直连，通过五个只读工具查询你的租户：
 
-仓库内 MDX 源文件：`docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`。
+  ```bash
+  claude mcp add --transport http herald https://your-herald-host/mcp \
+    --header "X-API-Key: sk-your-api-key"
+  ```
+
+  连接后用零入参的 `get_realm_config_status` 工具做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/mcp-integration)。
+
+仓库内 MDX 源文件：`docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,mcp-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`。
 
 ## 许可证
 

@@ -804,7 +804,13 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 )),
         )
         // External API routes
-        .nest("/api/ext", super::ext::create_router((*state).clone()));
+        .nest("/api/ext", super::ext::create_router((*state).clone()))
+        // MCP protocol endpoint. Top-level path by design: a protocol
+        // surface, not a REST resource — no OpenAPI, no admin-console token
+        // gate (auth is the crate's own API-key middleware). Mounted here
+        // (inside create_api_routes) so request-id / metrics / trace / CORS
+        // still apply.
+        .nest("/mcp", super::mcp::create_mcp_router((*state).clone()));
 
     router.merge(billing_test_routes)
 }

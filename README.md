@@ -80,8 +80,16 @@ Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-
 - **Full doc text (for LLMs):** https://www.fornetcode.com/llms-full.txt
 - **Single page as Markdown:** append `.md` to any doc URL, e.g. https://www.fornetcode.com/en/docs/auth-passkey.md
 - **API reference (OpenAPI):** [`docs-web/openapi.json`](docs-web/openapi.json)
+- **MCP server:** connect directly with a Client API Key and query your realm through five read-only tools:
 
-Source MDX files (in-repo): `docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`.
+  ```bash
+  claude mcp add --transport http herald https://your-herald-host/mcp \
+    --header "X-API-Key: sk-your-api-key"
+  ```
+
+  Then self-check with the zero-argument `get_realm_config_status` tool. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/mcp-integration).
+
+Source MDX files (in-repo): `docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,mcp-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`.
 
 ## License
 

@@ -1,0 +1,27 @@
+[package]
+name = "herald-api-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+herald-api-base = { path = "../api-base" }
+herald-core = { path = "../core" }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+
+# MCP official Rust SDK (workspace-pinned to the 3.1 minor line).
+rmcp = { workspace = true }
+# Must resolve to the same schemars copy rmcp 3.1 uses, or the JsonSchema
+# derives produce a trait from a different crate version. Declared here
+# (not in [workspace.dependencies]) so this crate alone pins the alignment.
+schemars = "1"

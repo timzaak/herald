@@ -15,6 +15,7 @@
     "billing-invoice",
     "billing-credit-note",
     "third-party-integration",
+    "mcp-integration",
     "custom-user-ui",
     "auth-passkey",
     "auth-email-otp",
