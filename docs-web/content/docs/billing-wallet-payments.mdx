@@ -1,0 +1,97 @@
+---
+title: Wallet Payments (Google Pay / Apple Pay)
+description: "Enable Google Pay and Apple Pay on your existing Stripe and Creem checkout rails. Web wallets appear on the hosted checkout pages; mobile apps declare the PaymentIntent flow and confirm with native wallet SDKs."
+---
+
+Enable Google Pay and Apple Pay on your existing Stripe and Creem checkout rails. Web wallets appear on the hosted checkout pages; mobile apps declare the PaymentIntent flow and confirm with native wallet SDKs.
+
+## Who this is for
+
+Two audiences read this page for different reasons. Realm Admins who want the wallet buttons to show up for web buyers — that part is account-side configuration, and Herald needs no code changes. Mobile developers integrating a Herald purchase into an iOS or Android app who want to confirm payment with Apple Pay or Google Pay instead of opening a checkout page in a browser — that part uses the PaymentIntent flow described below.
+
+## Core concepts
+
+Wallets are a funding source, not a payment channel. A purchase paid with Apple Pay flows through the same Stripe rails as a card purchase: the same payment attempt, the same webhook, the same fulfillment by billing type. Nothing about entitlements, points, or subscriptions changes based on how the user paid.
+
+There are two distinct surfaces:
+
+- **Web (hosted checkout)**: buyers are redirected to the Stripe Hosted Checkout or Creem hosted page, exactly as today. When the wallet is enabled on the account side and the buyer's browser qualifies, the wallet button appears on that page by itself. Herald never renders wallet buttons in its own UI.
+- **Mobile app (PaymentIntent flow)**: instead of a redirect, the app declares `flow: "payment_intent"` when creating the payment attempt and receives a real Stripe `clientSecret` (`pi_..._secret_...`). The app's native wallet SDK — PassKit on iOS, Google Pay on Android — uses that secret to confirm the payment inside the app. Fulfillment still happens through the webhook when Stripe reports the intent succeeded.
+
+Two boundary rules hold in both cases. The `clientSecret` is returned only on the attempt-creation response, only to the attempt owner — never on the status endpoint. And the Stripe publishable key (`pk_...`) is exposed through the provider list so the mobile Stripe SDK can initialize; the secret key and webhook secret are never exposed anywhere.
+
+The PaymentIntent flow is restricted: Stripe only, one-time purchases only (credit packs and buyouts). Subscriptions need the hosted Checkout lifecycle, and Creem has no raw PaymentIntent surface — a request that declares the flow for anything else is rejected with a clear error rather than silently falling back to a hosted redirect.
+
+## Step 1: Web wallets — enable on the account side
+
+Nothing in Herald changes for web wallet payments.
+
+For Stripe:
+
+1. Open the Stripe Dashboard, go to **Payment settings → Payment methods**
+2. Enable **Apple Pay** and **Google Pay** for your account
+3. Save. New Stripe Hosted Checkout sessions start offering the wallets immediately
+
+Whether a buyer actually sees the button depends on their browser: Apple Pay requires Safari on an Apple device, Google Pay requires Chrome, and both require HTTPS. If a buyer reports the wallet is missing, this browser matrix is the first thing to check — not the Herald configuration.
+
+For Creem, wallets are part of the Merchant-of-Record checkout. Availability follows your Creem account configuration and the buyer's region and currency (USD and EUR); there is no separate switch to flip.
+
+## Step 2: Mobile app — the PaymentIntent flow
+
+The purchase still starts from the same endpoint every other provider uses. The only difference is the `flow` field:
+
+```json
+POST /api/bill/{realmId}/purchase/payment-attempts
+Authorization: Bearer <browser token with purchase scope>
+
+{
+  "targetType": "entitlement_mapping",
+  "targetId": "<mapping uuid>",
+  "paymentProvider": "stripe",
+  "flow": "payment_intent"
+}
+```
+
+The response's `paymentContext` carries `clientSecret` and no `stripeCheckoutUrl`:
+
+```json
+{
+  "paymentContext": {
+    "clientSecret": "pi_abc123_secret_xyz"
+  }
+}
+```
+
+Omitting `flow` (or sending `"hosted"`) gives the redirect behavior unchanged — existing clients keep working without any change.
+
+To confirm the payment, the app needs the Stripe publishable key. Fetch it from the provider list:
+
+```json
+GET /api/third/pay/{realmId}/providers
+```
+
+The `stripe` entry includes `publishableKey: "pk_..."`. Other providers' entries have no such field — do not expect it on Creem.
+
+On the client, initialize the Stripe SDK with the publishable key and confirm the PaymentIntent with the wallet:
+
+- **iOS**: `PaymentSheet` or `STPAPIClient.confirmPayment` with a PassKit `PKPayment`
+- **Android**: the Google Pay launcher, returning the token to the Stripe SDK
+
+Herald never sees the wallet confirmation itself. When the intent succeeds, Stripe fires the `payment_intent.succeeded` webhook, Herald matches it back to the attempt through metadata, and fulfillment runs exactly as it does for a hosted checkout — subscription created, points granted, or one-time role assigned by billing type. The app polls the attempt status endpoint to learn when fulfillment completed.
+
+If the wallet confirmation fails on the device, nothing happens on the Herald side: the attempt stays pending, and your app handles retry or fallback UX. The attempt expires on the usual schedule if never completed.
+
+## Step 3: When the wallet button does not appear
+
+A short checklist, because "Herald doesn't support wallets" is almost always one of these instead:
+
+- **Stripe Dashboard**: Apple Pay / Google Pay not enabled on the account
+- **Browser**: Apple Pay needs Safari on an Apple device; Google Pay needs Chrome; both need HTTPS
+- **Creem**: buyer's region or currency (USD/EUR) outside wallet availability
+- **Mobile**: missing Apple Merchant ID or Google Play configuration in the app itself — that is integrator territory, Herald does not hold those credentials
+
+## Related
+
+- [Stripe Integration](/docs/billing-stripe-payment) — the checkout rails wallets ride on
+- [Creem Integration](/docs/billing-creem-payment) — Merchant-of-Record checkout with built-in wallets
+- [Custom User UI](/docs/custom-user-ui) — the browser-token purchase path mobile apps reuse

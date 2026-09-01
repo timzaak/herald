@@ -17,7 +17,7 @@ use herald_domain::purchase::errors::{PurchaseErrorExt, PurchaseResult};
 use herald_domain::purchase::ports::{FulfillmentResult, FulfillmentService};
 use herald_domain::purchase::services::{
     CompletePaymentAttemptInput, CreateIapAttemptInput, CreatedPaymentAttempt,
-    PaymentCompletionSource, PreparePaymentAttemptInput, PreparedPaymentAttempt,
+    PaymentCompletionSource, PaymentFlow, PreparePaymentAttemptInput, PreparedPaymentAttempt,
     PurchaseTargetSnapshot, metadata_keys,
 };
 use herald_domain::user::UserRoleRepository;
@@ -51,7 +51,31 @@ fn build_herald_metadata(
 }
 
 use herald_infra_creem::{CreateCheckoutRequest as CreemCreateCheckoutRequest, CreemClient};
-use herald_infra_stripe::{CreateCheckoutRequest as StripeCreateCheckoutRequest, StripeClient};
+use herald_infra_stripe::{
+    CreateCheckoutRequest as StripeCreateCheckoutRequest, CreatePaymentIntentRequest, StripeClient,
+};
+
+/// flow × provider × billing_type combination gate. `PaymentIntent` is a
+/// Stripe-only, one-time-only escape hatch from the hosted checkout journey.
+fn validate_flow_combination(
+    payment_provider: &str,
+    billing_type: Option<BillingType>,
+    flow: PaymentFlow,
+) -> PurchaseResult<()> {
+    if flow == PaymentFlow::PaymentIntent {
+        if payment_provider != "stripe" {
+            return Err(CoreError::BadRequest(
+                "payment_intent flow is only supported for stripe".into(),
+            ));
+        }
+        if billing_type != Some(BillingType::OneTime) {
+            return Err(CoreError::BadRequest(
+                "payment_intent flow is only supported for one-time purchases".into(),
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub struct PurchaseService<B, PA, F, UR>
 where
@@ -167,6 +191,7 @@ where
         input: PreparePaymentAttemptInput,
     ) -> PurchaseResult<CreatedPaymentAttempt> {
         let user_email = input.user_email.clone();
+        let flow = input.flow;
         let payment_scene = input.payment_scene.clone();
         let openid = input.openid.clone();
         let prepared = self.prepare_payment_attempt(input).await?;
@@ -180,6 +205,7 @@ where
                 &prepared.attempt.payment_provider,
                 &prepared.target,
                 prepared.attempt.id,
+                flow,
                 user_email.as_deref(),
                 payment_scene.as_deref(),
                 openid.as_deref(),
@@ -483,11 +509,13 @@ where
         payment_provider: &str,
         target: &PurchaseTargetSnapshot,
         attempt_id: Uuid,
+        flow: PaymentFlow,
         user_email: Option<&str>,
         payment_scene: Option<&str>,
         openid: Option<&str>,
         attempt_expires_at: chrono::DateTime<chrono::Utc>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
+        validate_flow_combination(payment_provider, target.billing_type.clone(), flow)?;
         match payment_provider {
             "creem" => {
                 self.build_creem_payment_context(
@@ -509,6 +537,7 @@ where
                     target_id,
                     target,
                     attempt_id,
+                    flow,
                     user_email,
                 )
                 .await
@@ -593,77 +622,115 @@ where
         target_id: Uuid,
         target: &PurchaseTargetSnapshot,
         attempt_id: Uuid,
+        flow: PaymentFlow,
         user_email: Option<&str>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
         let client = self.get_stripe_client_for_realm(realm_id).await?;
 
         let metadata = build_herald_metadata(realm_id, user_id, target_type, target_id, attempt_id);
 
-        let mode = match target.billing_type {
-            Some(BillingType::OneTime) => Some("payment".to_string()),
-            _ => None, // defaults to "subscription" in the client
-        };
+        match flow {
+            // Mobile wallet flow: return a raw PaymentIntent client_secret;
+            // the native Stripe SDK (PassKit / Google Pay) confirms
+            // client-side. The metadata already carries `attemptId`, so the
+            // existing `payment_intent.succeeded` webhook dispatch keys back
+            // to the attempt — no new webhook code.
+            PaymentFlow::PaymentIntent => {
+                let intent = client
+                    .create_payment_intent(&CreatePaymentIntentRequest {
+                        amount: target.amount,
+                        currency: target.currency.clone(),
+                        receipt_email: user_email.map(|e| e.to_string()),
+                        metadata,
+                    })
+                    .await
+                    .map_err(|e| {
+                        CoreError::InternalServerError(format!(
+                            "Failed to create Stripe payment intent: {e}"
+                        ))
+                    })?;
 
-        let session = client
-            .create_checkout_session(&StripeCreateCheckoutRequest {
-                client_app_id: target_id,
-                mapping_id: target_id,
-                user_id: Some(user_id),
-                customer_email: Some(
-                    user_email
-                        .expect("validated in prepare_payment_attempt")
-                        .to_owned(),
-                ),
-                // Redirect the user back to the purchase page (UX bounce only;
-                // payment status is confirmed via webhook). `public_base_url`
-                // holds the frontend base URL (set from `config.frontend.url`),
-                // and `attemptId` lets the page resume processing-step polling.
-                success_url: format!(
-                    "{}/{}/user/purchase-points?attemptId={}&status=success",
-                    self.public_base_url, realm_id, attempt_id
-                ),
-                cancel_url: format!(
-                    "{}/{}/user/purchase-points?attemptId={}&status=cancel",
-                    self.public_base_url, realm_id, attempt_id
-                ),
-                billing_period: target
-                    .billing_period
-                    .clone()
-                    .unwrap_or_else(|| "monthly".to_string()),
-                trial_days: None,
-                price_amount: target.amount,
-                currency: target.currency.clone(),
-                plan_name: target.title.clone(),
-                // Reference the real Stripe Price when the mapping carries one;
-                // None falls back to price_data in the client.
-                price_id: target.provider_external_price_id.clone(),
-                realm_id: realm_id.to_string(),
-                webhook_url: Some(format!(
-                    "{}/api/third/pay/{}/stripe/webhooks",
-                    self.public_base_url, realm_id
-                )),
-                metadata: Some(metadata),
-                mode,
-            })
-            .await
-            .map_err(|e| {
-                CoreError::InternalServerError(format!(
-                    "Failed to create Stripe checkout session: {e}"
+                Ok((
+                    Some(intent.id),
+                    PaymentContext {
+                        stripe_checkout_url: None,
+                        creem_checkout_url: None,
+                        client_secret: Some(intent.client_secret),
+                        wechat_code_url: None,
+                        wechat_jsapi_params: None,
+                    },
                 ))
-            })?;
+            }
+            PaymentFlow::Hosted => {
+                let mode = match target.billing_type {
+                    Some(BillingType::OneTime) => Some("payment".to_string()),
+                    _ => None, // defaults to "subscription" in the client
+                };
 
-        let client_secret = session.payment_intent.or_else(|| Some(session.id.clone()));
+                let session = client
+                    .create_checkout_session(&StripeCreateCheckoutRequest {
+                        client_app_id: target_id,
+                        mapping_id: target_id,
+                        user_id: Some(user_id),
+                        customer_email: Some(
+                            user_email
+                                .expect("validated in prepare_payment_attempt")
+                                .to_owned(),
+                        ),
+                        // Redirect the user back to the purchase page (UX bounce only;
+                        // payment status is confirmed via webhook). `public_base_url`
+                        // holds the frontend base URL (set from `config.frontend.url`),
+                        // and `attemptId` lets the page resume processing-step polling.
+                        success_url: format!(
+                            "{}/{}/user/purchase-points?attemptId={}&status=success",
+                            self.public_base_url, realm_id, attempt_id
+                        ),
+                        cancel_url: format!(
+                            "{}/{}/user/purchase-points?attemptId={}&status=cancel",
+                            self.public_base_url, realm_id, attempt_id
+                        ),
+                        billing_period: target
+                            .billing_period
+                            .clone()
+                            .unwrap_or_else(|| "monthly".to_string()),
+                        trial_days: None,
+                        price_amount: target.amount,
+                        currency: target.currency.clone(),
+                        plan_name: target.title.clone(),
+                        // Reference the real Stripe Price when the mapping carries one;
+                        // None falls back to price_data in the client.
+                        price_id: target.provider_external_price_id.clone(),
+                        realm_id: realm_id.to_string(),
+                        webhook_url: Some(format!(
+                            "{}/api/third/pay/{}/stripe/webhooks",
+                            self.public_base_url, realm_id
+                        )),
+                        metadata: Some(metadata),
+                        mode,
+                    })
+                    .await
+                    .map_err(|e| {
+                        CoreError::InternalServerError(format!(
+                            "Failed to create Stripe checkout session: {e}"
+                        ))
+                    })?;
 
-        Ok((
-            Some(session.id),
-            PaymentContext {
-                stripe_checkout_url: Some(session.url),
-                creem_checkout_url: None,
-                client_secret,
-                wechat_code_url: None,
-                wechat_jsapi_params: None,
-            },
-        ))
+                Ok((
+                    Some(session.id),
+                    PaymentContext {
+                        stripe_checkout_url: Some(session.url),
+                        creem_checkout_url: None,
+                        // A checkout session exposes no client_secret; the
+                        // old fallback stuffed the PI id (or session id)
+                        // here, which is not a secret and misled mobile
+                        // integrators.
+                        client_secret: None,
+                        wechat_code_url: None,
+                        wechat_jsapi_params: None,
+                    },
+                ))
+            }
+        }
     }
 
     async fn build_wechat_payment_context(
@@ -827,6 +894,83 @@ where
             PaymentCompletionSource::ProviderWebhook { provider } => Err(CoreError::BadRequest(
                 format!("Unsupported payment completion source provider: {provider}"),
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod flow_combination_tests {
+    use super::validate_flow_combination;
+    use herald_domain::billing::entities::BillingType;
+    use herald_domain::common::entities::app_errors::CoreError;
+    use herald_domain::purchase::services::PaymentFlow;
+
+    // The combination gate protects the mobile wallet escape hatch: a raw
+    // PaymentIntent exists only on Stripe's one-time rails. Anything else
+    // must 400 before a provider call is made — silently accepting would
+    // strand non-stripe/recurring buyers with a client_secret no wallet
+    // SDK can confirm.
+    #[test]
+    fn stripe_one_time_payment_intent_is_ok() {
+        assert!(
+            validate_flow_combination(
+                "stripe",
+                Some(BillingType::OneTime),
+                PaymentFlow::PaymentIntent
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn non_stripe_payment_intent_is_rejected() {
+        let err = validate_flow_combination(
+            "creem",
+            Some(BillingType::OneTime),
+            PaymentFlow::PaymentIntent,
+        )
+        .unwrap_err();
+        match err {
+            CoreError::BadRequest(msg) => {
+                assert!(
+                    msg.contains("only supported for stripe"),
+                    "unexpected: {msg}"
+                )
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recurring_payment_intent_is_rejected() {
+        let err = validate_flow_combination(
+            "stripe",
+            Some(BillingType::Recurring),
+            PaymentFlow::PaymentIntent,
+        )
+        .unwrap_err();
+        match err {
+            CoreError::BadRequest(msg) => {
+                assert!(msg.contains("one-time"), "unexpected: {msg}")
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hosted_flow_is_always_ok() {
+        for (provider, billing_type) in [
+            ("stripe", Some(BillingType::OneTime)),
+            ("stripe", Some(BillingType::Recurring)),
+            ("stripe", None),
+            ("creem", Some(BillingType::OneTime)),
+            ("wechat", None),
+        ] {
+            assert!(
+                validate_flow_combination(provider, billing_type.clone(), PaymentFlow::Hosted)
+                    .is_ok(),
+                "hosted must stay valid for {provider}/{billing_type:?}"
+            );
         }
     }
 }

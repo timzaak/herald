@@ -255,6 +255,47 @@ mod tests {
         (status, body_json)
     }
 
+    /// Same as `make_create_attempt_request`, plus an optional checkout
+    /// `flow` declaration (`"hosted"` / `"payment_intent"`). `None` omits the
+    /// key, matching clients that predate the flow field.
+    async fn make_create_attempt_request_with_flow(
+        app: &axum::Router,
+        realm_id: &str,
+        token: &str,
+        target_type: &str,
+        target_id: Uuid,
+        payment_provider: &str,
+        flow: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut payload = json!({
+            "targetType": target_type,
+            "targetId": target_id.to_string(),
+            "paymentProvider": payment_provider
+        });
+        if let Some(flow) = flow {
+            payload["flow"] = json!(flow);
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .header(header::AUTHORIZATION, format!("Bearer {}", token))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        (status, body_json)
+    }
+
     // =========================================================================
     // Ext One-Time Mappings Tests
     // =========================================================================
@@ -664,5 +705,218 @@ mod tests {
         // If Stripe is not configured, we still verify the endpoint accepted
         // entitlement_mapping target_type (the error would be about Stripe config,
         // not about the target_type).
+    }
+
+    // =========================================================================
+    // Checkout flow (Google Pay / Apple Pay wallet support) Tests
+    // =========================================================================
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    ///
+    /// flow=payment_intent + stripe + one-time passes the combination gate and
+    /// reaches the Stripe provider layer. The scenario environment has no
+    /// reachable Stripe API (base URL is the real api.stripe.com), so a 2xx
+    /// with a real pi_..._secret_... only occurs where a mock is wired; here
+    /// the deterministic contract is: never a 400 (a 400 would mean the flow
+    /// combination was rejected), and when 2xx the secret matches the
+    /// PaymentIntent shape and no hosted URL is returned.
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_payment_intent_stripe_one_time(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-pi-stripe@test.com").await;
+        let mapping_id =
+            create_one_time_mapping(ctx, &realm_id, "wallet-pi-pkg", 100, true, true).await;
+        let app = ctx.create_unified_test_router();
+
+        let (status, body) = make_create_attempt_request_with_flow(
+            &app,
+            &realm_id,
+            &token,
+            "entitlement_mapping",
+            mapping_id,
+            "stripe",
+            Some("payment_intent"),
+        )
+        .await;
+
+        let body_text = body.to_string();
+        if status.is_success() {
+            let secret = body["paymentContext"]["clientSecret"]
+                .as_str()
+                .expect("clientSecret on 2xx");
+            assert!(
+                secret.starts_with("pi_") && secret.contains("_secret_"),
+                "expected a real PaymentIntent secret, got: {secret}"
+            );
+            assert!(
+                body["paymentContext"]["stripeCheckoutUrl"].is_null(),
+                "payment_intent flow must not return a hosted URL: {body_text}"
+            );
+        } else {
+            assert_ne!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "stripe+one_time+payment_intent passed validation; failure must come from the                  provider layer, got: {body_text}"
+            );
+        }
+    }
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    /// Creem is hosted-only; a mobile app asking Creem for a raw
+    /// PaymentIntent secret must be rejected before any provider call.
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_payment_intent_creem_rejected(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-pi-creem@test.com").await;
+        // Provider must match the mapping's provider for target resolution to
+        // pass, so the mapping is created against creem as well.
+        let mapping_id = setup_test_entitlement_mapping_full(
+            ctx,
+            &realm_id,
+            "creem",
+            "prod_wallet_pi_creem",
+            None,
+            "wallet-pi-creem",
+            Some("one_time"),
+            None,
+            Some(100),
+            None,
+            None,
+            false,
+            None,
+            true,
+            Some(json!({
+                "name": "Wallet PI Creem Package",
+                "price": 999,
+                "currency": "usd"
+            })),
+        )
+        .await;
+        let app = ctx.create_unified_test_router();
+
+        let (status, body) = make_create_attempt_request_with_flow(
+            &app,
+            &realm_id,
+            &token,
+            "entitlement_mapping",
+            mapping_id,
+            "creem",
+            Some("payment_intent"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.to_string().contains("only supported for stripe"),
+            "expected stripe-only rejection, got: {body}"
+        );
+    }
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    /// Subscriptions (recurring) need the hosted Stripe Checkout lifecycle; a
+    /// raw PaymentIntent has no subscription semantics and must be rejected.
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_payment_intent_recurring_rejected(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-pi-recurring@test.com").await;
+        let mapping_id =
+            create_recurring_mapping(ctx, &realm_id, "wallet-pi-recurring", true).await;
+        let app = ctx.create_unified_test_router();
+
+        let (status, body) = make_create_attempt_request_with_flow(
+            &app,
+            &realm_id,
+            &token,
+            "entitlement_mapping",
+            mapping_id,
+            "stripe",
+            Some("payment_intent"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.to_string().contains("one-time"),
+            "expected one-time-only rejection, got: {body}"
+        );
+    }
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    /// Unknown flow values must be a 400 from the validator, not a silent
+    /// hosted fallback (a typo like "paymentintent" would otherwise hand a
+    /// mobile app a checkout URL it cannot open).
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_invalid_flow_rejected(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-pi-invalid@test.com").await;
+        let mapping_id =
+            create_one_time_mapping(ctx, &realm_id, "wallet-pi-invalid-pkg", 100, true, true).await;
+        let app = ctx.create_unified_test_router();
+
+        let (status, body) = make_create_attempt_request_with_flow(
+            &app,
+            &realm_id,
+            &token,
+            "entitlement_mapping",
+            mapping_id,
+            "stripe",
+            Some("paymentintent-typo"),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.to_string().contains("invalid flow"),
+            "expected invalid-flow validator error, got: {body}"
+        );
+    }
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    /// The hosted flow (no flow field, or flow=hosted) must never return a
+    /// clientSecret: a checkout session has none, and the old behaviour of
+    /// stuffing the PaymentIntent id there misled integrators.
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_hosted_flow_has_null_client_secret(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-hosted@test.com").await;
+        let mapping_id =
+            create_one_time_mapping(ctx, &realm_id, "wallet-hosted-pkg", 100, true, true).await;
+        let app = ctx.create_unified_test_router();
+
+        let (status, body) = make_create_attempt_request_with_flow(
+            &app,
+            &realm_id,
+            &token,
+            "entitlement_mapping",
+            mapping_id,
+            "stripe",
+            None,
+        )
+        .await;
+
+        // Mirror of the entitlement-mapping test above: without a reachable
+        // Stripe the hosted session call fails at the provider layer; when it
+        // succeeds, clientSecret must be absent/null.
+        if status == StatusCode::CREATED {
+            assert!(
+                body["paymentContext"]["clientSecret"].is_null(),
+                "hosted flow must not return a clientSecret: {body}"
+            );
+            assert!(
+                body["paymentContext"]["stripeCheckoutUrl"].is_string(),
+                "hosted flow returns the checkout URL: {body}"
+            );
+        } else {
+            assert_ne!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "hosted (default) flow is always valid; failure must come from the provider                  layer, got: {body}"
+            );
+        }
     }
 }

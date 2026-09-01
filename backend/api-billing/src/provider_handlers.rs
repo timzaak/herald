@@ -26,7 +26,7 @@ use herald_core::domain::realm_config::RealmConfigRepository;
         ("realmId" = String, Path, description = "Realm UUID")
     ),
     responses(
-        (status = 200, description = "Payment providers retrieved successfully.", body = PaymentProvidersResponse),
+        (status = 200, description = "Payment providers retrieved successfully. Stripe entries include the non-secret publishableKey (pk_...) for mobile wallet SDK initialization; other providers omit it.", body = PaymentProvidersResponse),
         (status = 401, description = "Unauthorized - No valid authentication token"),
         (status = 403, description = "Forbidden - User does not have access to this realm"),
         (status = 404, description = "Realm not found")
@@ -122,10 +122,24 @@ async fn load_configured_provider(
 
     let last_updated = configs.iter().map(|rc| rc.updated_at).max();
 
+    // Stripe exposes its non-secret publishable key so a mobile app's Stripe
+    // SDK can initialize for the PaymentIntent wallet flow (the
+    // stripe-payment PRD allows client exposure of the publishable key
+    // only). Other providers expose no key material.
+    let publishable_key = if provider == "stripe" {
+        configs
+            .iter()
+            .find(|rc| rc.config_key == "publishable_key")
+            .map(|rc| rc.config_value.clone())
+    } else {
+        None
+    };
+
     Ok(Some(PaymentProviderInfo {
         platform: provider.to_string(),
         webhook_endpoint,
         last_updated: last_updated.map(|dt| dt.to_rfc3339()),
+        publishable_key,
         ..Default::default()
     }))
 }

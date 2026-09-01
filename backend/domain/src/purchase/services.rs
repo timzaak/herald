@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::billing::entities::BillingType;
+use crate::common::entities::app_errors::CoreError;
 use crate::payment_attempt::PurchasableTarget;
 use crate::payment_attempt::entities::{PaymentAttempt, PaymentContext};
 
@@ -14,6 +15,33 @@ pub mod metadata_keys {
     pub const ATTEMPT_ID: &str = "attemptId";
 }
 
+/// Checkout flow a client requests on `create_payment_attempt`. `Hosted`
+/// (default) returns a Stripe Hosted Checkout URL; `PaymentIntent` returns a
+/// raw PaymentIntent `client_secret` so a mobile wallet SDK (Apple Pay /
+/// Google Pay) can confirm the payment client-side. `PaymentIntent` is only
+/// valid for `stripe` + one-time purchases — enforced in
+/// `build_payment_context`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PaymentFlow {
+    #[default]
+    Hosted,
+    PaymentIntent,
+}
+
+impl PaymentFlow {
+    /// `None` / `""` / `"hosted"` → `Hosted`; `"payment_intent"` →
+    /// `PaymentIntent`; anything else is a `BadRequest`.
+    pub fn parse(s: Option<&str>) -> Result<Self, CoreError> {
+        match s {
+            None | Some("") | Some("hosted") => Ok(PaymentFlow::Hosted),
+            Some("payment_intent") => Ok(PaymentFlow::PaymentIntent),
+            Some(other) => Err(CoreError::BadRequest(format!(
+                "invalid flow: {other}; expected 'hosted' or 'payment_intent'"
+            ))),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreparePaymentAttemptInput {
     pub realm_id: String,
@@ -23,6 +51,11 @@ pub struct PreparePaymentAttemptInput {
     pub target_type: String,
     pub target_id: Uuid,
     pub metadata: Option<serde_json::Value>,
+    /// Checkout flow requested by the client. `Hosted` (default) for the
+    /// redirect-to-hosted-page journey; `PaymentIntent` for mobile wallet
+    /// SDK confirmation (stripe + one-time only). Ignored by non-stripe
+    /// providers — `PaymentIntent` is rejected for them at validation.
+    pub flow: PaymentFlow,
     /// WeChat-only checkout scene: `"native"` (default) or `"jsapi"`. Ignored
     /// by other providers (DEC-wechat-support-009/010).
     pub payment_scene: Option<String>,
@@ -112,4 +145,49 @@ pub struct CreateIapAttemptInput {
     pub provider_reference: String,
     /// Optional diagnostic metadata persisted on the attempt.
     pub metadata: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+mod payment_flow_tests {
+    use super::PaymentFlow;
+    use crate::common::entities::app_errors::CoreError;
+
+    #[test]
+    fn parse_absent_or_hosted_yields_hosted() {
+        // Absent/empty must mean hosted: the default web journey passes no
+        // flow field at all, and existing clients must keep working.
+        assert_eq!(PaymentFlow::parse(None).unwrap(), PaymentFlow::Hosted);
+        assert_eq!(PaymentFlow::parse(Some("")).unwrap(), PaymentFlow::Hosted);
+        assert_eq!(
+            PaymentFlow::parse(Some("hosted")).unwrap(),
+            PaymentFlow::Hosted
+        );
+    }
+
+    #[test]
+    fn parse_payment_intent_yields_payment_intent() {
+        assert_eq!(
+            PaymentFlow::parse(Some("payment_intent")).unwrap(),
+            PaymentFlow::PaymentIntent
+        );
+    }
+
+    #[test]
+    fn parse_unknown_value_is_bad_request() {
+        // Unknown flows must fail loud at parse time, not silently fall back
+        // to hosted (a typo like "paymentintent" would otherwise hand a
+        // mobile app a checkout URL it cannot open).
+        let err = PaymentFlow::parse(Some("bogus")).unwrap_err();
+        match err {
+            CoreError::BadRequest(msg) => {
+                assert!(msg.contains("invalid flow: bogus"), "unexpected: {msg}");
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn default_is_hosted() {
+        assert_eq!(PaymentFlow::default(), PaymentFlow::Hosted);
+    }
 }

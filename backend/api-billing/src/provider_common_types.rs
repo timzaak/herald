@@ -24,6 +24,12 @@ pub struct PaymentProviderInfo {
     pub api_version: Option<String>,
     pub webhook_endpoint: Option<String>,
     pub last_updated: Option<String>,
+    /// Non-secret Stripe publishable key (`pk_...`), returned only on the
+    /// Stripe entry so a mobile app's Stripe SDK can initialize for the
+    /// PaymentIntent wallet flow. The secret key / webhook secret are
+    /// never exposed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publishable_key: Option<String>,
 }
 
 /// Error response for validation failures
@@ -78,5 +84,42 @@ pub fn validate_request<T: Validate>(req: &T) -> Result<(), ValidationErrorRespo
         })
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod publishable_key_serde_tests {
+    use super::PaymentProviderInfo;
+
+    // The wire shape is the contract mobile integrators code against: a
+    // Stripe entry must carry publishableKey, and non-Stripe entries must
+    // omit it entirely (skip_serializing_if) so no empty placeholder leaks
+    // into the generated client types.
+    #[test]
+    fn stripe_entry_serializes_publishable_key() {
+        let info = PaymentProviderInfo {
+            platform: "stripe".to_string(),
+            publishable_key: Some("pk_test_wallet".to_string()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(
+            json.contains("\"publishableKey\":\"pk_test_wallet\""),
+            "unexpected: {json}"
+        );
+    }
+
+    #[test]
+    fn non_stripe_entry_omits_publishable_key() {
+        let info = PaymentProviderInfo {
+            platform: "creem".to_string(),
+            publishable_key: None,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(
+            !json.contains("publishableKey"),
+            "creem entry must omit publishableKey: {json}"
+        );
     }
 }

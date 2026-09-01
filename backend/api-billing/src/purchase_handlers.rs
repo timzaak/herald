@@ -19,7 +19,7 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::payment_attempt::PaymentAttemptRepository;
 use herald_core::domain::purchase::{
     ALREADY_OWNED_MARKER, CompletePaymentAttemptInput, FulfillmentResult, PaymentCompletionSource,
-    PreparePaymentAttemptInput,
+    PaymentFlow, PreparePaymentAttemptInput,
 };
 
 use crate::payment_email::formal_payment_email;
@@ -46,6 +46,13 @@ pub struct CreatePaymentAttemptRequest {
     /// WeChat JSAPI payer openid; required when `paymentScene = "jsapi"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openid: Option<String>,
+    /// Checkout flow: `"hosted"` (default) redirects to the provider's hosted
+    /// checkout page; `"payment_intent"` returns a raw Stripe PaymentIntent
+    /// `clientSecret` for mobile wallet SDK confirmation (Apple Pay / Google
+    /// Pay). `payment_intent` is only valid for `stripe` + one-time purchases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(custom(function = "validate_payment_flow"))]
+    pub flow: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -206,6 +213,17 @@ fn validate_purchasable_target(target_type: &str) -> Result<(), validator::Valid
     }
 }
 
+/// Checkout-flow whitelist. Kept in sync with `PaymentFlow::parse` on the
+/// domain side; the domain parser supplies the detailed error message, this
+/// gate only needs to 400 early.
+fn validate_payment_flow(flow: &str) -> Result<(), validator::ValidationError> {
+    if matches!(flow, "hosted" | "payment_intent") {
+        Ok(())
+    } else {
+        Err(validator::ValidationError::new("invalid flow"))
+    }
+}
+
 // `validate_payment_provider_value` (provider_common_types) covers the
 // payment_provider whitelist; the IAP-query-path rationale is documented there.
 
@@ -286,7 +304,10 @@ fn fulfillment_result_to_response(result: FulfillmentResult) -> FulfillPaymentRe
     params(
         ("realmId" = String, Path, description = "Realm ID")
     ),
-    request_body = CreatePaymentAttemptRequest,
+    request_body(
+        content = CreatePaymentAttemptRequest,
+        description = "Creates a payment attempt. Optional `flow`: \"hosted\" (default) returns the provider's hosted checkout URL; \"payment_intent\" (stripe + one-time purchases only) returns a raw PaymentIntent clientSecret for mobile wallet SDK confirmation (Apple Pay / Google Pay)."
+    ),
     responses(
         (status = 201, description = "Payment attempt created successfully", body = CreatePaymentAttemptResponse),
         (status = 400, description = "Invalid request"),
@@ -313,6 +334,8 @@ pub async fn create_payment_attempt(
     input
         .validate()
         .map_err(|e| ApiError::bad_request(format!("Invalid request: {}", e)))?;
+    let flow = PaymentFlow::parse(input.flow.as_deref())
+        .map_err(|e| ApiError::bad_request(format!("Invalid request: {e}")))?;
 
     let created = state
         .purchase_service
@@ -324,6 +347,7 @@ pub async fn create_payment_attempt(
             target_type: input.target_type.clone(),
             target_id: input.target_id,
             metadata: input.metadata,
+            flow,
             payment_scene: input.payment_scene,
             openid: input.openid,
         })

@@ -11,6 +11,7 @@
     "billing-creem-payment",
     "billing-iap",
     "billing-wechat-payment",
+    "billing-wallet-payments",
     "billing-invoice",
     "billing-credit-note",
     "third-party-integration",

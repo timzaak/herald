@@ -1,0 +1,97 @@
+---
+title: 钱包支付（Google Pay / Apple Pay）
+description: "在既有 Stripe 与 Creem 收款链路上启用 Google Pay 和 Apple Pay。Web 端钱包出现在托管收银台；移动 App 声明 PaymentIntent 流并用原生钱包 SDK 完成确认。"
+---
+
+在既有 Stripe 与 Creem 收款链路上启用 Google Pay 和 Apple Pay。Web 端钱包出现在托管收银台；移动 App 声明 PaymentIntent 流并用原生钱包 SDK 完成确认。
+
+## 适合谁看
+
+两类读者看这页的理由不同。想让 Web 买家看到钱包按钮的 Realm Admin——这部分是账号侧配置，Herald 不需要任何代码改动。把 Herald 购买流程集成进 iOS / Android App、希望用 Apple Pay 或 Google Pay 在应用内完成支付（而不是跳浏览器打开收银台）的移动端开发——这部分用下面描述的 PaymentIntent 流。
+
+## 核心概念
+
+钱包是资金来源，不是支付渠道。用 Apple Pay 付款的购买走的是与刷卡完全相同的 Stripe 链路：同样的支付尝试、同样的 webhook、同样按计费类型履约。用户用什么方式付款，不影响权益、积分或订阅的任何语义。
+
+有两种互不相同的支付面：
+
+- **Web（托管收银台）**：买家照旧跳转 Stripe Hosted Checkout 或 Creem 托管页。账号侧启用钱包且买家浏览器符合条件时，钱包按钮自行出现在该页面上。Herald 自己的界面永远不渲染钱包按钮。
+- **移动 App（PaymentIntent 流）**：应用在创建支付尝试时声明 `flow: "payment_intent"`，拿到真实的 Stripe `clientSecret`（`pi_..._secret_...`）。应用内的原生钱包 SDK——iOS 的 PassKit、Android 的 Google Pay——用这个密钥在应用内确认支付。Stripe 上报支付意图成功后，履约仍然走 webhook。
+
+两种场景下有两条边界规则。`clientSecret` 只在创建支付尝试的响应里、只返回给尝试所有者——状态查询接口永不返回。Stripe publishable key（`pk_...`）通过支付平台配置列表暴露，供移动端 Stripe SDK 初始化；secret key 和 webhook secret 在任何地方都不暴露。
+
+PaymentIntent 流有范围限制：仅 Stripe、仅一次性购买（积分包和买断）。订阅需要托管 Checkout 的完整生命周期，Creem 没有裸 PaymentIntent 面——对其他组合声明该流会返回明确错误，而不是静默退回托管跳转。
+
+## 第 1 步：Web 钱包——账号侧启用
+
+Web 钱包支付不需要改动 Herald 的任何东西。
+
+Stripe：
+
+1. 打开 Stripe Dashboard，进入 **Payment settings → Payment methods**
+2. 为账户启用 **Apple Pay** 和 **Google Pay**
+3. 保存。新的 Stripe Hosted Checkout 会话立即开始提供钱包选项
+
+买家是否真的看到按钮取决于浏览器：Apple Pay 需要 Apple 设备上的 Safari，Google Pay 需要 Chrome，两者都要求 HTTPS。买家反馈"看不到钱包"时，先查这张浏览器矩阵，而不是 Herald 配置。
+
+Creem 的钱包属于 Merchant-of-Record 收银台的一部分，可用性跟随你的 Creem 账户配置以及买家地区和货币（USD、EUR）；没有单独的开关。
+
+## 第 2 步：移动 App——PaymentIntent 流
+
+购买仍然从与其他服务商相同的接口发起，唯一区别是 `flow` 字段：
+
+```json
+POST /api/bill/{realmId}/purchase/payment-attempts
+Authorization: Bearer <带购买 scope 的浏览器 token>
+
+{
+  "targetType": "entitlement_mapping",
+  "targetId": "<映射 uuid>",
+  "paymentProvider": "stripe",
+  "flow": "payment_intent"
+}
+```
+
+响应的 `paymentContext` 携带 `clientSecret`，且不含 `stripeCheckoutUrl`：
+
+```json
+{
+  "paymentContext": {
+    "clientSecret": "pi_abc123_secret_xyz"
+  }
+}
+```
+
+不传 `flow`（或传 `"hosted"`）得到的跳转行为与从前完全一致——存量客户端无需任何改动。
+
+确认支付时，应用需要 Stripe publishable key。从支付平台配置列表获取：
+
+```json
+GET /api/third/pay/{realmId}/providers
+```
+
+`stripe` 条目包含 `publishableKey: "pk_..."`。其他服务商的条目没有这个字段——不要在 Creem 条目上期待它。
+
+客户端侧，用 publishable key 初始化 Stripe SDK，再用钱包确认 PaymentIntent：
+
+- **iOS**：`PaymentSheet`，或 `STPAPIClient.confirmPayment` 配合 PassKit 的 `PKPayment`
+- **Android**：Google Pay launcher，把返回的 token 交给 Stripe SDK
+
+Herald 不感知钱包确认本身。支付意图成功后，Stripe 触发 `payment_intent.succeeded` webhook，Herald 通过元数据匹配回支付尝试，履约与托管 Checkout 完全一致——按计费类型创建订阅、发放积分或授予一次性角色。应用轮询支付尝试状态接口获知履约完成。
+
+设备上钱包确认失败时，Herald 侧不发生任何事：尝试保持待支付，由你的应用处理重试或降级 UX。始终未完成的尝试按既有节奏过期。
+
+## 第 3 步：钱包按钮没出现时
+
+一张简短清单，因为"Herald 不支持钱包"几乎总是下面某一条：
+
+- **Stripe Dashboard**：账户未启用 Apple Pay / Google Pay
+- **浏览器**：Apple Pay 需要 Apple 设备上的 Safari；Google Pay 需要 Chrome；两者都要求 HTTPS
+- **Creem**：买家地区或货币（USD/EUR）超出钱包可用范围
+- **移动端**：应用自身缺少 Apple Merchant ID 或 Google Play 配置——这属于集成方责任，Herald 不持有这些凭据
+
+## 相关阅读
+
+- [Stripe 对接](/docs/zh/billing-stripe-payment)——钱包所依附的收款链路
+- [Creem 对接](/docs/zh/billing-creem-payment)——内置钱包的 Merchant-of-Record 收银台
+- [自建用户 UI](/docs/zh/custom-user-ui)——移动 App 复用的浏览器 token 购买路径
