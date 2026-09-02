@@ -64,8 +64,7 @@ fn is_empty_secret_to_preserve(
         ConfigType::Google => config_key == "service_account_json",
         ConfigType::Wechat => matches!(config_key, "private_key" | "v3_key"),
         // LDAP service-account password: an empty submit preserves the
-        // stored secret, same admin-edit UX as the payment providers
-        // (design support-ldap §4.2.3).
+        // stored secret, same admin-edit UX as the payment providers.
         ConfigType::Ldap => config_key == "bind_password",
         _ => false,
     };
@@ -92,6 +91,32 @@ fn provider_string_for_config_type(config_type: &ConfigType) -> Option<&'static 
         | ConfigType::Wechat => Some(config_type.as_static_str()),
         _ => None,
     }
+}
+
+/// Provider endpoint overrides exist for local wiremock-based tests only.
+/// Accepting one from a tenant in production would turn payment operations
+/// and reconciliation workers into an authenticated SSRF primitive.
+fn reject_production_provider_base_url(
+    app_env: &str,
+    config_type: &ConfigType,
+    config_key: &str,
+) -> Result<(), ApiError> {
+    if app_env == "production"
+        && config_key == "base_url"
+        && matches!(
+            config_type,
+            ConfigType::Stripe
+                | ConfigType::Creem
+                | ConfigType::Apple
+                | ConfigType::Google
+                | ConfigType::Wechat
+        )
+    {
+        return Err(ApiError::bad_request(
+            "Payment provider base_url overrides are disabled in production",
+        ));
+    }
+    Ok(())
 }
 
 /// Server-side classification of credential-bearing config keys.
@@ -124,7 +149,7 @@ fn is_sensitive_config_key(config_type: &ConfigType, config_key: &str) -> bool {
 }
 
 /// Validate an LDAP `settings` row before persisting (shape + credential
-/// channel, design support-ldap §4.2.3). Shared by the single upsert and
+/// channel). Shared by the single upsert and
 /// batch upsert paths so both enforce identical rules. Admin surface, so
 /// field-specific 400 messages are intended.
 fn validate_ldap_settings_row(
@@ -532,6 +557,7 @@ pub async fn upsert_realm_config(
         .await?;
 
     let config_type = parse_config_type(payload.config_type)?;
+    reject_production_provider_base_url(&state.app_env, &config_type, &payload.config_key)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
     {
@@ -680,6 +706,7 @@ pub async fn batch_upsert_realm_configs(
     let mut requests: Vec<UpsertRealmConfigRequest> = Vec::new();
     for r in payload.configs {
         let config_type = parse_config_type(r.config_type)?;
+        reject_production_provider_base_url(&state.app_env, &config_type, &r.config_key)?;
         if let Some(provider_type) =
             is_empty_secret_to_preserve(&config_type, &r.config_key, &r.config_value)
         {
@@ -1095,5 +1122,28 @@ mod tests {
     fn non_sensitive_config_value_is_returned_verbatim() {
         let response = to_response(config(ConfigType::Registration, "enabled", false));
         assert_eq!(response.config_value.as_deref(), Some("top-secret-value"));
+    }
+
+    #[test]
+    fn provider_base_url_override_is_test_only() {
+        // WHY: this value is consumed by API and worker HTTP clients. A
+        // tenant-controlled production value would permit server-side requests
+        // to private infrastructure.
+        for provider in [
+            ConfigType::Stripe,
+            ConfigType::Creem,
+            ConfigType::Apple,
+            ConfigType::Google,
+            ConfigType::Wechat,
+        ] {
+            assert!(
+                reject_production_provider_base_url("production", &provider, "base_url").is_err()
+            );
+            assert!(reject_production_provider_base_url("test", &provider, "base_url").is_ok());
+        }
+        assert!(
+            reject_production_provider_base_url("production", &ConfigType::Stripe, "api_key")
+                .is_ok()
+        );
     }
 }

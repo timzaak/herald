@@ -78,6 +78,7 @@ impl WebhookCompensationJob {
     ) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("failed to build reqwest::Client for compensation job");
         Self {

@@ -10,12 +10,12 @@ pub struct ApiConfig {
     pub jwt: Option<JwtConfig>,
     #[serde(default)]
     _email: Option<EmailConfig>,
-    /// Custom-domain global configuration (design §4.2.2 `cnameTarget`).
+    /// Custom-domain global configuration.
     ///
     /// `cname_target` is the Herald-owned hostname tenants must CNAME their
     /// custom login domain to; surfaced to realm admins in the GET response.
     /// `ask_key` is the shared secret for the Caddy On-Demand TLS ask
-    /// authorization endpoint (validated/used by BE-D07).
+    /// authorization endpoint (validated at server build).
     #[serde(default)]
     pub custom_domain: CustomDomainSettingsConfig,
     #[serde(default)]
@@ -108,7 +108,7 @@ pub struct EmailConfig {
 }
 
 /// Global custom-domain settings parsed from the `[custom_domain]` config
-/// section (design §4.2.2 / §8 file-impact table).
+/// section.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct CustomDomainSettingsConfig {
     /// Herald-owned hostname tenants CNAME their custom login domain to
@@ -116,9 +116,9 @@ pub struct CustomDomainSettingsConfig {
     /// in the GET response. Empty default keeps the field optional.
     #[serde(default)]
     pub cname_target: String,
-    /// Shared secret for the Caddy On-Demand TLS ask authorization endpoint
-    /// (design §4.2.2 ask). Validated and consumed by BE-D07; declared here
-    /// so a single coordinated config section holds both keys.
+    /// Shared secret for the Caddy On-Demand TLS ask authorization endpoint.
+    /// Validated at server build; declared here so a single coordinated config
+    /// section holds both keys.
     #[serde(default)]
     pub ask_key: String,
 }
@@ -238,6 +238,36 @@ impl ApiConfig {
         let cfg: ApiConfig = toml::from_str(&config)?;
         Ok(cfg)
     }
+
+    pub fn validate_security(&self) -> anyhow::Result<()> {
+        if self.server.app_env != "production" {
+            return Ok(());
+        }
+
+        let ask_key = self.custom_domain.ask_key.trim();
+        if ask_key.len() < 32 || ask_key == "change-me-in-production" {
+            anyhow::bail!(
+                "Configuration error: production [custom_domain].ask_key must be a non-placeholder secret of at least 32 characters"
+            );
+        }
+
+        let jwt_secret = self
+            .jwt
+            .as_ref()
+            .map(|jwt| jwt.secret.trim())
+            .unwrap_or_default();
+        if jwt_secret.len() < 32
+            || matches!(
+                jwt_secret,
+                "change-me-in-production" | "change-me-to-a-secure-random-base64-string"
+            )
+        {
+            anyhow::bail!(
+                "Configuration error: production [jwt].secret must be a non-placeholder secret of at least 32 characters"
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -245,7 +275,7 @@ mod tests {
     use super::*;
 
     /// User Story: Technical invariant — `ObservabilityConfig` defaults equal
-    /// the design baseline (`.ai/design/observability.md`).
+    /// the design baseline.
     /// Covers: "默认值 = baseline".
     ///
     /// WHY: the baseline is a security/cost contract — `traces_enabled=false`
@@ -267,7 +297,7 @@ mod tests {
 
     /// User Story: Technical invariant — legacy configs without an
     /// `[observability]` section still parse and yield the baseline
-    /// (`.ai/design/observability.md`, `#[serde(default)]` resilience).
+    /// (`#[serde(default)]` resilience).
     /// Covers: "缺 `[observability]` 段的旧 toml 仍解析".
     ///
     /// WHY: existing deployments ship `config.toml` files written before
@@ -346,5 +376,44 @@ url = "postgres://test:test@localhost/test"
             "X-Forwarded-For",
             "missing real_ip_header MUST default to X-Forwarded-For"
         );
+    }
+
+    #[test]
+    fn production_rejects_repository_placeholder_secrets() {
+        let toml = r#"
+[database]
+url = "postgres://test:test@localhost/test"
+[redis]
+[server]
+app_env = "production"
+[frontend]
+[jwt]
+secret = "change-me-in-production"
+[custom_domain]
+ask_key = "change-me-in-production"
+cname_target = "custom.example.com"
+"#;
+        let cfg: ApiConfig = toml::from_str(toml).unwrap();
+        let error = cfg
+            .validate_security()
+            .expect_err("known production placeholders must fail startup");
+        assert!(error.to_string().contains("ask_key"));
+    }
+
+    #[test]
+    fn non_production_keeps_local_development_secrets_compatible() {
+        let toml = r#"
+[database]
+url = "postgres://test:test@localhost/test"
+[redis]
+[server]
+app_env = "demo"
+[frontend]
+[custom_domain]
+ask_key = "dev-key"
+cname_target = "custom.localhost"
+"#;
+        let cfg: ApiConfig = toml::from_str(toml).unwrap();
+        assert!(cfg.validate_security().is_ok());
     }
 }

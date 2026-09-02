@@ -78,6 +78,17 @@ pub async fn update_api_key(
         ApiError::internal("Failed to update API key")
     })?;
 
+    // Authentication caches the enabled/expiry state by this digest. Evict
+    // only after the database update: a concurrent request may refill the old
+    // value before the update commits, and this final delete must win so a
+    // disabled or newly-expired key stops authenticating immediately.
+    if let Err(e) = state.api_key_cache.delete(&saved.api_key_hash).await {
+        tracing::error!("Failed to evict updated API key from cache: {e}");
+        return Err(ApiError::internal(
+            "API key was updated but its authentication cache could not be invalidated",
+        ));
+    }
+
     let response = ApiKeyListItem {
         id: saved.id,
         name: saved.name,

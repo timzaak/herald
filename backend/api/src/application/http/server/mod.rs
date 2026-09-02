@@ -12,7 +12,10 @@ use axum::{
 };
 use opentelemetry::global;
 use serde::Serialize;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tower::ServiceBuilder;
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -40,6 +43,18 @@ fn origin_is_allowed(origin: &str, frontend_url: &str, rows: &[serde_json::Value
                     .any(|allowed| allowed.as_str() == Some(origin))
             })
         })
+}
+
+fn snapshot_origin_is_allowed(
+    origin: &str,
+    frontend_url: &str,
+    realm_id: Option<&str>,
+    rows: &[(String, serde_json::Value)],
+) -> bool {
+    rows.iter().any(|(row_realm, origins)| {
+        realm_id.is_none_or(|realm| realm == row_realm)
+            && origin_is_allowed(origin, frontend_url, std::slice::from_ref(origins))
+    })
 }
 
 /// Extract the realm id from request paths that encode it as the first route
@@ -75,7 +90,7 @@ fn extract_realm_id_from_path(path: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod cors_origin_tests {
-    use super::{extract_realm_id_from_path, origin_is_allowed};
+    use super::{extract_realm_id_from_path, origin_is_allowed, snapshot_origin_is_allowed};
 
     #[test]
     fn cors_origin_maps_frontend_and_enabled_client_origin_candidates() {
@@ -120,6 +135,40 @@ mod cors_origin_tests {
         );
         assert_eq!(extract_realm_id_from_path("/api/user/reauth"), None);
         assert_eq!(extract_realm_id_from_path("/api/user"), None);
+    }
+
+    #[test]
+    fn cors_snapshot_keeps_realm_scoping_without_per_request_queries() {
+        // WHY: the process-wide snapshot removes a DB amplification path, but
+        // realm-scoped routes must still ignore another tenant's origins.
+        let rows = vec![
+            (
+                "acme".to_string(),
+                serde_json::json!(["https://acme.example"]),
+            ),
+            (
+                "other".to_string(),
+                serde_json::json!(["https://other.example"]),
+            ),
+        ];
+        assert!(snapshot_origin_is_allowed(
+            "https://acme.example",
+            "https://console.example",
+            Some("acme"),
+            &rows,
+        ));
+        assert!(!snapshot_origin_is_allowed(
+            "https://other.example",
+            "https://console.example",
+            Some("acme"),
+            &rows,
+        ));
+        assert!(snapshot_origin_is_allowed(
+            "https://other.example",
+            "https://console.example",
+            None,
+            &rows,
+        ));
     }
 }
 use crate::application::http::{
@@ -353,10 +402,19 @@ pub fn create_router(
     // Note: frontend_url is validated in main.rs before calling this function
     let cors_state = state.clone();
     let cors_frontend_url = frontend_url.clone();
+    // CORS is not an authorization boundary, so a short-lived process-local
+    // snapshot is preferable to querying Client Apps for every untrusted
+    // request carrying an Origin header. One snapshot contains every realm;
+    // attacker-controlled fake realm paths therefore cannot create unbounded
+    // cache keys or force one database query per distinct path.
+    let cors_origins = Arc::new(tokio::sync::Mutex::new(
+        None::<(Instant, Vec<(String, serde_json::Value)>)>,
+    ));
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::async_predicate(move |origin, parts| {
             let state = cors_state.clone();
             let frontend_url = cors_frontend_url.clone();
+            let cors_origins = cors_origins.clone();
             // Extract the realm id before the async block so we do not borrow `parts`.
             let realm_id = extract_realm_id_from_path(parts.uri.path()).map(String::from);
             async move {
@@ -366,32 +424,26 @@ pub fn create_router(
                 if origin == frontend_url {
                     return true;
                 }
-                // Realm-scoped routes narrow the lookup to that realm's enabled
-                // Client Apps; realm-less routes (e.g. /api/user/*, where the
-                // realm lives in the Bearer token, not the URL) scan every
-                // enabled Client App. The origin match is still exact-string,
-                // so an origin is allowed iff some enabled Client App registered it.
-                let rows = if let Some(realm_id) = realm_id {
-                    sqlx::query_scalar::<_, serde_json::Value>(
-                        "SELECT allowed_origins FROM client_app WHERE realm_id = $1 AND enabled = true",
-                    )
-                    .bind(realm_id)
-                    .fetch_all(&state.pool)
-                    .await
-                } else {
-                    sqlx::query_scalar::<_, serde_json::Value>(
-                        "SELECT allowed_origins FROM client_app WHERE enabled = true",
+                let mut snapshot = cors_origins.lock().await;
+                let expired = snapshot
+                    .as_ref()
+                    .is_none_or(|(loaded_at, _)| loaded_at.elapsed() >= Duration::from_secs(30));
+                if expired {
+                    match sqlx::query_as::<_, (String, serde_json::Value)>(
+                        "SELECT realm_id, allowed_origins FROM client_app WHERE enabled = true",
                     )
                     .fetch_all(&state.pool)
                     .await
-                };
-                match rows {
-                    Ok(rows) => origin_is_allowed(origin, &frontend_url, &rows),
-                    Err(error) => {
-                        tracing::warn!(%error, "Dynamic CORS origin lookup failed");
-                        false
+                    {
+                        Ok(rows) => *snapshot = Some((Instant::now(), rows)),
+                        Err(error) => {
+                            tracing::warn!(%error, "Dynamic CORS origin snapshot refresh failed");
+                            return false;
+                        }
                     }
                 }
+                let rows = &snapshot.as_ref().expect("snapshot populated above").1;
+                snapshot_origin_is_allowed(origin, &frontend_url, realm_id.as_deref(), rows)
             }
         }))
         .allow_methods([

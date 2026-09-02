@@ -1,4 +1,4 @@
-// LDAP enterprise-directory login (design support-ldap §6/§9.2).
+// LDAP enterprise-directory login.
 //
 // Dedicated public endpoint mirroring the password-login pipeline (DEC-006):
 // Client App resolution → Turnstile → shared rl:login:* rate limits →
@@ -628,7 +628,7 @@ pub async fn ldap_status(
 }
 
 // ---------------------------------------------------------------------------
-// matching chain + JIT helpers (design §6.1/§6.2)
+// matching chain + JIT helpers
 // ---------------------------------------------------------------------------
 
 /// DN → email → JIT provisioning. All lookups are realm-scoped. Also returns
@@ -663,6 +663,19 @@ async fn find_or_provision_ldap_user(
                         );
                         ApiError::internal("Internal server error".to_string())
                     })?;
+                // The link row is realm-scoped, but tenant isolation must not
+                // depend on that row's integrity (same defense as the OAuth
+                // callback's user.realm_id guard): a corrupt link pointing at
+                // another realm's user must never mint a session here.
+                if user.realm_id != realm_id {
+                    tracing::error!(
+                        realm_id = %realm_id,
+                        user_id = %user_id,
+                        user_realm_id = %user.realm_id,
+                        "LDAP login: DN link references a user of another realm — rejecting"
+                    );
+                    return Err(ApiError::internal("Internal server error".to_string()));
+                }
                 return Ok((LdapUserResolution::Resolved(user), Some(link)));
             }
             // Dangling link (no user_id): fall through to email/provision;
@@ -751,7 +764,7 @@ async fn resolve_by_email_or_provision(
         Ok(created) => created,
         // Two concurrent first logins race on account(realm,email); the
         // unique index makes the loser Conflict — retryable, the next attempt
-        // hits the email/DN match instead (design §4.2.1).
+        // hits the email/DN match instead.
         Err(CoreError::Conflict(msg)) => {
             return Err(ApiError::conflict(msg));
         }

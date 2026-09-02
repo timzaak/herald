@@ -84,7 +84,7 @@ pub struct LoginResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(required = false)]
     pub redirect_to: Option<String>,
-    // Consent gate (BE-D08): mirrors `requires_totp` as a 200 flag — NO new
+    // Consent gate: mirrors `requires_totp` as a 200 flag — NO new
     // status code. Present only when credentials+TOTP passed but the user's
     // recorded consent is stale vs. the current effective agreement versions.
     // When `Some(true)`, `agreements` carries the current effective summaries
@@ -153,9 +153,6 @@ pub async fn login(
     tracing::debug!(
         realm_id = %realm_id,
         client_id = %payload.client_id,
-        email = ?normalized_email,
-        username = ?normalized_username,
-        ip = %ip,
         "Login attempt"
     );
 
@@ -210,8 +207,6 @@ pub async fn login(
         Err(e) => {
             tracing::debug!(
                 realm_id = %realm_id,
-                email = ?normalized_email,
-                username = ?normalized_username,
                 error = %e,
                 "Login failed"
             );
@@ -583,11 +578,7 @@ pub async fn login(
             tracing::warn!(error = %audit_err, "Failed to record audit event");
         }
 
-        tracing::debug!(
-            auth_code = %auth_code,
-            redirect_uri = %redirect_uri,
-            "OAuth authorization code generated"
-        );
+        tracing::debug!("OAuth authorization code generated");
 
         let redirect_to = format!("{}?code={}&state={}", redirect_uri, auth_code, state_param);
 
@@ -716,5 +707,19 @@ mod instrument_skip_tests {
                 "register span must not record a `{banned}` field; body was:\n{body}"
             );
         }
+    }
+
+    #[test]
+    fn auth_sources_do_not_log_authorization_codes_or_plaintext_identifiers() {
+        // WHY: authorization codes are bearer credentials and login
+        // identifiers are PII; debug logging must not become a secret export.
+        let auth_code_field = ["auth_code", " = %auth_code"].concat();
+        let login_email_field = ["email", " = ?normalized_email"].concat();
+        let login_username_field = ["username", " = ?normalized_username"].concat();
+        let register_email_field = ["email", " = %email"].concat();
+        assert!(!LOGIN_SRC.contains(&auth_code_field));
+        assert!(!LOGIN_SRC.contains(&login_email_field));
+        assert!(!LOGIN_SRC.contains(&login_username_field));
+        assert!(!REGISTER_SRC.contains(&register_email_field));
     }
 }

@@ -26,6 +26,7 @@ const DEFAULT_BASE_URL: &str = "https://api.mch.weixin.qq.com";
 /// `get_wechat_client_for_realm`. `Client` clones are cheap (Arc inner).
 static SHARED_HTTP: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .expect("default reqwest client construction cannot fail")
 });

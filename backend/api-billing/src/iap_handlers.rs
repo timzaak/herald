@@ -1224,7 +1224,6 @@ pub async fn reprocess_google_event(
     {
         tracing::info!(
             realm_id = %realm_id,
-            purchase_token = %purchase_token,
             event_type = %event_type,
             "google reprocess: event already processed, skipping"
         );
@@ -1258,7 +1257,6 @@ pub async fn reprocess_google_event(
             // handled.
             tracing::info!(
                 realm_id = %realm_id,
-                purchase_token = %purchase_token,
                 event_type = %event_type,
                 "google reprocess: concurrent insert detected, event already handled"
             );
@@ -1349,7 +1347,6 @@ pub async fn reprocess_google_event(
     {
         tracing::error!(
             realm_id = %realm_id,
-            purchase_token = %purchase_token,
             event_type = %event_type,
             error = %e,
             "google reprocess: sync succeeded but failed to mark payment_event processed — may reprocess next sweep"
@@ -1396,7 +1393,6 @@ async fn reprocess_google_one_time_revoke(
         None => {
             tracing::warn!(
                 realm_id = %realm_id,
-                purchase_token = %purchase_token,
                 event_type = %event_type,
                 "google one-time revoke: no payment_attempt found — nothing to revoke"
             );
@@ -1460,7 +1456,6 @@ async fn reprocess_google_non_renewing_revoke(
         None => {
             tracing::warn!(
                 realm_id = %realm_id,
-                purchase_token = %purchase_token,
                 event_type = %event_type,
                 entitlement_key = %entitlement_key,
                 "google non-renewing revoke: no subscription found — nothing to expire/revoke"
@@ -1480,7 +1475,6 @@ async fn reprocess_google_non_renewing_revoke(
         if let Err(e) = state.billing_repository.update_subscription(sub).await {
             tracing::warn!(
                 realm_id = %realm_id,
-                purchase_token = %purchase_token,
                 error = %e,
                 "google non-renewing revoke: failed to set subscription Expired (best-effort)"
             );
@@ -1488,7 +1482,6 @@ async fn reprocess_google_non_renewing_revoke(
     } else {
         tracing::info!(
             realm_id = %realm_id,
-            purchase_token = %purchase_token,
             subscription_id = %subscription_id,
             "google non-renewing revoke: subscription already Expired"
         );

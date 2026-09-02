@@ -85,7 +85,6 @@ pub async fn register(
 
     tracing::info!(
         realm_id = %realm_id,
-        email = %email,
         "Registration attempt"
     );
 
@@ -93,7 +92,6 @@ pub async fn register(
     if !registration_enabled {
         tracing::debug!(
             realm_id = %realm_id,
-            email = %email,
             "Registration failed: registration not enabled for realm"
         );
         return Err(ApiError::bad_request(
@@ -138,7 +136,6 @@ pub async fn register(
         .map_err(|e| {
             tracing::error!(
                 realm_id = %realm_id,
-                email = %email,
                 error = %e,
                 "Registration failed"
             );
@@ -223,13 +220,12 @@ pub async fn register(
 
     tracing::info!(
         realm_id = %realm_id,
-        email = %email,
         verification_required = %verification_required,
         "Registration successful"
     );
 
     // Record consent to the current effective ToS + Privacy at registration
-    // time ("register = consent", design §4.1). Best-effort: a missing
+    // time ("register = consent"). Best-effort: a missing
     // effective version (seed anomaly) or any repository error is logged and
     // does NOT block registration — registration is the primary path and a
     // consent gap must not prevent account creation. The user will be asked

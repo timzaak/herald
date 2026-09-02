@@ -80,7 +80,6 @@ pub async fn update_user(
                 tracing::debug!(
                     realm_id = %realm_id,
                     user_id = %target_user_id,
-                    new_email = %email,
                     "User update failed: email already exists"
                 );
                 ApiError::bad_request(format!("Email already exists: {}", email))

@@ -2,14 +2,14 @@
 // Scenario tests: LDAP enterprise-directory login
 // =============================================================================
 //
-// Exercises the LDAP login flow (design support-ldap §6.1/§6.2) end-to-end
+// Exercises the LDAP login flow end-to-end
 // through the HTTP layer:
 //   POST /api/auth/{realmId}/login/ldap
 //
 // Directory authentication is simulated by `MockLdapAuthenticator`
 // (`helpers/ldap_helpers.rs`) implementing the production
-// `LdapAuthenticator` port — search-then-bind semantics in-process (D2-8:
-// no real directory container in CI).
+// `LdapAuthenticator` port — search-then-bind semantics in-process (no
+// real directory container in CI).
 //
 // Coverage focus (US-LD-001/002/004): linked-user login, JIT provisioning
 // (placeholder email / email match / registration policy bypass per
@@ -120,7 +120,7 @@ async fn count_ldap_audit_events(ctx: &TestContext, action: &str, reason: Option
 // =============================================================================
 
 /// User Story: US-LD-001
-/// Covers: Design §6.1 — an already-linked directory identity logs in via the
+/// Covers: an already-linked directory identity logs in via the
 /// DN link (level 1 of the matching chain), receives a token family, and the
 /// event is audited with method="ldap".
 #[test_context(TestContext)]
@@ -154,7 +154,7 @@ async fn test_scenario_ldap_login_linked_user_success(ctx: &mut TestContext) {
 }
 
 /// User Story: US-LD-002
-/// Covers: Design §6.2 — first login without a directory mail JIT-creates an
+/// Covers: first login without a directory mail JIT-creates an
 /// account with the placeholder email (DEC-002), activates it, records
 /// register-consent, and links the DN; the second login resolves the same
 /// account (no duplicate provisioning).
@@ -213,7 +213,7 @@ async fn test_scenario_ldap_jit_placeholder_email_then_relogin_same_account(ctx:
 }
 
 /// User Story: US-LD-002
-/// Covers: Design §6.1 level 2 (DEC-008) — a directory mail matching an
+/// Covers: DEC-008 — a directory mail matching an
 /// existing local account links that account instead of creating a duplicate.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -250,7 +250,7 @@ async fn test_scenario_ldap_email_match_links_existing_account(ctx: &mut TestCon
 }
 
 /// User Story: US-LD-002
-/// Covers: Design §6.2 / DEC-007 — JIT provisioning is NOT gated by the realm
+/// Covers: DEC-007 — JIT provisioning is NOT gated by the realm
 /// registration policy. WHY this is an explicit regression gate: every other
 /// self-service provisioning path (register, email-otp auto-register, OAuth
 /// find_or_create) checks `is_registration_enabled`; LDAP deliberately does
@@ -292,7 +292,7 @@ async fn test_scenario_ldap_jit_ignores_registration_policy(ctx: &mut TestContex
 }
 
 /// User Story: US-LD-002
-/// Covers: Design §6.2 step 1 — consent must be expressed BEFORE any account
+/// Covers: consent must be expressed BEFORE any account
 /// row is created; with agreements the re-submission provisions and records
 /// register-as-consent.
 #[test_context(TestContext)]
@@ -346,7 +346,7 @@ async fn test_scenario_ldap_jit_consent_required_before_account_creation(ctx: &m
 }
 
 /// User Story: US-LD-001
-/// Covers: Design §6.3 / DEC-009 — wrong password, zero search hits, and
+/// Covers: DEC-009 — wrong password, zero search hits, and
 /// multiple search hits all yield the SAME generalized 401 response (status,
 /// message), so a caller cannot distinguish "no such user" from "wrong
 /// password" from "ambiguous directory entry".
@@ -407,7 +407,7 @@ async fn test_scenario_ldap_invalid_credentials_anti_enumeration(ctx: &mut TestC
 }
 
 /// User Story: US-LD-001
-/// Covers: Design §6.1 / D2-6 — directory unavailability yields a generic
+/// Covers: directory unavailability yields a generic
 /// 503 whose body carries no directory detail (host, port, error string);
 /// the failure is audited with reason=directory_unavailable.
 #[test_context(TestContext)]
@@ -439,7 +439,7 @@ async fn test_scenario_ldap_directory_unavailable_returns_503(ctx: &mut TestCont
 }
 
 /// User Story: US-LD-001
-/// Covers: Design §6.1 — directory credentials valid but the linked Herald
+/// Covers: directory credentials valid but the linked Herald
 /// account is disabled → 403 with the disabled-account message.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -473,8 +473,61 @@ async fn test_scenario_ldap_disabled_account_rejected(ctx: &mut TestContext) {
     assert!(count_ldap_audit_events(ctx, "auth.login_failed", Some("disabled_account")).await >= 1);
 }
 
+/// Defense in depth for the DN-link resolution: the link row
+/// is realm-scoped, but tenant isolation must not depend on that row's
+/// integrity — the OAuth callback re-checks the loaded user's realm for the
+/// same reason. A corrupt (realm, "ldap", DN) link pointing at ANOTHER
+/// realm's user must fail closed: valid directory credentials for this realm
+/// must never mint a session for a foreign-realm account.
+///
+/// The foreign user's consent is pre-recorded in THIS realm so that, were the
+/// guard removed, the flow would run to completion and answer 200 with an
+/// accessToken — the assertions below must fail in exactly that case, not
+/// pass vacuously via the consent branch.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_ldap_foreign_realm_link_fails_closed(ctx: &mut TestContext) {
+    enable_ldap(ctx).await;
+
+    let other_realm_id = uuid::Uuid::now_v7().to_string();
+    let foreign_user_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO account (id, realm_id, email, password, status)
+         VALUES ($1, $2, 'foreign-link@other-realm.test', NULL, 1)",
+    )
+    .bind(foreign_user_id)
+    .bind(&other_realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to seed foreign-realm user");
+    // Consent recorded in the LOGIN realm (not the user's own) so a guardless
+    // flow would skip the consent gate and issue tokens.
+    record_test_user_consent(&ctx._app_state.pool, foreign_user_id, &ctx._realm_id).await;
+
+    let dn = "uid=foreign-link,dc=example,dc=com";
+    link_ldap_dn(ctx, foreign_user_id, dn).await;
+
+    let mock = mock_dir(one_mock_user("foreign-link", dn, None, "corp-pw-7"));
+    let resp = ldap_login(ctx, &mock, "foreign-link", "corp-pw-7", None).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "cross-realm DN link must fail closed, not fall through"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert!(
+        body["accessToken"].is_null(),
+        "no token may be issued for a foreign-realm user; got {body}"
+    );
+    assert_eq!(
+        count_accounts_by_email(ctx, "foreign-link@other-realm.test").await,
+        0,
+        "no shadow account may be created in this realm either"
+    );
+}
+
 /// User Story: US-LD-001
-/// Covers: Design §6.1 / §4.2.1 — when the realm has no enabled LDAP config,
+/// Covers: when the realm has no enabled LDAP config,
 /// the login is 400 and nothing is created (no account, no session).
 #[test_context(TestContext)]
 #[tokio::test]
@@ -514,7 +567,7 @@ async fn test_scenario_ldap_realm_not_enabled_returns_400(ctx: &mut TestContext)
 }
 
 /// User Story: US-LD-004
-/// Covers: Design §6.1 second-factor branch — a linked user with TOTP enabled
+/// Covers: second-factor branch — a linked user with TOTP enabled
 /// receives secondFactors=["totp"] + tempToken (no session yet), and the
 /// temp session lands in the SAME `totp:temp:{token}` store the existing
 /// /login/verify-totp endpoint consumes (that consumption is covered by the
@@ -568,7 +621,7 @@ async fn test_scenario_ldap_totp_user_gets_second_factor(ctx: &mut TestContext) 
 }
 
 /// User Story: US-LD-004
-/// Covers: Design §6.1 OAuth branch — a downstream authorization login seeded
+/// Covers: OAuth branch — a downstream authorization login seeded
 /// via `oauth:state` returns redirectTo carrying ac_* code + state instead of
 /// a session.
 #[test_context(TestContext)]
@@ -632,7 +685,7 @@ async fn test_scenario_ldap_login_with_oauth_context_redirects(ctx: &mut TestCon
 }
 
 /// User Story: US-LD-001
-/// Covers: Design §6.1 (Turnstile, per Client App) — with Turnstile enabled
+/// Covers: Turnstile (per Client App) — with Turnstile enabled
 /// on the bound Client App, a missing token is rejected; with the Cloudflare
 /// always-pass test secret, a token proceeds.
 #[test_context(TestContext)]
@@ -678,7 +731,7 @@ async fn test_scenario_ldap_turnstile_required_when_client_app_enabled(ctx: &mut
 }
 
 /// User Story: US-LD-001
-/// Covers: Design §6.1 rate limits — LDAP shares the `rl:login:*` keys and
+/// Covers: rate limits — LDAP shares the `rl:login:*` keys and
 /// thresholds with password login.
 ///
 /// P2 NOTE (mirrors email_otp scenarios): `enforce_in_dev` defaults to false,

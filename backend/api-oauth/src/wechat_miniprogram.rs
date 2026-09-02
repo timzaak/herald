@@ -105,7 +105,6 @@ pub async fn wechat_miniprogram_login(
 
     tracing::info!(
         user_id = %user_info.provider_user_id,
-        email = %user_info.email,
         "WeChat Mini Program user authenticated"
     );
 

@@ -155,10 +155,12 @@ pub async fn build_app_state_with_migrations(
     config: &ApiConfig,
     migrations: sqlx::migrate::Migrator,
 ) -> Result<Arc<AppState>> {
+    config.validate_security()?;
     // Fail-fast config validation that must hold before any service is wired.
     //
-    // Custom-domain ask shared key: design §4.2.2 mandates "Herald 启动期校验
-    // 非空". An empty `ask_key` would make the Caddy On-Demand TLS ask gate
+    // Custom-domain ask shared key: startup validation must reject an empty
+    // value ("Herald 启动期校验非空"). An empty `ask_key` would make the Caddy
+    // On-Demand TLS ask gate
     // authorize nothing (every call returns 401) or, worse, if the runtime
     // check were skipped, accept any caller — either is a misconfiguration that
     // is cheapest to catch here. This is the production-only server-build path;
@@ -168,8 +170,7 @@ pub async fn build_app_state_with_migrations(
         return Err(anyhow::anyhow!(
             "Configuration error: [custom_domain].ask_key must be set to a non-empty shared \
              secret. It gates the Caddy On-Demand TLS ask endpoint \
-             (GET /api/internal/custom-domain/authorize via the X-Herald-Ask-Key header). \
-             See design §4.2.2."
+             (GET /api/internal/custom-domain/authorize via the X-Herald-Ask-Key header)."
         ));
     }
 
@@ -181,7 +182,7 @@ pub async fn build_app_state_with_migrations(
         return Err(anyhow::anyhow!(
             "Configuration error: [custom_domain].cname_target must be set to the Herald \
              hostname that Realm Admins should point their custom domain's CNAME record at. \
-             See PRD §5.1 / design §4.2."
+             See PRD §5.1."
         ));
     }
 
@@ -222,6 +223,23 @@ pub async fn build_app_state_with_migrations(
     let pg_pool = db.get_postgres_connection_pool();
     migrations.run(pg_pool).await?;
     info!("Database migrations completed");
+
+    if config.server.app_env == "production" {
+        let override_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM realm_config
+             WHERE enabled = true
+               AND config_key = 'base_url'
+               AND BTRIM(config_value) <> ''
+               AND config_type IN ('stripe', 'creem', 'apple', 'google', 'wechat')",
+        )
+        .fetch_one(pg_pool)
+        .await?;
+        if override_count > 0 {
+            anyhow::bail!(
+                "Configuration error: production contains {override_count} enabled payment provider base_url override(s); remove or disable them before startup"
+            );
+        }
+    }
 
     // Clone pg_pool for use in repository
     let sqlx_pool = pg_pool.clone();
@@ -278,10 +296,10 @@ pub async fn build_app_state_with_migrations(
     let realm_config_repository =
         Arc::new(PostgresRealmConfigRepository::new(Arc::new(db.clone())));
 
-    // Custom-domain host→realm mapping repository (BE-D03). Shared by the
-    // lifecycle handlers (publish/restore side-effects) and BE-D04/D06/D07
-    // (middleware / CORS / ask / resolve). Constructed from the same Sea-ORM
-    // connection as the other repositories.
+    // Custom-domain host→realm mapping repository. Shared by the
+    // lifecycle handlers (publish/restore side-effects) and the
+    // middleware / CORS / ask / resolve consumers. Constructed from
+    // the same Sea-ORM connection as the other repositories.
     let custom_domain_mapping_repo = Arc::new(PostgresCustomDomainMappingRepository::new(
         Arc::new(db.clone()),
     ));
@@ -336,8 +354,8 @@ pub async fn build_app_state_with_migrations(
     info!("Points service initialized with PermissionBasedPointsPolicy");
 
     // Build the user-role repository ahead of the subscription service so the
-    // subscription ImmediateCancel revoke (BE-D05 / design §5.5) can be wired
-    // in at construction time.
+    // subscription ImmediateCancel revoke can be wired in at construction
+    // time.
     let user_role_repository = Arc::new(PostgresUserRoleRepository::new(pg_pool.clone()));
 
     // Create subscription service
@@ -480,6 +498,7 @@ pub async fn build_app_state_with_migrations(
     // Shared HTTP client for outbound calls (Turnstile siteverify, etc.)
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 

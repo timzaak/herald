@@ -583,7 +583,6 @@ async fn find_or_create_user_by_email(
             if !registration_enabled {
                 tracing::debug!(
                     realm_id = %realm_id,
-                    email = %user_info.email,
                     "OAuth auto-register blocked: registration not enabled for realm"
                 );
                 return Err(AuthError::Conflict(

@@ -130,6 +130,7 @@ impl IapReconciliationJob {
     ) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("failed to build reqwest::Client for iap reconciliation job");
         Self {
@@ -458,7 +459,6 @@ impl IapReconciliationJob {
                                     stats.failed += 1;
                                     warn!(
                                         realm_id = %realm.realm_id,
-                                        purchase_token = %token,
                                         error = %e,
                                         "Google subscription state-change replay failed — non-blocking"
                                     );
@@ -481,7 +481,6 @@ impl IapReconciliationJob {
                                 stats.failed += 1;
                                 warn!(
                                     realm_id = %realm.realm_id,
-                                    purchase_token = %token,
                                     error = %e,
                                     "Google 404-expire replay failed — non-blocking"
                                 );
@@ -492,7 +491,6 @@ impl IapReconciliationJob {
                         stats.failed += 1;
                         warn!(
                             realm_id = %realm.realm_id,
-                            purchase_token = %token,
                             error = %e,
                             "Google subscriptionsv2.get failed — skipping (non-blocking)"
                         );
@@ -538,7 +536,6 @@ impl IapReconciliationJob {
                         stats.failed += 1;
                         warn!(
                             realm_id = %realm.realm_id,
-                            purchase_token = %purchase_token,
                             error = %e,
                             "Google voided-purchase refund replay failed — non-blocking"
                         );

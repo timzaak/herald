@@ -12,7 +12,6 @@
 // - US-TP-013: API Key as principal with users.manage/users.view via RBAC
 // - US-TP-014: API Key as principal with clients.manage/clients.view via RBAC
 //
-// Reference: .ai/design/api_key_and_role.md sections 4.2.1, 4.2.2, 4.5
 //
 // =============================================================================
 
@@ -26,6 +25,7 @@ use axum::{
 };
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::authorization::principal_types;
+use herald_core::infrastructure::client_api_keys::cache::ApiKeyCacheValue;
 use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
@@ -912,7 +912,6 @@ async fn test_api_key_roles_cache_invalidation_on_remove(ctx: &mut TestContext) 
 // Tests the relationship between API Keys and the realm's built-in API Key
 // Client App (client_id='admin-api-client').
 //
-// Reference: .ai/design/api_key_and_role.md sections 1.4, 4.1, 4.3.2, 4.5
 // User Stories: US-RA-006, US-TP-012, US-TP-013, US-TP-014
 //
 // =============================================================================
@@ -978,7 +977,6 @@ async fn seed_scoped_client_app(ctx: &TestContext, client_id: &str, name: &str) 
 
 // User Story: docs/user-stories/core/realm-admin.md - US-RA-006
 // Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
-// Reference: .ai/design/api_key_and_role.md sections 1.4, 4.1, 4.3.2
 //
 // Given: Realm has built-in API Key Client App (client_id='admin-api-client', enabled=true)
 // When: POST /api/api-keys/{realmId} to create new API Key
@@ -1163,7 +1161,6 @@ async fn test_create_api_key_accepts_client_app_scope(ctx: &mut TestContext) {
 
 // User Story: docs/user-stories/core/realm-admin.md - US-RA-006
 // Covers: US-RA-006, US-TP-012
-// Reference: .ai/design/api_key_and_role.md section 4.3.2
 //
 // Given: Realm's built-in Client App does not exist
 // When: POST /api/api-keys/{realmId} to create new API Key
@@ -1235,7 +1232,6 @@ async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut T
 
 // User Story: docs/user-stories/core/realm-admin.md - US-RA-006
 // Covers: US-RA-006, US-TP-014
-// Reference: .ai/design/api_key_and_role.md section 4.3.2
 //
 // Given: API Key exists linked to built-in Client App
 // When: DELETE /api/api-keys/{realmId}/{apiKeyId}
@@ -1316,7 +1312,6 @@ async fn test_delete_api_key_keeps_realm_api_key_client(ctx: &mut TestContext) {
 
 // User Story: docs/user-stories/core/realm-admin.md - US-RA-006
 // Covers: US-RA-006, US-TP-013
-// Reference: .ai/design/api_key_and_role.md section 4.1 (disable strategy)
 //
 // Given: API Key enabled=true, built-in Client App enabled=true
 // When: Disable API Key (set enabled=false)
@@ -1350,6 +1345,29 @@ async fn test_disable_api_key_does_not_update_realm_api_key_client(ctx: &mut Tes
     .await
     .expect("Failed to seed API key");
 
+    // Warm the exact authentication cache entry before disabling the key.
+    // WHY: a database-only assertion cannot detect the security regression
+    // where a compromised key remains usable from Redis for five minutes.
+    ctx._app_state
+        .api_key_cache
+        .set(
+            &fake_hash,
+            &ApiKeyCacheValue {
+                id: key_id.clone(),
+                name: "key-to-disable".to_string(),
+                api_key_hash: fake_hash.clone(),
+                realm_id: ctx._realm_id.clone(),
+                client_app_id: Some(builtin_client_app_id),
+                enabled: true,
+                client_app_enabled: true,
+                expires_at: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+            300,
+        )
+        .await
+        .expect("Failed to warm API key authentication cache");
+
     // When: disabling the API Key (PUT with enabled=false)
     let req = Request::builder()
         .method("PUT")
@@ -1377,6 +1395,17 @@ async fn test_disable_api_key_does_not_update_realm_api_key_client(ctx: &mut Tes
 
     assert!(!key_enabled, "API Key should be disabled (enabled=false)");
 
+    let cached = ctx
+        ._app_state
+        .api_key_cache
+        .get(&fake_hash)
+        .await
+        .expect("Failed to inspect API key authentication cache");
+    assert!(
+        cached.is_none(),
+        "disabling a key must immediately evict its cached enabled state"
+    );
+
     // Then: built-in Client App enabled=true unchanged
     let client_enabled: bool = sqlx::query_scalar("SELECT enabled FROM client_app WHERE id = $1")
         .bind(builtin_client_app_id)
@@ -1396,7 +1425,6 @@ async fn test_disable_api_key_does_not_update_realm_api_key_client(ctx: &mut Tes
 
 // User Story: docs/user-stories/core/realm-admin.md - US-RA-006
 // Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
-// Reference: .ai/design/api_key_and_role.md sections 4.3.2, 4.5
 //
 // Given: API Key exists, realm has built-in Client App (client_id='admin-api-client')
 // When: PUT /api/api-keys/{realmId}/{apiKeyId}/roles with valid role IDs

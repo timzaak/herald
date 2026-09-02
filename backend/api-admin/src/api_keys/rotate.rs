@@ -51,15 +51,11 @@ pub async fn rotate_api_key(
         return Err(ApiError::not_found("API key not found"));
     }
 
-    // The API-key cache is keyed by the key's SHA-256 digest, which the DB
-    // record carries — evict the old digest so the rotated-out key stops
-    // authenticating immediately instead of living out the cache TTL. The
-    // new digest has never been cached.
-    if let Err(e) = state.api_key_cache.delete(&api_key.api_key_hash).await {
-        tracing::warn!("Failed to evict rotated API key from cache: {e}");
-    }
-
     // Generate new key and hash
+    let old_hash = api_key.api_key_hash.clone();
+    if let Err(e) = state.api_key_cache.delete(&old_hash).await {
+        tracing::warn!("Failed to pre-evict rotating API key from cache: {e}");
+    }
     let plaintext_key = ClientApiKeyService::generate_api_key();
     let new_hash = ClientApiKeyService::hash_api_key(&plaintext_key);
     api_key.api_key_hash = new_hash;
@@ -68,6 +64,15 @@ pub async fn rotate_api_key(
         tracing::error!("Failed to rotate API key: {e}");
         ApiError::internal("Failed to rotate API key")
     })?;
+
+    // Delete after the database update so a request racing the rotation
+    // cannot repopulate the old digest after an early eviction.
+    if let Err(e) = state.api_key_cache.delete(&old_hash).await {
+        tracing::error!("Failed to evict rotated API key from cache: {e}");
+        // The new plaintext credential must still be returned exactly once;
+        // turning this into a 500 would strand the caller with an unknown new
+        // key. Authentication itself fails closed while Redis is unavailable.
+    }
 
     let response = RotateApiKeyResponse {
         client_app_name: client_app_name(&state, saved.client_app_id).await?,

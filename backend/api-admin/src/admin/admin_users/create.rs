@@ -52,7 +52,6 @@ pub async fn create_user(
 
     tracing::info!(
         realm_id = %realm_id,
-        email = %payload.email,
         current_user_id = %admin.user_id_string(),
         "Creating user"
     );
@@ -85,7 +84,6 @@ pub async fn create_user(
             UserAdminError::DuplicateEmail(email) => {
                 tracing::debug!(
                     realm_id = %realm_id,
-                    email = %email,
                     "User creation failed: email already exists"
                 );
                 ApiError::bad_request(format!("Email already exists: {}", email))
@@ -125,7 +123,6 @@ pub async fn create_user(
             UserAdminError::DatabaseError(msg) => {
                 tracing::error!(
                     realm_id = %realm_id,
-                    email = %normalized_email,
                     error = %msg,
                     "Database error during user creation"
                 );
@@ -134,7 +131,6 @@ pub async fn create_user(
             UserAdminError::InternalError(msg) => {
                 tracing::error!(
                     realm_id = %realm_id,
-                    email = %normalized_email,
                     error = %msg,
                     "Internal error during user creation"
                 );
@@ -155,7 +151,6 @@ pub async fn create_user(
     tracing::info!(
         user_id = %admin_user.id,
         realm_id = %realm_id,
-        email = %normalized_email,
         "User created successfully"
     );
 

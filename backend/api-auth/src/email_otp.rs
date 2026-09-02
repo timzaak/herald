@@ -302,7 +302,6 @@ pub async fn send(
         Err(e) => {
             tracing::error!(
                 realm_id = %realm_id,
-                email = %email,
                 error = %e,
                 "Failed to look up user for OTP send"
             );
@@ -323,7 +322,6 @@ pub async fn send(
             if !is_registration_enabled(&state, &realm_id).await? {
                 tracing::debug!(
                     realm_id = %realm_id,
-                    email = %email,
                     "Email OTP auto-register blocked: registration not enabled for realm"
                 );
                 return Err(ApiError::conflict_json(EmailOtpConflictResponse {
@@ -410,7 +408,6 @@ pub async fn send(
         .map_err(|e| {
             tracing::error!(
                 realm_id = %realm_id,
-                email = %email,
                 error = %e,
                 "Failed to send OTP email"
             );
@@ -419,7 +416,6 @@ pub async fn send(
 
     tracing::info!(
         realm_id = %realm_id,
-        email = %email,
         is_new_user = user_opt.is_none(),
         "OTP code sent"
     );
@@ -635,7 +631,6 @@ pub async fn verify(
             if !is_registration_enabled(&state, &realm_id).await? || !otp_settings.auto_register {
                 tracing::warn!(
                     realm_id = %realm_id,
-                    email = %email,
                     "OTP verify auto-register blocked: registration or auto-register no longer enabled"
                 );
                 return Err(ApiError::conflict_json(EmailOtpConflictResponse {
@@ -661,7 +656,6 @@ pub async fn verify(
                 .map_err(|e| {
                     tracing::error!(
                         realm_id = %realm_id,
-                        email = %email,
                         error = %e,
                         "OTP auto-register: create_user_without_password failed"
                     );
@@ -710,7 +704,6 @@ pub async fn verify(
         Err(e) => {
             tracing::error!(
                 realm_id = %realm_id,
-                email = %email,
                 error = %e,
                 "Failed to look up user for OTP verify"
             );

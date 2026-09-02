@@ -465,11 +465,7 @@ pub async fn handle_verify_totp(
 
         let redirect_to = format!("{}?code={}&state={}", redirect_uri, auth_code, state_param);
 
-        tracing::debug!(
-            auth_code = %auth_code,
-            redirect_uri = %redirect_uri,
-            "OAuth authorization code generated via TOTP verification"
-        );
+        tracing::debug!("OAuth authorization code generated via TOTP verification");
 
         let response = Json(VerifyTotpResponse {
             message: "ok".to_string(),

@@ -31,6 +31,7 @@ impl StripeClient {
     pub fn new(api_key: String, timeout_seconds: u64) -> Result<Self, CoreError> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_seconds))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| {
                 CoreError::InternalServerError(format!("Failed to create HTTP client: {e}"))
@@ -60,6 +61,7 @@ impl StripeClient {
         let http = reqwest::Client::builder()
             .no_proxy()
             .timeout(Duration::from_secs(timeout_seconds))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| {
                 CoreError::InternalServerError(format!("Failed to create HTTP client: {e}"))
