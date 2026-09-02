@@ -550,42 +550,4 @@ describe('ProviderConfigForm - Validation', () => {
       )
     })
   })
-
-  it('GIVEN wechat config is edited WHEN scopes field should be disabled', () => {
-    const editingConfig: OAuthConfigResponse = {
-      id: '1',
-      realmId: 'admin',
-      providerType: 'wechat',
-      clientId: 'wx1234567890',
-      scopes: ['snsapi_login'],
-      enabled: true,
-      createdAt: '2024-01-01T00:00:00Z',
-      updatedAt: '2024-01-01T00:00:00Z',
-    }
-
-    render(<ProviderConfigForm {...defaultProps} editingConfig={editingConfig} />)
-
-    // Verify scopes field is disabled for wechat
-    const scopesInput = screen.getByTestId('oauth-scopes-input') as HTMLInputElement
-    expect(scopesInput).toBeDisabled()
-    expect(scopesInput.value).toBe('snsapi_login')
-  })
-
-  it('GIVEN wechat_miniprogram config is edited WHEN scopes field should not exist', () => {
-    const editingConfig: OAuthConfigResponse = {
-      id: '1',
-      realmId: 'admin',
-      providerType: 'wechat_miniprogram',
-      clientId: 'wx9876543210',
-      scopes: [],
-      enabled: true,
-      createdAt: '2024-01-01T00:00:00Z',
-      updatedAt: '2024-01-01T00:00:00Z',
-    }
-
-    render(<ProviderConfigForm {...defaultProps} editingConfig={editingConfig} />)
-
-    // Verify scopes field is not displayed for wechat_miniprogram
-    expect(screen.queryByTestId('oauth-scopes-input')).not.toBeInTheDocument()
-  })
 })

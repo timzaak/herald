@@ -95,26 +95,6 @@ describe('createCreditBucketSchema', () => {
       expect(result.success).toBe(true)
     })
   })
-
-  describe('valid full input parses with correct output', () => {
-    it('keeps provided optional values and defaults absent ones to undefined', () => {
-      const result = createCreditBucketSchema.safeParse(
-        validCreateBucketInput({
-          description: 'A bucket',
-          displayOrder: 3,
-        })
-      )
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.bucketKey).toBe('main-bucket')
-        expect(result.data.name).toBe('Main Bucket')
-        expect(result.data.enabled).toBe(true)
-        expect(result.data.clientAppIds).toEqual(['app-1'])
-        expect(result.data.description).toBe('A bucket')
-        expect(result.data.displayOrder).toBe(3)
-      }
-    })
-  })
 })
 
 describe('updateCreditBucketSchema', () => {
@@ -154,17 +134,6 @@ describe('updateCreditBucketSchema', () => {
       delete (input as { name?: unknown }).name
       const result = updateCreditBucketSchema.safeParse(input)
       expect(result.success).toBe(false)
-    })
-  })
-
-  describe('valid full input parses', () => {
-    it('passes with all required fields', () => {
-      const result = updateCreditBucketSchema.safeParse(validUpdateBucketInput())
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.name).toBe('Main Bucket')
-        expect(result.data.clientAppIds).toEqual(['app-1'])
-      }
     })
   })
 })

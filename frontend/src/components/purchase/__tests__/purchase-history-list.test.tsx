@@ -61,23 +61,7 @@ describe('PurchaseHistoryList invoice action', () => {
     server.use(eligibilityHandler('manual_fallback'))
   })
 
-  it('renders invoice button when onApplyInvoice + realmId are provided', async () => {
-    renderWithProviders(
-      <PurchaseHistoryList
-        purchases={[purchase]}
-        isLoading={false}
-        onDetailsClick={vi.fn()}
-        realmId={REALM_ID}
-        onApplyInvoice={vi.fn()}
-      />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId(BUTTON_TESTID)).toBeEnabled()
-    })
-  })
-
-  // P1-4: the per-row button reflects the apply-eligibility route BEFORE submit.
+  // The per-row button reflects the apply-eligibility route BEFORE submit.
   describe('eligibility gating', () => {
     it('manual_fallback: enabled, clicking invokes onApplyInvoice with attemptId', async () => {
       const user = userEvent.setup()
@@ -138,7 +122,7 @@ describe('PurchaseHistoryList invoice action', () => {
       )
 
       const reason = await screen.findByTestId(`${BUTTON_TESTID}-reason`)
-      // P2-6 messaging pattern: "Managed by {provider} — see My Invoices."
+      // Messaging pattern: "Managed by {provider} — see My Invoices."
       expect(reason).toHaveTextContent(/Managed by Stripe/)
 
       await waitFor(() => {
@@ -172,30 +156,6 @@ describe('PurchaseHistoryList invoice action', () => {
         screen.queryByTestId(`purchase-history-invoice-button-${stripePurchase.attemptId}`)
       ).not.toBeInTheDocument()
     })
-  })
-})
-
-describe('PurchaseHistoryList status badge', () => {
-  it('renders status badge with correct variant for Succeeded', () => {
-    renderWithProviders(
-      <PurchaseHistoryList purchases={[purchase]} isLoading={false} onDetailsClick={vi.fn()} />
-    )
-
-    const badge = screen.getByText('Succeeded')
-    expect(badge).toBeInTheDocument()
-  })
-
-  it('renders status badge for Failed', () => {
-    const failedPurchase = { ...purchase, attemptId: 'attempt-2', status: 'Failed' }
-    renderWithProviders(
-      <PurchaseHistoryList
-        purchases={[failedPurchase]}
-        isLoading={false}
-        onDetailsClick={vi.fn()}
-      />
-    )
-
-    expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 })
 

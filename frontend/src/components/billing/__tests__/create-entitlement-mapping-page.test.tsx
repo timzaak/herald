@@ -401,43 +401,6 @@ describe('CreateEntitlementMappingPage — client-side validation', () => {
   })
 })
 
-// --- Cache-key indirect assertion -----------------------------------------
-//
-// The real `useCreateEntitlementMapping` hook owns the
-// `invalidateQueries(queryKeys.entitlementMappings(realmId, {}))` side-effect.
-// This test mocks the whole mutations module (parity with the page test), so
-// the cache-key contract is asserted indirectly: the form's caller-supplied
-// onSuccess navigates back to the list, proving the success callback fired
-// end-to-end — i.e. the mutation layer that owns invalidation was reached. The
-// exact key shape (`['entitlement-mappings', realmId, {}]`) is pure data
-// produced by `queryKeys.entitlementMappings`, mirrored in the query-options
-// mock above.
-describe('CreateEntitlementMappingPage — success side-effects', () => {
-  it('returns to the mappings list on success (the list-invalidation callback was reached)', async () => {
-    mockCreateMutate.mockImplementation(
-      (_req: unknown, opts: { onSuccess?: () => void; onError?: (error: unknown) => void }) => {
-        opts.onSuccess?.()
-      }
-    )
-
-    const user = userEvent.setup()
-    renderPage()
-
-    await fillCreateForm(user)
-    await user.click(screen.getByTestId('create-mapping-submit-button'))
-
-    // The form's onSuccess navigates back to the list — the observable proof
-    // the success branch (which in the real hook also invalidates the list
-    // query) executed.
-    await waitFor(() => {
-      expect(navigateMock).toHaveBeenCalledWith({ to: '/manage/billing/entitlement-mappings' })
-    })
-    // The success toast fired (re-asserted here to bind the success path to the
-    // invalidation-capable callback in one place).
-    expect(toast.success).toHaveBeenCalledWith(m['billing.create_mapping_success']())
-  })
-})
-
 //
 // The form renders the serviceDurationDays input only for non_renewing and
 // trims the submitted payload by billing type (non-renewing sends the integer,

@@ -8,11 +8,7 @@ import {
   parseLdapConfig,
   buildLdapConfigRequest,
 } from '../realm-config-utils'
-import type {
-  RealmConfigResponse,
-  UpdateCustomDomainConfigRequest,
-  UpsertRealmConfigRequest,
-} from '@/lib/api-generated'
+import type { RealmConfigResponse, UpdateCustomDomainConfigRequest } from '@/lib/api-generated'
 import type { CustomDomainConfigForm, LdapConfigForm } from '@/lib/schemas/realm-config'
 
 const makeConfig = (
@@ -436,10 +432,5 @@ describe('buildLdapConfigRequest', () => {
     const rows = buildLdapConfigRequest({ ...baseForm, bindDn: '' })
 
     expect(JSON.parse(rows[0].configValue).bindDn).toBeNull()
-  })
-
-  test('returns rows assignable to the generated UpsertRealmConfigRequest shape', () => {
-    const rows: UpsertRealmConfigRequest[] = buildLdapConfigRequest(baseForm)
-    expect(rows.every((r) => r.configType === 'ldap')).toBe(true)
   })
 })

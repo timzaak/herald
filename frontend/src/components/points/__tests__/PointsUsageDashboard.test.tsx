@@ -81,8 +81,8 @@ describe('PointsUsageDashboard', () => {
       // Skeletons render via the Card chrome — assert at least one is present
       // so a future removal surfaces here.
       expect(
-        document.querySelectorAll('[class*="animate-pulse"], [class*="skeleton"]')
-      ).toBeTruthy()
+        document.querySelectorAll('[class*="animate-pulse"], [class*="skeleton"]').length
+      ).toBeGreaterThan(0)
     })
   })
 

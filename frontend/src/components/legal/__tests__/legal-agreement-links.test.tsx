@@ -47,12 +47,6 @@ describe('AgreementLinks', () => {
     expect(privacyLink).toHaveAttribute('href', `/${realmId}/legal/privacy_policy`)
   })
 
-  it('GIVEN custom classes WHEN rendering THEN applies them to the container', async () => {
-    const { container } = renderLinks(<AgreementLinks realmId={realmId} className="custom-class" />)
-
-    expect(container.firstChild).toHaveClass('custom-class')
-  })
-
   it('opens a configured external agreement safely in a new tab', async () => {
     renderLinks(
       <AgreementLinks

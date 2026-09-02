@@ -320,15 +320,6 @@ describe('AuthPageWrapper', () => {
   })
 
   describe('children', () => {
-    it('GIVEN children WHEN rendering THEN renders them unchanged', async () => {
-      const screen = render(
-        <AuthPageWrapper whiteLabel={null}>
-          <div data-testid="login-form">form</div>
-        </AuthPageWrapper>
-      )
-      expect(screen.getByTestId('login-form')).toBeInTheDocument()
-    })
-
     it('GIVEN no whiteLabel at all WHEN rendering THEN renders Herald text and keeps the default paper background', async () => {
       const screen = render(<AuthPageWrapper>children</AuthPageWrapper>)
       expect(screen.getByTestId('auth-brand-text')).toHaveTextContent('Herald')

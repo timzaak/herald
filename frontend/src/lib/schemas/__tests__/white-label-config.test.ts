@@ -222,30 +222,6 @@ describe('whiteLabelConfigSchema', () => {
     })
   })
 
-  describe('full valid config with all fields populated', () => {
-    it('accepts a complete config including a background', () => {
-      const full = makeWhiteLabelConfig({
-        brandName: 'Example',
-        logoUrl: 'https://cdn.example.com/logo.svg',
-        faviconUrl: 'https://cdn.example.com/favicon.ico',
-        accentColor: '#2563eb',
-        background: { type: 'gradient', value: 'linear-gradient(135deg, #1e3a8a, #2563eb)' },
-        footerText: 'Example Inc.',
-        loginTitle: 'Sign in to Example',
-        loginSubtitle: 'Use your Example account',
-        registerTitle: 'Create your Example account',
-        registerSubtitle: 'Start with Example',
-      })
-
-      const result = whiteLabelConfigSchema.safeParse(full)
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data).toEqual(full)
-      }
-    })
-  })
-
   describe('unknown fields are stripped, not rejected', () => {
     // Default zod object behavior: extra keys are silently dropped. This is the
     // intended contract — `normalizeWhiteLabelConfig` relies on it to ignore

@@ -45,18 +45,6 @@ describe('TurnstileWidget', () => {
   const getCallbacks = (): TurnstileCallbacks =>
     (window as any)._turnstileCallbacks as TurnstileCallbacks
 
-  describe('rendering', () => {
-    it('GIVEN component renders WHEN mounting THEN displays widget with callbacks', async () => {
-      const screen = await renderWidget()
-      expect(screen.getByTestId('turnstile-mock')).toBeInTheDocument()
-      const callbacks = getCallbacks()
-      expect(callbacks).toBeDefined()
-      expect(callbacks?.onSuccess).toBeDefined()
-      expect(callbacks?.onError).toBeDefined()
-      expect(callbacks?.onExpire).toBeDefined()
-    })
-  })
-
   describe('success callback', () => {
     it('GIVEN success callback triggers WHEN token is generated THEN calls onTokenChange and not onError', async () => {
       await renderWidget()

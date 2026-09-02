@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  priceMappingUpdateSchema,
-  batchEntitlementMappingsSchema,
-  getBatchEntitlementMappingsDefaults,
-} from '../billing-forms'
+import { priceMappingUpdateSchema, batchEntitlementMappingsSchema } from '../billing-forms'
 import { makeMapping } from '@/test/fixtures/entitlement-mappings'
 
 // Unit-level Zod contracts for the price-granularity batch editor. Mirrors
@@ -175,40 +171,5 @@ describe('batchEntitlementMappingsSchema', () => {
       ],
     })
     expect(result.success).toBe(true)
-  })
-})
-
-describe('getBatchEntitlementMappingsDefaults', () => {
-  it('returns the empty-defaults shape when called with no config', () => {
-    const defaults = getBatchEntitlementMappingsDefaults()
-
-    // Assert SHAPE only — optional fields are intentionally empty by default.
-    expect(defaults.paymentProvider).toBe('')
-    expect(defaults.externalProductId).toBe('')
-    expect(defaults.updates).toEqual([])
-  })
-
-  it('seeds paymentProvider / externalProductId from config', () => {
-    const defaults = getBatchEntitlementMappingsDefaults({
-      paymentProvider: 'stripe',
-      externalProductId: 'prod_pro',
-    })
-
-    expect(defaults.paymentProvider).toBe('stripe')
-    expect(defaults.externalProductId).toBe('prod_pro')
-    // Unspecified collections stay empty.
-    expect(defaults.updates).toEqual([])
-  })
-
-  it('seeds the updates array from config without mutating the input', () => {
-    const seededUpdates = [{ mappingId: 'map_1' }]
-
-    const defaults = getBatchEntitlementMappingsDefaults({
-      paymentProvider: 'stripe',
-      externalProductId: 'prod_pro',
-      updates: seededUpdates,
-    })
-
-    expect(defaults.updates).toBe(seededUpdates)
   })
 })

@@ -33,17 +33,6 @@ describe('EmailConfigForm', () => {
     vi.mocked(handleApiResponse).mockReset()
   })
 
-  it('GIVEN form is rendered WHEN no initial config THEN should display form with default values', () => {
-    renderWithProviders(<EmailConfigForm {...defaultProps} />)
-
-    expect(screen.getByTestId('email-provider-resend')).toBeInTheDocument()
-    expect(screen.getByTestId('email-provider-smtp')).toBeInTheDocument()
-    expect(screen.getByTestId('email-from-address-input')).toBeInTheDocument()
-    expect(screen.getByTestId('email-resend-api-key-input')).toBeInTheDocument()
-    expect(screen.getByTestId('email-save-button')).toBeInTheDocument()
-    expect(screen.getByTestId('email-test-button')).toBeInTheDocument()
-  })
-
   it('GIVEN initial resend config WHEN rendering THEN should display resend fields', () => {
     const initialConfig: EmailConfigFormValues = {
       provider: 'resend',

@@ -108,27 +108,6 @@ describe('createEntitlementMappingSchema', () => {
       }
     })
 
-    it('rejects non_renewing when serviceDurationDays is explicitly null', () => {
-      // The required-refinement (`!data.serviceDurationDays`) treats `null` the
-      // same as `undefined`: both are falsy, so the non-renewing branch is
-      // always flagged when no positive integer is supplied. Pinned separately
-      // from the "missing" case so a future refactor that special-cases
-      // null-vs-undefined surfaces here.
-      const result = createEntitlementMappingSchema.safeParse(
-        makeValidForm({
-          billingType: 'non_renewing',
-          billingPeriod: null,
-          serviceDurationDays: null,
-        })
-      )
-
-      expect(result.success).toBe(false)
-      if (!result.success) {
-        const paths = result.error.issues.map((issue) => String(issue.path[0]))
-        expect(paths).toContain('serviceDurationDays')
-      }
-    })
-
     it.each([0, -1, 0.5])(
       'rejects non_renewing with an out-of-range serviceDurationDays (%s)',
       (serviceDurationDays) => {

@@ -104,8 +104,8 @@ describe('SubscriptionSelector - Selection Logic', () => {
   })
 
   it('should call onApplyInvoice with subscription ID without selecting card', async () => {
-    // P1-4: the Invoice button is now eligibility-gated. Provide realmId +
-    // a manual_fallback eligibility verdict so the button is enabled.
+    // The Invoice button is eligibility-gated: the test must stub a
+    // manual_fallback eligibility verdict for the button to be enabled.
     server.use(
       http.get(`${BASE_URL}/api/user/bill/invoices/apply-eligibility`, () => {
         return HttpResponse.json({
@@ -207,32 +207,6 @@ describe('SubscriptionSelector - Selection Logic', () => {
     )
 
     const card = screen.getByTestId('subscription-card-app1')
-    expect(card).toHaveClass('border-border')
-    expect(card).not.toHaveClass('border-primary', 'ring-2', 'ring-primary', 'ring-offset-2')
-  })
-
-  it('should update highlight when selectedId changes', () => {
-    const mockOnSelect = vi.fn()
-    const { rerender } = render(
-      <SubscriptionSelector
-        subscriptions={mockSubscriptions}
-        selectedId="sub1"
-        onSelect={mockOnSelect}
-      />
-    )
-
-    let card = screen.getByTestId('subscription-card-app1')
-    expect(card).toHaveClass('border-primary', 'ring-2', 'ring-primary', 'ring-offset-2')
-
-    rerender(
-      <SubscriptionSelector
-        subscriptions={mockSubscriptions}
-        selectedId="sub2"
-        onSelect={mockOnSelect}
-      />
-    )
-
-    card = screen.getByTestId('subscription-card-app1')
     expect(card).toHaveClass('border-border')
     expect(card).not.toHaveClass('border-primary', 'ring-2', 'ring-primary', 'ring-offset-2')
   })

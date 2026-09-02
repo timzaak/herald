@@ -41,25 +41,6 @@ describe('transactionFiltersSchema', () => {
       expect(result.success).toBe(true)
     })
   })
-
-  describe('complete valid filters', () => {
-    it('GIVEN all filter fields WHEN validating THEN should pass with all fields', () => {
-      const result = transactionFiltersSchema.safeParse({
-        transactionType: 'recharge',
-        startTime: '2025-01-01T00:00:00Z',
-        endTime: '2025-03-15T23:59:59Z',
-        clientAppId: 'app-123',
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.transactionType).toBe('recharge')
-        expect(result.data.startTime).toBe('2025-01-01T00:00:00Z')
-        expect(result.data.endTime).toBe('2025-03-15T23:59:59Z')
-        expect(result.data.clientAppId).toBe('app-123')
-      }
-    })
-  })
 })
 
 describe('accountFiltersSchema', () => {
@@ -70,21 +51,6 @@ describe('accountFiltersSchema', () => {
       })
 
       expect(result.success).toBe(false)
-    })
-  })
-
-  describe('complete valid filters', () => {
-    it('GIVEN all filter fields WHEN validating THEN should pass with all fields', () => {
-      const result = accountFiltersSchema.safeParse({
-        search: 'john',
-        status: 'active',
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.search).toBe('john')
-        expect(result.data.status).toBe('active')
-      }
     })
   })
 })

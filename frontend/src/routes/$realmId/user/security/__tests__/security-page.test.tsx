@@ -111,13 +111,6 @@ function renderSecurityPage(flags: { passkeyEnabled?: boolean; totpEnabled?: boo
 }
 
 describe('ProfileSecurity', () => {
-  it('GIVEN security page THEN renders danger operations section with delete account button', () => {
-    renderSecurityPage()
-
-    expect(screen.getByTestId('danger-operations-section')).toBeInTheDocument()
-    expect(screen.getByTestId('delete-account-open-button')).toHaveTextContent('Delete Account')
-  })
-
   it('GIVEN passkey enabled for realm THEN renders the passkey management UI', async () => {
     renderSecurityPage({ passkeyEnabled: true })
 

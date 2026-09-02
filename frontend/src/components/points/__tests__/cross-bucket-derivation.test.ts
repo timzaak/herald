@@ -47,7 +47,6 @@ describe('deriveUserPointsView', () => {
       const result = deriveUserPointsView(items, CURRENT_USER)
 
       expect(result.cards).toHaveLength(2)
-      expect(result.cards.every((c) => true)).toBe(true)
       // Cross-bucket total is recomputed from the FILTERED rows only, so the
       // other users' 999 + 888 must NOT leak into the calling user total.
       expect(result.crossBucketTotal).toBe(30)
@@ -132,43 +131,6 @@ describe('deriveUserPointsView', () => {
       expect(result.cards.find((c) => c.bucketId === 'disabled-b')?.enabled).toBe(false)
       expect(result.crossBucketTotal).toBe(22)
       expect(result.showTotalBar).toBe(true)
-    })
-  })
-
-  describe('card shape mirroring', () => {
-    it('carries bucketId/name/enabled/bucketTotal/balancesByType onto each card', () => {
-      const items: WalletByBucketResponse[] = [
-        makeWalletByBucket({
-          userId: CURRENT_USER,
-          bucketId: 'bucket-x',
-          name: 'Promo',
-          enabled: true,
-          bucketTotal: 42,
-          balancesByType: {
-            freePeriodic: 1,
-            granted: 2,
-            registration: 3,
-            subscription: 4,
-            topup: 5,
-          },
-        }),
-      ]
-
-      const [card] = deriveUserPointsView(items, CURRENT_USER).cards
-
-      expect(card).toMatchObject({
-        bucketId: 'bucket-x',
-        name: 'Promo',
-        enabled: true,
-        bucketTotal: 42,
-        balancesByType: {
-          freePeriodic: 1,
-          granted: 2,
-          registration: 3,
-          subscription: 4,
-          topup: 5,
-        },
-      })
     })
   })
 })

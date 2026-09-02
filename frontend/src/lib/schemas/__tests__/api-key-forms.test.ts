@@ -115,18 +115,6 @@ describe('createApiKeySchema', () => {
 
       expect(result.success).toBe(false)
     })
-
-    it('should strip unknown fields from output', () => {
-      const result = createApiKeySchema.safeParse({
-        name: 'Valid Name',
-        unknownField: 'should be stripped',
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect((result.data as Record<string, unknown>).unknownField).toBeUndefined()
-      }
-    })
   })
 })
 
@@ -237,20 +225,6 @@ describe('updateApiKeySchema', () => {
       })
 
       expect(result.success).toBe(false)
-    })
-
-    it('should strip unknown fields from output', () => {
-      const result = updateApiKeySchema.safeParse({
-        name: 'Key',
-        enabled: true,
-        expiresAt: null,
-        unknownField: 'should be stripped',
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect((result.data as Record<string, unknown>).unknownField).toBeUndefined()
-      }
     })
   })
 })

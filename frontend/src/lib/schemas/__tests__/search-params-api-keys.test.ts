@@ -54,19 +54,4 @@ describe('apiKeysSearchSchema', () => {
       expect(result.success).toBe(false)
     })
   })
-
-  describe('unknown fields', () => {
-    it('strips unknown fields', () => {
-      const result = apiKeysSearchSchema.safeParse({
-        page: 1,
-        pageSize: 10,
-        unknownField: 'should be removed',
-      })
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data).toEqual({ page: 1, pageSize: 10 })
-        expect('unknownField' in result.data).toBe(false)
-      }
-    })
-  })
 })

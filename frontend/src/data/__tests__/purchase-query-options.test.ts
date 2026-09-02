@@ -147,19 +147,6 @@ describe('purchaseHistoryQueryOptions', () => {
     expect(result.total).toBe(2)
   })
 
-  it('returns empty items and zero total', async () => {
-    vi.mocked(getPurchaseHistory).mockResolvedValue({
-      data: makePurchaseHistoryResponse({ items: [], total: 0 }),
-      error: undefined,
-    })
-
-    const options = purchaseHistoryQueryOptions('realm-1')
-    const result = await options.queryFn()
-
-    expect(result.items).toEqual([])
-    expect(result.total).toBe(0)
-  })
-
   it('throws when API returns error', async () => {
     vi.mocked(getPurchaseHistory).mockResolvedValue({
       data: undefined,

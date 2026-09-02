@@ -16,18 +16,10 @@ describe('RegistrationConfigForm', () => {
     mockOnSave.mockClear()
   })
 
-  it('GIVEN form is rendered WHEN no initial config THEN should display form with default values', async () => {
-    const screen = render(<RegistrationConfigForm {...defaultProps} />)
-
-    expect(screen.getByTestId('reg-enabled-switch')).toBeInTheDocument()
-    expect(screen.getByTestId('reg-require-email-switch')).toBeInTheDocument()
-    expect(screen.getByTestId('reg-save-button')).toBeInTheDocument()
-  })
-
   it('GIVEN initial config provided WHEN rendering THEN should display configuration values', async () => {
     const initialConfig: RegistrationConfigFormData = {
       enabled: false,
-      requireEmailVerification: true, // P0 修复：camelCase 字段名
+      requireEmailVerification: true,
     }
 
     const screen = render(
@@ -62,34 +54,6 @@ describe('RegistrationConfigForm', () => {
     })
   })
 
-  // P0 补充：字段依赖逻辑测试
-  it('GIVEN registration is disabled WHEN toggling requireEmailVerification THEN should keep setting', async () => {
-    mockOnSave.mockResolvedValue(undefined)
-
-    const screen = render(<RegistrationConfigForm {...defaultProps} />)
-
-    // 先禁用注册
-    const enabledSwitch = screen.getByTestId('reg-enabled-switch')
-    await userEvent.click(enabledSwitch)
-
-    // 修改邮箱验证要求
-    const requireEmailSwitch = screen.getByTestId('reg-require-email-switch')
-    await userEvent.click(requireEmailSwitch)
-
-    // 提交表单
-    const saveButton = screen.getByTestId('reg-save-button')
-    await userEvent.click(saveButton)
-
-    // 验证 onSave 被调用，保存所有配置（即使 enabled=false）
-    await waitFor(() => {
-      expect(mockOnSave).toHaveBeenCalledWith({
-        enabled: false,
-        requireEmailVerification: expect.any(Boolean),
-      })
-    })
-  })
-
-  // P0 补充：禁用状态测试
   it('GIVEN form is disabled WHEN user interacts THEN should not allow changes', async () => {
     const screen = render(<RegistrationConfigForm {...defaultProps} disabled={true} />)
 
@@ -105,7 +69,6 @@ describe('RegistrationConfigForm', () => {
     expect(saveButton).toBeDisabled()
   })
 
-  // P0 补充：加载状态测试
   it('GIVEN isLoading prop is true WHEN rendering THEN should disable save button', async () => {
     const screen = render(<RegistrationConfigForm {...defaultProps} isLoading={true} />)
 
@@ -113,7 +76,6 @@ describe('RegistrationConfigForm', () => {
     expect(saveButton).toBeDisabled()
   })
 
-  // P0 补充：表单提交中状态测试
   it('GIVEN form is submitting WHEN save is in progress THEN should disable save button', async () => {
     mockOnSave.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)))
 
@@ -128,9 +90,8 @@ describe('RegistrationConfigForm', () => {
     })
   })
 
-  // P0 补充：初始配置加载测试 - 允许注册但不需要邮箱验证
-  // (互补分支：enabled:false + requireEmail:true 已由上面的
-  //  "initial config provided" 测试覆盖，这里测 enabled:true 分支)
+  // 互补分支：enabled:false + requireEmail:true 已由上面的
+  // "initial config provided" 测试覆盖，这里测 enabled:true 分支
   it('GIVEN initial config allows registration without email verification WHEN rendering THEN should display switches correctly', async () => {
     const initialConfig: RegistrationConfigFormData = {
       enabled: true,

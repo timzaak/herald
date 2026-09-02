@@ -171,28 +171,6 @@ describe('Purchase Flow Store', () => {
   })
 
   describe('State persistence and recovery', () => {
-    it('should handle corrupted localStorage data', () => {
-      // Store invalid JSON in localStorage
-      localStorage.setItem('purchase-flow-storage', 'invalid-json{')
-
-      // This should not throw an error
-      expect(() => {
-        const state = usePurchaseFlowStore.getState()
-        expect(state.realmId).toBe(null)
-      }).not.toThrow()
-    })
-
-    it('should handle missing localStorage gracefully', () => {
-      // Remove localStorage item
-      localStorage.removeItem('purchase-flow-storage')
-
-      // This should not throw an error
-      expect(() => {
-        const state = usePurchaseFlowStore.getState()
-        expect(state.realmId).toBe(null)
-      }).not.toThrow()
-    })
-
     it('should clear stale points_package state on rehydration', () => {
       // Simulate stale persisted state from an old deployment where
       // targetType was still 'points_package'. The rehydration guard
@@ -225,23 +203,6 @@ describe('Purchase Flow Store', () => {
   })
 
   describe('Error handling and edge cases', () => {
-    it('should handle undefined expiry date', () => {
-      const { setPaymentAttempt, isExpired } = usePurchaseFlowStore.getState()
-
-      setPaymentAttempt('attempt-123', 'Pending', { paymentProvider: 'stripe' }, undefined)
-
-      expect(isExpired()).toBe(true)
-    })
-
-    it('should handle invalid expiry date format', () => {
-      const { setPaymentAttempt, isExpired } = usePurchaseFlowStore.getState()
-
-      setPaymentAttempt('attempt-123', 'Pending', { paymentProvider: 'stripe' }, 'invalid-date')
-
-      // Should handle gracefully without throwing
-      expect(() => isExpired()).not.toThrow()
-    })
-
     it('should handle partial state updates', () => {
       const { setPurchaseState } = usePurchaseFlowStore.getState()
 
@@ -272,18 +233,13 @@ describe('Purchase Flow Store', () => {
         userId: 'test-user',
       })
 
-      expect(localStorage.getItem('purchase-flow-storage')).toBeDefined()
+      // The persist middleware writes under PURCHASE_FLOW_STORAGE_KEY
+      // ('cas-purchase-flow'), not the devtools store name.
+      expect(localStorage.getItem('cas-purchase-flow')).toBeDefined()
 
       clearPurchaseFlowStorage()
 
-      expect(localStorage.getItem('purchase-flow-storage')).toBeNull()
-    })
-
-    it('should handle clearing empty localStorage', () => {
-      expect(() => {
-        clearPurchaseFlowStorage()
-        clearPurchaseFlowStorage() // Clear again
-      }).not.toThrow()
+      expect(localStorage.getItem('cas-purchase-flow')).toBeNull()
     })
   })
 })

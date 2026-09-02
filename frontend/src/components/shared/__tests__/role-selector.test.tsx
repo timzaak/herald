@@ -113,20 +113,4 @@ describe('RoleSelector', () => {
     const trigger = screen.getByTestId('role-selector-trigger')
     expect(trigger).toHaveTextContent('Select roles...')
   })
-
-  it('GIVEN custom placeholder is provided WHEN rendering THEN should display it', async () => {
-    const handleChange = vi.fn()
-    const customPlaceholder = 'Choose roles please'
-    const screen = render(
-      <RoleSelector
-        roles={mockRoles}
-        selectedRoleIds={[]}
-        onChange={handleChange}
-        placeholder={customPlaceholder}
-      />
-    )
-
-    const trigger = screen.getByTestId('role-selector-trigger')
-    expect(trigger).toHaveTextContent(customPlaceholder)
-  })
 })

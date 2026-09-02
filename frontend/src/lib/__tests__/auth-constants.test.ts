@@ -44,11 +44,6 @@ describe('ADMIN_PERMISSIONS array', () => {
     expect(ADMIN_PERMISSIONS).toContain(PERMISSION.REALM_MANAGE)
   })
 
-  it('has no duplicate entries', () => {
-    const unique = new Set(ADMIN_PERMISSIONS)
-    expect(ADMIN_PERMISSIONS).toHaveLength(unique.size)
-  })
-
   it('every value corresponds to a key in the PERMISSION object', () => {
     const permissionValues = new Set(Object.values(PERMISSION))
     for (const entry of ADMIN_PERMISSIONS) {

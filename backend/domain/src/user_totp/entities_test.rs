@@ -130,17 +130,9 @@ fn test_unit_user_totp_config_regenerate_secret() {
     assert_eq!(config.key_version, 1, "key_version should remain unchanged");
 }
 
-// NOTE: Low-value test removed (test_unit_user_totp_config_preserves_key_version)
-// This test only verified field immutability across operations without business logic.
-// Key version preservation is covered by the regenerate_secret test above.
-
 // ============================================================================
 // Unit Tests: UserTotpBackupCode
 // ============================================================================
-
-// NOTE: Low-value test removed (test_unit_user_totp_backup_code_new)
-// This test only verified constructor field assignments without business logic.
-// BackupCode creation is covered by integration tests.
 
 #[test]
 fn test_unit_user_totp_backup_code_mark_as_used() {

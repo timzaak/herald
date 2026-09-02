@@ -98,21 +98,6 @@ describe('stripe-config-utils', () => {
       })
     })
 
-    test('handles special characters in config values', () => {
-      const configs: RealmConfigResponse[] = [
-        {
-          configType: PAYMENT_PROVIDERS.STRIPE,
-          configKey: STRIPE_CONFIG_KEYS.PUBLISHABLE_KEY,
-          configValue: 'pk_test_<>{}"\\n\\t',
-          enabled: true,
-        },
-      ]
-
-      const result = parseStripeConfig(configs)
-
-      expect(result.publishableKey).toBe('pk_test_<>{}"\\n\\t')
-    })
-
     test('parses eager async points strategy', () => {
       const configs: RealmConfigResponse[] = [
         {

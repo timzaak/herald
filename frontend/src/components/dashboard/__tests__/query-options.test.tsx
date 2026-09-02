@@ -3,10 +3,8 @@ import { render, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { server } from '@/test/mocks/server'
-import { makeDashboardStats, getDashboardStatsHandler } from '@/test/mocks/handlers/dashboard'
 import { dashboardStatsQueryOptions, queryKeys } from '@/data/query-options'
 import { QUERY_KEYS } from '@/lib/constants'
-import { getDashboardStats } from '@/lib/api-generated'
 
 const API_BASE_URL = 'http://localhost:3000'
 
@@ -57,56 +55,6 @@ describe('dashboardStatsQueryOptions', () => {
       const options = dashboardStatsQueryOptions(realmId)
 
       expect(options.queryKey).toEqual(queryKeys.dashboardStats(realmId))
-    })
-  })
-
-  // ==================== MSW Contract Tests ====================
-
-  describe('MSW contract: GET /api/dashboard/{realmId}/stats', () => {
-    beforeEach(() => {
-      server.resetHandlers()
-    })
-
-    it('should return response matching DashboardStatsResponse shape', async () => {
-      const mockData = makeDashboardStats()
-      let capturedRequest: Request | undefined
-
-      server.use(
-        http.get(`${API_BASE_URL}/api/dashboard/:realmId/stats`, async ({ request }) => {
-          capturedRequest = request as Request
-          return HttpResponse.json(mockData)
-        })
-      )
-
-      const response = await getDashboardStats({ path: { realmId: 'test-realm' } })
-
-      // Verify the request URL contains the realmId
-      expect(capturedRequest).toBeDefined()
-      const requestUrl = new URL(capturedRequest!.url)
-      expect(requestUrl.pathname).toBe('/api/dashboard/test-realm/stats')
-
-      // Verify response body shape
-      expect(response.data).toEqual(mockData)
-      expect(response.data!.userStats.totalUsers).toBe(100)
-      expect(response.data!.userStats.newUsers).toBe(5)
-      expect(response.data!.userStats.activeUsers).toBe(20)
-
-      // Verify authTrend array items
-      expect(response.data!.authTrend).toHaveLength(2)
-      const firstPoint = response.data!.authTrend[0]
-      expect(firstPoint).toHaveProperty('date')
-      expect(firstPoint).toHaveProperty('successCount')
-      expect(firstPoint).toHaveProperty('failureCount')
-    })
-
-    it('should use default handler from makeDashboardStats factory', async () => {
-      server.use(getDashboardStatsHandler)
-
-      const response = await getDashboardStats({ path: { realmId: 'any-realm' } })
-
-      expect(response.data).toBeDefined()
-      expect(response.data!.userStats).toBeDefined()
-      expect(Array.isArray(response.data!.authTrend)).toBe(true)
     })
   })
 

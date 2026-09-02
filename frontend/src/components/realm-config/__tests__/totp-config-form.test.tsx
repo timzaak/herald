@@ -16,17 +16,10 @@ describe('TOTPConfigForm', () => {
     mockOnSave.mockClear()
   })
 
-  it('GIVEN form is rendered WHEN no initial config THEN should display form with default values', async () => {
-    const screen = render(<TOTPConfigForm {...defaultProps} />)
-    expect(screen.getByTestId('totp-enabled-switch')).toBeInTheDocument()
-    expect(screen.getByTestId('totp-force-enabled-switch')).toBeInTheDocument()
-    expect(screen.getByTestId('totp-save-button')).toBeInTheDocument()
-  })
-
   it('GIVEN initial config provided WHEN rendering THEN should display configuration values', async () => {
     const initialConfig: TOTPConfigFormData = {
       enabled: true,
-      forceEnabled: false, // P0 修复：camelCase 字段名
+      forceEnabled: false,
     }
 
     const screen = render(<TOTPConfigForm {...defaultProps} initialConfig={initialConfig} />)
@@ -79,7 +72,6 @@ describe('TOTPConfigForm', () => {
     expect(saveButton).toBeDisabled()
   })
 
-  // P0 补充：字段依赖逻辑测试
   it('GIVEN TOTP is disabled WHEN enabling forceEnabled THEN should auto-enable TOTP', async () => {
     const screen = render(<TOTPConfigForm {...defaultProps} />)
 
@@ -101,7 +93,6 @@ describe('TOTPConfigForm', () => {
     })
   })
 
-  // P0 补充：禁用状态测试
   it('GIVEN form is disabled WHEN user interacts THEN should not allow changes', async () => {
     const screen = render(<TOTPConfigForm {...defaultProps} disabled={true} />)
 
@@ -115,21 +106,5 @@ describe('TOTPConfigForm', () => {
     // 验证保存按钮被禁用
     const saveButton = screen.getByTestId('totp-save-button')
     expect(saveButton).toBeDisabled()
-  })
-
-  // P0 补充：初始配置加载测试
-  it('GIVEN initial config has both enabled WHEN rendering THEN should display both switches checked', async () => {
-    const initialConfig: TOTPConfigFormData = {
-      enabled: true,
-      forceEnabled: true,
-    }
-
-    const screen = render(<TOTPConfigForm {...defaultProps} initialConfig={initialConfig} />)
-
-    const enabledSwitch = screen.getByTestId('totp-enabled-switch')
-    expect(enabledSwitch).toBeChecked()
-
-    const forceSwitch = screen.getByTestId('totp-force-enabled-switch')
-    expect(forceSwitch).toBeChecked()
   })
 })

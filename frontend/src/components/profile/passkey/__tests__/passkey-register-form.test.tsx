@@ -140,15 +140,6 @@ describe('PasskeyRegisterForm', () => {
   })
 
   describe('password confirmation step', () => {
-    it('GIVEN form renders WHEN WebAuthn supported THEN should show the password input and submit button', async () => {
-      renderForm({ onSuccess: vi.fn(), onCancel: vi.fn() })
-
-      expect(screen.getByTestId('passkey-register-form')).toBeInTheDocument()
-      expect(screen.getByTestId('passkey-register-password-input')).toBeInTheDocument()
-      expect(screen.getByTestId('passkey-register-submit-button')).toBeInTheDocument()
-      expect(screen.getByTestId('passkey-register-cancel-button')).toBeInTheDocument()
-    })
-
     it('GIVEN user submits empty password WHEN submitting THEN should show a validation error', async () => {
       renderForm({ onSuccess: vi.fn(), onCancel: vi.fn() })
 

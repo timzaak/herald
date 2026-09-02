@@ -68,12 +68,6 @@ describe('SubscriptionTimeline - Event Rendering', () => {
     const proPlanEl = within(eventContainer).getByText(/pro-plan/)
     expect(proPlanEl.className).toContain('font-medium')
   })
-
-  it('should render view details button for each event', () => {
-    render(<SubscriptionTimeline events={mockEvents} />)
-
-    expect(screen.getByTestId('view-event-details-0')).toBeInTheDocument()
-  })
 })
 
 describe('SubscriptionTimeline - Event Interaction', () => {

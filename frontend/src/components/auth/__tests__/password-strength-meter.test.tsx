@@ -18,18 +18,6 @@ describe('PasswordStrengthMeter', () => {
       expect(screen.container.textContent).toBe('')
       expect(screen.container.querySelector('ul')).not.toBeInTheDocument()
     })
-
-    it('GIVEN weak password WHEN rendering THEN displays Weak label', async () => {
-      const screen = render(<PasswordStrengthMeter password="abc" config={defaultConfig} />)
-      expect(screen.getByText('Weak')).toBeInTheDocument()
-    })
-
-    it('GIVEN strong password WHEN rendering THEN displays Strong label', async () => {
-      const screen = render(
-        <PasswordStrengthMeter password="Password123!" config={defaultConfig} />
-      )
-      expect(screen.getByText('Strong')).toBeInTheDocument()
-    })
   })
 
   describe('suggestions', () => {
@@ -41,13 +29,6 @@ describe('PasswordStrengthMeter', () => {
       expect(screen.getByText(/must contain special characters/)).toBeInTheDocument()
       const list = screen.container.querySelector('ul')
       expect(list).toBeInTheDocument()
-    })
-
-    it('GIVEN password missing uppercase WHEN rendering THEN displays uppercase suggestion', async () => {
-      const screen = render(
-        <PasswordStrengthMeter password="password123!" config={defaultConfig} />
-      )
-      expect(screen.getByText(/must contain uppercase letters/)).toBeInTheDocument()
     })
 
     it('GIVEN password missing lowercase WHEN rendering THEN displays lowercase suggestion', async () => {

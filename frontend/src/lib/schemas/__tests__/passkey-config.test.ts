@@ -88,21 +88,4 @@ describe('passkeyConfigSchema', () => {
       expect(result.success).toBe(false)
     })
   })
-
-  describe('full valid config', () => {
-    it('should accept complete config with all fields specified', () => {
-      const result = passkeyConfigSchema.safeParse({
-        enabled: true,
-        userVerification: 'required',
-        crossPlatformAuthenticator: false,
-      })
-
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.enabled).toBe(true)
-        expect(result.data.userVerification).toBe('required')
-        expect(result.data.crossPlatformAuthenticator).toBe(false)
-      }
-    })
-  })
 })

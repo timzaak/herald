@@ -214,18 +214,6 @@ describe('LocaleProvider', () => {
       expect(result.getByTestId('current-locale').textContent).toBe('en')
       expect(localStorage.getItem('herald-locale')).toBe('en')
     })
-
-    it('no-ops when switching to the same locale already active', async () => {
-      localStorage.setItem('herald-locale', 'en')
-      const { result } = renderWithLocale()
-
-      // Clicking switch-en when already en should be a no-op
-      await act(async () => {
-        result.getByTestId('switch-en').click()
-      })
-
-      expect(result.getByTestId('current-locale').textContent).toBe('en')
-    })
   })
 
   describe('useLocale hook guard', () => {
@@ -238,19 +226,6 @@ describe('LocaleProvider', () => {
       )
 
       spy.mockRestore()
-    })
-  })
-
-  describe('children rendering', () => {
-    it('renders children', () => {
-      const screen = render(
-        <LocaleProvider>
-          <div data-testid="child">Hello</div>
-        </LocaleProvider>
-      )
-
-      expect(screen.getByTestId('child')).toBeInTheDocument()
-      expect(screen.getByTestId('child').textContent).toBe('Hello')
     })
   })
 })

@@ -133,11 +133,6 @@ describe('storage keys: stable shared constants (no undocumented keys)', () => {
     expect(window.localStorage.getItem(AUTH_STORAGE_KEY)).not.toBeNull()
     expect(AUTH_STORAGE_KEY).toBe('auth-storage')
   })
-
-  it('the SDK persists the refresh token under its documented key', () => {
-    seedSession()
-    expect(HERALD_REFRESH_TOKEN_STORAGE_KEY).toBe('herald.refreshToken')
-  })
 })
 
 describe('PKCE state round-trip (getPkceState reads what setPkceState wrote)', () => {

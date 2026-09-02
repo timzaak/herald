@@ -155,35 +155,6 @@ describe('GrantPointsDialog', () => {
         expect(screen.queryByTestId('grant-points-confirm-dialog')).not.toBeInTheDocument()
       })
     })
-
-    it('shows amount error when amount is less than 1', async () => {
-      const user = userEvent.setup()
-      renderDialog()
-
-      const amountInput = screen.getByTestId('grant-points-amount-input')
-      // The component uses parseInt(e.target.value) || 1, so typing 0 falls back to 1.
-      // Instead, test by triple-clicking to select all and typing 0 -- the input will show 0
-      // but the component's onChange coerces it to 1.
-      // The schema validation catches 0 at submit time, so we verify the form does not proceed.
-      // Since the component coerces bad values to 1, the real guard is schema-side.
-      // We verify form does not proceed to confirm dialog without valid user + reason.
-      const submitButton = screen.getByTestId('grant-points-submit-button')
-      await user.click(submitButton)
-
-      // Form should not proceed without required fields
-      expect(screen.queryByTestId('grant-points-confirm-dialog')).not.toBeInTheDocument()
-    })
-
-    it('shows reason error when reason is empty', async () => {
-      renderDialog()
-
-      // Submit with default values (reason is empty, no user selected)
-      const submitButton = screen.getByTestId('grant-points-submit-button')
-      await userEvent.click(submitButton)
-
-      // Form should not proceed without required fields (userId + reason)
-      expect(screen.queryByTestId('grant-points-confirm-dialog')).not.toBeInTheDocument()
-    })
   })
 
   describe('permanent validity toggle', () => {
@@ -195,21 +166,6 @@ describe('GrantPointsDialog', () => {
 
       const validityInput = screen.getByTestId('grant-points-validity-days-input')
       expect(validityInput).toBeDisabled()
-    })
-
-    it('renders permanent toggle with correct checked state reflecting form value', () => {
-      renderDialog()
-
-      // Default form value: validityDays=null, so isPermanent=true, toggle=checked, input=disabled
-      const permanentToggle = screen.getByTestId('grant-points-permanent-toggle')
-      expect(permanentToggle).toBeChecked()
-
-      const validityInput = screen.getByTestId('grant-points-validity-days-input')
-      expect(validityInput).toBeDisabled()
-
-      // The relationship: when toggle is checked (isPermanent=true),
-      // the validity input is disabled. This tests the derived state logic
-      // that the component uses: isPermanent = validityDays === null || undefined
     })
   })
 

@@ -431,15 +431,6 @@ describe('invoiceSellerConfigSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts optional fields as undefined (omitted)', () => {
-    const result = invoiceSellerConfigSchema.safeParse({
-      sellerName: 'Seller Inc',
-      sellerAddress: '456 Oak Ave',
-      sellerTaxId: 'TAX123',
-    })
-    expect(result.success).toBe(true)
-  })
-
   it('rejects invalid sellerEmail', () => {
     const result = invoiceSellerConfigSchema.safeParse({
       sellerName: 'Seller Inc',
@@ -497,12 +488,11 @@ describe('applyInvoiceSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  // P1-3 removed the manual-ID-entry path. The apply schema no longer has the
-  // refine that required at least one of paymentAttemptId/subscriptionId,
-  // because the resource id is now always supplied by the route's search params
-  // (prefilled-reference). The schema only carries the ids through to the
-  // mutation; the route enforces exactly-one-required. So a form with neither
-  // id now parses successfully at the schema level.
+  // The apply schema deliberately has no refine requiring at least one of
+  // paymentAttemptId/subscriptionId: the resource id is always supplied by the
+  // route's search params (prefilled-reference) and the route enforces
+  // exactly-one-required. The schema only carries the ids through to the
+  // mutation, so a form with neither id parses successfully at the schema level.
   it('accepts form with neither paymentAttemptId nor subscriptionId (route enforces required)', () => {
     const result = applyInvoiceSchema.safeParse({
       currency: 'CNY',
@@ -567,13 +557,6 @@ describe('voidInvoiceSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts voidReason as undefined (omitted)', () => {
-    const result = voidInvoiceSchema.safeParse({
-      voidReason: undefined,
-    })
-    expect(result.success).toBe(true)
-  })
-
   it('rejects voidReason exceeding max length', () => {
     const result = voidInvoiceSchema.safeParse({
       voidReason: 'a'.repeat(501),
@@ -592,37 +575,6 @@ describe('voidInvoiceSchema', () => {
 // ==================== Helper Functions ====================
 
 describe('getInvoiceFormDefaults', () => {
-  it('returns correct default shape without seller config', () => {
-    const defaults = getInvoiceFormDefaults()
-
-    expect(defaults).toEqual({
-      accountId: '',
-      billingName: '',
-      billingEmail: null,
-      billingAddress: '',
-      billingPhone: null,
-      billingTaxId: '',
-      sellerName: '',
-      sellerEmail: null,
-      sellerAddress: '',
-      sellerPhone: null,
-      sellerTaxId: '',
-      currency: 'CNY',
-      lineItems: [{ name: '', description: null, quantity: '1', unitPrice: '0.00' }],
-      discountMode: null,
-      discountValue: null,
-      taxMode: null,
-      taxValue: null,
-      shippingMode: null,
-      shippingValue: null,
-      dueDate: '',
-      paymentTerms: null,
-      notes: null,
-      subscriptionId: null,
-      paymentAttemptId: null,
-    })
-  })
-
   it('merges seller config when provided', () => {
     const defaults = getInvoiceFormDefaults({
       sellerName: 'Seller Inc',

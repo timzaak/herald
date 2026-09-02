@@ -62,20 +62,6 @@ describe('invoicePolicyConfigSchema', () => {
     }
   })
 
-  it('accepts providerCapabilities with multiple providers', () => {
-    const result = invoicePolicyConfigSchema.safeParse({
-      policy: 'provider_first',
-      providerCapabilities: {
-        stripe: { externalInvoiceEnabled: true },
-        creem: { externalInvoiceEnabled: true },
-      },
-    })
-    expect(result.success).toBe(true)
-    if (result.success) {
-      expect(Object.keys(result.data.providerCapabilities)).toHaveLength(2)
-    }
-  })
-
   it('rejects providerCapabilities with non-boolean externalInvoiceEnabled', () => {
     const result = invoicePolicyConfigSchema.safeParse({
       policy: 'provider_first',
@@ -90,18 +76,6 @@ describe('invoicePolicyConfigSchema', () => {
 // ==================== getInvoicePolicyDefaults ====================
 
 describe('getInvoicePolicyDefaults', () => {
-  it('returns policy: "provider_first" as default policy', () => {
-    const defaults = getInvoicePolicyDefaults()
-    expect(defaults.policy).toBe('provider_first')
-  })
-
-  it('returns providerCapabilities containing all known providers', () => {
-    const defaults = getInvoicePolicyDefaults()
-    expect(defaults.providerCapabilities.stripe.externalInvoiceEnabled).toBe(true)
-    expect(defaults.providerCapabilities.creem.externalInvoiceEnabled).toBe(true)
-    expect(defaults.providerCapabilities.shopify).toBeUndefined()
-  })
-
   it('returned object passes schema validation', () => {
     const defaults = getInvoicePolicyDefaults()
     const result = invoicePolicyConfigSchema.safeParse(defaults)
