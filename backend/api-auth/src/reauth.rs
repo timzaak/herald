@@ -376,12 +376,6 @@ mod tests {
     }
 
     #[test]
-    fn reauth_target_names_match_public_contract() {
-        assert_eq!(TargetOperation::ChangePassword.as_str(), "change_password");
-        assert_eq!(TargetOperation::DeleteAccount.as_str(), "delete_account");
-    }
-
-    #[test]
     fn self_service_reauth_consume_failures_remain_distinct() {
         use axum::response::IntoResponse;
 

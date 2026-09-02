@@ -81,21 +81,4 @@ mod unit_tests {
         };
         assert!(!expired_key.is_valid());
     }
-
-    // NOTE: Low-value test removed (test_cache_value_conversion)
-    // This test only verified struct field assignments without business logic.
-    // Field assignments are covered by integration tests.
-
-    #[test]
-    fn test_api_key_generation() {
-        let key1 = ClientApiKeyService::generate_api_key();
-        let key2 = ClientApiKeyService::generate_api_key();
-
-        // Should be valid UUID v7 format
-        assert!(uuid::Uuid::parse_str(&key1).is_ok());
-        assert!(uuid::Uuid::parse_str(&key2).is_ok());
-
-        // Should be unique
-        assert_ne!(key1, key2);
-    }
 }

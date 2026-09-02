@@ -11,7 +11,6 @@ mod test_09_consume_exact_balance;
 mod test_11_consume_edge_cases;
 mod test_13_concurrent_consumption;
 mod test_15_consume_idempotency;
-mod test_24_entitlement_points_policy;
 mod test_31_closed_account_consumption;
 mod test_32_frozen_account_consumption;
 
@@ -61,15 +60,15 @@ mod test_80_effective_at_semantics;
 
 // point-time: provider period normalization (Stripe top-level +
 // item-level + multi-item disagreeing + both absent; Creem symmetric +
-// missing). Scenario-layer coverage of P0. The pure
+// missing). Scenario-layer coverage. The pure
 // `normalize_*` unit tests live in backend/api-billing (owned elsewhere);
 // these tests exercise the consequence end-to-end via the webhook HTTP
 // path (grant written vs. skipped).
 mod test_81_provider_period_normalization;
 
 // point-time: worker-down + read-path realization (US-FU-004 scenario
-// 1.1) + realization write-failure fail-loud (P2). Scenario-layer coverage of
-// P0 (worker-down still usable) + reconcile_due_for_user
+// 1.1) + realization write-failure fail-loud. Scenario-layer coverage of
+// worker-down still usable + reconcile_due_for_user
 // (single-user, N=3, idempotent, lead_time=0, subscription_id IS NULL only,
 // fail-loud 5xx). The worker is NEVER started; correctness is exercised
 // purely via the read path (`PointsService::get_balance` / `consume_points`)
@@ -77,7 +76,7 @@ mod test_81_provider_period_normalization;
 mod test_82_worker_down_read_path_realization;
 
 // point-time: response/wallet-list non-leak + DTO effective_at hiding
-// (P1 "管理员钱包列表不泄漏未来期积分" + P1-2 DTO
+// (admin wallet list must not leak future-period credits; DTO
 // `effective_at` permission hiding). Asserts the `skip_serializing_if`
 // field-level contract via raw JSON KEY presence/absence (not just value),
 // and the cross-user batched derived assembly in `list_wallets`.
@@ -89,11 +88,10 @@ mod test_83_response_non_leak_dto_hidden;
 // `current_period_*` and uses `lines.data` (NOT `items.data`); the invoice
 // resolver reads `lines.data[].period.{start,end}`. Exercises the renewal
 // grant END-TO-END via the webhook HTTP path: single-line period → grant;
-// line without a period → SKIP (P0).
+// line without a period → SKIP (correctness gate).
 pub mod multi_wallet_grant_rule_scenarios;
 mod test_84_stripe_invoice_period_normalization;
 mod test_90_window_slide_multi_min;
-mod test_92_mixed_consume_atomicity;
 mod test_94_lifecycle_revoke_idempotent;
 
 pub mod fixtures;

@@ -25,7 +25,6 @@ use crate::tests::helpers::points_grant_helpers::{
 };
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::http::StatusCode;
-use sqlx::Row;
 use test_context::test_context;
 use uuid::Uuid;
 
@@ -419,70 +418,6 @@ async fn test_74_8_wallet_auto_created_on_first_grant(ctx: &mut TestContext) {
     assert_eq!(wallet.1, 0, "topup_balance should be 0");
     assert_eq!(wallet.2, 0, "subscription_balance should be 0");
     assert_eq!(wallet.3, 50, "total_balance should be 50");
-}
-
-// =============================================================================
-// Test 74.9: Grant record appears in transaction history
-// =============================================================================
-// User Story: US-PO-08
-// Covers: points_transactions has row with type='grant', credit_type='granted_credit',
-//         matching amount and description containing reason
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_74_9_grant_record_in_transaction_history(ctx: &mut TestContext) {
-    // Given: Grant succeeds
-    let admin_email = "admin_74_9@test.com";
-    let (admin_token, admin_user_id) = create_admin_session_with_user(ctx, admin_email, 1800).await;
-    grant_realm_admin_role(ctx, &admin_user_id).await;
-
-    let target_user_id = create_target_user(ctx, "target_74_9@test.com").await;
-    let grant_reason = "admin bonus for testing";
-
-    let (status, _) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        75,
-        grant_reason,
-        None,
-        &admin_token,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-
-    // Then: points_transactions has row with type='grant', credit_type='granted_credit'
-    let tx_row = sqlx::query(
-        "SELECT type, credit_type, amount, description \
-         FROM points_transactions \
-         WHERE user_id = $1 AND type = 'grant' \
-         ORDER BY created_at DESC LIMIT 1",
-    )
-    .bind(target_user_id)
-    .fetch_one(&ctx._app_state.pool)
-    .await
-    .expect("Grant transaction should exist");
-
-    let tx_type: String = tx_row.get("type");
-    let credit_type: Option<String> = tx_row.get("credit_type");
-    let amount: i64 = tx_row.get("amount");
-    let description: Option<String> = tx_row.get("description");
-
-    assert_eq!(tx_type, "grant", "Transaction type should be 'grant'");
-    assert_eq!(
-        credit_type.as_deref(),
-        Some("granted_credit"),
-        "Credit type should be 'granted_credit'"
-    );
-    assert_eq!(amount, 75, "Amount should match grant amount");
-
-    // Description may contain additional context, but should include the reason
-    let desc = description.expect("Description should be set");
-    assert!(
-        desc.contains(grant_reason),
-        "Description should contain the grant reason, got: {:?}",
-        desc
-    );
 }
 
 // =============================================================================

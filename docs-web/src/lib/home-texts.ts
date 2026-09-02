@@ -125,6 +125,15 @@ export const en: HomeTexts = {
         "Auditable publishing and account deletion",
       ],
     },
+    {
+      title: "MCP Server for AI Agents",
+      desc: "Connect Claude Code, Cursor, VS Code, or any MCP client to your realm with a Client API Key. Agents query users, points, and audit logs through structured, permission-gated tools instead of hand-written REST calls.",
+      bullets: [
+        "Five read-only tools: users, points, audit, config status",
+        "Client API Key auth with RBAC gating per tool",
+        "Streamable HTTP on /mcp — no separate deployment",
+      ],
+    },
   ],
   stepsSectionTitle: "From repository to AI product in three steps",
   stepsSectionDesc:
@@ -313,6 +322,15 @@ export const zh: HomeTexts = {
         "每份协议独立选择承载模式",
         "绑定版本的同意与重新同意",
         "可审计的发布和账户注销",
+      ],
+    },
+    {
+      title: "面向 AI Agent 的 MCP 服务器",
+      desc: "用 Client API Key 把 Claude Code、Cursor、VS Code 或任意 MCP 客户端接入你的租户。Agent 通过结构化、受权限约束的工具查询用户、积分和审计日志，无需阅读 REST 文档手写调用。",
+      bullets: [
+        "五个只读工具：用户、积分、审计日志、配置状态",
+        "Client API Key 认证，按工具 RBAC 授权",
+        "/mcp Streamable HTTP 端点，无需独立部署",
       ],
     },
   ],

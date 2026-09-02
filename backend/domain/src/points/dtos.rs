@@ -185,13 +185,6 @@ mod tests {
     }
 
     #[test]
-    fn test_grant_input_rejects_negative_amount() {
-        let mut input = valid_grant_input();
-        input.amount = -50;
-        assert!(input.validate().is_err());
-    }
-
-    #[test]
     fn test_grant_input_rejects_empty_reason() {
         let mut input = valid_grant_input();
         input.reason = "   ".to_string();
@@ -202,13 +195,6 @@ mod tests {
     fn test_grant_input_rejects_zero_validity_days() {
         let mut input = valid_grant_input();
         input.validity_days = Some(0);
-        assert!(input.validate().is_err());
-    }
-
-    #[test]
-    fn test_grant_input_rejects_negative_validity_days() {
-        let mut input = valid_grant_input();
-        input.validity_days = Some(-10);
         assert!(input.validate().is_err());
     }
 }

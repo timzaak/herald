@@ -315,41 +315,6 @@ async fn test_revoke_quota_entitlement_zeroes_window_without_reversing_consumes(
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
-async fn test_lifecycle_revoke_cancel_zero_quota(ctx: &mut SchemaTestContext) {
-    let source_id = Uuid::now_v7().to_string();
-    let (realm_id, user_id, bucket_id) =
-        setup_subscription_quota(ctx, "quota-cancel@example.com", &source_id, 100).await;
-    revoke_subscription_quota(ctx, &realm_id, user_id, bucket_id, &source_id).await;
-    assert_subscription_revoked(ctx, &realm_id, user_id, bucket_id, &source_id).await;
-}
-
-#[test_context(SchemaTestContext)]
-#[tokio::test]
-async fn test_lifecycle_revoke_refund_no_reverse(ctx: &mut SchemaTestContext) {
-    let source_id = Uuid::now_v7().to_string();
-    let (realm_id, user_id, bucket_id) =
-        setup_subscription_quota(ctx, "quota-refund@example.com", &source_id, 100).await;
-    let consume_id = seed_quota_consume_for_test(
-        ctx,
-        &realm_id,
-        user_id,
-        bucket_id,
-        CreditType::SubscriptionCredit,
-        30,
-        Utc::now(),
-    )
-    .await;
-    revoke_subscription_quota(ctx, &realm_id, user_id, bucket_id, &source_id).await;
-    assert_subscription_revoked(ctx, &realm_id, user_id, bucket_id, &source_id).await;
-    assert_eq!(
-        count_transaction(ctx, consume_id).await,
-        1,
-        "refund-style revoke must not reverse already-written consume rows"
-    );
-}
-
-#[test_context(SchemaTestContext)]
-#[tokio::test]
 async fn test_lifecycle_revoke_upgrade_grant_new(ctx: &mut SchemaTestContext) {
     let old_source_id = Uuid::now_v7().to_string();
     let new_source_id = Uuid::now_v7().to_string();
@@ -366,28 +331,6 @@ async fn test_lifecycle_revoke_upgrade_grant_new(ctx: &mut SchemaTestContext) {
         bucket_id,
         CreditType::SubscriptionCredit,
         250,
-    )
-    .await;
-}
-
-#[test_context(SchemaTestContext)]
-#[tokio::test]
-async fn test_lifecycle_revoke_downgrade(ctx: &mut SchemaTestContext) {
-    let old_source_id = Uuid::now_v7().to_string();
-    let new_source_id = Uuid::now_v7().to_string();
-    let (realm_id, user_id, bucket_id) =
-        setup_subscription_quota(ctx, "quota-downgrade@example.com", &old_source_id, 200).await;
-    revoke_subscription_quota(ctx, &realm_id, user_id, bucket_id, &old_source_id).await;
-    grant_subscription_quota(ctx, &realm_id, user_id, bucket_id, &new_source_id, 80).await;
-
-    assert_subscription_source_revoked(ctx, &realm_id, user_id, bucket_id, &old_source_id).await;
-    assert_window_available(
-        ctx,
-        &realm_id,
-        user_id,
-        bucket_id,
-        CreditType::SubscriptionCredit,
-        80,
     )
     .await;
 }

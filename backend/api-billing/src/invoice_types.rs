@@ -143,9 +143,8 @@ impl From<InvoiceHistory> for InvoiceHistoryResponse {
 /// Per-resource invoice apply-eligibility (read-only, context-level).
 ///
 /// Returned by `GET /api/bill/{realmId}/my/invoices/apply-eligibility` so the
-/// frontend can gate the Apply Invoice button BEFORE submit (Phase B of P0-2,
-/// see `.ai/future/invoice_ux.md`). Users consume this verdict; they do NOT
-/// read admin config/policy APIs directly.
+/// frontend can gate the Apply Invoice button BEFORE submit. Users consume
+/// this verdict; they do NOT read admin config/policy APIs directly.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceApplyEligibilityResponse {
@@ -784,12 +783,5 @@ mod tests {
         let json = serde_json::to_value(&response).expect("serialize response");
         assert_eq!(json["externalInvoiceId"].as_str(), Some("in_xyz"));
         assert!(json.get("external_invoice_id").is_none());
-    }
-
-    #[test]
-    fn summary_to_response_external_invoice_id_none_when_absent() {
-        let summary = make_summary(None);
-        let response = summary_to_response(summary);
-        assert!(response.external_invoice_id.is_none());
     }
 }

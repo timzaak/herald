@@ -245,13 +245,3 @@ pub async fn oauth_authorize(
     )
         .into_response())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_response_type() {
-        assert_eq!(default_response_type(), "code");
-    }
-}

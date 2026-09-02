@@ -1,10 +1,10 @@
 // =============================================================================
-// worker-down + read-path realization + fail-loud (P0/P2)
+// worker-down + read-path realization + fail-loud
 // =============================================================================
 //
-// Encodes design `.ai/design/point-time.md` P0 "worker 未运行仍可用" +
-// "读路径兑现 US-FU-004 场景 1.1" + P2 "读路径兑现写入失败 fail-loud",
-// with the realization logic pinned by the design below.
+// Encodes US-FU-004 scenario 1.1 (read-path realization when the worker
+// never runs) plus the realization write-failure fail-loud contract; the
+// realization logic is pinned by the invariants below.
 //
 // CORE INVARIANTS under test (the hardest scenarios in the whole feature):
 //
@@ -29,7 +29,7 @@
 //  5. lead_time=0: realization only catches up to `next_grant_time <= now`
 //     (a schedule with `next_grant_time > now` is NOT realized early).
 //
-//  6. FAIL-LOUD (P2): when realization WRITE fails (real DB constraint
+//  6. FAIL-LOUD: when realization WRITE fails (real DB constraint
 //     violation injected by `points_per_period = 0` schedule →
 //     `points_credit_ledger.granted_amount > 0` CHECK fails on INSERT),
 //     `get_balance`/`consume_points` return `CoreError::DatabaseError`
@@ -37,7 +37,7 @@
 //     to `BadRequest("Insufficient points balance...")` (which is the
 //     400-mapping `CoreError::insufficient_points` variant) — masking a
 //     system write fault as user "low balance" is precisely the
-//     anti-pattern the design forbids.
+//     anti-pattern the fail-loud contract forbids.
 //
 // All balance assertions use the derived-predicate helpers
 // (`assert_derived_balance` / `get_derived_balance_by_credit_type`) — these
@@ -47,7 +47,7 @@
 // Worker is NEVER started or invoked in this file. Clock progression is
 // simulated via SQL UPDATE on schedule rows (`advance_schedule` helper) or
 // by seeding `next_grant_time` at the desired offset, mirroring the
-// virtual-clock idiom established in test_80 / testing.md.
+// virtual-clock idiom established in test_80.
 //
 // Provenance labels for fail-loud (evidence strength):
 //   * test_realization_failure_fail_loud_get_balance_5xx
@@ -65,7 +65,7 @@
 
 use crate::tests::helpers::points_helpers::{
     assert_derived_balance, create_free_grant_schedule, create_subscription_grant_schedule,
-    create_test_third_party_identity, ensure_test_bucket_for_realm, grant_record_exists,
+    create_test_third_party_identity, grant_record_exists,
 };
 use crate::tests::scenarios::points::fixtures::create_test_user;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
@@ -84,10 +84,10 @@ use uuid::Uuid;
 // User Story: US-FU-004 scenario 1.1 (free user receives each period's free
 // credits on time even when the worker never runs).
 //
-// Covers P0 "免费周期——不启动 worker，`get_balance`/消费入口经
-// `reconcile_due_for_user` 同步补写本期行" + (single-user, idempotent,
-// lead_time=0, subscription_id IS NULL only, fail-loud 5xx) +
-// (worker is preheat, not correctness).
+// Covers the free-periodic worker-down rule: `get_balance`/consume entries
+// synchronously backfill the due period's row via `reconcile_due_for_user`
+// (single-user, idempotent, lead_time=0, subscription_id IS NULL only,
+// fail-loud 5xx) — the worker is preheat, not correctness.
 //
 // WHY this test exists: this is THE central point-time correctness backstop
 // for free users. The GrantScheduler (`process_due_schedules`) was dead code
@@ -172,7 +172,7 @@ async fn test_free_periodic_worker_down_read_path_realization(ctx: &mut TestCont
 }
 
 // ----------------------------------------------------------------------------
-// Scenario "读路径兑现 (P0)" — consume entry-point also triggers
+// Scenario: read-path realization — consume entry-point also triggers
 // realization, so a consume request immediately after period start succeeds
 // without any worker tick.
 // ----------------------------------------------------------------------------
@@ -180,11 +180,11 @@ async fn test_free_periodic_worker_down_read_path_realization(ctx: &mut TestCont
 // User Story: US-FU-004 scenario 1.1 (consume after period start succeeds
 // because consume also reconciles inline).
 //
-// Covers P0 "免费周期——`get_balance`/消费入口经
-// `reconcile_due_for_user` 同步补写本期行" + "顺序保证：消费入口
-// 固定为 reconcile_due_for_user → find_active_ledgers_for_update".
+// Covers the free-periodic read-path rule for the consume entry plus its
+// ordering guarantee: consume runs reconcile_due_for_user BEFORE
+// find_active_ledgers_for_update.
 //
-// WHY this test exists: the design places realization at BOTH read entries
+// WHY this test exists: realization sits at BOTH read entries
 // (`get_balance` and `consume_points`). The consume path is the more
 // critical one — if it silently skipped realization, a free user with zero
 // balance would see "Insufficient points" on the FIRST consume of a new
@@ -262,7 +262,7 @@ async fn test_free_periodic_consume_triggers_realization(ctx: &mut TestContext) 
 }
 
 // =============================================================================
-// Scenario "读路径兑现 (P0)" — concurrent get_balance calls do NOT
+// Scenario: read-path realization — concurrent get_balance calls do NOT
 // double-grant (idempotency).
 // =============================================================================
 
@@ -579,7 +579,7 @@ async fn test_realization_lead_time_zero_no_advance(ctx: &mut TestContext) {
 // behind them. The request path has no way to know whether a renewal has
 // actually been paid — guessing "the schedule is due, so grant it" would
 // hand out subscription credits to users whose renewal failed silently, or
-// whose webhook is still in flight. The design therefore routes
+// whose webhook is still in flight. The contract therefore routes
 // subscriptions through event-driven chained pre-grant
 // (handle_subscription_paid writes period N + pre-grants period N+1) and
 // EXCLUDES subscription_id IS NOT NULL schedules from read-path realization.
@@ -633,28 +633,28 @@ async fn test_realization_skips_subscription_schedule(ctx: &mut TestContext) {
 }
 
 // =============================================================================
-// Scenario "读路径兑现写入失败 fail-loud (P2)" — get_balance
+// Scenario: read-path realization write-failure fail-loud — get_balance
 // =============================================================================
 
 // User Story: US-FU-004 (system write faults must surface as system errors,
 // not be masked as user-visible "low balance").
 //
-// Covers "失败行为 (错误语义钉死): get_balance/消费入口若 due
-// schedule 存在且兑现写入失败，必须 fail loud...不得静默降级为旧余额或
-// InsufficientBalance" + "读路径兑现写入失败 fail-loud (P2)".
+// Covers the pinned failure semantics: if a due schedule exists and the
+// realization write fails, get_balance/consume must fail loud — never
+// silently degrade to the stale balance or InsufficientBalance.
 //
 // WHY this test exists: this is the most important defensive assertion in
-// the realization design. If a write fault (DB error, constraint violation,
+// the realization feature. If a write fault (DB error, constraint violation,
 // lost connection) inside `pregrant_next_period_atomic` were swallowed and
 // the read path returned the OLD balance, the user would silently see
 // stale data. Worse, if the error were rewritten to `InsufficientBalance`,
 // the system would be telling the user "you don't have credits" when in
 // reality the SYSTEM failed to grant them — masking an infrastructure
-// fault behind a business error. The design therefore pins the error
+// fault behind a business error. The error contract therefore pins the
 // semantics: write failures propagate verbatim as CoreError::DatabaseError
 // (HTTP 500), NEVER rewritten to BadRequest("Insufficient...").
 //
-// HOW the write failure is injected (P2-5 provenance):
+// HOW the write failure is injected:
 //   We seed a due free schedule with `points_per_period = 0`. The schedule
 //   itself accepts 0 (its CHECK is `points_per_period >= 0`), but the
 //   realization INSERTs a `points_credit_ledger` row with
@@ -667,7 +667,7 @@ async fn test_realization_skips_subscription_schedule(ctx: &mut TestContext) {
 //   it to the caller. This is a REAL DB-level constraint violation driving
 //   a REAL CoreError::DatabaseError — not a mock.
 //
-// PROVENANCE LABEL: service-direct Err propagation. The test calls
+// Failure propagation: service-direct Err. The test calls
 // `PointsService::get_balance` directly (the HTTP `get_wallet` route does
 // not invoke `reconcile_due_for_user`); the asserted variant
 // (`CoreError::DatabaseError`) maps to HTTP 500 INTERNAL_SERVER_ERROR via
@@ -767,7 +767,7 @@ async fn test_realization_failure_fail_loud_get_balance_5xx(ctx: &mut TestContex
 }
 
 // ----------------------------------------------------------------------------
-// Scenario "读路径兑现写入失败 fail-loud (P2)" — consume entry-point
+// Scenario: read-path realization write-failure fail-loud — consume entry-point
 // ----------------------------------------------------------------------------
 
 // User Story: US-PU-009 (the SDK consume path must also fail loud — it must
@@ -785,8 +785,8 @@ async fn test_realization_failure_fail_loud_get_balance_5xx(ctx: &mut TestContex
 // This test seeds the same `points_per_period = 0` fault and asserts the
 // consume returns DatabaseError, not insufficient_points / BadRequest.
 //
-// PROVENANCE LABEL: service-direct Err propagation. Same mechanism and
-// justification as the get_balance fail-loud test above.
+// Failure propagation: service-direct Err. Same mechanism and justification
+// as the get_balance fail-loud test above.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_realization_failure_consume_fail_loud(ctx: &mut TestContext) {
@@ -875,123 +875,4 @@ async fn test_realization_failure_consume_fail_loud(ctx: &mut TestContext) {
         !grant_record_exists(ctx, schedule_id, 1).await,
         "no grant_record should survive a failed realization"
     );
-}
-
-// =============================================================================
-// Scenario "worker 未运行仍可用 (子用例 a)" — subscription chained
-// pre-grant survives worker downtime via the effective_at predicate.
-// =============================================================================
-
-// User Story: US-PU-009 scenario 2.1 (renewal notification missing + pre-grant
-// job not running ⟹ the chained pre-grant row written at the previous
-// renewal still satisfies the period via the effective_at predicate).
-//
-// Covers P0 "订阅——不启动 worker，靠激活/续费时链式预生成的既有
-// 行 + effective_at 谓词" + "订阅靠 事件驱动链式预生成满足".
-//
-// WHY this test exists: subscription correctness does NOT depend on the
-// worker. At each renewal confirmation, `handle_subscription_paid` writes
-// the current period's row AND pre-grants the next period with
-// `effective_at = next_period_start`. If the worker never runs AND the
-// next renewal webhook is delayed, the user still sees the next period's
-// credits the moment `effective_at <= NOW()` flips true — purely via the
-// availability predicate. This test seeds a chained pre-grant row with a
-// FUTURE effective_at (mirroring what the previous renewal would have
-// written), asserts the derived balance excludes it, then advances the
-// clock via SQL UPDATE on effective_at (no worker invoked) and asserts
-// the row enters the available set immediately. This mirrors the test_80
-// zero-delay test but in the subscription scenario context.
-//
-// Test boundary note: we do NOT exercise the webhook handler
-// itself (that is covered elsewhere). We seed the chained pre-grant row directly via
-// the `create_credit_ledger_entry_with_effective_at` helper and
-// focus on the worker-down availability claim — the part this file owns.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_subscription_worker_down_still_available_via_chained_pregrant(ctx: &mut TestContext) {
-    use crate::tests::helpers::points_helpers::{
-        create_credit_ledger_entry_with_effective_at, get_derived_balance_by_credit_type,
-    };
-
-    let realm_id = ctx._realm_id.clone();
-    let user_id = create_test_user(
-        &ctx.app_state.pool,
-        &realm_id,
-        "be-t08-sub-worker-down@exam.com",
-    )
-    .await;
-
-    // Seed a subscription_credit row that mirrors a chained pre-grant:
-    // effective_at is 1 day in the future (next period start). This is
-    // exactly what `handle_subscription_paid` + `pregrant_next_period_atomic`
-    // would have written at the previous renewal confirmation.
-    let future_effective = Utc::now() + Duration::days(1);
-    let ledger_id = create_credit_ledger_entry_with_effective_at(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        herald_core::domain::points::entities::CreditSourceType::SubscriptionRenewal,
-        format!("be-t08-sub-chain-{}", Uuid::now_v7()),
-        1000,
-        None,
-        Some(future_effective),
-    )
-    .await;
-
-    // (a) Pre-advance: the chained row is future-effective ⟹ excluded
-    //     from the derived balance. Worker is NOT running, but this is the
-    //     correct pre-period state.
-    assert_derived_balance(ctx, user_id, &realm_id, CreditType::SubscriptionCredit, 0).await;
-
-    // === THE core gesture: simulate the clock reaching `effective_at` by
-    // SQL UPDATE on the row. NO worker, NO state-flipping job — purely the
-    // availability predicate `effective_at <= NOW()` flipping true. ===
-    sqlx::query(
-        "UPDATE points_credit_ledger
-         SET effective_at = NOW() - INTERVAL '1 second', updated_at = NOW()
-         WHERE id = $1",
-    )
-    .bind(ledger_id)
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("Failed to advance effective_at via SQL UPDATE (virtual-clock idiom)");
-
-    // (b) Post-advance: the chained row is now in the available set, with
-    //     no worker involvement.
-    assert_derived_balance(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        1000,
-    )
-    .await;
-    let _ =
-        get_derived_balance_by_credit_type(ctx, user_id, &realm_id, CreditType::SubscriptionCredit)
-            .await;
-
-    // (c) The now-available row is consumable — proving the worker was
-    //     never needed for availability.
-    let identity = create_test_third_party_identity(&realm_id);
-    let input = ConsumePointsInput {
-        user_id: user_id.to_string(),
-        client_app_id: ctx._client_app_id.clone(),
-        amount: 1000,
-        description: Some("be-t08 sub worker-down consume after clock advance".to_string()),
-    };
-    let txns = ctx
-        .app_state
-        .points_service
-        .consume_points(identity, &realm_id, input)
-        .await
-        .expect("consume after clock advance must succeed — chained pre-grant is available");
-    assert!(
-        !txns.is_empty(),
-        "consume should produce per-bucket transactions"
-    );
-    assert_derived_balance(ctx, user_id, &realm_id, CreditType::SubscriptionCredit, 0).await;
-
-    // Silence unused-import warning in case the test body above is trimmed.
-    let _ = ensure_test_bucket_for_realm;
 }

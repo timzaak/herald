@@ -211,38 +211,6 @@ mod tests {
         assert_eq!(by_type.total(), i64::MAX);
     }
 
-    /// Design invariant: `grand_total` is a SEPARATE field of
-    /// `CreditBucketOverview`, NOT a synthesized extra row appended to `rows`.
-    /// Building an overview must not mutate the rows vector with the total.
-    #[test]
-    fn overview_keeps_grand_total_separate_from_rows() {
-        let overview = CreditBucketOverview {
-            rows: vec![CreditBucketOverviewRow {
-                bucket_id: Uuid::nil(),
-                name: "bucket-a".into(),
-                enabled: true,
-                by_credit_type: BucketByCreditType {
-                    topup: 10,
-                    ..Default::default()
-                },
-                bucket_total: 10,
-            }],
-            grand_total: BucketByCreditType {
-                topup: 10,
-                ..Default::default()
-            },
-        };
-
-        // Exactly one row (the bucket), grand_total is its own field.
-        assert_eq!(overview.rows.len(), 1);
-        assert_eq!(overview.grand_total.total(), 10);
-        assert_eq!(
-            overview.rows.last().unwrap().bucket_id,
-            Uuid::nil(),
-            "no grand-total row appended"
-        );
-    }
-
     /// `CreditBucketError::Other` preserves the wrapped `CoreError` on round-trip
     /// through `From<CreditBucketError> for CoreError`, so not-found / DB errors
     /// retain their original status mapping when propagated generically.

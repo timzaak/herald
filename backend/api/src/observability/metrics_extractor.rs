@@ -97,94 +97,17 @@ impl<B> ResponseAttributeExtractor<B> for RedAttributeExtractor {
 mod tests {
     use super::*;
 
-    /// 5xx response produces exactly one attribute: `error.type=server_error`.
-    /// Governance intent: a 5xx must be classifiable as a server error
-    /// without ever surfacing the request body, headers, or path.
-    #[test]
-    fn response_extractor_emits_error_type_only_on_5xx() {
-        let extractor = RedAttributeExtractor::new();
-
-        let res_500 = axum::http::Response::builder()
-            .status(500)
-            .body(())
-            .unwrap();
-        let attrs = ResponseAttributeExtractor::extract_attributes(&extractor, &res_500);
-        assert_eq!(attrs.len(), 1);
-        assert_eq!(attrs[0].key.as_str(), ERROR_TYPE_LABEL);
-        assert_eq!(attrs[0].value.as_str(), ERROR_TYPE_SERVER_ERROR);
-
-        let res_503 = axum::http::Response::builder()
-            .status(503)
-            .body(())
-            .unwrap();
-        assert_eq!(
-            ResponseAttributeExtractor::extract_attributes(&extractor, &res_503).len(),
-            1
-        );
-    }
-
-    /// 2xx / 4xx responses emit NO attributes — the error dimension must be
-    /// absent for non-server-errors (governance: don't fabricate labels).
-    #[test]
-    fn response_extractor_emits_nothing_below_500() {
-        let extractor = RedAttributeExtractor::new();
-
-        for code in [200u16, 201, 301, 400, 401, 403, 404, 422] {
-            let res = axum::http::Response::builder()
-                .status(code)
-                .body(())
-                .unwrap();
-            assert!(
-                ResponseAttributeExtractor::extract_attributes(&extractor, &res).is_empty(),
-                "status {code} should produce no error.type"
-            );
-        }
-    }
-
-    /// Request extractor is empty — governance contract: the library owns
-    /// the request-side whitelist (http.route template / method), and this
-    /// extractor must NOT duplicate or extend it with anything sensitive.
-    /// The synthetic request deliberately carries a token, raw path with
-    /// params, and PII-like headers to prove they cannot leak: the request
-    /// extractor structurally reads nothing from the request.
-    #[test]
-    fn request_extractor_emits_nothing() {
-        let extractor = RedAttributeExtractor::new();
-        let req = axum::http::Request::builder()
-            .method("POST")
-            .uri("/api/oauth/realms/abc/authorize?token=secret")
-            .header("authorization", "Bearer leaked-token")
-            .header("x-request-id", "req-123")
-            .body(())
-            .unwrap();
-        let attrs = RequestAttributeExtractor::extract_attributes(&extractor, &req);
-        assert!(attrs.is_empty(), "request extractor must be empty");
-    }
-
-    // ---------------------------------------------------------------------
-    // Additional RED extractor governance unit tests.
-    //
-    // The three tests above established the per-status behavior and the
-    // empty-on-one-request-shape contract. The scope additionally
-    // requires the FULL allow-list to be locked as a *set* (not just "no
-    // error.type below 500"), and that the request side stays empty no
-    // matter how much sensitive material is crammed into headers / URI /
-    // query / extensions. The two tests below express those stronger
-    // governance invariants; they do not duplicate the per-status tests.
-    // ---------------------------------------------------------------------
-
     /// User Story: Technical invariant — RED extractor response-side label
     /// allow-list.
     /// Covers: "extractor 仅白名单 … 5xx error.type" +
     /// "RED extractor 治理 … 产出 label 不含这些值".
     ///
-    /// WHY this test exists (and is not redundant with
-    /// `response_extractor_emits_error_type_only_on_5xx`): the earlier test
-    /// asserts the presence of `error.type` on one 5xx and its absence below
-    /// 500. It does NOT lock the *entire* response attribute set. Governance
+    /// WHY this test exists: asserting only the presence of `error.type` on
+    /// one 5xx and its absence below 500 does NOT lock the *entire* response
+    /// attribute set. Governance
     /// is a closed allow-list: a future change could add a second label
     /// (e.g. a status-text or a response-header echo) while keeping
-    /// `error.type` correct, and the earlier test would still pass — silently
+    /// `error.type` correct, and a presence-only check would still pass — silently
     /// widening the label surface. This test fails in exactly that case by
     /// asserting the key set is EXACTLY `{error.type}` for 5xx and EXACTLY
     /// `{}` otherwise, across the whole status range. The synthetic response
@@ -219,7 +142,7 @@ mod tests {
 
         // Non-5xx: the allow-list must be the EMPTY set (no error.type, no
         // fabricated label of any kind). This is the closed-list assertion
-        // that the per-status test does not make.
+        // a presence-only check would not make.
         for code in [
             100u16, 200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 409, 422, 451,
         ] {
@@ -244,11 +167,10 @@ mod tests {
     /// library) + "给定含 token/email/原始 path 的请求，产出
     /// label 不含这些值".
     ///
-    /// WHY this test exists (and is not redundant with
-    /// `request_extractor_emits_nothing`): the earlier test exercises ONE
-    /// request shape. Governance is structural — the request extractor must
+    /// WHY this test exists: exercising a single request
+    /// shape is not enough. Governance is structural — the request extractor must
     /// read NOTHING from the request, so no input variation can widen the
-    /// output. This test crams every sensitive surface named in the design
+    /// output. This test crams every sensitive surface
     /// (token in `Authorization` + query, email header, raw path with a
     /// secret-bearing realm id, a `MatchedPath` route template extension,
     /// custom `x-user-id` / `x-realm-id` headers) and asserts the output set
@@ -259,7 +181,7 @@ mod tests {
     fn red_extractor_request_allow_list_is_empty_across_all_sensitive_surfaces() {
         let extractor = RedAttributeExtractor::new();
 
-        // Every sensitive surface the governance spec names, all at once.
+        // Every sensitive surface at once, all in one request.
         //
         // Note: a `MatchedPath` extension (which the LIBRARY, not this
         // extractor, reads to emit `http.route`) cannot be injected here —

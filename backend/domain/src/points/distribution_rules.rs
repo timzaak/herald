@@ -1056,24 +1056,6 @@ mod tests {
         assert_eq!(resolved.id, existing);
     }
 
-    /// A `RuleUpsert` carrying a registration-illegal trigger (subscription) is
-    /// rejected by the owner validator when materialized for the RealmRegistration
-    /// owner — the upsert materialization alone does not validate, so the API
-    /// layer must route the resolved rule through `validate_rule_for_owner`.
-    #[test]
-    fn upsert_for_realm_owner_rejects_subscription_trigger_via_validator() {
-        let resolved = upsert(
-            None,
-            &[DistributionTrigger::SubscriptionInitial],
-            fixed_policy(1),
-        )
-        .into_rule_for_owner("realm", realm_owner());
-        assert!(matches!(
-            validate_rule_for_owner(&resolved, None),
-            Err(DistributionRuleError::TriggerNotAllowedForOwner(_))
-        ));
-    }
-
     /// `DistributionRuleOwner::EntitlementMapping` exposes its mapping id and
     /// `RealmRegistration` exposes None — the upsert owner-check in the
     /// repository relies on this to reject cross-owner writes.

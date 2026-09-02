@@ -126,9 +126,3 @@ impl ClientAppLookup {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    // Note: These are unit tests for the helper logic.
-    // Integration tests should be in backend-test scenarios.
-}

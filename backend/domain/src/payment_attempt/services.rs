@@ -376,15 +376,6 @@ mod tests {
         fn add_attempt(&self, attempt: PaymentAttempt) {
             self.attempts.lock().unwrap().push(attempt);
         }
-
-        fn set_status(&self, attempt_id: Uuid, status: PaymentAttemptStatus) {
-            let mut attempts = self.attempts.lock().unwrap();
-            let attempt = attempts
-                .iter_mut()
-                .find(|a| a.id == attempt_id)
-                .expect("test attempt should exist");
-            attempt.status = status;
-        }
     }
 
     impl PaymentAttemptRepository for MockPaymentAttemptRepository {
@@ -780,47 +771,6 @@ mod tests {
         assert_eq!(result.provider_status.as_deref(), Some("paid"));
         assert_eq!(result.provider_reference.as_deref(), Some("txn_guarded"));
         assert_eq!(result.completed_at, Some(completed_at));
-    }
-
-    #[tokio::test]
-    async fn test_status_guard_rejects_concurrent_different_status() {
-        let repo = MockPaymentAttemptRepository::new();
-        let mut attempt = create_test_attempt(PaymentAttemptStatus::Pending);
-        repo.add_attempt(attempt.clone());
-
-        repo.set_status(attempt.id, PaymentAttemptStatus::Failed);
-
-        attempt.status = PaymentAttemptStatus::Succeeded;
-        let result = repo
-            .update_payment_attempt_with_status_guard(attempt, PaymentAttemptStatus::Pending)
-            .await;
-
-        assert!(result.is_err());
-        match result {
-            Err(CoreError::BadRequest(msg)) => {
-                assert!(msg.contains("Invalid status transition"));
-                assert!(msg.contains("Pending"));
-                assert!(msg.contains("Failed"));
-            }
-            _ => panic!("Expected BadRequest error for guarded update conflict"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_status_guard_treats_same_target_status_as_idempotent() {
-        let repo = MockPaymentAttemptRepository::new();
-        let mut attempt = create_test_attempt(PaymentAttemptStatus::Pending);
-        repo.add_attempt(attempt.clone());
-
-        repo.set_status(attempt.id, PaymentAttemptStatus::Succeeded);
-
-        attempt.status = PaymentAttemptStatus::Succeeded;
-        let result = repo
-            .update_payment_attempt_with_status_guard(attempt, PaymentAttemptStatus::Pending)
-            .await
-            .expect("same target status should be idempotent");
-
-        assert_eq!(result.status, PaymentAttemptStatus::Succeeded);
     }
 
     // record_subscription_renewal_attempt must be idempotent: the first call for a

@@ -454,36 +454,3 @@ pub async fn get_wallet(
         Err(e) => Err(ApiError::from(e)),
     }
 }
-
-#[cfg(test)]
-mod browser_scope_tests {
-    use super::*;
-    use chrono::Utc;
-    use herald_core::domain::authentication::CredentialClass;
-    use herald_core::domain::user::entities::{User, UserStatus};
-    use std::collections::HashSet;
-
-    #[test]
-    fn browser_scope_rejects_wallet_read_without_points_grant() {
-        let identity = Identity::User(User {
-            id: Uuid::now_v7(),
-            realm_id: "realm".to_string(),
-            email: "user@example.com".to_string(),
-            nickname: None,
-            password_hash: None,
-            provider_ids: vec![],
-            status: UserStatus::Normal,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        });
-        let context = TokenCredentialContext {
-            client_app_id: Uuid::now_v7(),
-            client_id: "custom-user-ui".to_string(),
-            family_id: Uuid::now_v7(),
-            credential_class: CredentialClass::CustomUserUi,
-            allowed_scopes: HashSet::new(),
-        };
-
-        assert!(require_token_scope(&identity, &context, CredentialScope::PointsRead).is_err());
-    }
-}

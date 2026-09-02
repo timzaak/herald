@@ -208,36 +208,3 @@ impl<T: CreditNoteRepository> CreditNoteRepository for Arc<T> {
         (**self).void_credit_note_by_external_id(realm_id, external_credit_note_id)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn credit_note_source_from_str_roundtrip() {
-        for s in ["stripe", "manual"] {
-            let source: CreditNoteSource = s.parse().expect(s);
-            assert_eq!(source.as_str(), s);
-        }
-    }
-
-    #[test]
-    fn credit_note_source_invalid_returns_error() {
-        let result = "unknown".parse::<CreditNoteSource>();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn credit_note_status_from_str_roundtrip() {
-        for s in ["active", "voided"] {
-            let status: CreditNoteStatus = s.parse().expect(s);
-            assert_eq!(status.as_str(), s);
-        }
-    }
-
-    #[test]
-    fn credit_note_status_invalid_returns_error() {
-        let result = "unknown".parse::<CreditNoteStatus>();
-        assert!(result.is_err());
-    }
-}

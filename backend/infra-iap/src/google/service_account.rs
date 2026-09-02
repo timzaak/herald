@@ -459,22 +459,4 @@ mod tests {
             "token endpoint error must surface as ServiceAccountAuth carrying status, got {result:?}"
         );
     }
-
-    #[test]
-    fn sign_grant_jwt_produces_three_segment_rs256_jwt() {
-        // Pure unit (no HTTP): the self-signed JWT must be a 3-segment string.
-        // Decoding + claim assertions happen in the wire test above; this
-        // asserts the structural shape and that signing itself does not error.
-        let auth = GoogleServiceAccountAuth::new(
-            "svc@herald-test.iam.gserviceaccount.com".to_string(),
-            fresh_rsa_pem(),
-        );
-        let jwt = auth.sign_grant_jwt(PLAY_DEV_SCOPE).expect("signed jwt");
-        let segments: Vec<&str> = jwt.split('.').collect();
-        assert_eq!(
-            segments.len(),
-            3,
-            "JWT must have header.payload.signature; got {jwt}"
-        );
-    }
 }

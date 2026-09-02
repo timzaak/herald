@@ -472,13 +472,3 @@ async fn invalidate_user_role_cache(state: &AppState, user_id: &str) {
             .await;
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-
-    // TODO: Add integration tests with test database
-}

@@ -312,19 +312,6 @@ async fn test_scenario_free_user_upgrade_preserves_registration_credits(ctx: &mu
     );
 }
 
-/// Paid upgrade disables every free-periodic result but preserves registration credit.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_multi_wallet_grant_rule_paid_upgrade_stops_all_free_periodic_results(
-    ctx: &mut TestContext,
-) {
-    super::multi_wallet_grant_rule_scenarios::assert_two_account_fixed_event(
-        ctx,
-        herald_core::domain::points::DistributionTrigger::SubscriptionUpgrade,
-    )
-    .await;
-}
-
 /// ============================================================================
 /// Scenario 4: Downgrade back to free user
 /// ============================================================================

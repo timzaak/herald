@@ -89,42 +89,6 @@ pub async fn create_test_user(pool: &PgPool, realm_id: &str, email: &str) -> Uui
     create_test_user_with_auth(pool, realm_id, email, "password123").await
 }
 
-/// Create a test admin user with RealmAdmin permissions
-///
-/// Returns the user ID
-pub async fn create_test_admin(pool: &PgPool, realm_id: &str, email: &str) -> Uuid {
-    let user_id = create_test_user_with_auth(pool, realm_id, email, "admin123").await;
-
-    // Get the client_id for admin-web-console
-    let client_id: String =
-        sqlx::query_scalar("SELECT client_id FROM client_app WHERE client_id = 'admin-web-console' AND realm_id = $1 LIMIT 1")
-            .bind(realm_id)
-            .fetch_one(pool)
-            .await
-            .expect("Failed to find admin-web-console client_app");
-
-    // Add RealmAdmin role to the user
-    let role_id: Uuid =
-        sqlx::query_scalar("SELECT id FROM roles WHERE name = 'realm-admin' AND realm_id = $1")
-            .bind(realm_id)
-            .fetch_one(pool)
-            .await
-            .expect("Failed to find realm-admin role");
-
-    sqlx::query("INSERT INTO user_roles (id, user_id, role_id, realm_id, client_id, principal_type, principal_id) VALUES ($1, $2, $3, $4, $5, $6, $2::text)")
-        .bind(Uuid::now_v7())
-        .bind(user_id)
-        .bind(role_id)
-        .bind(realm_id)
-        .bind(&client_id)
-        .bind(herald_core::domain::authorization::principal_types::USER)
-        .execute(pool)
-        .await
-        .expect("Failed to assign realm-admin role");
-
-    user_id
-}
-
 /// Create a test points account
 ///
 /// Returns the account ID
@@ -247,7 +211,7 @@ pub async fn create_test_transaction(
 /// so the mapping row carries no grant columns (mirrors the bare-row
 /// `setup_test_entitlement_mapping`). The Points-v1 scenario callers either
 /// recharge points explicitly via `points_service` (test_01) or drive grants
-/// through the admin API / inline mapping INSERTs (test_24/test_62); none relies
+/// through the admin API / inline mapping INSERTs (test_62); none relies
 /// on a mapping-owned rule being seeded here, so no rule is created.
 /// `points_per_period` is retained in the signature for call-site stability.
 ///

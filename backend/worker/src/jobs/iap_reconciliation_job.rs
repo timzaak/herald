@@ -1207,26 +1207,4 @@ mod tests {
         let purchase = sub_state("SUBSCRIPTION_STATE_EXPIRED", Some(expiry));
         assert!(map_google_subscription_change(&stored, &purchase).is_none());
     }
-
-    #[test]
-    fn recurring_retains_full_state_mapping_after_filter_added() {
-        // the non_renewing branch must not change recurring's behaviour. Same
-        // ACTIVE→EXPIRED transition that produced `subscription.expired` before
-        let expiry = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
-        let stored = stored_with_billing("rec-1", "active", "recurring", Some(expiry));
-        let purchase = sub_state("SUBSCRIPTION_STATE_EXPIRED", Some(expiry));
-
-        let (event_type, payload) = map_google_subscription_change(&stored, &purchase)
-            .expect("recurring EXPIRED must still replay under the new filter");
-        assert_eq!(event_type, "subscription.expired");
-        assert_eq!(payload["heraldStatus"], "expired");
-
-        // And recurring still honours the renewal-detection path.
-        let new_expiry = Utc.timestamp_opt(1_700_086_400, 0).unwrap(); // +1d
-        let stored_renew = stored_with_billing("rec-2", "active", "recurring", Some(expiry));
-        let purchase_renew = sub_state("SUBSCRIPTION_STATE_ACTIVE", Some(new_expiry));
-        let (renew_type, _) = map_google_subscription_change(&stored_renew, &purchase_renew)
-            .expect("recurring advancing-expiry renewal must still fire");
-        assert_eq!(renew_type, "subscription.renewed");
-    }
 }

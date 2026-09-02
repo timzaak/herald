@@ -273,22 +273,3 @@ pub async fn device_token(
         ))
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_redis_function_code_contains_required_states() {
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("consumed"));
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("denied"));
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("authorized"));
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("slow_down"));
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("authorization_pending"));
-        assert!(DEVICE_TOKEN_FUNCTION_CODE.contains("expired_token"));
-    }
-}

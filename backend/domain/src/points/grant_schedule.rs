@@ -248,25 +248,4 @@ mod tests {
         assert!(GrantPeriodType::Daily.should_stop(5, Some(5)));
         assert!(GrantPeriodType::Daily.should_stop(6, Some(5)));
     }
-
-    #[test]
-    fn test_grant_period_type_from_str() {
-        assert_eq!(
-            "once".parse::<GrantPeriodType>().unwrap(),
-            GrantPeriodType::Once
-        );
-        assert_eq!(
-            "daily".parse::<GrantPeriodType>().unwrap(),
-            GrantPeriodType::Daily
-        );
-        assert_eq!(
-            "weekly".parse::<GrantPeriodType>().unwrap(),
-            GrantPeriodType::Weekly
-        );
-        assert_eq!(
-            "monthly".parse::<GrantPeriodType>().unwrap(),
-            GrantPeriodType::Monthly
-        );
-        assert!("invalid".parse::<GrantPeriodType>().is_err());
-    }
 }

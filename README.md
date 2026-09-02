@@ -89,8 +89,6 @@ Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-
 
   Then self-check with the zero-argument `get_realm_config_status` tool. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/mcp-integration).
 
-Source MDX files (in-repo): `docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,mcp-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`.
-
 ## License
 
 Herald is licensed under [Apache-2.0](LICENSE). You can use, modify, and distribute it, including in commercial products. The open-source project has no per-user license fee.

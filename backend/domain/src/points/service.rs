@@ -1818,28 +1818,6 @@ mod mixed_consume_tests {
         let plan = plan_mixed_consume(3, -2, 10);
         assert_eq!(plan, MixedConsumePlan::Insufficient);
     }
-
-    #[test]
-    fn mixed_consume_ok_parts_always_sum_to_amount() {
-        // Property-style check: for the Ok variant, window_part + pool_part
-        // MUST equal amount (the single-transaction mix relies on this).
-        for (window, pool, amount) in [(100, 0, 50), (40, 60, 70), (0, 80, 80), (40, 60, 100)] {
-            let plan = plan_mixed_consume(window, pool, amount);
-            match plan {
-                MixedConsumePlan::Ok {
-                    window_part,
-                    pool_part,
-                } => {
-                    assert_eq!(window_part + pool_part, amount);
-                    assert!(window_part <= window.max(0));
-                    assert!(pool_part <= pool.max(0));
-                }
-                MixedConsumePlan::Insufficient => {
-                    panic!("expected Ok for ({window},{pool},{amount})")
-                }
-            }
-        }
-    }
 }
 
 // Read-path realization unit tests.

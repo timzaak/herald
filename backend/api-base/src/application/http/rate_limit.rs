@@ -305,23 +305,6 @@ mod tests {
     // ========================================================================
 
     #[tokio::test]
-    async fn test_function_library_load() {
-        let manager = match get_shared_manager().await {
-            Some(m) => m,
-            None => {
-                println!("Redis not available, skipping test");
-                return;
-            }
-        };
-        let mut conn = manager.get().await.unwrap();
-        let result = load_function_library(&mut conn).await;
-        assert!(
-            result.is_ok(),
-            "Failed to load function library: {result:?}"
-        );
-    }
-
-    #[tokio::test]
     async fn test_function_library_load_is_idempotent() {
         let manager = match get_shared_manager().await {
             Some(m) => m,

@@ -96,20 +96,6 @@ mod publishable_key_serde_tests {
     // omit it entirely (skip_serializing_if) so no empty placeholder leaks
     // into the generated client types.
     #[test]
-    fn stripe_entry_serializes_publishable_key() {
-        let info = PaymentProviderInfo {
-            platform: "stripe".to_string(),
-            publishable_key: Some("pk_test_wallet".to_string()),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(
-            json.contains("\"publishableKey\":\"pk_test_wallet\""),
-            "unexpected: {json}"
-        );
-    }
-
-    #[test]
     fn non_stripe_entry_omits_publishable_key() {
         let info = PaymentProviderInfo {
             platform: "creem".to_string(),

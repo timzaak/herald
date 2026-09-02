@@ -349,13 +349,3 @@ async fn invalidate_role_policy_cache(state: &AppState, realm_id: &str, role_id:
         .invalidate_role_policy_cache(realm_id, &role_id.to_string())
         .await;
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-
-    // TODO: Add integration tests with test database
-}

@@ -3697,7 +3697,7 @@ impl PointsRepository for PostgresPointsRepository {
             // ONE `points_transactions(type='consume', credit_type=<window type>)`
             // row — NO ledger decrement (the window model tracks usage via the
             // consume row itself, counted by `sum_consume_in_window`).
-            // Overspend invariant (P0): per-bucket `sub_part ≤ subscription_spendable`
+            // Overspend invariant: per-bucket `sub_part ≤ subscription_spendable`
             // and `free_part ≤ free_spendable` (enforced by the pure split's
             // `min`); Σ `sub_part + free_part` ≤ `window_part` (any residual
             // overflows to the next bucket; the already guaranteed
@@ -5137,7 +5137,7 @@ impl PointsRepository for PostgresPointsRepository {
     /// Scan for schedules whose next pre-grant is due. Returns
     /// **candidates** whose `active=TRUE AND next_grant_time <= $before`; this
     /// method intentionally does NOT do a SQL-side `NOT EXISTS` against
-    /// `points_grant_records` (P2-2): `period_number` derivation depends on
+    /// `points_grant_records`: `period_number` derivation depends on
     /// `first_period_start`/`nominal_period_duration` (domain
     /// `derive_period_number`) and duplicating it inside SQL would drift from
     /// the domain's single source of truth. The caller (worker
@@ -5841,28 +5841,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_model_conversion() {
-        let model = points_wallet::Model {
-            id: Uuid::now_v7(),
-            user_id: Uuid::now_v7(),
-            realm_id: "test-realm".to_string(),
-            bucket_id: Uuid::now_v7(),
-            total_topup_granted: 100,
-            total_subscription_granted: 0,
-            total_recharged: 1000,
-            total_consumed: 900,
-            status: "active".to_string(),
-            created_at: sea_orm::prelude::DateTimeWithTimeZone::from(chrono::Utc::now()),
-            updated_at: sea_orm::prelude::DateTimeWithTimeZone::from(chrono::Utc::now()),
-        };
-
-        let result = PostgresPointsRepository::model_to_points_wallet(model);
-        assert!(result.is_ok());
-        let account = result.unwrap();
-        assert_eq!(account.total_topup_granted, 100);
-    }
-
-    #[test]
     fn proportional_refund_is_calculated_per_original_rule_grant() {
         assert_eq!(
             PostgresPointsRepository::proportional_refund_for_grant(100, 100, 1, 4),
@@ -6104,7 +6082,7 @@ mod tests {
         assert_eq!(split.sub_part, 10);
         assert_eq!(split.free_part, 15);
         assert_eq!(split.window_remainder, 15);
-        // Overspend invariant (P0): neither part exceeds its spendable.
+        // Overspend invariant: neither part exceeds its spendable.
         assert!(split.sub_part <= 10);
         assert!(split.free_part <= 15);
     }

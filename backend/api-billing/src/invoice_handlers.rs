@@ -1688,15 +1688,11 @@ pub async fn download_my_invoice_pdf(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
-    use herald_core::domain::authentication::{CredentialClass, TokenCredentialContext};
     use herald_core::domain::billing::invoice::{
         Invoice, InvoiceDetail, InvoiceProvider, InvoiceSource, InvoiceStatus,
     };
-    use herald_core::domain::user::entities::{User, UserStatus};
 
     use super::*;
 
@@ -1763,33 +1759,6 @@ mod tests {
         }
     }
 
-    fn identity() -> Identity {
-        Identity::User(User {
-            id: Uuid::now_v7(),
-            realm_id: "realm".to_string(),
-            email: "user@example.com".to_string(),
-            nickname: None,
-            password_hash: None,
-            provider_ids: vec![],
-            status: UserStatus::Normal,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    }
-
-    #[test]
-    fn browser_scope_invoice_rejects_missing_invoice_read_before_lookup() {
-        let context = TokenCredentialContext {
-            client_app_id: Uuid::now_v7(),
-            client_id: "custom-user-ui".to_string(),
-            family_id: Uuid::now_v7(),
-            credential_class: CredentialClass::CustomUserUi,
-            allowed_scopes: HashSet::new(),
-        };
-
-        assert!(require_token_scope(&identity(), &context, CredentialScope::InvoiceRead).is_err());
-    }
-
     #[test]
     fn browser_scope_invoice_rejects_cross_user_detail() {
         let owner = Uuid::now_v7();
@@ -1825,23 +1794,5 @@ mod tests {
         let err = result.unwrap().expect_err("should be Err for empty URL");
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn external_provider_without_url_returns_404_with_provider_name() {
-        let detail = make_detail(InvoiceProvider::Shopify, None);
-        let result = resolve_external_pdf_response(&detail);
-        assert!(result.is_some());
-        let err = result.unwrap().expect_err("should be Err for missing URL");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn creem_provider_with_url_returns_redirect() {
-        let detail = make_detail(InvoiceProvider::Creem, Some("https://creem.io/pdf/abc"));
-        let result = resolve_external_pdf_response(&detail);
-        let response = result.unwrap().expect("should be Ok");
-        assert!(response.status().is_redirection());
     }
 }

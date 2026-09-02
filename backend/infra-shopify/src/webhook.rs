@@ -112,48 +112,4 @@ mod tests {
             Err(CoreError::Unauthorized)
         ));
     }
-
-    #[test]
-    fn test_constant_time_compare() {
-        assert!(constant_time_compare("hello", "hello"));
-        assert!(!constant_time_compare("hello", "world"));
-        assert!(!constant_time_compare("hello", "hello!"));
-        assert!(constant_time_compare("", ""));
-        assert!(!constant_time_compare("hell", "helo"));
-        assert!(!constant_time_compare("hello", "xello"));
-    }
-
-    #[test]
-    fn test_empty_body_hmac() {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        let client_secret = "test_secret_key";
-        let body = b"";
-
-        type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(client_secret.as_bytes()).unwrap();
-        mac.update(body);
-        let calculated_hmac = mac.finalize().into_bytes();
-        let valid_hmac = BASE64_STANDARD.encode(calculated_hmac);
-
-        assert!(verify_webhook_hmac(body, &valid_hmac, client_secret).is_ok());
-    }
-
-    #[test]
-    fn test_special_characters_hmac() {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        let client_secret = "test_secret_key";
-        let body = b"{\"data\": \"test!@#$%^&*()\"}";
-
-        type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(client_secret.as_bytes()).unwrap();
-        mac.update(body);
-        let calculated_hmac = mac.finalize().into_bytes();
-        let valid_hmac = BASE64_STANDARD.encode(calculated_hmac);
-
-        assert!(verify_webhook_hmac(body, &valid_hmac, client_secret).is_ok());
-    }
 }

@@ -89,8 +89,6 @@ Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/cont
 
   连接后用零入参的 `get_realm_config_status` 工具做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/mcp-integration)。
 
-仓库内 MDX 源文件：`docs-web/content/docs/{getting-started,architecture,configuration,deployment,billing-overview,billing-stripe-payment,billing-creem-payment,billing-iap,billing-wechat-payment,billing-wallet-payments,billing-invoice,billing-credit-note,auth-passkey,auth-email-otp,auth-apple-native,third-party-integration,mcp-integration,custom-user-ui,ui-custom,realm-custom-domain,points-quota}.mdx`。
-
 ## 许可证
 
 Herald 采用 [Apache-2.0](LICENSE) 许可证。你可以在商业产品中自由使用、修改和分发，开源项目不收取按用户计算的许可证费用。

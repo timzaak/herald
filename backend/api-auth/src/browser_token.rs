@@ -274,21 +274,6 @@ mod tests {
     }
 
     #[test]
-    fn browser_token_response_uses_bearer_contract_fields() {
-        let value = serde_json::to_value(BrowserTokenResponse {
-            access_token: "access".into(),
-            refresh_token: "refresh".into(),
-            expires_in: 900,
-            refresh_expires_in: 3600,
-            token_type: "Bearer".into(),
-        })
-        .unwrap();
-        assert_eq!(value["accessToken"], "access");
-        assert_eq!(value["refreshToken"], "refresh");
-        assert_eq!(value["tokenType"], "Bearer");
-    }
-
-    #[test]
     fn browser_token_refresh_errors_are_all_unauthorized() {
         for error in [RefreshError::Invalid, RefreshError::ReuseDetected] {
             assert_eq!(

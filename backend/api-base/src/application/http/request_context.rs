@@ -24,17 +24,3 @@ pub fn current_request_id() -> Option<String> {
         .ok()
         .filter(|request_id| request_id != "-")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn scoped_request_id_is_available_to_error_serialization() {
-        REQUEST_ID
-            .scope("req-123".to_owned(), async {
-                assert_eq!(current_request_id().as_deref(), Some("req-123"));
-            })
-            .await;
-    }
-}

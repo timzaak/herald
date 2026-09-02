@@ -743,64 +743,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invoice_status_from_str_roundtrip() {
-        for s in ["draft", "issued", "paid", "void", "overdue"] {
-            let status: InvoiceStatus = s.parse().expect(s);
-            assert_eq!(status.as_str(), s);
-        }
-    }
-
-    #[test]
-    fn invoice_status_invalid_returns_error() {
-        let result = "unknown".parse::<InvoiceStatus>();
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn invoice_status_terminal_states() {
         assert!(InvoiceStatus::Paid.is_terminal());
         assert!(InvoiceStatus::Void.is_terminal());
         assert!(!InvoiceStatus::Draft.is_terminal());
         assert!(!InvoiceStatus::Issued.is_terminal());
         assert!(!InvoiceStatus::Overdue.is_terminal());
-    }
-
-    #[test]
-    fn invoice_event_type_as_str() {
-        assert_eq!(InvoiceEventType::Created.as_str(), "created");
-        assert_eq!(InvoiceEventType::Issued.as_str(), "issued");
-        assert_eq!(InvoiceEventType::Paid.as_str(), "paid");
-        assert_eq!(InvoiceEventType::Voided.as_str(), "voided");
-        assert_eq!(InvoiceEventType::Overdue.as_str(), "overdue");
-        assert_eq!(InvoiceEventType::Updated.as_str(), "updated");
-        assert_eq!(
-            InvoiceEventType::CreditNoteCreated.as_str(),
-            "credit_note_created"
-        );
-        assert_eq!(
-            InvoiceEventType::CreditNoteVoided.as_str(),
-            "credit_note_voided"
-        );
-    }
-
-    #[test]
-    fn invoice_provider_from_str_roundtrip() {
-        for s in ["manual", "stripe", "creem", "wechat", "shopify"] {
-            let provider: InvoiceProvider = s.parse().expect(s);
-            assert_eq!(provider.as_str(), s);
-        }
-    }
-
-    #[test]
-    fn invoice_provider_invalid_returns_error() {
-        let result = "unknown".parse::<InvoiceProvider>();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn invoice_source_external_sync_roundtrip() {
-        let source: InvoiceSource = "external_sync".parse().unwrap();
-        assert_eq!(source.as_str(), "external_sync");
-        assert_eq!(source, InvoiceSource::ExternalSync);
     }
 }

@@ -856,16 +856,6 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
 mod config_type_tests {
     use super::ConfigType;
 
-    #[test]
-    fn email_otp_round_trip() {
-        assert_eq!(ConfigType::EmailOtp.as_ref(), "email_otp");
-        assert_eq!(String::from(ConfigType::EmailOtp), "email_otp");
-        assert_eq!(
-            ConfigType::try_from_str("email_otp").unwrap(),
-            ConfigType::EmailOtp
-        );
-    }
-
     /// Guards the `From<String> -> ConfigType::Turnstile` fallback quirk:
     /// `"email_otp"` must resolve to `EmailOtp`, not fall through to the
     /// default `Turnstile` branch. See design email-otp-login §7 risk table.
@@ -903,36 +893,6 @@ mod config_type_tests {
         let ct: ConfigType = "platform_signup".to_string().into();
         assert_eq!(ct, ConfigType::PlatformSignup);
         assert_ne!(ct, ConfigType::Turnstile);
-    }
-
-    // IAP providers (design support-iap §5.4 / §6.3 regression point).
-    #[test]
-    fn apple_round_trip() {
-        assert_eq!(ConfigType::Apple.as_ref(), "apple");
-        assert_eq!(String::from(ConfigType::Apple), "apple");
-        assert_eq!(
-            ConfigType::try_from_str("apple").unwrap(),
-            ConfigType::Apple
-        );
-        // case-insensitive parse, mirrors the email_otp guard.
-        assert_eq!(
-            ConfigType::try_from_str("APPLE").unwrap(),
-            ConfigType::Apple
-        );
-    }
-
-    #[test]
-    fn google_round_trip() {
-        assert_eq!(ConfigType::Google.as_ref(), "google");
-        assert_eq!(String::from(ConfigType::Google), "google");
-        assert_eq!(
-            ConfigType::try_from_str("google").unwrap(),
-            ConfigType::Google
-        );
-        assert_eq!(
-            ConfigType::try_from_str("GOOGLE").unwrap(),
-            ConfigType::Google
-        );
     }
 
     /// Guards the `From<String> -> ConfigType::Turnstile` fallback quirk

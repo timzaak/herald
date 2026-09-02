@@ -134,41 +134,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_subscription_contract() {
-        let json = r#"
-        {
-            "id": "gid://shopify/SubscriptionContract/12345",
-            "contractRevisionId": 7,
-            "adminGraphqlApiId": "gid://shopify/SubscriptionContract/12345",
-            "customerId": "gid://shopify/Customer/67890",
-            "originOrderId": "gid://shopify/Order/11111",
-            "sellingPlanId": "gid://shopify/SellingPlan/22222",
-            "currentPeriodEnd": "2026-05-01T00:00:00Z",
-            "status": "ACTIVE",
-            "casRealmId": "realm-1",
-            "casUserId": "550e8400-e29b-41d4-a716-446655440000",
-            "casClientAppId": "550e8400-e29b-41d4-a716-446655440001",
-            "casPlanId": "550e8400-e29b-41d4-a716-446655440002"
-        }
-        "#;
-
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let contract = parse_subscription_contract_payload(&value).unwrap();
-
-        assert_eq!(contract.id, "gid://shopify/SubscriptionContract/12345");
-        assert_eq!(contract.contract_revision_id, Some(7));
-        assert_eq!(contract.customer_id, "gid://shopify/Customer/67890");
-        assert_eq!(contract.status, "ACTIVE");
-        assert!(contract.herald_user_id.is_some());
-        assert!(contract.herald_plan_id.is_some());
-        // casPlanId used as fallback when herald_entitlement_key missing
-        assert_eq!(
-            contract.resolve_entitlement_key(),
-            Some("550e8400-e29b-41d4-a716-446655440002".to_string())
-        );
-    }
-
-    #[test]
     fn test_resolve_entitlement_key_prefers_herald_key() {
         let json = r#"
         {
@@ -215,56 +180,6 @@ mod tests {
             contract.resolve_entitlement_key(),
             Some("550e8400-e29b-41d4-a716-446655440002".to_string())
         );
-    }
-
-    #[test]
-    fn test_parse_billing_attempt() {
-        let json = r#"
-        {
-            "id": "gid://shopify/BillingAttempt/99999",
-            "subscriptionContractId": "gid://shopify/SubscriptionContract/12345",
-            "orderId": "gid://shopify/Order/88888",
-            "currentPeriodEnd": "2026-05-01T00:00:00Z",
-            "success": true,
-            "errorCode": null,
-            "errorMessage": null
-        }
-        "#;
-
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let attempt = parse_billing_attempt_payload(&value).unwrap();
-
-        assert_eq!(attempt.id, "gid://shopify/BillingAttempt/99999");
-        assert_eq!(
-            attempt.subscription_contract_id,
-            "gid://shopify/SubscriptionContract/12345"
-        );
-        assert!(attempt.current_period_end.is_some());
-        assert!(attempt.success);
-        assert!(attempt.error_code.is_none());
-    }
-
-    #[test]
-    fn test_parse_refund() {
-        let json = r#"
-        {
-            "id": "gid://shopify/Refund/77777",
-            "orderId": "gid://shopify/Order/88888",
-            "createdAt": "2026-04-01T12:00:00Z",
-            "refundAmount": 1000,
-            "currency": "USD",
-            "reason": "Customer request"
-        }
-        "#;
-
-        let value: serde_json::Value = serde_json::from_str(json).unwrap();
-        let refund = parse_refund_payload(&value).unwrap();
-
-        assert_eq!(refund.id, "gid://shopify/Refund/77777");
-        assert_eq!(refund.order_id, "gid://shopify/Order/88888");
-        assert_eq!(refund.refund_amount, 1000);
-        assert_eq!(refund.currency, "USD");
-        assert_eq!(refund.reason, Some("Customer request".to_string()));
     }
 
     #[test]

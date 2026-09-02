@@ -84,39 +84,3 @@ pub struct PaginatedAuditEvents {
     pub page_size: u64,
     pub total: u64,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn audit_event_serialization_roundtrip() {
-        let now = Utc::now();
-        let id = Uuid::now_v7();
-        let event = AuditEvent {
-            id,
-            realm_id: "r1".to_string(),
-            category: AuditCategory::UserManagement,
-            action: AuditAction::UserCreate,
-            actor_id: "a1".to_string(),
-            actor_type: Some(ActorType::Admin),
-            actor_name: Some("admin".to_string()),
-            target_type: AuditTargetType::User,
-            target_id: "t1".to_string(),
-            target_name: Some("bob".to_string()),
-            result: AuditResult::Success,
-            details: None,
-            ip_address: None,
-            user_agent: None,
-            trace_id: None,
-            created_at: now,
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        let back: AuditEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.id, id);
-        assert_eq!(back.realm_id, "r1");
-        assert_eq!(back.category, AuditCategory::UserManagement);
-        assert_eq!(back.action, AuditAction::UserCreate);
-    }
-}

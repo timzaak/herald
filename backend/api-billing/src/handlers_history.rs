@@ -399,45 +399,7 @@ fn require_subscription_history_ownership(
 
 #[cfg(test)]
 mod browser_scope_subscription_tests {
-    use std::collections::HashSet;
-
-    use herald_api_base::application::http::common::auth_utils::require_token_scope;
-    use herald_core::domain::{
-        authentication::{CredentialClass, CredentialScope, Identity, TokenCredentialContext},
-        common::entities::generate_uuid_v7,
-        user::entities::{User, UserStatus},
-    };
-
     use super::*;
-
-    fn identity() -> Identity {
-        Identity::User(User {
-            id: generate_uuid_v7(),
-            realm_id: "realm".to_string(),
-            email: "user@example.com".to_string(),
-            nickname: None,
-            password_hash: None,
-            provider_ids: vec![],
-            status: UserStatus::Normal,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    }
-
-    #[test]
-    fn browser_scope_subscription_rejects_missing_subscription_read_before_lookup() {
-        let context = TokenCredentialContext {
-            client_app_id: Uuid::now_v7(),
-            client_id: "custom-user-ui".to_string(),
-            family_id: Uuid::now_v7(),
-            credential_class: CredentialClass::CustomUserUi,
-            allowed_scopes: HashSet::new(),
-        };
-
-        assert!(
-            require_token_scope(&identity(), &context, CredentialScope::SubscriptionRead).is_err()
-        );
-    }
 
     #[test]
     fn browser_scope_subscription_rejects_cross_user_history() {

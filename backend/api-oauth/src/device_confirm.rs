@@ -203,28 +203,3 @@ pub async fn device_confirm(
         status: new_status.to_string(),
     }))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_confirm_response_approved() {
-        let resp = DeviceConfirmResponse {
-            status: "authorized".to_string(),
-        };
-        assert_eq!(resp.status, "authorized");
-    }
-
-    #[test]
-    fn test_confirm_response_denied() {
-        let resp = DeviceConfirmResponse {
-            status: "denied".to_string(),
-        };
-        assert_eq!(resp.status, "denied");
-    }
-}

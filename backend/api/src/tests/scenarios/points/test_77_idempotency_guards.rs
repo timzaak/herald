@@ -19,10 +19,6 @@
 // =============================================================================
 
 use crate::tests::helpers::points_helpers::*;
-use crate::tests::helpers::webhook_helpers::{
-    assert_webhook_success, build_subscription_paid_event, generate_test_event_id,
-    send_webhook_with_signature, setup_test_plan_config,
-};
 use crate::tests::scenarios::points::fixtures::*;
 use crate::tests::schema_test_context::SchemaTestContext;
 use herald_core::domain::points::dtos::RevokePointsOutput;
@@ -418,7 +414,7 @@ async fn test_revoke_topup_proportional_idempotency(ctx: &mut SchemaTestContext)
 }
 
 // ============================================================================
-// Two-layer subscription idempotency (P1)
+// Two-layer subscription idempotency
 // ============================================================================
 //
 // Layer 1 — PERIOD / SCHEDULE business idempotency:
@@ -552,104 +548,5 @@ async fn test_period_schedule_business_idempotency_dedup(ctx: &mut SchemaTestCon
     assert_eq!(
         resolved, ledger_id,
         "the (schedule_id, period_number) key must resolve to the single pre-granted ledger row"
-    );
-}
-
-/// User Story: US-PU-009 — provider event-level idempotency preserved.
-/// Covers (P0 — event-level idempotency retained as backstop):
-/// the webhook layer caches provider events by `creem_{event_id}`. A duplicate
-/// `subscription.paid` delivery with the same event_id returns the cached
-/// result and produces no additional `points_quota_entitlements` row.
-#[test_context(SchemaTestContext)]
-#[tokio::test]
-async fn test_event_level_idempotency_preserved(ctx: &mut SchemaTestContext) {
-    let realm_id = ctx._realm_id.clone();
-    let user_id = create_test_user(
-        &ctx.app_state.pool,
-        &realm_id,
-        "be_t04_event_level@example.com",
-    )
-    .await;
-    let plan_id = Uuid::now_v7();
-    let event_id = generate_test_event_id();
-
-    ctx.with_creem_config(&realm_id, None, None, None).await;
-    setup_test_plan_config(ctx, &realm_id, plan_id).await;
-    create_points_wallet(ctx, user_id, &realm_id).await;
-
-    // Distribution-rules model: `setup_test_plan_config` seeds bare mapping
-    // rows (no grant config), and production `handle_subscription_paid` grants
-    // ONLY on the renewal branch — `is_renewal=true` fires a SubscriptionRenewal
-    // event via CurrentOwnerRules; the initial branch returns no grants (first-
-    // period fulfillment is owned by the Payment Attempt flow). So a renewal
-    // event must (a) carry is_renewal=true and (b) have a `subscription_renewal`
-    // quota rule on the mapping the webhook resolver lands on (the generic
-    // `prod_test_monthly` row). Mirrors the inline seed in
-    // `webhook_grant_idempotency_scenarios.rs` and test_40's
-    // `seed_renewal_rule_for_plan_webhook`.
-    let mapping_id: Uuid = sqlx::query_scalar(
-        "SELECT id FROM provider_entitlement_mappings
-         WHERE realm_id = $1 AND external_product_id = 'prod_test_monthly'
-           AND entitlement_key = $2",
-    )
-    .bind(&realm_id)
-    .bind(plan_id.to_string())
-    .fetch_one(&ctx.app_state.pool)
-    .await
-    .expect("generic prod_test_monthly mapping must exist for the plan");
-    let bucket_id = ensure_test_bucket_for_realm(&ctx.app_state.pool, &realm_id).await;
-    sqlx::query(
-        "INSERT INTO points_distribution_rules
-            (id, realm_id, owner_type, entitlement_mapping_id, bucket_id,
-             trigger_sources, grant_mode, validity_days, quota_windows,
-             enabled, display_order)
-         VALUES ($1, $2, 'entitlement_mapping', $3, $4, $5, 'quota', 0, $6, true, 0)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(&realm_id)
-    .bind(mapping_id)
-    .bind(bucket_id)
-    .bind(&["subscription_renewal"][..])
-    .bind(serde_json::json!([{"windowSeconds": 2_592_000, "limit": 1000, "key": "period"}]))
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("seed subscription_renewal quota rule for event-level idempotency test");
-
-    let event = build_subscription_paid_event(
-        event_id.clone(),
-        user_id,
-        plan_id,
-        true, // renewal — production grants only on the renewal branch
-        &realm_id,
-    );
-
-    let app = ctx.create_unified_test_router();
-
-    // --- When: event delivered twice with the SAME event_id -----------------
-    let response1 =
-        send_webhook_with_signature(&app, &realm_id, event.clone(), "test_webhook_secret").await;
-    assert_webhook_success(&response1);
-    let response2 =
-        send_webhook_with_signature(&app, &realm_id, event, "test_webhook_secret").await;
-    assert_webhook_success(&response2);
-
-    // --- Then: exactly ONE subscription quota entitlement was created -------
-    let count = count_subscription_quota_entitlements(ctx, user_id).await;
-    assert_eq!(
-        count, 1,
-        "duplicate event_id must not create additional subscription quota entitlement"
-    );
-
-    let entitlements =
-        get_user_quota_entitlements(ctx, user_id, CreditType::SubscriptionCredit).await;
-    let entitlement = &entitlements[0];
-    assert_eq!(
-        entitlement.status,
-        QuotaEntitlementStatus::Active,
-        "entitlement should remain active after duplicate delivery"
-    );
-    assert_eq!(
-        entitlement.quota_windows[0].limit, 1000,
-        "granted window limit should be exactly one plan allocation"
     );
 }

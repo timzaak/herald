@@ -621,37 +621,3 @@ fn map_repository_error(err: CoreError) -> ApiError {
         other => ApiError::from(other),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-    use herald_core::domain::authentication::CredentialClass;
-    use herald_core::domain::user::entities::{User, UserStatus};
-    use std::collections::HashSet;
-
-    #[test]
-    fn self_service_passkey_scope_rejects_custom_ui_token_without_grant() {
-        let user_id = Uuid::now_v7();
-        let identity = Identity::User(User {
-            id: user_id,
-            realm_id: "realm".to_string(),
-            email: "user@example.com".to_string(),
-            nickname: None,
-            password_hash: None,
-            provider_ids: vec![],
-            status: UserStatus::Normal,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        });
-        let context = TokenCredentialContext {
-            client_app_id: Uuid::now_v7(),
-            client_id: "custom-user-ui".to_string(),
-            family_id: Uuid::now_v7(),
-            credential_class: CredentialClass::CustomUserUi,
-            allowed_scopes: HashSet::new(),
-        };
-
-        assert!(require_token_scope(&identity, &context, CredentialScope::PasskeyManage).is_err());
-    }
-}

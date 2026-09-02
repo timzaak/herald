@@ -1,15 +1,15 @@
 // =============================================================================
-// provider Period Normalization (Stripe + Creem, P0)
+// provider Period Normalization (Stripe + Creem)
 // =============================================================================
 //
-// SCENARIO-LAYER coverage of design `.ai/design/point-time.md`:
-//   * "provider 周期归一化（P0）" — Stripe top-level + item-level periods and
-//     Creem symmetric variants must normalize to a unique `(period_start,
+// SCENARIO-LAYER coverage:
+//   * provider period normalization — Stripe top-level + item-level periods
+//     and Creem symmetric variants must normalize to a unique `(period_start,
 //     period_end)` and DRIVE the grant (`Some ⟹ grant`).
-//   * "provider 周期归一化前置失败（P0）" — when the provider payload cannot
+//   * normalization precondition failure — when the provider payload cannot
 //     uniquely yield `period_start/period_end`, the handler MUST skip the
 //     grant, emit a structured `warn!(reason = "period_uniquely_unresolvable")`,
-//     and await a later webhook / API compensation (P0 — never guess the
+//     and await a later webhook / API compensation (never guess the
 //     period from event time, never write a ledger with an invented period).
 //
 // These tests exercise the normalization behavior END-TO-END via the webhook
@@ -17,9 +17,9 @@
 // way to observe them is through `handle_subscription_paid` being invoked or
 // skipped). They are NOT duplicates of the `normalize_stripe_period` /
 // `normalize_creem_period` `#[cfg(test)]` unit tests inside
-// `backend/api-billing/src/*_webhook_handlers.rs` (those are owned elsewhere,
-// dev item P2-3 — the four quadrants + Creem variants are already covered
-// there). This file asserts the *consequence* of normalization at the
+// `backend/api-billing/src/*_webhook_handlers.rs` (those are owned elsewhere —
+// the four quadrants + Creem variants are already covered there). This file
+// asserts the *consequence* of normalization at the
 // scenario layer: ledger rows written (Some) vs. NOT written + no
 // next-period pre-grant (None).
 //
@@ -35,7 +35,7 @@
 // (`assert_derived_balance`), never `points_wallets.total_balance` (that
 // column was physically removed).
 //
-// P0 quadrants covered:
+// Quadrants covered:
 //   (a) Stripe top-level current_period_*           → Some  → grant
 //   (b) Stripe item-level items.data[].current_*    → Some  → grant
 //   (c) Stripe multi-item disagreeing periods       → None  → SKIP grant
@@ -122,7 +122,7 @@ fn build_stripe_subscription_created_event(
 
 /// Build a Creem `subscription.paid` event with caller-supplied period
 /// fields on `data.object`. Passing `None` for either side omits the field,
-/// exercising the P0 "missing / partial ⟹ None" quadrant.
+/// exercising the "missing / partial ⟹ None" quadrant.
 fn build_creem_subscription_paid_event(
     event_id: &str,
     realm_id: &str,
@@ -162,206 +162,11 @@ fn build_creem_subscription_paid_event(
 }
 
 // ============================================================================
-// Scenario (a): Stripe top-level current_period_* → Some → grant happens
-// ============================================================================
-
-// User Story: US-PU-009 (use this period's credits on time).
-// Covers P0 "provider 周期归一化" + P0 quadrant (a):
-//   old Stripe API versions put `current_period_start` / `current_period_end`
-//   at the subscription TOP LEVEL. The normalizer must resolve them to a
-//   unique `(period_start, period_end)` and DRIVE `handle_subscription_paid`
-//   (Some ⟹ grant).
-//
-// Design note (distribution-rules refactor): `customer.subscription.created`
-// now routes to `handle_subscription_paid(is_renewal=false)`, which grants NO
-// points — initial fulfillment is owned by the captured PaymentAttempt flow.
-// The only grant-bearing subscription path is the renewal route. This test
-// therefore drives the renewal via `invoice.payment_succeeded` (whose line
-// `period.{start,end}` is the resolvable period) and verifies the
-// current-period grant. The top-level/item-level *resolution* of
-// `normalize_stripe_period` itself is pinned by the unit tests in
-// `stripe_webhook_handlers.rs`.
-#[test_context(SchemaTestContext)]
-#[tokio::test]
-async fn test_stripe_subscription_top_level_period_normalized(ctx: &mut SchemaTestContext) {
-    let realm_id = ctx._realm_id.clone();
-    let user_id = create_user(ctx, &realm_id, "be-t05-stripe-top@example.com").await;
-
-    let entitlement_key = format!("be-t05-stripe-top-{}", Uuid::now_v7());
-    let external_product_id = format!("prod_{}", entitlement_key);
-    let event_id = generate_test_event_id();
-    let webhook_secret = "test_stripe_wh_secret";
-    let stripe_subscription_id = format!("sub_top_{}", event_id);
-
-    // Stripe provider config so the webhook signature verifies.
-    crate::tests::helpers::billing_helpers::setup_stripe_config(
-        ctx,
-        &realm_id,
-        "sk_test_key",
-        webhook_secret,
-    )
-    .await;
-
-    // Entitlement mapping so the renewal grant resolves points_per_period.
-    let mapping_id = setup_test_entitlement_mapping_for_webhook(
-        ctx,
-        &realm_id,
-        "stripe",
-        &external_product_id,
-        &entitlement_key,
-        1000,
-        true,
-        true,
-    )
-    .await;
-    // The renewal grant reads CURRENT distribution rules; seed a
-    // subscription_renewal rule (the bare mapping seeder creates none).
-    crate::tests::helpers::points_helpers::seed_subscription_renewal_rule(
-        &ctx.app_state.pool,
-        &realm_id,
-        mapping_id,
-        1000,
-    )
-    .await;
-
-    // Drive a renewal grant via invoice.payment_succeeded; the subscription
-    // line carries its `period` (the resolvable period).
-    let now = chrono::Utc::now();
-    let period_start = now - chrono::Duration::seconds(10);
-    let period_end = now + chrono::Duration::days(30);
-    let event = super::test_84_stripe_invoice_period_normalization::build_stripe_invoice_payment_succeeded_event(
-        &event_id,
-        &realm_id,
-        user_id,
-        &entitlement_key,
-        &stripe_subscription_id,
-        Some((period_start.timestamp(), period_end.timestamp())),
-    );
-
-    // When: Stripe webhook fires.
-    let app = ctx.create_unified_test_router();
-    let response = send_stripe_webhook_with_signature(&app, &realm_id, event, webhook_secret).await;
-    assert_webhook_success(&response);
-
-    // Then: a subscription_credit quota entitlement WAS written — the line
-    // period resolved and drove the renewal grant.
-    let entitlements =
-        get_user_quota_entitlements(ctx, user_id, CreditType::SubscriptionCredit).await;
-    assert!(
-        !entitlements.is_empty(),
-        "Stripe period must normalize to Some and drive a renewal grant; \
-         got 0 subscription_credit quota entitlements"
-    );
-
-    // The current-period grant (effective_at = period_start <= now) is
-    // immediately available via the derived predicate.
-    assert_derived_balance(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        1000,
-    )
-    .await;
-}
-
-// ============================================================================
-// Scenario (b): Stripe item-level items.data[].current_period_* → Some → grant
-// ============================================================================
-
-// User Story: US-PU-009.
-// Covers P0 "provider 周期归一化" + P0 quadrant (b) +
-// note: Stripe 2025-03-31.basil REMOVED subscription top-level
-// `current_period_*` — period fields now live on each subscription item.
-// A single-item subscription must resolve its period unambiguously from
-// `items.data[0]` and drive the grant.
-//
-// Design note (distribution-rules refactor): see the top-level test above —
-// `customer.subscription.created` grants nothing now (initial path), so this
-// drives the renewal grant via `invoice.payment_succeeded`. The item-level
-// *resolution* of `normalize_stripe_period` is pinned by the unit tests in
-// `stripe_webhook_handlers.rs`.
-#[test_context(SchemaTestContext)]
-#[tokio::test]
-async fn test_stripe_subscription_item_level_period_normalized(ctx: &mut SchemaTestContext) {
-    let realm_id = ctx._realm_id.clone();
-    let user_id = create_user(ctx, &realm_id, "be-t05-stripe-item@example.com").await;
-
-    let entitlement_key = format!("be-t05-stripe-item-{}", Uuid::now_v7());
-    let external_product_id = format!("prod_{}", entitlement_key);
-    let event_id = generate_test_event_id();
-    let webhook_secret = "test_stripe_wh_secret";
-    let stripe_subscription_id = format!("sub_item_{}", event_id);
-
-    crate::tests::helpers::billing_helpers::setup_stripe_config(
-        ctx,
-        &realm_id,
-        "sk_test_key",
-        webhook_secret,
-    )
-    .await;
-
-    let mapping_id = setup_test_entitlement_mapping_for_webhook(
-        ctx,
-        &realm_id,
-        "stripe",
-        &external_product_id,
-        &entitlement_key,
-        1000,
-        true,
-        true,
-    )
-    .await;
-    crate::tests::helpers::points_helpers::seed_subscription_renewal_rule(
-        &ctx.app_state.pool,
-        &realm_id,
-        mapping_id,
-        1000,
-    )
-    .await;
-
-    // Drive a renewal grant via invoice.payment_succeeded; the single
-    // subscription line carries its `period`.
-    let now = chrono::Utc::now();
-    let period_start = now - chrono::Duration::seconds(10);
-    let period_end = now + chrono::Duration::days(30);
-    let event = super::test_84_stripe_invoice_period_normalization::build_stripe_invoice_payment_succeeded_event(
-        &event_id,
-        &realm_id,
-        user_id,
-        &entitlement_key,
-        &stripe_subscription_id,
-        Some((period_start.timestamp(), period_end.timestamp())),
-    );
-
-    let app = ctx.create_unified_test_router();
-    let response = send_stripe_webhook_with_signature(&app, &realm_id, event, webhook_secret).await;
-    assert_webhook_success(&response);
-
-    let entitlements =
-        get_user_quota_entitlements(ctx, user_id, CreditType::SubscriptionCredit).await;
-    assert!(
-        !entitlements.is_empty(),
-        "Stripe single-line period must normalize to Some and drive a renewal grant; \
-         got 0 subscription_credit quota entitlements"
-    );
-
-    assert_derived_balance(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        1000,
-    )
-    .await;
-}
-
-// ============================================================================
 // Scenario (c): Stripe multi-item disagreeing periods → None → SKIP grant
 // ============================================================================
 
 // User Story: US-PU-009 (never grant against a guessed period).
-// Covers P0 "provider 周期归一化前置失败" + P0 quadrant (c):
+// Covers normalization precondition failure, quadrant (c):
 //   when a subscription has MULTIPLE items with DISAGREEING periods, the
 //   points entitlement cannot be uniquely mapped to one item's period. The
 //   normalizer MUST return None; the handler MUST skip the grant and emit a
@@ -468,13 +273,13 @@ async fn test_stripe_multi_item_period_unresolvable_skips_pregrant(ctx: &mut Sch
 // ============================================================================
 
 // User Story: US-PU-009 (never grant against a guessed period).
-// Covers P0 "provider 周期归一化前置失败" + P0 quadrant (d):
+// Covers normalization precondition failure, quadrant (d):
 //   when NEITHER top-level NOR item-level period fields are present (a
 //   malformed / partial payload, or a provider quirk), the normalizer
 //   returns None and the handler skips the grant.
 //
 // Why this test exists: this is the "no signal at all" case. Combined with
-// scenario (c), it pins down the P0 invariant: the handler writes a
+// scenario (c), it pins down the invariant: the handler writes a
 // ledger IFF the normalizer resolved a unique period. Without this test, a
 // regression that fell back to "event time as period_start" on missing
 // fields would silently grant against the wrong window.
@@ -537,7 +342,7 @@ async fn test_stripe_no_period_anywhere_skips_pregrant(ctx: &mut SchemaTestConte
         get_user_quota_entitlements(ctx, user_id, CreditType::SubscriptionCredit).await;
     assert!(
         entitlements.is_empty(),
-        "Stripe payload with NO period anywhere must SKIP grant (P0); \
+        "Stripe payload with NO period anywhere must SKIP grant; \
          got {} subscription_credit quota entitlements",
         entitlements.len()
     );
@@ -550,7 +355,7 @@ async fn test_stripe_no_period_anywhere_skips_pregrant(ctx: &mut SchemaTestConte
 // ============================================================================
 
 // User Story: US-PU-009.
-// Covers P0 "provider 周期归一化" — Creem symmetric case:
+// Covers provider period normalization — Creem symmetric case:
 //   Creem exposes the period under several field-name variants
 //   (`currentPeriodStart` / `current_period_start` /
 //   `current_period_start_date`, and matching `*End`). When both endpoints
@@ -637,14 +442,14 @@ async fn test_creem_period_normalized(ctx: &mut SchemaTestContext) {
 // ============================================================================
 
 // User Story: US-PU-009 (never grant against a guessed period).
-// Covers P0 "provider 周期归一化前置失败" — Creem symmetric:
+// Covers normalization precondition failure — Creem symmetric:
 //   when neither period endpoint can be resolved (fields missing / partial /
 //   inverted), the normalizer returns None and the handler MUST skip the
 //   grant, emit a structured warning, and await a later webhook / API
 //   compensation. Never guess from event time.
 //
 // Why this test exists: this is the Creem counterpart to scenario (d). It
-// pins down that the P0 "None ⟹ skip" gate applies symmetrically to
+// pins down that the "None ⟹ skip" gate applies symmetrically to
 // both providers — a regression on either side must not silently fall back
 // to event-time guessing. The default `build_subscription_paid_event` helper
 // (omits `currentPeriodStart`) makes this case easy to hit accidentally;

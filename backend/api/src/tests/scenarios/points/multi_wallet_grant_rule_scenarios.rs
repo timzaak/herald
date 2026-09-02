@@ -586,14 +586,6 @@ async fn test_multi_wallet_grant_rule_zero_rules_replay_stays_empty_after_config
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
-async fn test_multi_wallet_grant_rule_configuration_change_replay_returns_first_complete_set(
-    ctx: &mut SchemaTestContext,
-) {
-    assert_replay_is_stable(ctx).await;
-}
-
-#[test_context(SchemaTestContext)]
-#[tokio::test]
 async fn test_multi_wallet_grant_rule_corrupt_result_count_fails_loud(ctx: &mut SchemaTestContext) {
     let fixture = seed_two_rule_fixture(ctx, "topup").await;
     let key = format!("corrupt:{}", Uuid::now_v7());

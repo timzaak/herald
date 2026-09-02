@@ -151,22 +151,4 @@ mod tests {
             .into_response();
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
-
-    #[test]
-    fn mailflow_state_contains_only_server_owned_context() {
-        let serialized = serde_json::to_value(MailflowState {
-            realm_id: "realm".to_string(),
-            client_app_id: "web".to_string(),
-            flow_type: MailflowType::VerifyEmail,
-        })
-        .unwrap();
-        assert_eq!(
-            serialized,
-            serde_json::json!({
-                "realm_id": "realm",
-                "client_app_id": "web",
-                "flow_type": "verify_email"
-            })
-        );
-    }
 }

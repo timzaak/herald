@@ -1,9 +1,11 @@
 import { HomeLayout } from "fumadocs-ui/layouts/home";
 import {
+  Bot,
   ChevronDown,
   CreditCard,
   Plug,
   Rocket,
+  ScrollText,
   Shield,
   Sparkles,
   Users,
@@ -15,6 +17,9 @@ import { gitConfig } from "@/lib/shared";
 
 const GITHUB_URL = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 const DEMO_URL = "https://auth.fornetcode.com";
+
+// Order must match the features array in home-texts.ts
+const FEATURE_ICONS = [Shield, Users, CreditCard, ScrollText, Bot];
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -173,24 +178,18 @@ export function HomePage({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 cursor-default">
-            <FeatureModule
-              icon={<Shield className="w-6 h-6" />}
-              title={texts.features[0].title}
-              desc={texts.features[0].desc}
-              bullets={texts.features[0].bullets}
-            />
-            <FeatureModule
-              icon={<Users className="w-6 h-6" />}
-              title={texts.features[1].title}
-              desc={texts.features[1].desc}
-              bullets={texts.features[1].bullets}
-            />
-            <FeatureModule
-              icon={<CreditCard className="w-6 h-6" />}
-              title={texts.features[2].title}
-              desc={texts.features[2].desc}
-              bullets={texts.features[2].bullets}
-            />
+            {texts.features.map((feature, i) => {
+              const Icon = FEATURE_ICONS[i];
+              return (
+                <FeatureModule
+                  key={feature.title}
+                  icon={<Icon className="w-6 h-6" />}
+                  title={feature.title}
+                  desc={feature.desc}
+                  bullets={feature.bullets}
+                />
+              );
+            })}
           </div>
         </section>
 
