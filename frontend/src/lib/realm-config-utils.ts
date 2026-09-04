@@ -262,6 +262,7 @@ export function emptyLdapConfig(): LdapConfigState {
     bindPassword: '',
     userFilter: '',
     mailAttribute: 'mail',
+    displayNameAttribute: '',
     hasBindPassword: false,
   }
 }
@@ -296,6 +297,8 @@ export function parseLdapConfig(configs: RealmConfigResponse[]): LdapConfigState
         typeof parsed['mailAttribute'] === 'string' && parsed['mailAttribute']
           ? parsed['mailAttribute']
           : 'mail',
+      displayNameAttribute:
+        typeof parsed['displayNameAttribute'] === 'string' ? parsed['displayNameAttribute'] : '',
       hasBindPassword,
     }
   } catch (error) {
@@ -323,6 +326,7 @@ export function buildLdapConfigRequest(config: LdapConfigForm): UpsertRealmConfi
         bindDn: config.bindDn ? config.bindDn : null,
         userFilter: config.userFilter,
         mailAttribute: config.mailAttribute,
+        displayNameAttribute: config.displayNameAttribute ? config.displayNameAttribute : null,
       }),
       isSecret: false,
       enabled: config.enabled,

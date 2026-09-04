@@ -52,7 +52,7 @@
 - **Herald Web SPA 改动**：Herald Web 前端（管理控制台 / 登录页）无任何改动，Apple Provider 的现有配置表单字段（Client ID、scopes、启用状态）对 native 路径已足够
 - **Apple web 跳转登录的 client_secret 自动签发缺陷修复**：现有 Apple web redirect 路径的 JWT client_secret 运行时签发与续签问题独立，不在本能力范围；native 路径不调 Apple token 端点、不使用 client_secret，天然绕开此问题
 - **通过 authorizationCode 换 Apple 上游 refresh_token**：本能力不代理调用 Apple 上游接口，不存 Apple 访问令牌或刷新令牌；只校验 identityToken 完成身份落账
-- **Apple web redirect 登录本身**：web 跳转式 Apple 登录已上线，不在本能力范围；native 与之并存且关联同一 Apple 用户
+- **Apple web redirect 登录本身**：web 跳转式 Apple 登录属既有能力，不在本能力范围；native 与之并存且关联同一 Apple 用户
 - **macOS / iPadOS / Android 的 Apple 登录**：仅覆盖 iOS App native 场景
 
 ### 2.3 依赖项

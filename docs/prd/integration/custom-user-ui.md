@@ -138,7 +138,7 @@
 - **登录签发**：跨域登录成功签发浏览器 token（access + refresh），不设 cookie；二因素流程同步支持。
 - **生命周期（旋转 refresh token）**：短时效 access token（内存）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测（旧 RT 再用吊销整个家族）+ RT 绝对有效上限。
 - **吊销**：可即时吊销浏览器 token（access token 或其 refresh token 家族）；吊销不误伤同一用户其他正常凭证/会话。
-- **CORS 形态**：非通配 origin + `allow_credentials(true)`，与现有 CORS 形态一致。
+- **CORS 形态**：非通配 origin + `allow_credentials(false)`；认证走 Bearer token（`Authorization` 头），无需 credentialed 请求。
 - **注销账号不可逆**：浏览器 token 调用注销账号后，后果（匿名化、取消订阅、清除会话）不可恢复。
 - **高危操作重新认证**：修改密码、绑定或移除 TOTP/Passkey、注销账号前，必须使用账户已绑定的密码、TOTP 或要求用户验证的 Passkey 完成重新认证；重新认证结果短时、单次并绑定目标操作。Passkey 重命名不属于高危操作。
 - **Passkey RP 隔离**：Passkey 只在其注册 RP 下可见和可用；Client App origin 之间及 Client App 与 Herald 原 RP 之间不共享 credential。
@@ -222,7 +222,7 @@
 - **访问控制原则**：浏览器 token 绑定用户、Realm、Client App 和凭证用途；身份解析按凭证类产出身份与上下文。handler 继续执行当前用户/Realm/RBAC 检查，授权层额外执行 `CustomUserUi` 凭证权限上限；新增能力默认拒绝。
 - **租户/realm 数据边界**：浏览器 token 只能访问当前登录用户自己的数据；Client App 禁用时其浏览器 token 联动失效。
 - **未认证身份端点防护**：人机验证（Turnstile）按当前请求绑定的 Client App 的配置执行（Client App 级配置），维持限流，不新增 client 维度限流。
-- **CORS 兼容性**：非通配 origin + `allow_credentials(true)`，从单 origin 改 per-Client App 动态放行。
+- **CORS 兼容性**：非通配 origin + `allow_credentials(false)`（Bearer token 经 `Authorization` 头传递，无需 credentialed 请求），从单 origin 改 per-Client App 动态放行。
 - **Passkey 兼容性**：Client App HTTPS origin 对应独立 RP；credential 按 RP 隔离，既有 credential 保持原 RP 归属。
 - **高危操作**：修改密码、绑定或移除认证器、注销账号必须消费重新认证结果；重新认证支持账户已绑定的密码、TOTP 或要求用户验证的 Passkey。
 - **邮件流程**：验证/重置流程携带服务端生成的 Client App 绑定状态，回跳目标只能取自预登记配置。

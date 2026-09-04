@@ -24,7 +24,7 @@ use herald_core::domain::billing::invoice::{
 };
 use herald_core::domain::billing::invoice_service::{
     InvoicePolicyConfig, parse_invoice_policy_config, validate_external_invoice_readonly,
-    validate_invoice_policy_allows_creation, validate_not_creem_mor, validate_status_transition,
+    validate_invoice_policy_allows_creation, validate_not_mor_provider, validate_status_transition,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::realm_config::RealmConfigRepository;
@@ -169,10 +169,10 @@ async fn validate_invoice_creation_policy(
         .flatten();
     }
 
-    validate_not_creem_mor(payment_provider.as_deref()).map_err(|error| {
+    validate_not_mor_provider(payment_provider.as_deref()).map_err(|error| {
         ApiError::with_error_code(
             StatusCode::BAD_REQUEST,
-            "creem_merchant_of_record",
+            "mor_provider_invoice_blocked",
             error.to_string(),
         )
     })?;

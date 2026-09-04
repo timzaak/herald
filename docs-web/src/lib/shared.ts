@@ -4,6 +4,6 @@ export const docsImageRoute = "/og/docs";
 
 export const gitConfig = {
   user: "timzaak",
-  repo: "cas-2",
+  repo: "herald",
   branch: "main",
 };

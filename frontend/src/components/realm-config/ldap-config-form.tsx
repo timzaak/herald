@@ -210,6 +210,17 @@ export function LdapConfigForm({
               disabled={disabled}
             />
 
+            <TextField
+              form={form}
+              name="displayNameAttribute"
+              label={m['settings.ldap.display_name_attribute_label']()}
+              inputId="ldap-display-name-attribute"
+              dataTestId="ldap-display-name-attribute-input"
+              placeholder="displayName"
+              helpText={m['settings.ldap.display_name_attribute_help']()}
+              disabled={disabled}
+            />
+
             <div className="flex justify-end">
               <Button
                 type="submit"

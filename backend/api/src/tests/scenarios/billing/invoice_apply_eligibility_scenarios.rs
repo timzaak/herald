@@ -2,7 +2,6 @@
 // Invoice Apply-Eligibility Scenario Tests
 // =============================================================================
 //
-// Phase B of P0-2 (.ai/future/invoice_ux.md):
 // Per-resource, read-only apply-eligibility endpoint that lets the frontend
 // gate the Apply Invoice button on a specific payment_attempt/subscription
 // BEFORE submit, instead of relying on post-submit backend rejection.
@@ -238,7 +237,7 @@ mod tests {
     // Test: policy=none => disabled
     // =========================================================================
     // User Story: docs/user-stories/billing/invoice-fallback.md
-    // Covers: P0-2 Phase B -- policy=none surfaces as disabled route.
+    // Covers: policy=none surfaces as disabled route.
     //
     // Given: invoice_policy.policy = "none" (and seller config present)
     // When:  GET apply-eligibility for the user's payment_attempt
@@ -284,7 +283,7 @@ mod tests {
     // =========================================================================
     // Test: creem provider => disabled (regardless of policy/seller)
     // =========================================================================
-    // Covers: P0-2 Phase B -- Creem is MoR; mirrors `validate_not_creem_mor`.
+    // Covers: Creem is MoR; mirrors `validate_not_mor_provider`.
     //
     // Given: a payment_attempt with payment_provider='creem'
     // When:  GET apply-eligibility
@@ -319,7 +318,7 @@ mod tests {
     // =========================================================================
     // Test: no seller config => disabled
     // =========================================================================
-    // Covers: P0-2 Phase B -- missing seller config surfaces as disabled route.
+    // Covers: missing seller config surfaces as disabled route.
     //
     // Given: no invoice_seller_config for the realm (and stripe payment_attempt)
     // When:  GET apply-eligibility
@@ -357,7 +356,7 @@ mod tests {
     // =========================================================================
     // Test: manual_only + non-Creem provider + seller + no external => manual_fallback
     // =========================================================================
-    // Covers: P0-2 Phase B -- manual_only policy still allows a manual Herald
+    // Covers: manual_only policy still allows a manual Herald
     // invoice on a non-Creem provider transaction when seller config is present.
     // (Both `payment_attempts.payment_provider` and `subscription.payment_provider`
     // are NOT NULL in the schema, so the real "no provider" case is unreachable;
@@ -406,7 +405,7 @@ mod tests {
     // =========================================================================
     // Test: provider_first + stripe + external_sync invoice => external_provider
     // =========================================================================
-    // Covers: P0-2 Phase B -- an externally-synced invoice already exists for
+    // Covers: an externally-synced invoice already exists for
     // this resource; the route is read-only external_provider. Stripe always
     // routes here regardless of webhook state (see test above).
     //

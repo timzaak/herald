@@ -657,6 +657,12 @@ pub async fn require_permission(
         check_permission_with_timeout(state, realm_id, user_id, resource, action).await?;
 
     if !has_permission {
+        // Audit PRD §4.2: denied (403) operations must also produce an audit
+        // event marked as failed. Best-effort — the 403 is already decided.
+        crate::application::http::common::auth_utils::record_permission_denied_audit(
+            state, realm_id, user_id, None, resource, action,
+        )
+        .await;
         return Err(ApiError::forbidden(format!(
             "Missing {permission_name} permission"
         )));

@@ -337,6 +337,7 @@ describe('parseLdapConfig', () => {
       bindPassword: '',
       userFilter: '',
       mailAttribute: 'mail',
+      displayNameAttribute: '',
       hasBindPassword: false,
     })
   })
@@ -394,6 +395,7 @@ describe('buildLdapConfigRequest', () => {
     bindPassword: '',
     userFilter: '(&(objectClass=user)(sAMAccountName={login}))',
     mailAttribute: 'mail',
+    displayNameAttribute: 'displayName',
   }
 
   test('omits the bind_password row when the password is empty (keep-stored-value)', () => {

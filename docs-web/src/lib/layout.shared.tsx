@@ -42,6 +42,14 @@ export interface FooterLabels {
   terms: string;
 }
 
+// Single source for the footer's license/links copy so new pages don't
+// re-inline the en/zh literals (and drift from the existing pages).
+export function footerLabels(lang: string): FooterLabels {
+  return lang === "zh"
+    ? { copyright: "Apache 2.0", privacy: "隐私政策", terms: "服务条款" }
+    : { copyright: "Apache 2.0", privacy: "Privacy", terms: "Terms" };
+}
+
 export function SiteFooter({
   lang,
   labels,
@@ -64,6 +72,12 @@ export function SiteFooter({
           >
             GitHub
           </a>
+          <Link
+            to="/blog"
+            className="hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+          >
+            Blog
+          </Link>
           <Link
             to="/$lang/privacy"
             params={{ lang }}

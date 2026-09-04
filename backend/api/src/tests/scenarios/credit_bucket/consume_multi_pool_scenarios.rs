@@ -448,10 +448,14 @@ async fn consume_picks_permanent_pool_last(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-CB-007 (SDK consume) — explicit rejection when no pool
-/// covers the requested client_app.
+/// covers the requested client_app, while balances already held in a
+/// DISABLED bucket stay spendable (credit-bucket PRD §4.2: disabling hides
+/// the bucket from the catalog but never freezes held balances).
 /// Covers:
-///   - client_app has zero `credit_bucket_client_apps` rows (or all buckets
-///     disabled) → 409 `no_covered_pool`.
+///   - client_app has zero `credit_bucket_client_apps` rows → 409
+///     `no_covered_pool`.
+///   - client_app covered only by a disabled bucket, user holds balance →
+///     consume SUCCEEDS, spending from that bucket.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn consume_no_covered_pool_returns_no_covered_pool(ctx: &mut TestContext) {
@@ -505,9 +509,10 @@ async fn consume_no_covered_pool_returns_no_covered_pool(ctx: &mut TestContext) 
         "error code no_covered_pool"
     );
 
-    // --- And: client_app_b is only covered by a disabled bucket → same 409.
+    // --- And: client_app_b's only covered bucket is disabled, but the user
+    // holds 1,000 there → consume must SUCCEED (held balances stay spendable).
     let api_key_b = create_test_api_key(pool, &realm_id, client_app_b).await;
-    let (status_b, body_b) = consume_points_ext_via_api(
+    let (status_b, _body_b) = consume_points_ext_via_api(
         ctx,
         &realm_id,
         user_id,
@@ -518,24 +523,26 @@ async fn consume_no_covered_pool_returns_no_covered_pool(ctx: &mut TestContext) 
         &api_key_b,
     )
     .await;
-    assert_eq!(status_b, StatusCode::CONFLICT);
-    let body_b = body_b.expect("error body");
     assert_eq!(
-        body_b["code"].as_str(),
-        Some("no_covered_pool"),
-        "disabled-only coverage also yields no_covered_pool"
+        status_b,
+        StatusCode::OK,
+        "consume from a disabled-but-held bucket must succeed"
     );
 
-    // --- And: no consume transaction row was written. --------------------
-    let consume_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM points_transactions
+    // --- And: the consume transaction landed in the disabled bucket. -----
+    let consume_rows: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT bucket_id FROM points_transactions
           WHERE user_id = $1 AND type = 'consume'",
     )
     .bind(user_id)
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await
-    .expect("count consume");
-    assert_eq!(consume_count, 0, "no consume rows after rejection");
+    .expect("fetch consume rows");
+    assert_eq!(
+        consume_rows,
+        vec![bucket_disabled],
+        "the consume row must come from the disabled bucket"
+    );
 }
 
 // =============================================================================

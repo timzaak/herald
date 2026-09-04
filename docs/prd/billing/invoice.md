@@ -145,7 +145,7 @@
 - Creem 交易税务数据同步：Creem MoR 交易支付成功后同步税务数据到 Herald
 - 只读展示外部 Provider 发票：provider-owned 发票在 Herald 中只读展示，禁止创建、编辑、开具、作废、标记已付
 - 自研发票 Fallback：provider 不支持或未启用外部发票时，走 Herald 自研发票系统
-- Provider 来源标识：发票列表和详情页显示发票来源 provider（Manual / Stripe / Creem）
+- Provider 来源标识：发票列表和详情页显示发票来源 provider（Manual / Stripe / Creem / Wechat）
 - 外部 PDF / 托管页面跳转：有外部 PDF URL 时直接重定向下载；有托管页面 URL 时显示 "View in Provider" 链接
 - Creem MoR 保护：Creem MoR 交易不允许创建 Herald manual 发票
 - 发票列表 provider 筛选：支持按 provider 类型筛选发票
@@ -304,7 +304,7 @@
 - **外部发票只读展示**：发票列表和详情页显示 provider 来源标识；provider != manual 的发票隐藏所有编辑操作按钮，显示 "View in Provider" 链接
 - **自研发票 Fallback**：invoice_policy=provider_first 时，不支持外部发票的 provider 交易仍可使用 Herald 自研发票
 - **外部 PDF / 页面跳转**：有 external_pdf_url 时重定向下载；有 external_hosted_url 时显示跳转链接
-- **发票列表 provider 筛选**：支持按 provider 类型（Manual / Stripe / Creem）筛选发票列表
+- **发票列表 provider 筛选**：支持按 provider 类型（Manual / Stripe / Creem / Wechat）筛选发票列表
 
 ### 5.2 验收目标
 
@@ -368,7 +368,7 @@
   - 申请表单：选择支付记录、填写开票抬头（名称、地址、邮箱、税号）
   - 列表页：展示属于自己的发票，包含编号、金额、状态、到期日、申请状态、provider 来源标识
   - 详情页：查看发票完整信息；外部发票只读，显示 "View in Provider" 链接
-  - 申请发票：Creem 交易的申请入口不可用；其他 provider 交易根据 invoice_policy 决定是否可申请
+  - 申请发票：Creem 交易的申请入口不可用；Apple（App Store）与 Google（Google Play）同为 Merchant of Record，其交易不进入 Herald 发票体系，不受 invoice_policy 影响，申请入口不可用；其他 provider 交易根据 invoice_policy 决定是否可申请
 
 - **状态反馈**：操作成功后显示对应成功消息；状态不合法时禁用按钮并提示原因；金额变动后实时更新汇总区域；操作外部 provider 发票时提示 "This invoice is managed by {Provider}"
 

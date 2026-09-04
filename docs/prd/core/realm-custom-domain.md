@@ -62,21 +62,20 @@
 
 - **自定义域名下承载 auth 流（host→realm 解析）**：请求到达生效的自定义域名时，系统按域名映射到对应 Realm 并进入其 auth 流，URL 保持自定义域名（无需 `/{realmId}` path 前缀）。当前 realm 维度仍由 path 段 `{realmId}` 唯一决定，自定义域名暂不改变 realm 解析方式。
 - **自定义域名覆盖全部 auth 流页面**：登录、注册、忘记密码、邮箱验证、OAuth 同意、TOTP、passkey 等 auth 流页面在自定义域名下提供。
-- **自定义域名下的邮件链接 / OAuth 回调 / device 链接按域生成**。
+- **自定义域名下的 OAuth 回调 URL 按域生成**：邮件链接（注册验证、重置密码、换邮箱验证）与 device 验证链接已按自定义域名生成；仅 OAuth 回调 URL 仍按 canonical 域生成。
 - **自定义域名与 canonical `herald.com/{realmId}` 入口并存**（自定义域名作为额外入口与 path-based 入口同时可用）。
 - **自定义域名与 canonical 域的跨域会话共享**（当前两个域的 session 不共享，为未来范围）。
-- **passkey 凭证按域绑定**（WebAuthn 的 RP 按域名派生，canonical 与自定义域凭证不互通；依赖 host→realm 解析先落地）。
 - **动态 CORS**（按已解析 Realm 的域做动态 origin 校验）。
 
 > 上述未来范围的落地依赖先解决框架层面的 host→realm 请求解析机制。当前已交付的配置生命周期与证书授权门控为其预留了映射基础。
 >
-> **已交付的只读 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve?host=<hostname>` 是一个公开、无认证的只读查询端点，供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig，不改变后端路由匹配或 path 解析方式。它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
+> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve?host=<hostname>` 是一个公开、无认证的查询端点，附带按访问事实自报告 CNAME/TLS 展示状态（当请求 Host 与解析结果一致且经 https 访问时，顺带将映射的 cname_verified / tls_ready 展示状态置为 true；此为 tls_ready 置位的唯一途径，不影响授权判定与路由），供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig，不改变后端路由匹配或 path 解析方式。它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
 
 ### 2.4 依赖项
 
 - **Realm 系统** — 自定义域名属 Realm 级别，依赖 Realm 基础设施与 Realm 隔离
 - **权限管理系统** — 自定义域名配置要求 `settings.manage` 权限（读要求 `settings.view`，与现有 Realm Config 一致）
-- **White-label（已上线）** — 自定义域名配置沿用 white-label 已发布的存储与管理端模式（单 hostname 配置项，realm_config 存储）
+- **White-label** — 自定义域名配置沿用 white-label 的存储与管理端模式（单 hostname 配置项，realm_config 存储）
 - **现有反向代理层（生产 Caddy）** — 每域 TLS 自动化（ACME 签发/续期）依赖现有 Caddy 反代启用 On-Demand TLS，并在签发前询问 Herald 该 hostname 是否已注册并生效；Herald Rust app 不承担 TLS 终止
 - **现有 Realm Config 配置模式** — 自定义域名配置沿用现有 Realm Config 的存储与管理端模式
 
@@ -196,7 +195,7 @@
 
 ### 8.3 与既有设计文档的关系（Rule 7）
 
-- **与 passkey 设计文档的冲突**：passkey 设计文档假设「单一部署统一域名，所有 Realm 共享 RP」与自定义域名的 per-realm RP 需求直接冲突。该冲突属于 §2.3 未来范围（passkey 凭证按域绑定依赖 host→realm 解析先落地）；在 host→realm 落地前，passkey RP 仍按现有单一域名假设运行。此为显式冲突标记，不静默合并。
+- **与 passkey 设计文档的冲突（已按自定义域名侧落地）**：passkey 设计文档假设「单一部署统一域名，所有 Realm 共享 RP」与自定义域名的 per-realm RP 需求直接冲突。当前 passkey RP 按请求 Origin 与域映射（custom_domain_mapping / client_app allowed_origins）派生 per-realm / per-app RP ID，并校验其归属 realm；canonical 与自定义域凭证不互通，单一域名假设不再成立。此为显式冲突标记，不静默合并。
 - host→realm 路由解析在上一版实现后曾被回退（根因：框架层面改写层在路由匹配之后执行，无法改写 URI）。该重建属技术实现，当前列为未来范围，不在本期已发布能力中。
 
 ### 8.4 与 Decision Brief 的关系（Rule 7）

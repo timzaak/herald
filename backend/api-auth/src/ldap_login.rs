@@ -789,6 +789,33 @@ async fn resolve_by_email_or_provision(
         return Err(ApiError::internal("Internal server error".to_string()));
     }
 
+    // Seed the nickname from the directory display name when the mapping is
+    // configured (support-ldap PRD §2.1 属性映射). Best-effort: a profile
+    // write failure must not fail an otherwise-successful first login.
+    if let Some(display_name) = ldap_user.display_name.as_deref() {
+        // The account was inserted above with no profile row (create_user
+        // writes the account only), so create the profile directly — no
+        // update-then-create fallback needed for a guaranteed-fresh account.
+        let result = state
+            .user_repository
+            .create_profile(herald_core::domain::user::entities::Profile {
+                id: created.id,
+                realm_id: realm_id.to_string(),
+                nickname: Some(display_name.to_string()),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            })
+            .await
+            .map(|_| ());
+        if let Err(e) = result {
+            tracing::warn!(
+                user_id = %created.id,
+                error = %e,
+                "LDAP JIT: failed to seed nickname from directory display name"
+            );
+        }
+    }
+
     record_register_consent(state, created.id, realm_id, &email, agreements).await;
 
     let user = state

@@ -25,6 +25,7 @@ export const AUDIT_ACTION_LABELS: Record<string, () => string> = {
   'role.unassign': () => m['audit.action_role_unassign'](),
   'permission.grant': () => m['audit.action_permission_grant'](),
   'permission.revoke': () => m['audit.action_permission_revoke'](),
+  'rbac.permission_denied': () => m['audit.action_rbac_permission_denied'](),
   'realm.create': () => m['audit.action_realm_create'](),
   'realm.rbac_init': () => m['audit.action_realm_rbac_init'](),
   'auth.login': () => m['audit.action_auth_login'](),

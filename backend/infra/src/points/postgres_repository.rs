@@ -859,8 +859,10 @@ impl PostgresPointsRepository {
     }
 
     /// Resolve the covered Bucket set for a client app.
-    /// Explicit `credit_bucket_client_apps` rows joined to enabled
-    /// `credit_buckets` only — no default-bucket merging. Sorted ascending
+    /// Explicit `credit_bucket_client_apps` rows — no default-bucket merging,
+    /// and NO `enabled` filter: disabling a bucket hides it from the catalog
+    /// and blocks new grants (grant-side guard), but balances already held in
+    /// it stay spendable (credit-bucket PRD §4.2). Sorted ascending
     /// for deterministic lock ordering downstream.
     async fn find_covered_bucket_ids_in_tx(
         tx: &mut Transaction<'_, Postgres>,
@@ -874,7 +876,6 @@ impl PostgresPointsRepository {
             JOIN credit_buckets b ON b.id = bca.bucket_id
             WHERE bca.realm_id = $1
               AND bca.client_app_id = $2
-              AND b.enabled = true
             ORDER BY bca.bucket_id ASC
             "#,
         )
@@ -2388,12 +2389,16 @@ impl PostgresPointsRepository {
     }
 
     /// Expiration for a plain (non-periodic) fixed grant. validity_days == 0
-    /// ⟺ permanent (None). credit_type drives nothing special here today but
-    /// is accepted so future per-type validity rules live in one place.
+    /// ⟺ permanent (None). RegistrationCredit is enforced permanent at the
+    /// rule-validation layer (points PRD §4.1); this guard is defense in
+    /// depth so no write path can ever expire it.
     fn fixed_expires_at(
         validity_days: i64,
-        _credit_type: CreditType,
+        credit_type: CreditType,
     ) -> Option<chrono::DateTime<chrono::Utc>> {
+        if credit_type == CreditType::RegistrationCredit {
+            return None;
+        }
         if validity_days == 0 {
             None
         } else {
@@ -4776,9 +4781,12 @@ impl PointsRepository for PostgresPointsRepository {
         }
     }
 
-    /// Explicitly covered, enabled bucket ids for a client app in a realm.
+    /// Explicitly covered bucket ids for a client app in a realm.
     /// Same coverage set as the in-tx consume path (`find_covered_bucket_ids_in_tx`):
-    /// explicit `credit_bucket_client_apps` rows joined to enabled buckets only.
+    /// explicit `credit_bucket_client_apps` rows, no `enabled` filter — balances
+    /// held in a disabled bucket stay visible and spendable (credit-bucket
+    /// PRD §4.2); disabling only hides the bucket from the catalog and blocks
+    /// new grants.
     fn find_covered_bucket_ids(
         &self,
         realm_id: &str,
@@ -4794,7 +4802,6 @@ impl PointsRepository for PostgresPointsRepository {
                 JOIN credit_buckets b ON b.id = bca.bucket_id
                 WHERE bca.realm_id = $1
                   AND bca.client_app_id = $2
-                  AND b.enabled = true
                 ORDER BY bca.bucket_id ASC
                 "#,
             )

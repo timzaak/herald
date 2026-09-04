@@ -106,10 +106,8 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 
 - **验证码规则**：TOTP 验证码为 6 位数字，有效期 30 秒；Setup 阶段支持 -1/0/+1 周期容忍（verify_totp），登录验证阶段为防重放攻击仅支持 0/+1 周期（verify_totp_with_replay_protection，前一个周期的 code 返回 Expired）；连续错误 5 次后锁定 TOTP 验证 15 分钟
 - **备份恢复码规则**：启用 TOTP 时生成 10 个 6 位数字备份恢复码，使用后立即失效（不可重复使用），重新生成 TOTP 密钥时同步重新生成备份码
-- **强制 TOTP 模式规则**：Realm 管理员可强制所有用户启用 TOTP；强制模式下用户无法禁用 TOTP（禁用端 force_enabled 检查已实现）；未启用 TOTP 的用户在下次登录时被要求设置（⚠️ 登录流程未检查 realm 的 force_enabled 状态，待实现）
-- **备份恢复码规则补充**：备份码生成确为纯数字（6 位），但当前验证层使用 `is_alphanumeric()` 比生成范围更宽松，应统一为 `is_ascii_digit()`（⚠️ 待修复）
-- **错误消息统一**：TOTP code 失败返回中文"验证码已过期或无效"，backup code 失败返回英文"Invalid verification code"（⚠️ 待统一）
-- **安全规则**：TOTP 密钥使用 AES-256-GCM 加密存储；禁用 TOTP 需验证当前密码；重新生成 TOTP 密钥需验证当前密码；TOTP 验证失败不暴露具体错误（统一提示"验证码错误"）
+- **强制 TOTP 模式规则**：Realm 管理员可强制所有用户启用 TOTP；强制模式下用户无法禁用 TOTP；未启用 TOTP 的用户在下次登录时被引导设置
+- **安全规则**：TOTP 密钥使用 AES-256-GCM 加密存储；禁用 TOTP 需验证当前密码；重新生成 TOTP 密钥需验证当前密码；TOTP 验证失败不暴露具体错误（统一提示"验证码已过期或无效"）
 - **速率限制**：用户级 5 次/60s + IP 级 10 次/60s 速率限制
 - **平滑降级**：Realm 禁用 TOTP 后，新用户无法启用 TOTP（`handle_enable_totp` 已检查 realm 的 TOTP enabled 状态），已启用用户仍需验证
 

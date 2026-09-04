@@ -77,12 +77,16 @@ impl UpdateWhiteLabelConfigRequest {
         if let Some(url) = favicon_url.as_deref() {
             validate_http_url(url, "faviconUrl")?;
         }
+        let accent_color = normalize_optional_string(self.accent_color);
+        if let Some(color) = accent_color.as_deref() {
+            validate_hex_color(color)?;
+        }
 
         Ok(WhiteLabelConfig {
             brand_name: normalize_optional_string(self.brand_name),
             logo_url,
             favicon_url,
-            accent_color: normalize_optional_string(self.accent_color),
+            accent_color,
             background: normalize_background(self.background)?,
             footer_text: normalize_optional_string(self.footer_text),
             login_title: normalize_optional_string(self.login_title),
@@ -559,6 +563,23 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// `accent_color` reaches consumers through the same public-config channel
+/// as the background, so it gets a strict (not just advisory) format check:
+/// a CSS hex color only (#RGB / #RGBA / #RRGGBB / #RRGGBBAA). The admin UI's
+/// color picker emits exactly this form; anything else would be a hand-crafted
+/// value and is rejected rather than passed through to CSS.
+fn validate_hex_color(value: &str) -> Result<(), ApiError> {
+    let valid = matches!(value.len(), 4 | 5 | 7 | 9)
+        && value.starts_with('#')
+        && value[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if !valid {
+        return Err(ApiError::bad_request(
+            "accentColor must be a hex color like #RRGGBB or #RRGGBBAA",
+        ));
+    }
+    Ok(())
+}
+
 /// The published background value is echoed verbatim by `/api/public-config`
 /// to every white-label consumer, including third-party custom login UIs that
 /// may interpolate it into raw CSS. Besides the format checks below, values
@@ -678,5 +699,38 @@ mod background_validation_tests {
         );
         assert!(validate_http_url("https://evil.example/a b.png", "background.value").is_err());
         assert!(validate_http_url("javascript:alert(1)", "background.value").is_err());
+    }
+}
+
+#[cfg(test)]
+mod accent_color_validation_tests {
+    use super::validate_hex_color;
+
+    /// WHY: accent_color rides the same public-config channel as the
+    /// background, so a non-hex value (CSS function, declaration breakout,
+    /// free text) must be rejected server-side instead of trusting the
+    /// admin UI's color picker.
+    #[test]
+    fn hex_colors_pass() {
+        assert!(validate_hex_color("#2563eb").is_ok());
+        assert!(validate_hex_color("#fff").is_ok());
+        assert!(validate_hex_color("#ffffff80").is_ok());
+        assert!(validate_hex_color("#abcd").is_ok());
+    }
+
+    #[test]
+    fn non_hex_values_are_rejected() {
+        // CSS function / resource load attempts.
+        assert!(validate_hex_color("url(https://evil.example/x)").is_err());
+        assert!(validate_hex_color("red;}body{display:none").is_err());
+        // Named colors / rgb() forms.
+        assert!(validate_hex_color("red").is_err());
+        assert!(validate_hex_color("rgb(37, 99, 235)").is_err());
+        // Bare hex without '#', wrong lengths, stray characters.
+        assert!(validate_hex_color("2563eb").is_err());
+        assert!(validate_hex_color("#").is_err());
+        assert!(validate_hex_color("#2563e").is_err());
+        assert!(validate_hex_color("#2563eg").is_err());
+        assert!(validate_hex_color("#2563ebbbbb").is_err());
     }
 }

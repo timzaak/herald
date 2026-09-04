@@ -35,9 +35,9 @@
   - 角色：Realm Admin
   - 摘要：配置 OAuth 2.0 设置（redirect_uris、client_secret、enabled），以确保障应用安全接入
 
-- **配置会话设置** (P0)，来源 `docs/user-stories/auth/client-app-settings.md`
+- **配置浏览器 token 生命周期** (P0)，来源 `docs/user-stories/auth/client-app-settings.md`
   - 角色：Realm Admin
-  - 摘要：配置会话 TTL 和滑动续期策略，以便在用户活跃时自动延长会话
+  - 摘要：配置浏览器 token 的 refresh 绝对有效期上限，以平衡用户体验和安全性
 
 - **配置应用外观** (P1)，来源 `docs/user-stories/auth/client-app-settings.md`
   - 角色：Realm Admin
@@ -51,7 +51,7 @@
 
 | 优先级 | 数量 | 关键故事 |
 |--------|------|----------|
-| P0 | 7 | Client App 管理（创建/编辑/删除）、配置 OAuth 2.0 设置、配置会话设置（含滑动续期）、重新生成 Client Secret |
+| P0 | 7 | Client App 管理（创建/编辑/删除）、配置 OAuth 2.0 设置、配置浏览器 token 生命周期（refresh 绝对上限）、重新生成 Client Secret |
 | P1 | 1 | 配置应用外观 |
 | P2 | 0 | - |
 
@@ -66,8 +66,8 @@
 - 编辑 Client App（名称、描述、启用状态）
 - 删除 Client App（需要二次确认）
 - OAuth 2.0 配置（redirect_uris、client_secret、enabled）
-- 会话配置（session_ttl_seconds、session_renewal_ttl_seconds）
-- 滑动会话续期（中间件在受保护 API 请求时自动续期）
+- 浏览器 token 生命周期配置（browser_refresh_absolute_ttl_seconds：refresh token 绝对有效上限，默认 2,592,000 秒/30 天，合法区间 86,400–7,776,000 秒）
+- 浏览器 token 会话模型（短时效 access token + 旋转 refresh token + 复用检测吊销 + 绝对上限）
 - 应用外观配置（icon_url）
 - Client App 级人机验证（Turnstile）配置（启用开关、site_key、secret_key）——人机验证配置归属 Client App 级，不再由 Realm 承载（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §3.1）
 - Client Secret 重新生成
@@ -106,7 +106,7 @@ Client App 采用双 ID 系统：
 ### 3.2 关键特性
 
 - **双 ID 系统**：内部 UUID 主键 + 外部 client_id 标识符
-- **会话滑动续期机制**：中间件自动检测并续期活跃用户的会话
+- **浏览器 token 生命周期**：短时效 access token（浏览器内存持有）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测（旧 RT 被再次使用时吊销整个 token 家族）+ refresh token 绝对有效上限
 - **URL 安全验证**：禁止 javascript: 协议和协议相对 URL
 - **凭证一次性展示**：Client Secret 仅在创建/重新生成时展示一次
 
@@ -120,7 +120,7 @@ Client App 采用双 ID 系统：
 - `client_id` 创建后不可修改，作为系统外部标识
 - Client Secret 由系统自动生成（UUID），仅在创建/重新生成时返回一次
 - 删除 Client App 需要二次确认
-- 会话续期策略在 Session 创建时固化（写入 SessionData），后续配置修改只影响新创建的 Session
+- 浏览器 token 的 refresh 绝对上限策略在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
 - 禁用 Client App 会使绑定到该 App 的 API Key 在外部 API 认证中不可用
 - 删除 Client App 后，历史 API Key 的 Client App 关联可为空；空关联仅用于兼容旧数据，不应作为新建默认
 - **人机验证（Turnstile）配置归属 Client App 级**：每个 Client App 配置自己的 Turnstile 启用开关、site_key 与 secret_key；未认证身份端点（注册/登录/找回密码/重置密码/邮箱验证/邮箱验证码登录）的人机验证按当前请求绑定的 Client App 的配置执行，未启用 Turnstile 的 Client App 不强制人机验证
@@ -130,12 +130,12 @@ Client App 采用双 ID 系统：
 
 ### 4.2 关键状态与异常
 
-- **会话滑动续期触发条件**：当 Session 剩余 TTL 低于 `session_renewal_ttl_seconds` 的一半时自动续期
-- **不续期场景**：`session_renewal_ttl_seconds` 为 null 时，中间件不执行续期，Session 按原始 TTL 自然过期
-- **典型会话策略**：
-  - 严格策略（如银行应用）：短 TTL、无续期
-  - 宽松策略（如企业工具）：用户持续活跃时 Session 永不过期
-  - 渐进策略：首次登录短 TTL，首次续期后延长
+- **刷新与旋转**：access token 过期后，前端用 refresh token 换发新的 access token 和新的 refresh token，旧 refresh token 立即作废
+- **复用检测**：已作废的旧 refresh token 被再次使用时视为泄露信号，吊销整个 token 家族，要求重新登录
+- **绝对上限**：refresh token 到达 `browser_refresh_absolute_ttl_seconds` 绝对上限后拒绝刷新，要求重新登录
+- **典型策略**：
+  - 严格策略（如银行应用）：较短的绝对上限
+  - 宽松策略（如企业工具）：较长的绝对上限（最长 90 天）
 
 ---
 
@@ -144,14 +144,14 @@ Client App 采用双 ID 系统：
 ### 5.1 核心需求
 
 1. **Client App 列表管理** — US-TP-001 ~ US-TP-005
-   - 分页展示 Client App 列表，显示基本信息（图标、Client ID、名称、描述、Redirect URIs、Session TTL、状态）
+   - 分页展示 Client App 列表，显示基本信息（图标、Client ID、名称、描述、Redirect URIs、浏览器 token 绝对上限、状态）
    - 创建 Client App（含 Basic、Redirect URIs、Security、Appearance 四类配置）
    - 编辑 Client App（预填充现有数据，Client ID 只读）
    - 删除 Client App（二次确认）
 
-2. **OAuth 2.0 与会话配置** — client-app-settings
+2. **OAuth 2.0 与浏览器 token 生命周期配置** — client-app-settings
    - 配置 Redirect URIs（至少一个有效 URL，禁止 javascript: 和协议相对 URL）
-   - 配置 Session TTL（60-86400 秒）和 Renewal TTL（60-604800 秒或 null，需 >= Session TTL）
+   - 配置浏览器 token 绝对上限（browser_refresh_absolute_ttl_seconds：默认 2,592,000 秒/30 天，合法区间 86,400–7,776,000 秒）
    - 重新生成 Client Secret
 
 3. **Device Code Grant 配置**
@@ -168,7 +168,7 @@ Client App 采用双 ID 系统：
 ### 5.2 验收目标
 
 - Client App 全部 CRUD 操作可正常执行
-- 会话滑动续期机制按配置自动触发
+- 浏览器 token 生命周期按旋转 refresh token 模型执行（刷新换发、复用检测吊销、绝对上限）
 - URL 安全验证生效（拒绝 javascript: 协议和协议相对 URL）
 - Client Secret 仅在创建/重新生成时展示一次
 - 所有操作遵守 Realm 隔离原则
@@ -199,8 +199,8 @@ Client App 采用双 ID 系统：
 - 创建表单采用 Tabs 布局（Basic、Redirect URIs、Security、Appearance）
 - 编辑模式下 Client ID 只读，新增 Regenerate Secret 选项
 - 删除操作需二次确认
-- 续期行为由后端中间件自动完成，前端无需主动调用续期接口
-- Session Renewal TTL 字段允许设置为 null 或留空，表示禁止续期；设置值必须 >= Session TTL
+- 刷新由集成方前端持有 refresh token 并主动调用刷新接口完成，后端负责旋转、复用检测与绝对上限判定
+- 浏览器 token 绝对上限字段（browser_refresh_absolute_ttl_seconds）默认 2,592,000 秒（30 天），合法区间 86,400–7,776,000 秒
 
 ---
 
@@ -210,7 +210,7 @@ Client App 采用双 ID 系统：
 
 - **双 ID 系统**：Client App 同时拥有 UUID 内部主键和 string 外部 client_id
 - **凭证一次性展示**：Client Secret 仅在创建和重新生成时返回一次
-- **会话续期策略固化**：续期策略在 Session 创建时固化，后续配置修改只影响新 Session
+- **浏览器 token 绝对上限策略固化**：refresh 绝对上限在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
 - **client_id 格式**：允许字母数字、连字符（`-`）和下划线（`_`），3-36 字符
 - **管理控制台删除保护**：内置管理控制台 Client App（`admin-web-console`）禁止删除
 - **ext API 自动生成 client_id**：ext API 创建 Client App 时使用 UUID v7 自动生成 client_id，不允许自定义；admin API 允许自定义 client_id

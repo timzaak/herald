@@ -381,16 +381,16 @@ struct RealmListResponse {
     items: Vec<RealmItem>,
 }
 
+/// One page of the paginated user list (`list_users_page`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UserListResponse {
-    items: Vec<UserInfo>,
-    #[allow(dead_code)]
-    page: u64,
-    #[allow(dead_code)]
-    page_size: u64,
-    #[allow(dead_code)]
-    total: i64,
+pub struct UserPage {
+    pub items: Vec<UserInfo>,
+    /// 1-based page number echo.
+    pub page: u64,
+    pub page_size: u64,
+    /// Total matching users across all pages.
+    pub total: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -804,15 +804,40 @@ impl Client {
         resp
     }
 
-    /// List all users in a realm
+    /// List users in a realm, first page with the server defaults
+    /// (page = 1, pageSize = 20).
     pub async fn list_users(&self, realm_id: &str) -> Result<Vec<UserInfo>, Error> {
+        Ok(self.list_users_page(realm_id, None, None).await?.items)
+    }
+
+    /// List users in a realm with pagination.
+    ///
+    /// `page` is 1-based and defaults to 1 when `None`; `page_size` defaults
+    /// to 20 and is clamped to 100 by the server.
+    pub async fn list_users_page(
+        &self,
+        realm_id: &str,
+        page: Option<u64>,
+        page_size: Option<u64>,
+    ) -> Result<UserPage, Error> {
         let url = format!("{}/api/ext/realms/{}/users", self.base_url, realm_id);
-        let response = self.build_request(Method::GET, &url).send().await?;
+        let mut query: Vec<(&str, u64)> = Vec::new();
+        if let Some(page) = page {
+            query.push(("page", page));
+        }
+        if let Some(page_size) = page_size {
+            query.push(("pageSize", page_size));
+        }
+        let mut request = self.build_request(Method::GET, &url);
+        if !query.is_empty() {
+            request = request.query(&query);
+        }
+        let response = request.send().await?;
 
         let status = response.status();
-        let resp: Result<UserListResponse, Error> = handle_response(response).await;
+        let resp: Result<UserPage, Error> = handle_response(response).await;
         debug!(status = %status, "API Response for list_users: {:?}", resp);
-        Ok(resp?.items)
+        resp
     }
 
     /// Get a single user by ID within a realm

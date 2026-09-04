@@ -32,6 +32,7 @@ pub use crate::application::http::server::api_entities::ErrorResponse;
 
 const DEFAULT_USER_VERIFICATION: &str = "preferred";
 const DEFAULT_CROSS_PLATFORM_AUTHENTICATOR: bool = true;
+const DEFAULT_FORCE_ENABLED: bool = false;
 
 // ============================================================================
 // Update Realm Passkey Configuration
@@ -41,6 +42,10 @@ const DEFAULT_CROSS_PLATFORM_AUTHENTICATOR: bool = true;
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRealmPasskeyConfigRequest {
     pub enabled: bool,
+    /// Force mode: guide users without a passkey to register one (frontend
+    /// guidance only — login is never blocked).
+    #[serde(default)]
+    pub force_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(custom(function = "validate_user_verification"))]
     pub user_verification: Option<String>,
@@ -52,6 +57,7 @@ pub struct UpdateRealmPasskeyConfigRequest {
 pub struct UpdateRealmPasskeyConfigResponse {
     pub message: String,
     pub enabled: bool,
+    pub force_enabled: bool,
     pub updated_at: String,
 }
 
@@ -121,6 +127,7 @@ pub async fn handle_update_realm_passkey_config(
 
     let passkey_config = serde_json::json!({
         "enabled": req.enabled,
+        "force_enabled": req.force_enabled,
         "user_verification": req
             .user_verification
             .as_deref()
@@ -188,6 +195,7 @@ pub async fn handle_update_realm_passkey_config(
             result: AuditResult::Success,
             details: Some(serde_json::json!({
                 "enabled": req.enabled,
+                "force_enabled": req.force_enabled,
             })),
             ip_address: Some(ip),
             user_agent,
@@ -201,6 +209,7 @@ pub async fn handle_update_realm_passkey_config(
     Ok(ApiResult::ok(UpdateRealmPasskeyConfigResponse {
         message: "Realm Passkey configuration updated".to_string(),
         enabled: req.enabled,
+        force_enabled: req.force_enabled,
         updated_at: config.updated_at.to_rfc3339(),
     }))
 }
@@ -213,6 +222,7 @@ pub async fn handle_update_realm_passkey_config(
 #[serde(rename_all = "camelCase")]
 pub struct GetRealmPasskeyConfigResponse {
     pub enabled: bool,
+    pub force_enabled: bool,
     pub user_verification: String,
     pub cross_platform_authenticator: bool,
 }
@@ -313,6 +323,11 @@ pub async fn handle_get_realm_passkey_config(
         .and_then(|config| config.get("enabled"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let force_enabled = config
+        .as_ref()
+        .and_then(|config| config.get("force_enabled"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(DEFAULT_FORCE_ENABLED);
     let user_verification = config
         .as_ref()
         .and_then(|config| config.get("user_verification"))
@@ -327,6 +342,7 @@ pub async fn handle_get_realm_passkey_config(
 
     Ok(ApiResult::ok(GetRealmPasskeyConfigResponse {
         enabled,
+        force_enabled,
         user_verification,
         cross_platform_authenticator,
     }))

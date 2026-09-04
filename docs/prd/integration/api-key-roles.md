@@ -48,7 +48,7 @@
 - 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，默认 `enabled=true`）
 - API Key 认证路径受关联 Client App 的 `enabled` 状态影响（Client App 禁用时其下所有 API Key 均不可用）
 - ext API 对非 `admin-api-client` 的 API Key 执行 Client App 作用域隔离
-- API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（已实现，详见 9.4）
+- API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（轮换生成新密钥，旧密钥立即失效，新明文仅返回一次）
 
 ### 2.2 不包含功能 (Out of Scope)
 
@@ -148,7 +148,7 @@
 
 **适用性**: 适用
 
-- API Key 角色查询和替换使用 Session 认证（管理后台用户登录，非 API Key 认证）
+- API Key 角色查询和替换使用管理后台的 FirstParty 浏览器 token 凭证（`admin-web-console`），非 API Key 认证
 - 读取操作检查 `api_keys.view` 权限，写操作检查 `roles.manage` 权限
 - Realm 隔离：只能操作当前 Realm 下的 API Key
 - Client App 隔离：创建 API Key 时提供的 Client App 必须属于当前 Realm；ext API 对普通 Client App API Key 强制目标 Client App 等于绑定 Client App
@@ -184,37 +184,7 @@
 
 ---
 
-## 9. 实现差异与已知问题
-
-### 9.1 已实现
-
-- **创建 API Key 时绑定角色（US-RA-017）**：`CreateApiKeyRequest` 支持 `role_ids: Option<Vec<Uuid>>` 字段，创建成功后自动绑定角色。
-
-### 9.2 已修复
-
-- ~~**GET 单个 API Key roles 返回空数组**~~：`get.rs` 已查询并填充 roles 数据，`update.rs` 同步修复，行为与 `list.rs` 一致。
-
-### 9.3 已知冗余
-
-- **权限检查双层重复**：HTTP 层（`api-admin/api_keys/roles.rs`）通过 `require_permission` 检查 `api_keys.view` / `roles.manage`；domain 层（`domain/src/user/services/admin.rs`）的 `get_api_key_roles` / `assign_api_key_roles` 再次调用 `require_permission` 检查相同权限。两层检查逻辑一致，属防御性冗余，当前不影响正确性。
-
-### 9.4 已实现但 PRD 未覆盖的端点
-
-以下端点已在代码中实现，属于 API Key 基础 CRUD 的自然扩展，PRD 未单独列出：
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/{apiKeyId}` | PUT | 更新 API Key 名称、启用状态、过期时间 |
-| `/{apiKeyId}` | DELETE | 永久删除 API Key |
-| `/{apiKeyId}/rotate` | POST | 轮换 API Key（生成新密钥，旧密钥立即失效，新明文仅返回一次） |
-
-### 9.5 已实现
-
-- **`role_ids` 数组长度限制**：`CreateApiKeyRequest.role_ids` 与 `UpdateApiKeyRolesRequest.role_ids`（`api-admin/src/api_keys/types.rs`）已增加 `#[validate(length(max = 20))]`，防止一次性绑定过多角色。
-
----
-
-## 10. 参考资料
+## 9. 参考资料
 
 - 用户故事：`docs/user-stories/core/realm-admin.md`（US-RA-016、US-RA-017）
 - 用户故事：`docs/user-stories/integration/sdk.md`（US-TP-012 ~ US-TP-014）

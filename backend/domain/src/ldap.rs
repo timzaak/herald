@@ -23,6 +23,11 @@ pub struct LdapDirectorySettings {
     pub user_filter: String,
     /// Directory attribute carrying the mail value. Defaults to `mail`.
     pub mail_attribute: String,
+    /// Optional directory attribute carrying the display name (e.g.
+    /// `displayName` / `cn`). When set, its value seeds the JIT-created
+    /// account's nickname; entries without it simply get no nickname.
+    /// `None` = no display-name mapping configured.
+    pub display_name_attribute: Option<String>,
     /// Optional PEM certificate bundle (the directory's private CA) to trust
     /// for this realm's LDAP TLS connections, ADDITIVE on top of the system
     /// trust store. A CA certificate is public material — no secret handling.
@@ -53,6 +58,9 @@ pub struct LdapAuthenticatedUser {
     pub dn: String,
     /// Value of the configured mail attribute; raw (not normalized).
     pub email: Option<String>,
+    /// Value of the configured display-name attribute (when
+    /// `display_name_attribute` is set and the entry carries it).
+    pub display_name: Option<String>,
 }
 
 /// Error classification for the LDAP authentication port.
@@ -198,6 +206,23 @@ pub fn validate_ldap_settings_json(raw: &str) -> Result<LdapDirectorySettings, C
     {
         return Err(CoreError::BadRequest(
             "mailAttribute must be at most 64 characters of [A-Za-z0-9-]".to_string(),
+        ));
+    }
+
+    // Optional display-name mapping (seeds the JIT account nickname).
+    // Whitespace-only input is normalized to None; same attribute-name shape
+    // as mailAttribute (an attribute name is never an injection vector, it
+    // only selects which directory value to read).
+    settings.display_name_attribute = settings
+        .display_name_attribute
+        .take()
+        .map(|attr| attr.trim().to_string())
+        .filter(|attr| !attr.is_empty());
+    if let Some(attr) = &settings.display_name_attribute
+        && (attr.len() > 64 || !attr.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+    {
+        return Err(CoreError::BadRequest(
+            "displayNameAttribute must be at most 64 characters of [A-Za-z0-9-]".to_string(),
         ));
     }
 

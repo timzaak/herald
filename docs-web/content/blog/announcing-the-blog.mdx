@@ -1,0 +1,82 @@
+---
+title: Announcing the Herald Blog
+description: A place for release notes, engineering deep dives, and roadmap updates for Herald.
+date: "2026-09-03"
+author: timzaak
+---
+
+We are launching the Herald blog.
+
+Documentation answers "how do I use this?" — it is reference material, written to stay
+correct, not to tell a story. But a project also needs a place for the other two
+questions: "why is it built this way?" and "what is changing?". Changelogs list pull
+requests; commit messages explain a diff, not a decision. This blog is where those
+conversations live.
+
+## What to expect
+
+Three kinds of posts:
+
+- **Release notes** — notable features and breaking changes, beyond the commit log.
+  When something like wallet payments or the MCP server ships, the post explains what
+  changed for you, why, and what (if anything) you need to migrate — not just that the
+  PR merged.
+- **Engineering deep dives** — how realms, points billing, and the MCP tools work
+  internally, and which tradeoffs we took to get there. The parts that don't fit in
+  API reference tables.
+- **Roadmap updates** — what we are building next and why, so you can plan around it.
+
+Posts appear when there is something worth saying, not on a fixed schedule.
+
+## Example: what a deep dive looks like
+
+Take the MCP server, one of the more recent additions. Herald serves `/mcp` with five
+read-only tools: `query_users`, `get_points_balance`, `list_points_transactions`,
+`list_audit_logs`, and `get_realm_config_status`. The tool list is the boring part.
+The interesting part is the set of decisions behind it:
+
+- **Read-only first.** An agent that reads a points balance is low-risk; an agent that
+  issues refunds is not. Read tools cover the common "answer a question about my
+  tenant" case, and write tools will only arrive behind explicit permissions.
+- **The key is the boundary.** Every call is authenticated by a Client API Key, and
+  the realm always comes from the credential itself — a key scoped to realm A asking
+  about realm B gets `not_found`, not a leak. An agent cannot wander across tenants.
+- **Permissions gate each tool.** A key without `users.view` gets a clear
+  `permission_denied` error and zero data. Grant roles to a dedicated key with least
+  privilege, widen later if a workflow needs it.
+
+Connecting an agent is deliberately one command:
+
+```bash
+claude mcp add --transport http herald https://your-herald-host/mcp \
+  --header "X-API-Key: sk-your-api-key"
+```
+
+From that point the agent answers questions like "how many credits does this user
+have left?" through a typed tool call instead of hand-writing REST requests and
+parsing HTML-free JSON by luck. A future post will walk through the rate-limit and
+error-semantics design in more detail.
+
+## Where Herald is today
+
+If this blog is your first contact with the project: Herald is an open-source,
+self-hosted foundation for AI products — multi-tenant auth, billing and payments,
+points and credits, consent handling, and an admin console, all under Apache-2.0.
+
+As of this post, the auth side covers passkeys, TOTP, LDAP login, Apple sign-in, and
+OAuth providers; billing spans subscriptions and one-time purchases across Stripe,
+Creem, WeChat Pay, and in-app-purchase reconciliation, with multi-currency invoices;
+and points run on multi-pool balances with distribution and quota rules. The
+[documentation](/docs/getting-started) covers all of it end to end.
+
+## How to follow along
+
+- **Watch the [GitHub repository](https://github.com/timzaak/herald)** — release tags
+  and their notes land there first.
+- **Browse the [docs](/docs/getting-started)** — updated with every release.
+- **Read this blog** — the list page collects every post.
+
+That's the tour. The next post is already in draft: a closer look at how the points
+engine consumes from multiple pools atomically. Thanks for reading, and thanks to
+everyone who opened an issue or starred the repo — that feedback directly shapes the
+roadmap.

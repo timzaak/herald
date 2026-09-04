@@ -202,6 +202,15 @@ pub struct VerifyTotpSetupResponse {
     pub enabled_at: String,
 }
 
+/// Redis-staged regeneration payload written by `handle_regenerate_totp`
+/// and swapped into the TOTP config after a successful code verification
+/// (the old secret stays active until then, totp.md §5.1).
+#[derive(Deserialize)]
+struct StagedTotpRegen {
+    secret_hash: String,
+    backup_codes_hashes: Vec<String>,
+}
+
 /// Verify TOTP setup and enable two-factor authentication
 ///
 /// Completes the TOTP setup process by verifying the TOTP code generated from the secret.
@@ -271,8 +280,41 @@ pub async fn handle_verify_totp_setup(
     let totp_repo = PostgresUserTotpRepository::new(state.db.clone());
     let mut totp_config = totp_repo.get_config_by_id(totp_config_id).await?;
 
-    // 4. Verify TOTP code
-    let secret = UserTotpService::decrypt_secret(&totp_config.secret_hash)?;
+    // Regeneration mode: the new secret/backup codes were staged in Redis by
+    // `handle_regenerate_totp` instead of being written to the config. Verify
+    // against the STAGED secret; on success atomically swap it in below. The
+    // old secret stays active until then (totp.md §5.1: 验证失败时保留旧密钥).
+    let mode = temp_data["mode"].as_str().unwrap_or("enable");
+    let staged_key = format!("totp:regen:staged:{}", req.temp_token);
+    let staged: Option<(String, Vec<String>)> = if mode == "regenerate" {
+        let staged_json: Option<String> = conn.get(&staged_key).await.map_err(|e| {
+            tracing::error!("Failed to get staged TOTP regeneration data: {}", e);
+            ApiError::internal("Failed to get staged TOTP regeneration data".to_string())
+        })?;
+        let staged_json = staged_json.ok_or(ApiError::unauthorized(
+            "Invalid or expired temporary token".to_string(),
+        ))?;
+        let staged_data: serde_json::Value = serde_json::from_str(&staged_json).map_err(|e| {
+            tracing::error!("Failed to parse staged TOTP regeneration JSON: {}", e);
+            ApiError::internal("Failed to parse staged TOTP regeneration JSON".to_string())
+        })?;
+        // Same shape `handle_regenerate_totp` writes via `serde_json::json!`.
+        let payload: StagedTotpRegen = serde_json::from_value(staged_data).map_err(|e| {
+            tracing::error!("Failed to read staged TOTP regeneration fields: {}", e);
+            ApiError::internal("Internal server error".to_string())
+        })?;
+        Some((payload.secret_hash, payload.backup_codes_hashes))
+    } else {
+        None
+    };
+
+    // 4. Verify TOTP code — against the staged secret when regenerating,
+    //    against the stored secret for a fresh setup.
+    let effective_secret_hash = staged
+        .as_ref()
+        .map(|(hash, _)| hash.clone())
+        .unwrap_or_else(|| totp_config.secret_hash.clone());
+    let secret = UserTotpService::decrypt_secret(&effective_secret_hash)?;
     let verified = UserTotpService::verify_totp(&secret, &req.code)?;
 
     if !verified {
@@ -314,9 +356,28 @@ pub async fn handle_verify_totp_setup(
         return Err(ApiError::unauthorized("Invalid TOTP code".to_string()));
     }
 
-    // 5. Enable TOTP config
-    totp_config.enable();
-    let totp_config = totp_repo.update_config(totp_config).await?;
+    // 5. Apply the outcome: fresh setups enable the stored secret;
+    //    regenerations atomically swap in the staged secret (which also
+    //    re-enables, since the user already had TOTP on) and replace the
+    //    backup codes.
+    if let Some((staged_secret_hash, staged_hashes)) = staged {
+        totp_config.regenerate_secret(staged_secret_hash);
+        totp_config.enable();
+        totp_config = totp_repo.update_config(totp_config).await?;
+        totp_repo.delete_backup_codes(totp_config.id).await?;
+        let backup_code_entities: Vec<UserTotpBackupCode> = staged_hashes
+            .iter()
+            .map(|hash| UserTotpBackupCode::new(totp_config.id, hash.clone()))
+            .collect();
+        totp_repo.create_backup_codes(backup_code_entities).await?;
+        let _: () = conn.del(&staged_key).await.map_err(|e| {
+            tracing::error!("Failed to delete staged TOTP regeneration data: {}", e);
+            ApiError::internal("Failed to delete staged TOTP regeneration data".to_string())
+        })?;
+    } else {
+        totp_config.enable();
+        totp_config = totp_repo.update_config(totp_config).await?;
+    }
 
     // 6. Delete temp token + attempt counter
     let _: () = conn.del(&temp_key).await.map_err(|e| {
@@ -331,12 +392,14 @@ pub async fn handle_verify_totp_setup(
             ApiError::internal("Failed to delete attempt counter".to_string())
         })?;
 
+    // Re-read verified_at: regenerate_secret clears it, enable() re-sets it.
+    let verified_at = totp_config
+        .verified_at
+        .ok_or_else(|| ApiError::internal("Verified at not found".to_string()))?;
+
     Ok(ApiResult::ok(VerifyTotpSetupResponse {
         message: "TOTP enabled successfully".to_string(),
-        enabled_at: totp_config
-            .verified_at
-            .ok_or_else(|| ApiError::internal("Verified at not found".to_string()))?
-            .to_rfc3339(),
+        enabled_at: verified_at.to_rfc3339(),
     }))
 }
 
@@ -492,7 +555,11 @@ pub async fn handle_regenerate_totp(
     let secret = UserTotpService::generate_secret();
     let backup_codes = UserTotpService::generate_backup_codes();
 
-    // 4. Encrypt new secret and hash backup codes
+    // 4. Encrypt new secret and hash backup codes — staged ONLY. The DB
+    //    config keeps the old secret and stays enabled until the user
+    //    verifies a code from the new secret; abandoning the flow (or a
+    //    failed verification) leaves the old secret intact (totp.md §5.1:
+    //    验证失败时保留旧密钥), so 2FA is never silently disabled.
     let secret_hash = UserTotpService::encrypt_secret(&secret)?;
     let backup_codes_hashes: Result<Vec<String>, _> = backup_codes
         .iter()
@@ -500,25 +567,19 @@ pub async fn handle_regenerate_totp(
         .collect();
     let backup_codes_hashes = backup_codes_hashes?;
 
-    // 5. Update config with new secret (disabled until verified)
-    let mut updated_config = existing_config.clone();
-    updated_config.regenerate_secret(secret_hash);
-    let updated_config = totp_repo.update_config(updated_config).await?;
-
-    // 6. Delete old backup codes and create new ones
-    totp_repo.delete_backup_codes(updated_config.id).await?;
-    let backup_code_entities: Vec<UserTotpBackupCode> = backup_codes_hashes
-        .iter()
-        .map(|hash| UserTotpBackupCode::new(updated_config.id, hash.clone()))
-        .collect();
-    totp_repo.create_backup_codes(backup_code_entities).await?;
-
-    // 7. Generate temp token for verification step
+    // 5. Generate temp token for verification step and stage the swap
+    //    payload in Redis with the same 5-minute TTL.
     let temp_token = format!("totp_regen_{}", Uuid::now_v7());
     let temp_key = format!("totp:setup:temp:{}", temp_token);
+    let staged_key = format!("totp:regen:staged:{}", temp_token);
     let temp_data = serde_json::json!({
         "user_id": user_id.to_string(),
-        "totp_config_id": updated_config.id.to_string(),
+        "totp_config_id": existing_config.id.to_string(),
+        "mode": "regenerate",
+    });
+    let staged_data = serde_json::json!({
+        "secret_hash": secret_hash,
+        "backup_codes_hashes": backup_codes_hashes,
     });
 
     let mut conn = state
@@ -532,6 +593,13 @@ pub async fn handle_regenerate_totp(
         .await
         .map_err(|e| {
             tracing::error!("Failed to store temp token: {}", e);
+            ApiError::internal("Internal server error".to_string())
+        })?;
+    let _: () = conn
+        .set_ex(&staged_key, staged_data.to_string(), 300) // 5 minutes
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to store TOTP regeneration staging data: {}", e);
             ApiError::internal("Internal server error".to_string())
         })?;
 

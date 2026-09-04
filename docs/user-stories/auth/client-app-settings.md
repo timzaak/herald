@@ -124,51 +124,54 @@ Then 系统重新启用该 Client App，用户可以正常登录
 
 ---
 
-### 故事 4：配置 Session 有效期策略 [US-TP-011]
+### 故事 4：配置浏览器 token 生命周期策略 [US-TP-011]
 
 **优先级**: P0
 
 **【用户故事】**
 **作为**：Realm 管理员（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
-**我希望**：为 Client App 配置用户 Session 的有效期限和续期策略
+**我希望**：为 Client App 配置浏览器 token 的 refresh token 绝对有效期上限
 **从而**：根据应用的安全要求平衡用户体验和安全性
 
 **【验收标准】**
 
 > 验收标准只描述用户动作与可见结果，不写 API 路径、数据表、字段变更、技术实现步骤。
 
-**场景 1：设置严格的 Session 策略（银行类应用）**
+**场景 1：设置严格的生命周期策略（银行类应用）**
 ```gherkin
 Given 管理员在 Client App 设置页面
-When 管理员设置 Session 初始有效期为 5 分钟
-And 设置不允许续期
+When 管理员将浏览器 token 的 refresh 绝对有效期上限设置为 1 天
 And 点击保存
-Then 用户 Session 在 5 分钟后过期，必须重新登录
+Then 系统保存该配置，用户登录 1 天后 refresh token 到达绝对上限，必须重新登录
 ```
 
-**场景 2：设置宽松的 Session 策略（企业内部工具）**
+**场景 2：设置宽松的生命周期策略（企业内部工具）**
 ```gherkin
 Given 管理员在 Client App 设置页面
-When 管理员设置 Session 初始有效期为 8 小时
-And 设置活跃时自动续期，续期后有效期刷新为 8 小时
+When 管理员将浏览器 token 的 refresh 绝对有效期上限设置为 30 天
 And 点击保存
-Then 用户保持活跃时 Session 可自动滑动续期
+Then 用户在 30 天内可持续刷新访问，30 天后必须重新登录
 ```
 
-**场景 3：设置渐进式安全策略**
+**场景 3：refresh token 旋转**
+```gherkin
+Given 用户已登录并持有有效的 refresh token
+When 用户的前端用 refresh token 发起刷新
+Then 系统签发新的 access token 和新的 refresh token，旧 refresh token 立即作废
+```
+
+**场景 4：refresh token 复用检测**
+```gherkin
+Given 某 refresh token 已被使用过且已作废
+When 该旧 refresh token 被再次使用
+Then 系统吊销整个 token 家族，用户必须重新登录
+```
+
+**场景 5：超出合法区间的配置被拒绝**
 ```gherkin
 Given 管理员在 Client App 设置页面
-When 管理员设置 Session 初始有效期为 5 分钟
-And 设置续期后有效期延长到 2 小时
-And 点击保存
-Then 用户首次登录获得 5 分钟 Session，续期后延长到 2 小时
-```
-
-**场景 4：禁止续期时的行为**
-```gherkin
-Given Client App 已设置为不允许续期
-When 用户访问受保护资源
-Then 系统 Session 按初始有效期过期，不进行续期
+When 管理员输入小于 1 天或大于 90 天的绝对上限值并保存
+Then 系统提示配置无效且不保存
 ```
 
 ---
@@ -180,10 +183,10 @@ Then 系统 Session 按初始有效期过期，不进行续期
    - 验证 URL 格式，禁止 `javascript:` 协议和协议相对 URL `//`
    - OAuth 授权时严格验证 redirect_uri 是否在白名单中
 
-2. **Session 配置规则**：
-   - Session 初始有效期：登录创建 Session 时的有效期，默认 30 分钟
-   - 续期有效期：续期后的有效期，不设置则表示不允许续期
-   - 配置变更只影响新创建的 Session；已存在 Session 使用创建时的续期策略
+2. **浏览器 token 生命周期规则**：
+   - 浏览器 token 采用短时效 access token + 旋转 refresh token 模型，refresh token 每次刷新后换发、旧 token 作废，复用检测发现旧 token 再用时吊销整个 token 家族
+   - refresh 绝对有效期上限：默认 30 天，合法区间 1 天–90 天
+   - 配置变更只影响新签发的 token 家族；已存在 token 家族使用签发时的上限
 
 3. **安全考虑**：
    - 禁用的 Client App 无法完成 OAuth 授权流程
@@ -191,7 +194,7 @@ Then 系统 Session 按初始有效期过期，不进行续期
 
 4. **边界说明**：
    - Realm 管理员只能管理本 Realm 的 Client App 设置
-   - 修改设置后对新 Session 生效
+   - 修改设置后对新签发的浏览器 token 生效
 
 ---
 

@@ -229,8 +229,8 @@ describe('ApplyInvoiceFormPage', () => {
           return HttpResponse.json(
             {
               status: 400,
-              code: 'creem_merchant_of_record',
-              message: 'Creem transactions are managed by Creem as Merchant of Record',
+              code: 'mor_provider_invoice_blocked',
+              message: 'apple transactions are managed by the platform as Merchant of Record',
             },
             { status: 400 }
           )
@@ -257,7 +257,7 @@ describe('ApplyInvoiceFormPage', () => {
 
       // Should show the Creem rejection alert
       await waitFor(() => {
-        expect(screen.getByTestId('apply-invoice-creem-rejection')).toBeInTheDocument()
+        expect(screen.getByTestId('apply-invoice-mor-rejection')).toBeInTheDocument()
       })
 
       // Should NOT have navigated (submit failed)
@@ -276,7 +276,7 @@ describe('ApplyInvoiceFormPage', () => {
         expect(screen.getByTestId('apply-form-page')).toBeInTheDocument()
       })
 
-      expect(screen.queryByTestId('apply-invoice-creem-rejection')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('apply-invoice-mor-rejection')).not.toBeInTheDocument()
     })
   })
 })

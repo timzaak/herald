@@ -40,6 +40,12 @@ pub enum AuditAction {
     PermissionGrant,
     #[serde(rename = "permission.revoke")]
     PermissionRevoke,
+    /// An authenticated caller was denied an operation by the permission
+    /// gate (403). Recorded best-effort by the `require_permission` choke
+    /// points so failed authorization attempts are auditable (audit PRD
+    /// §4.2: 权限不足等失败操作同样产生审计事件).
+    #[serde(rename = "rbac.permission_denied")]
+    PermissionDenied,
     #[serde(rename = "realm.create")]
     RealmCreate,
     #[serde(rename = "realm.rbac_init")]

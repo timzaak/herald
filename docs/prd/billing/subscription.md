@@ -50,7 +50,7 @@
 
 ### 2.1 包含功能
 
-- 支持多种支付平台：Creem（模拟支付平台，已实现）、Stripe（已实现，详见 `docs/prd/billing/stripe-payment.md`）；支付宝待实现
+- 支持多种支付平台：Creem（模拟支付平台）、Stripe（详见 `docs/prd/billing/stripe-payment.md`）
 - Provider Entitlement 映射管理（查看、配置积分策略、启用/禁用）
 - 支付方商品同步与 provider-sourced cache
 - 前端 Entitlement 映射管理页面
@@ -86,7 +86,7 @@
 - **Realm 系统** — Billing 功能属于 Realm 级别
 - **Client App 系统** — 套餐分配到 Client App
 - **权限管理系统** — Realm Admin 权限检查
-- **支付平台集成** — 当前已集成 Creem（模拟支付平台）、Stripe（`docs/prd/billing/stripe-payment.md`）；支付宝待实现
+- **支付平台集成** — 当前已集成 Creem（模拟支付平台）、Stripe（`docs/prd/billing/stripe-payment.md`）
 
 ---
 
@@ -102,7 +102,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 ### 3.2 关键特性
 
-- 支持多种支付平台（Creem、Stripe；支付宝待实现）
+- 支持多种支付平台（Creem、Stripe）
 - Provider entitlement 映射管理
 - 通过 `entitlement_key` 统一表示订阅权益
 - 支付方商品同步与 provider-sourced cache
@@ -152,7 +152,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 **Provider Metadata 契约**：
 - 所有 Herald 使用的 metadata key 使用 `herald_` 前缀，统一命名避免混用
 - 必填 metadata：`herald_realm_id`、`herald_client_app_id`、`herald_user_id`、`herald_entitlement_key`
-- 计费类型标识：`herald_billing_kind`，值为 `subscription` 或 `points_package`
+- 计费类型标识：`herald_billing_kind`，值为 `subscription` 或 `one_time`
 - Stripe 分层策略：稳定映射放 Product/Price metadata，请求特定信息（user、client app）放 Checkout Session/Subscription metadata
 - Creem：metadata 写入 checkout 请求，后续 webhook 返回该 metadata
 - Checkout 创建时验证必填 metadata，缺失时拒绝创建
@@ -279,7 +279,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **支付平台配置**：
 - 支持添加、编辑、启用/禁用、删除支付平台配置（API Key、Secret Key、Webhook Secret）
-- 当前支持 Creem（模拟支付平台）、Stripe；支付宝待实现
+- 当前支持 Creem（模拟支付平台）、Stripe
 - 每个 realm 使用独立的 webhook URL，实现多租户隔离
 
 **Entitlement 映射管理**：
@@ -358,7 +358,6 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 所有接口遵守 realm 隔离原则
 - 写入类操作（创建、编辑、删除套餐/映射/分配）需要 `billing.manage` 权限
 - 读取类操作需要 `billing.view` 权限或认证用户身份
-- 删除套餐时级联删除所有支付平台映射配置（数据库层面通过外键级联或应用层逐条删除实现）
 - 金额与积分变更必须可追溯
 
 **兼容性要求**：
@@ -372,19 +371,9 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 **适用性**: 适用
 
 **导航与可见性约束**：
-- 管理后台入口按权限控制：拥有 `billing.view` 的用户可看到 Billing 相关管理入口（Products、Payment Providers、Subscription Plans、Invoices、Subscription History），不因当前 Realm 尚未配置产品或套餐而隐藏入口
+- 管理后台入口按权限控制：拥有 `billing.view` 的用户可看到 Billing 相关管理入口（Payment Providers、Entitlement Mappings、Invoices、Subscription History），不因当前 Realm 尚未配置产品或套餐而隐藏入口
 - 个人中心的 Subscription 入口按 Realm 能力开通状态显示：当 Realm 下存在已启用的订阅 Plan 时显示；仅存在历史订阅记录但没有已启用 Plan 时不单独作为显示入口依据
 - 订阅购买按钮或 checkout 流程的可用性独立于 Subscription 入口：只有当 Plan 已配置启用的支付平台映射，且对应支付平台已在 Realm 中启用时，才允许用户发起购买；否则显示不可购买状态或禁用购买操作
-
-**套餐创建流程**：
-- 创建套餐表单不包含支付平台相关字段
-- 创建成功后显示引导信息，提示用户配置支付平台映射，提供 "Add Payment Provider" 按钮跳转到配置页面
-
-**套餐管理界面**：
-- 套餐列表展示 "Payment Providers" 列，显示该套餐支持的所有支付平台；未配置支付平台的套餐显示高亮提示
-- 套餐详情页面显示 "Payment Providers" 配置区域，包含所有已配置的映射及其状态
-- 支持为套餐添加、编辑、删除支付平台映射；添加时从 Realm 已配置的支付平台中选择
-- 禁用或删除支付平台映射时提示对已订阅用户的影响
 
 **用户订阅流程**：
 - 用户选择套餐后，展示该套餐支持的支付平台选项
@@ -404,8 +393,6 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 购买历史基于支付尝试记录和积分交易记录查询
 
 **状态反馈**：
-- 创建套餐成功后提示："Please configure payment providers for this plan"
-- 删除套餐时提示："This will delete all payment provider mappings for this plan"
 - 删除支付平台映射时提示活跃订阅数量："Cannot delete mapping with X active subscriptions"
 - 禁用支付平台映射时提示："Existing subscriptions will continue to work, new users cannot select this provider"
 

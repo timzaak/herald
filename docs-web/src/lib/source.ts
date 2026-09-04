@@ -1,11 +1,13 @@
-import { docs } from "collections/server";
+import { blog, docs } from "collections/server";
 import { loader, multiple } from "fumadocs-core/source";
 import { lucideIconsPlugin } from "fumadocs-core/source/lucide-icons";
+import { toFumadocsSource } from "fumadocs-mdx/runtime/server";
 import { openapiPlugin, openapiSource } from "fumadocs-openapi/server";
 import { i18n } from "./i18n";
 import { openapi } from "./openapi";
 
 const docsRoute = "/docs";
+const blogRoute = "/blog";
 
 export const source = loader(
   multiple({
@@ -25,6 +27,14 @@ export const source = loader(
     plugins: [lucideIconsPlugin(), openapiPlugin()],
   },
 );
+
+// `create.doc` collections are plain page arrays — wrap with the standalone
+// toFumadocsSource (no meta files, blog has no sidebar tree). Blog is
+// single-language English, so no i18n: URLs are /blog/<slug>.
+export const blogSource = loader(toFumadocsSource(blog, []), {
+  baseUrl: blogRoute,
+  plugins: [lucideIconsPlugin()],
+});
 
 export function markdownPathToSlugs(segs: string[]) {
   if (segs.length === 0) return [];

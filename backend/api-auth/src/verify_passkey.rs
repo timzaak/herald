@@ -38,7 +38,7 @@ use herald_core::infrastructure::user_passkey::{
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
 use crate::mailflow;
-use crate::passkey_rp::{is_passkey_enabled, resolve_passkey_rp};
+use crate::passkey_rp::{read_realm_passkey_config, resolve_passkey_rp};
 
 const PASSKEY_VERIFY_FAILED: &str = "Passkey 验证失败";
 
@@ -130,17 +130,20 @@ pub struct Passkey2faVerifyRequest {
     pub agreements: Option<Vec<AuthConsentAgreement>>,
 }
 
-/// Public Passkey enablement flag for a Realm.
+/// Public Passkey enablement flags for a Realm.
 ///
-/// Mirrors `email_otp::status`: a single boolean consumed by the login page to
-/// gate the passkey entry *before* any passkey endpoint is called, instead of
-/// relying on a 404 from `POST /login/passkey/options` to hide it after mount.
-/// Returns `{ enabled: false }` when the config is absent or malformed (opt-in
-/// per Realm).
+/// Mirrors `email_otp::status`: consumed by the login page to gate the passkey
+/// entry *before* any passkey endpoint is called, instead of relying on a 404
+/// from `POST /login/passkey/options` to hide it after mount. `forceEnabled`
+/// carries the realm's force mode for the post-login guidance UI (register a
+/// passkey) — guidance only, the backend never blocks login on it.
+/// Returns `{ enabled: false, forceEnabled: false }` when the config is absent
+/// or malformed (opt-in per Realm).
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PasskeyStatusResponse {
     pub enabled: bool,
+    pub force_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -833,6 +836,9 @@ pub async fn status(
     Path(realm_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<PasskeyStatusResponse>, ApiError> {
-    let enabled = is_passkey_enabled(&state, &realm_id).await?;
-    Ok(Json(PasskeyStatusResponse { enabled }))
+    let (enabled, force_enabled) = read_realm_passkey_config(&state, &realm_id).await?;
+    Ok(Json(PasskeyStatusResponse {
+        enabled,
+        force_enabled,
+    }))
 }

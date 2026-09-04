@@ -17,6 +17,7 @@ export const totpConfigSchema = z.object({
 //    在此收窄为枚举并提供默认值，保证表单缺省时的可空安全。
 export const passkeyConfigSchema = z.object({
   enabled: z.boolean(), // Realm 是否启用 Passkey
+  forceEnabled: z.boolean().default(false), // 强制模式：引导未注册用户注册 Passkey（仅前端引导，不阻断登录）
   userVerification: z.enum(['preferred', 'required']).default('preferred'), // P1：用户验证要求
   crossPlatformAuthenticator: z.boolean().default(true), // P1：是否要求跨平台 authenticator
 })
@@ -74,11 +75,21 @@ export const whiteLabelBackgroundSchema = z.object({
 // ✅ camelCase：对齐后端 `WhiteLabelConfig` / `UpdateWhiteLabelConfigRequest`
 //    （均为 camelCase 线传输）。表单允许 `null` 或空字符串，保存时空字符串
 //    normalize 为 `null`（见 realm-config-utils 的 toUpdateWhiteLabelConfigRequest）。
+// 白标主色：空串 = 未设置（保存时 normalize 为 null），否则仅接受 CSS
+// 十六进制色（#RGB / #RGBA / #RRGGBB / #RRGGBBAA），与后端
+// validate_hex_color 一致（该值经 public-config 原文下发，须防注入）。
+const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+
 export const whiteLabelConfigSchema = z.object({
   brandName: z.string().nullable(),
   logoUrl: z.string().nullable(),
   faviconUrl: z.string().nullable(),
-  accentColor: z.string().nullable(),
+  accentColor: z
+    .string()
+    .refine((value) => value === '' || HEX_COLOR_PATTERN.test(value), {
+      error: () => m['settings.white_label.accent_color_invalid'](),
+    })
+    .nullable(),
   background: whiteLabelBackgroundSchema.nullable(),
   footerText: z.string().nullable(),
   loginTitle: z.string().nullable(),
@@ -129,6 +140,12 @@ export const ldapConfigSchema = z
       .min(1, { error: () => m['settings.ldap.mail_attribute_required']() })
       .max(64, { error: () => m['settings.ldap.mail_attribute_max_length']() })
       .regex(/^[A-Za-z0-9-]+$/, { error: () => m['settings.ldap.mail_attribute_invalid']() }),
+    // 可选显示名属性映射（如 displayName）；空串 = 不映射，保存时 normalize 为 null
+    displayNameAttribute: z
+      .string()
+      .max(64, { error: () => m['settings.ldap.mail_attribute_max_length']() })
+      .regex(/^[A-Za-z0-9-]*$/, { error: () => m['settings.ldap.mail_attribute_invalid']() })
+      .default(''),
   })
   .superRefine((data, ctx) => {
     const isLdaps = isLdapsUrl(data.url)

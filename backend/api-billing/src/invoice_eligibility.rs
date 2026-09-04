@@ -13,7 +13,7 @@
 //! Both the realm-level judgment (`evaluate_realm_invoice_eligibility`) and the
 //! per-resource judgment (`determine_invoice_apply_route`) live here so the
 //! read-path rules do not diverge from the write-path validators
-//! (`validate_not_creem_mor`, `validate_invoice_policy_allows_creation`) in
+//! (`validate_not_mor_provider`, `validate_invoice_policy_allows_creation`) in
 //! `herald_core::domain::billing::invoice_service`. The pure
 //! `determine_invoice_apply_route` is the only place encoding the
 //! "External-if-synced" decision; the per-resource endpoint resolves the facts
@@ -108,7 +108,7 @@ pub struct ApplyRouteVerdict {
 /// Decide the per-resource invoice apply route from resolved facts.
 ///
 /// Inputs are exactly the facts the endpoint resolves before calling this:
-/// - `provider`              — resolved `payment_provider` (Stripe/Shopify/WeChat/Creem/None).
+/// - `provider`              — resolved `payment_provider` (Stripe/Apple/Google/WeChat/Creem/None).
 /// - `policy`                — `provider_first` / `manual_only` / `none`.
 /// - `has_seller_config`     — `find_seller_config(realm)` returned `Some`.
 /// - `has_external_invoice`  — an invoice with `source = external_sync` exists
@@ -118,8 +118,9 @@ pub struct ApplyRouteVerdict {
 /// Rules are mutually exclusive and evaluated in this order:
 ///
 /// 1. `policy == "none"`     => `disabled` (Herald invoices off)
-/// 2. `provider == Some("creem")` => `disabled` (Creem acts as MoR; mirrors
-///    `validate_not_creem_mor` in the write path)
+/// 2. `provider` is an MoR provider (`creem`/`apple`/`google`) => `disabled`
+///    (platform is Merchant of Record; mirrors `validate_not_mor_provider`
+///    in the write path)
 /// 3. `!has_seller_config`   => `disabled` (mirrors the `apply_invoice` 400 path)
 /// 4. `policy == "provider_first" && provider == Some("stripe")` =>
 ///    `external_provider` (Stripe invoices are pushed via webhook when the
@@ -145,15 +146,18 @@ pub(crate) fn determine_invoice_apply_route(
         };
     }
 
-    // Rule 2: Creem is Merchant of Record — Herald must not create a competing
-    // invoice. Mirrors `validate_not_creem_mor` in the write path.
-    if provider == Some("creem") {
+    // Rule 2: Merchant-of-Record providers (Creem, Apple App Store, Google
+    // Play) — Herald must not create a competing invoice, regardless of the
+    // realm's invoice_policy. Mirrors `validate_not_mor_provider` in the
+    // write path (support-iap PRD §4.1: invoice_policy 不影响该约束).
+    if matches!(provider, Some("creem") | Some("apple") | Some("google")) {
         return ApplyRouteVerdict {
             route: "disabled".to_string(),
             can_apply: false,
-            reason: Some(
-                "Creem transactions are managed by Creem as Merchant of Record".to_string(),
-            ),
+            reason: Some(format!(
+                "{} transactions are managed by the platform as Merchant of Record",
+                provider.unwrap_or_default()
+            )),
         };
     }
 

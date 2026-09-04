@@ -21,6 +21,7 @@ use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_h
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::rate_limit::rate_limit_hit_forced;
 use herald_core::domain::authorization::PermissionService;
+use herald_core::domain::realm::ADMIN_REALM_ID;
 use herald_core::domain::realm_config::{
     BatchUpsertRealmConfigRequest, ConfigType, RealmConfig, RealmConfigService,
     UpsertRealmConfigRequest,
@@ -29,6 +30,22 @@ use herald_core::third::email::EmailService;
 
 fn parse_config_type(value: String) -> Result<ConfigType, ApiError> {
     ConfigType::try_from_str(&value).map_err(ApiError::bad_request)
+}
+
+/// The platform self-service signup switch is an admin-realm-only config row
+/// (realm-create PRD §4.1); the signup flow reads it exclusively from the
+/// admin realm. Other realms must not write rows of this type — they would
+/// be inert dirty data, so reject them at the API boundary.
+fn reject_non_admin_platform_signup(
+    realm_id: &str,
+    config_type: &ConfigType,
+) -> Result<(), ApiError> {
+    if matches!(config_type, ConfigType::PlatformSignup) && realm_id != ADMIN_REALM_ID {
+        return Err(ApiError::bad_request(
+            "platform_signup configuration is only valid on the admin realm",
+        ));
+    }
+    Ok(())
 }
 
 /// Detect "leave-empty-to-preserve" requests for any payment provider's
@@ -557,6 +574,7 @@ pub async fn upsert_realm_config(
         .await?;
 
     let config_type = parse_config_type(payload.config_type)?;
+    reject_non_admin_platform_signup(&realm_id, &config_type)?;
     reject_production_provider_base_url(&state.app_env, &config_type, &payload.config_key)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
@@ -706,6 +724,7 @@ pub async fn batch_upsert_realm_configs(
     let mut requests: Vec<UpsertRealmConfigRequest> = Vec::new();
     for r in payload.configs {
         let config_type = parse_config_type(r.config_type)?;
+        reject_non_admin_platform_signup(&realm_id, &config_type)?;
         reject_production_provider_base_url(&state.app_env, &config_type, &r.config_key)?;
         if let Some(provider_type) =
             is_empty_secret_to_preserve(&config_type, &r.config_key, &r.config_value)
@@ -912,6 +931,7 @@ pub async fn delete_realm_config(
         .await?;
 
     if let Ok(parsed) = parse_config_type(config_type.clone()) {
+        reject_non_admin_platform_signup(&realm_id, &parsed)?;
         ensure_provider_config_deletable(&state, &realm_id, &parsed).await?;
     }
 

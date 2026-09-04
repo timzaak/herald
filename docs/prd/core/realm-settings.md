@@ -55,7 +55,6 @@
 - 配置模板功能（无预定义配置模板）
 - 会话配置、密码策略配置（计划中，当前代码中无对应 config_key）
 - `default_user_status` 字段（计划中，当前代码中无此字段）
-- config_type 枚举强校验（已知限制，见第 8 节）
 
 ### 2.3 依赖项
 
@@ -114,7 +113,7 @@
 
 ### 5.1 核心需求
 
-- **Registration 配置**：管理用户注册策略，包括是否开放注册（allowed）、是否需要邮箱验证（require_email_verification）、允许的邮箱域名（allowed_domains）
+- **Registration 配置**：管理用户注册策略，包括是否开放注册（enabled）、是否需要邮箱验证（require_email_verification）、允许的邮箱域名（allowed_domains）
 - **Email 配置**：管理邮件服务（Resend 或 SMTP），包括发件人地址、Provider 特定参数
 - **OAuth 配置**：通过独立系统管理 OAuth Provider（不在本页面详细定义）
 - **TOTP 配置**：管理 TOTP 二次认证开关设置
@@ -140,7 +139,7 @@
 
 **适用性**: 适用
 
-- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、creem、stripe 配置类型，以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）
+- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、passkey、white_label、custom_domain、ldap、email_otp、platform_signup、stripe、creem、apple、google、wechat、invoice_policy、turnstile 配置类型（以 ConfigType 枚举为准），以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）
 - 访问控制原则：所有接口要求 Realm Admin 权限，操作需通过 Realm 归属校验
 - 数据边界原则：配置数据按 Realm 隔离，不同 Realm 之间不可交叉访问
 - 敏感信息处理：密码、密钥等敏感字段在读取时脱敏返回（is_secret=true 时 config_value 返回 null），仅在写入时接受明文
@@ -178,7 +177,7 @@
 ### 8.2 已知限制
 
 - **Registration 键名统一**：创建 Realm、注册状态查询和 public config 均使用 `config_key = "enabled"`。
-- **config_type 无枚举强校验**：`ConfigType::from(String)` 对无法识别的类型默认 fallback 为 `Turnstile`，无法拒绝无效类型。API 层 `config_type` 字段为纯 String，后端无法在解析阶段返回校验错误
+- **config_type 枚举强校验**：HTTP 写路径（单个 upsert、批量 batch_upsert、删除 delete）对未知 config_type 一律返回 400
 - **邮件完整性不检查 enabled 标志**：`is_email_configured` 仅检查字段非空，不检查各条目的 `enabled` 字段。即使用户禁用了某个邮件配置项，只要字段非空仍视为已配置
 
 ### 8.3 计划中功能

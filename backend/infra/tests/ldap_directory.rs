@@ -41,6 +41,7 @@ fn config(url: &str, starttls: bool, ca_cert_pem: Option<&str>) -> LdapLoginConf
             bind_dn: Some(ADMIN_DN.to_string()),
             user_filter: "(uid={login})".to_string(),
             mail_attribute: "mail".to_string(),
+            display_name_attribute: None,
             ca_cert_pem: ca_cert_pem.map(str::to_string),
         },
         bind_password: Some(ADMIN_PW.to_string()),

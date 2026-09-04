@@ -10,6 +10,10 @@
 
 use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
+use herald_core::domain::audit::{
+    ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
+    NewAuditEvent,
+};
 use herald_core::domain::authentication::{
     CredentialClass, CredentialScope, Identity, TokenCredentialContext,
 };
@@ -136,12 +140,62 @@ impl AdminIdentity {
             })?;
 
         if !allowed {
+            record_permission_denied_audit(
+                state,
+                &self.realm_id,
+                &self.user_id.to_string(),
+                self.identity.as_user().map(|u| u.email.clone()),
+                resource,
+                action,
+            )
+            .await;
             return Err(ApiError::forbidden(format!(
                 "Insufficient permissions: requires {resource}.{action}"
             )));
         }
 
         Ok(())
+    }
+}
+
+/// Record the PermissionDenied audit event for a rejected permission check
+/// (Audit PRD §4.2: denied 403 operations must also produce a failed audit
+/// event). Best-effort — the 403 is already decided and must not fail
+/// because of the audit write.
+pub async fn record_permission_denied_audit(
+    state: &AppState,
+    realm_id: &str,
+    user_id: &str,
+    actor_name: Option<String>,
+    resource: &str,
+    action: &str,
+) {
+    let permission = format!("{resource}.{action}");
+    if let Err(audit_err) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Rbac,
+            action: AuditAction::PermissionDenied,
+            actor_id: user_id.to_string(),
+            actor_type: Some(ActorType::User),
+            actor_name,
+            target_type: AuditTargetType::Permission,
+            target_id: permission.clone(),
+            target_name: Some(permission),
+            result: AuditResult::Failure,
+            details: Some(serde_json::json!({
+                "resource": resource,
+                "action": action,
+                "reason": "permission_denied",
+            })),
+            ip_address: None,
+            user_agent: None,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %audit_err, "Failed to record permission-denied audit event");
     }
 }
 

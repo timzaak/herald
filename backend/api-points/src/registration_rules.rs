@@ -21,15 +21,15 @@ use crate::types::{
 };
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{
-    ApiError, DistributionRuleErrorResponse, ErrorResponse,
+    ApiError, DistributionRuleErrorResponse, ErrorResponse, distribution_rule_validation_error,
 };
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::billing::BillingRepository;
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::points::{
-    DistributionPolicy, DistributionRuleError, DistributionRuleOwner, DistributionTrigger,
-    RuleUpsert, validate_rule_for_owner,
+    DistributionPolicy, DistributionRuleOwner, DistributionTrigger, RuleUpsert,
+    validate_rule_for_owner,
 };
 
 const QUOTA_WINDOWS_MAX: usize = 8;
@@ -59,42 +59,6 @@ fn invalid_rule_field(
     field: &'static str,
 ) -> ApiError {
     distribution_rule_error(StatusCode::BAD_REQUEST, code, message, rule_id, Some(field))
-}
-
-fn map_distribution_rule_validation_error(
-    error: DistributionRuleError,
-    rule_id: Option<Uuid>,
-) -> ApiError {
-    let (code, field) = match &error {
-        DistributionRuleError::TriggerNotAllowedForOwner(_) => {
-            ("invalid_distribution_trigger", Some("triggerSources"))
-        }
-        DistributionRuleError::PolicyNotAllowedForTrigger => {
-            ("invalid_distribution_policy", Some("grantMode"))
-        }
-        DistributionRuleError::InvalidFixedAmount => {
-            ("invalid_distribution_policy", Some("pointsAmount"))
-        }
-        DistributionRuleError::InvalidValidity => {
-            ("invalid_distribution_policy", Some("validityDays"))
-        }
-        DistributionRuleError::InvalidQuotaWindows => {
-            ("invalid_distribution_policy", Some("quotaWindows"))
-        }
-        DistributionRuleError::EmptyTriggerSources => {
-            ("invalid_distribution_rule", Some("triggerSources"))
-        }
-        DistributionRuleError::BucketOutsideRealm | DistributionRuleError::BucketDisabled => {
-            ("distribution_rule_conflict", Some("bucketId"))
-        }
-        DistributionRuleError::RuleOutsideOwner => ("distribution_rule_conflict", Some("ruleId")),
-    };
-    let status = if code == "distribution_rule_conflict" {
-        StatusCode::CONFLICT
-    } else {
-        StatusCode::BAD_REQUEST
-    };
-    distribution_rule_error(status, code, error.to_string(), rule_id, field)
 }
 
 /// Materialize a write-side rule into a domain [`RuleUpsert`], validating the
@@ -238,7 +202,7 @@ fn rule_write_to_upsert(write: RegistrationRuleWrite) -> Result<RuleUpsert, ApiE
     // persistence. `validate_rule_for_owner` is the single owner/trigger/policy
     // authority; bucket realm/disabled checks are enforced at the repository.
     validate_rule_for_owner(&rule, None)
-        .map_err(|error| map_distribution_rule_validation_error(error, rule_id))?;
+        .map_err(|error| distribution_rule_validation_error(error, rule_id))?;
     Ok(RuleUpsert {
         id: write.id,
         bucket_id: write.bucket_id,

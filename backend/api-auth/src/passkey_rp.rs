@@ -19,6 +19,17 @@ use herald_core::domain::user_passkey::PasskeyRelyingParty;
 /// deliberately swallows lookup errors (returns `false`) so a passkey flag
 /// lookup can never hard-fail the aggregated feature-availability response.
 pub async fn is_passkey_enabled(state: &AppState, realm_id: &str) -> Result<bool, ApiError> {
+    Ok(read_realm_passkey_config(state, realm_id).await?.0)
+}
+
+/// Read the full passkey enablement pair `(enabled, force_enabled)` from the
+/// realm config row. `force_enabled` drives the frontend guidance described
+/// by the passkey PRD (users without a passkey are guided to register one);
+/// it never blocks login on the backend.
+pub async fn read_realm_passkey_config(
+    state: &AppState,
+    realm_id: &str,
+) -> Result<(bool, bool), ApiError> {
     let row = sqlx::query_as::<_, (String,)>(
         "SELECT config_value FROM realm_config
          WHERE realm_id = $1 AND config_type = $2 AND config_key = 'settings' AND enabled = true",
@@ -32,12 +43,19 @@ pub async fn is_passkey_enabled(state: &AppState, realm_id: &str) -> Result<bool
         ApiError::internal("Internal server error")
     })?;
 
-    let enabled = row
-        .and_then(|(value,)| serde_json::from_str::<serde_json::Value>(&value).ok())
-        .and_then(|value| value.get("enabled").and_then(|enabled| enabled.as_bool()))
+    let config = row.and_then(|(value,)| serde_json::from_str::<serde_json::Value>(&value).ok());
+    let enabled = config
+        .as_ref()
+        .and_then(|value| value.get("enabled"))
+        .and_then(|enabled| enabled.as_bool())
+        .unwrap_or(false);
+    let force_enabled = config
+        .as_ref()
+        .and_then(|value| value.get("force_enabled"))
+        .and_then(|force| force.as_bool())
         .unwrap_or(false);
 
-    Ok(enabled)
+    Ok((enabled, force_enabled))
 }
 
 /// Gate a passkey operation on the realm having Passkey enabled.

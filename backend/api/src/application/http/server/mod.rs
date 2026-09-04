@@ -626,9 +626,11 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             "/api/oauth/{realmId}/{provider}/login",
             get(oauth::oauth_login),
         )
+        // Apple's web jump uses response_mode=form_post, so the callback must
+        // accept both the redirect query (GET) and the form submission (POST).
         .route(
             "/api/oauth/{realmId}/{provider}/callback",
-            get(oauth::oauth_callback),
+            get(oauth::oauth_callback).post(oauth::oauth_callback_form),
         )
         // WeChat specific routes
         .route(

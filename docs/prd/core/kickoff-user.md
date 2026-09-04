@@ -92,7 +92,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - **撤销即时性**：被撤销的会话在其下一次请求时即被判定为未登录，不依赖令牌自然过期
 - **权限模型**：会话管理沿用 `resource.action` 模型。本特性的访问控制在 `users.*` 资源命名空间内（参考 [权限管理](../auth/permissions.md)）：会话查看与撤销直接复用既有 **`users.manage`** 权限（该权限已隐含 `users.view`）；仅拥有 `users.view` 的账号不可查看会话列表或执行撤销。不新增权限点。
 - **会话可辨识信息**：会话列表至少展示所属 Client App、设备/浏览器（User-Agent）、登录来源 IP、登录时间，便于管理员识别并定位要撤销的具体会话
-- **操作可审计**：主动撤销单会话、主动撤销全部会话、以及 Forbidden 联动撤销，均需记入审计日志，**审计 action 统一复用既有 `user.update`**（`AuditAction::UserUpdate`），不新增审计 action；target_type 使用既有 `Session`（`AuditTargetType::Session`）。审计记录需包含操作者、目标用户、目标会话（或"全部会话"）与触发来源（管理员操作 / 状态变更联动）。
+- **操作可审计**：主动撤销单会话、主动撤销全部会话、以及 Forbidden 联动撤销，均需记入审计日志，**审计 action 统一复用既有 `user.update`**（`AuditAction::UserUpdate`），不新增审计 action。其中管理员主动撤销（单会话/全部）记录在既有 `Session` 目标（`AuditTargetType::Session`）上；Forbidden 联动撤销不产生独立的会话审计记录，而是借用户编辑的 `user.update` 记录在 `User` 目标（`AuditTargetType::User`）上承载，并在 details 中以 `trigger=forbidden_linkage`、`scope=all` 区分来源与范围（检索联动事件时按 `details.trigger=forbidden_linkage` 过滤）。审计记录需包含操作者、目标用户、目标会话（或"全部会话"）与触发来源（管理员操作 / 状态变更联动）。
 
 ### 4.2 关键状态与异常
 
@@ -100,7 +100,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - **并发撤销**：管理员撤销某会话时，若该会话已被用户自助退出或已自然过期，撤销操作视为对该会话的空操作，不报错
 - **目标用户不存在或跨 Realm**：返回拒绝/未找到，不泄露其他 Realm 数据
 - **权限不足**：会话管理入口与撤销操作对无 `users.manage`（或同层级）权限的账号不可见/不可用
-- **审计目标类型**：撤销事件使用 `Session` 目标类型记录
+- **审计目标类型**：管理员主动撤销（单会话/全部）使用 `Session` 目标类型记录；Forbidden 联动撤销作为 `user.update` 记录在 `User` 目标上，凭 `details.trigger=forbidden_linkage` 检索
 
 ---
 
@@ -135,7 +135,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - 所有会话相关接口必须遵守 Realm 数据隔离，请求方只能访问其所属 Realm 内的用户与会话
 - Forbidden 联动撤销作为用户状态变更（用户编辑接口）的副作用实现，不作为独立对外暴露的会话接口；状态变为 Forbidden 时在同一保存事务的语义边界内完成会话撤销
 - 会话列表与撤销接口的请求/响应契约、错误模型下沉到技术设计或接口文档维护
-- 审计事件复用既有审计写入通道，**审计 action 统一复用既有 `user.update`**，target_type 使用既有 `Session`；并在审计记录中区分触发来源（管理员操作 / 状态变更联动）
+- 审计事件复用既有审计写入通道，**审计 action 统一复用既有 `user.update`**；管理员主动撤销（单会话/全部）记录在 `Session` 目标上，Forbidden 联动撤销借用户编辑的 `user.update` 记录在 `User` 目标上（details 中 `trigger=forbidden_linkage`、`scope=all`），凭 `details.trigger` 区分触发来源（管理员操作 / 状态变更联动）
 
 ---
 
@@ -162,7 +162,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - **域归属**：core（用户生命周期与运营能力的扩展，与 [用户管理](users.md) 同域）。
 - **权限模型**：复用既有 `resource.action` 模型，会话查看与撤销**直接复用既有 `users.manage` 权限**（已隐含 `users.view`），不新增权限点、不引入新的 action 类型（遵循权限管理 PRD "仅 manage/create/view" 的约束）。
 - **会话元数据独立索引**：会话列表至少展示所属 Client App、设备/浏览器（User-Agent）、登录来源 IP、登录时间。登录侧捕获的 client_ip 与 User-Agent 以**独立的会话元数据索引**形式存放（**不写入浏览器令牌族记录本体**）供列表读取——这些信息很少被读取，不应污染令牌校验热路径记录。具体索引结构归属技术设计。
-- **审计 action 复用 `user.update`**：主动 kickoff（撤销单会话/全部会话）与 Forbidden 联动撤销统一复用既有 `user.update`（`AuditAction::UserUpdate`），不新增审计 action；target_type 复用既有 `Session`（`AuditTargetType::Session`），并通过审计记录字段区分触发来源（管理员操作 / 状态变更联动）。若后续合规审计要求 action 与 target_type 语义自洽（主动 kickoff 的操作对象是 Session，与字面 `user.update` 存在语义张力），可在本 PRD 调整为新增专用 action（如 `user.session.revoke`）。
+- **审计 action 复用 `user.update`**：主动 kickoff（撤销单会话/全部会话）与 Forbidden 联动撤销统一复用既有 `user.update`（`AuditAction::UserUpdate`），不新增审计 action；主动 kickoff 的 target_type 复用既有 `Session`（`AuditTargetType::Session`），Forbidden 联动撤销则借用户编辑的 `user.update` 记录在 `User` 目标（`AuditTargetType::User`）上，以 `details.trigger`（`admin_action` / `forbidden_linkage`）与 `scope`（`single` / `all`）区分触发来源与范围。若后续合规审计要求 action 与 target_type 语义自洽（主动 kickoff 的操作对象是 Session，与字面 `user.update` 存在语义张力），可在本 PRD 调整为新增专用 action（如 `user.session.revoke`）。
 
 ---
 

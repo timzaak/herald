@@ -92,6 +92,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 - Realm 创建时自动初始化完整的 RBAC 基础设施
 - Realm 创建时自动创建管理控制台客户端应用（admin-web-console）
 - Realm 创建时自动创建 API Key 客户端应用（admin-api-client），用于 API Key 认证
+- Realm 创建时自动创建个人中心客户端应用（user-account-center），供终端用户访问个人中心，浏览器 refresh 绝对上限 30 天
 - Realm 创建时自动初始化注册配置（enabled: false）
 - Realm 创建时自动创建管理员用户并分配角色，管理员用户状态自动设为 Normal（已验证）
 - 当前不提供 Realm 删除功能
@@ -143,6 +144,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 - 创建 realm 时必须指定管理员用户的 email 和 password
 - 自动级联创建默认 web-console client app（client_id 固定为 `admin-web-console`）
 - 自动创建 API Key 客户端应用（client_id 固定为 `admin-api-client`），用于 API Key 认证
+- 自动创建个人中心客户端应用（client_id 固定为 `user-account-center`）
 - 自动初始化注册配置（`registration.enabled: false`）
 - 自动创建管理员用户并分配 `realm-admin` 角色
 - 管理员用户状态自动设为 Normal（已验证），可立即登录
@@ -153,7 +155,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 ### 4.2 关键状态与异常
 
 - **权限隔离**：Realm 级别的数据隔离，用户只能访问被授权的 realm 资源；后端验证用户是否有权访问目标 Realm 的资源，未授权时拒绝访问
-- **列表过滤限制**：当前 Realm 列表接口返回所有 realms，未按用户所属进行过滤（已知限制，待优化）
+- **列表按身份过滤**：Realm 列表接口按请求者身份过滤——非 admin realm 身份仅能看到自己有访问权的 realm；仅 Admin Realm 身份列出全部 realm（平台管理设计）
 - **删除限制**：当前项目不支持 realm 删除，避免数据孤立和一致性问题
 - **导航权限可见性**：非 Admin Realm 管理员（无 `realm.manage` 权限）看不到 "Realms" 菜单项；直接访问 URL 时返回权限不足提示
 - **Admin Realm 管理员边界**：创建 Realm 后不能直接切换到新 Realm 的内部资源，需使用该 Realm 的管理员账号登录
@@ -173,7 +175,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 
 ### 5.2 验收目标
 
-- Admin Realm 管理员能够成功创建新 Realm，创建后新 Realm 自动包含默认角色、权限、策略、客户端应用（admin-web-console 和 admin-api-client）和管理员用户（状态为已验证）
+- Admin Realm 管理员能够成功创建新 Realm，创建后新 Realm 自动包含默认角色、权限、策略、客户端应用（admin-web-console、admin-api-client 和 user-account-center）和管理员用户（状态为已验证）
 - 创建的 Realm 管理员能够登录并访问自己 Realm 的管理功能
 - Realm Admin 只能访问自己 Realm 的资源，访问其他 Realm 资源时被拒绝
 - Realm 列表支持分页、排序和搜索，正确显示所有 Realm 信息
@@ -216,13 +218,13 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 - Realm 删除功能当前不提供：数据库不支持级联删除，删除会导致数据孤立
 - Realm ID 创建后不可修改
 - Realm 创建时自动初始化完整的 RBAC 基础设施（角色、权限、策略）
-- Realm 创建时自动创建 admin-web-console client app 和 admin-api-client（用于 API Key 认证）
+- Realm 创建时自动创建 admin-web-console client app、admin-api-client（用于 API Key 认证）和 user-account-center client app
 - Realm 创建时自动初始化注册配置（registration.enabled: false）
 - 创建的管理员用户状态自动设为 Normal（已验证），可立即登录
 - 创建 Realm 时必须指定管理员 email 和密码，创建失败时返回错误（已创建的部分数据可能残留，Realm 不支持删除）
 - Admin Realm 管理员创建 Realm 后不能直接切换到新 Realm 的内部资源
 - Admin realm 管理员拥有 realm.manage 权限可创建新 realm，但不能编辑其他 realm 的元数据（仅可编辑自 realm）
-- Realm 列表当前返回所有 realms，未按用户所属过滤（已知限制，待优化）
+- Realm 列表接口按身份过滤：非 admin realm 身份仅能看到自己有访问权的 realm；仅 Admin Realm 身份列出全部 realm（平台管理设计）
 
 ---
 

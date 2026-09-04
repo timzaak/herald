@@ -148,7 +148,7 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 - 返回访问令牌给小程序用户
 
 **Realm Admin 配置管理**
-- WeChat OAuth Provider 配置项：Client ID（AppID）、Client Secret（AppSecret）、Redirect URI、Scope（固定 `snsapi_login`）、Enabled
+- WeChat OAuth Provider 配置项：Client ID（AppID）、Client Secret（AppSecret）、Scope（固定 `snsapi_login`）、Enabled；Redirect URI 无需在 Herald 侧配置存储，回调地址运行时由部署域名/自定义域名派生（租户需在微信开放平台侧登记该回调地址）
 - WeChat Mini Program Provider 配置项：Client ID（AppID）、Client Secret（AppSecret）、Enabled
 - 操作：创建、查看、编辑、删除、启用/禁用
 - WeChat OAuth Provider 的 Scope 为固定值，不可修改；Mini Program Provider 不需要配置 scope 和 redirect_uri

@@ -192,6 +192,26 @@ describe('whiteLabelConfigSchema', () => {
 
       expect(result.success).toBe(false)
     })
+
+    // WHY: accentColor rides the public-config channel verbatim, so only hex
+    // colors (and the empty "unset" string) are valid — a CSS function or
+    // free text must be rejected client-side, mirroring the backend's
+    // validate_hex_color.
+    it('rejects non-hex accentColor strings but accepts hex and empty', () => {
+      const invalid = ['url(https://evil.example/x)', 'red', 'rgb(37, 99, 235)', '2563eb']
+      for (const value of invalid) {
+        expect(
+          whiteLabelConfigSchema.safeParse(makeWhiteLabelConfig({ accentColor: value })).success
+        ).toBe(false)
+      }
+
+      const valid = ['#2563eb', '#fff', '#ffffff80', '']
+      for (const value of valid) {
+        expect(
+          whiteLabelConfigSchema.safeParse(makeWhiteLabelConfig({ accentColor: value })).success
+        ).toBe(true)
+      }
+    })
   })
 
   describe('every field is nullable but required (never optional)', () => {

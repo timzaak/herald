@@ -747,7 +747,12 @@ where
         let client = crate::wechatpay::get_wechat_client_for_realm(&self.pool, realm_id).await?;
         let out_trade_no = generate_out_trade_no(realm_id);
 
+        // Unknown scene values are rejected, not silently coerced to Native —
+        // a typo like "jsapi " would otherwise produce a QR-code order that
+        // can never be paid inside WeChat (same fail-loud stance as the
+        // wallet `flow` allow-list).
         let scene = match payment_scene.unwrap_or("native") {
+            "native" => CreateOrderScene::Native,
             "jsapi" => {
                 let openid = openid.ok_or_else(|| {
                     CoreError::BadRequest("openid is required for WeChat jsapi payment".to_string())
@@ -756,7 +761,11 @@ where
                     openid: openid.to_string(),
                 }
             }
-            _ => CreateOrderScene::Native,
+            other => {
+                return Err(CoreError::BadRequest(format!(
+                    "unsupported WeChat payment_scene '{other}': expected 'native' or 'jsapi'"
+                )));
+            }
         };
 
         let amount_fen = if target.amount > 0 {

@@ -18,7 +18,7 @@ use crate::types::{
     UpdateEntitlementMappingRequest,
 };
 use herald_api_base::application::http::server::api_entities::{
-    ApiError, DistributionRuleErrorResponse,
+    ApiError, DistributionRuleErrorResponse, distribution_rule_validation_error,
 };
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
@@ -31,8 +31,8 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::points::derive_window_key;
 use herald_core::domain::points::entities::QuotaWindow;
 use herald_core::domain::points::{
-    DistributionPolicy, DistributionRuleError, DistributionRuleOwner, DistributionTrigger,
-    PointsDistributionRule, RuleUpsert, validate_rule_for_owner,
+    DistributionPolicy, DistributionRuleOwner, DistributionTrigger, PointsDistributionRule,
+    RuleUpsert, validate_rule_for_owner,
 };
 
 /// 409 `mapping_in_use` body for a batch save blocked by the active-subscription
@@ -260,42 +260,6 @@ fn rule_write_to_upsert(write: PointDistributionRuleWrite) -> Result<RuleUpsert,
         enabled: write.enabled,
         display_order: write.display_order,
     })
-}
-
-fn map_distribution_rule_validation_error(
-    error: DistributionRuleError,
-    rule_id: Option<Uuid>,
-) -> ApiError {
-    let code = match &error {
-        DistributionRuleError::TriggerNotAllowedForOwner(_) => "invalid_distribution_trigger",
-        DistributionRuleError::PolicyNotAllowedForTrigger
-        | DistributionRuleError::InvalidFixedAmount
-        | DistributionRuleError::InvalidValidity
-        | DistributionRuleError::InvalidQuotaWindows => "invalid_distribution_policy",
-        DistributionRuleError::EmptyTriggerSources => "invalid_distribution_rule",
-        DistributionRuleError::BucketOutsideRealm
-        | DistributionRuleError::BucketDisabled
-        | DistributionRuleError::RuleOutsideOwner => "distribution_rule_conflict",
-    };
-    let status = match &error {
-        DistributionRuleError::BucketOutsideRealm
-        | DistributionRuleError::BucketDisabled
-        | DistributionRuleError::RuleOutsideOwner => StatusCode::CONFLICT,
-        _ => StatusCode::BAD_REQUEST,
-    };
-    let field = match &error {
-        DistributionRuleError::EmptyTriggerSources
-        | DistributionRuleError::TriggerNotAllowedForOwner(_) => Some("triggerSources"),
-        DistributionRuleError::PolicyNotAllowedForTrigger => Some("grantMode"),
-        DistributionRuleError::InvalidFixedAmount => Some("pointsAmount"),
-        DistributionRuleError::InvalidValidity => Some("validityDays"),
-        DistributionRuleError::InvalidQuotaWindows => Some("quotaWindows"),
-        DistributionRuleError::BucketOutsideRealm | DistributionRuleError::BucketDisabled => {
-            Some("bucketId")
-        }
-        DistributionRuleError::RuleOutsideOwner => Some("ruleId"),
-    };
-    distribution_rule_error(status, code, error.to_string(), rule_id, field)
 }
 
 /// Convert domain EntitlementMapping + its rules to API response
@@ -553,7 +517,7 @@ pub async fn create_entitlement_mapping(
             DistributionRuleOwner::EntitlementMapping(Uuid::nil()),
         );
         validate_rule_for_owner(&resolved, Some(billing_type.clone()))
-            .map_err(|error| map_distribution_rule_validation_error(error, rule.id))?;
+            .map_err(|error| distribution_rule_validation_error(error, rule.id))?;
     }
     let only_rule_id = (point_rules.len() == 1)
         .then(|| point_rules[0].id)
@@ -737,7 +701,7 @@ pub async fn update_entitlement_mapping(
                 DistributionRuleOwner::EntitlementMapping(mapping_id),
             );
             validate_rule_for_owner(&resolved, existing.billing_type.clone())
-                .map_err(|error| map_distribution_rule_validation_error(error, rule.id))?;
+                .map_err(|error| distribution_rule_validation_error(error, rule.id))?;
         }
     }
 

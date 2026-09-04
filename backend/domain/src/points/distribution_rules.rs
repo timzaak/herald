@@ -155,6 +155,7 @@ pub enum DistributionRuleError {
     PolicyNotAllowedForTrigger,
     InvalidFixedAmount,
     InvalidValidity,
+    RegistrationMustBePermanent,
     InvalidQuotaWindows,
     BucketOutsideRealm,
     BucketDisabled,
@@ -178,6 +179,12 @@ impl std::fmt::Display for DistributionRuleError {
             }
             DistributionRuleError::InvalidValidity => {
                 write!(f, "validity_days must be >= 0")
+            }
+            DistributionRuleError::RegistrationMustBePermanent => {
+                write!(
+                    f,
+                    "registration credit must be permanent (validity_days must be 0)"
+                )
             }
             DistributionRuleError::InvalidQuotaWindows => {
                 write!(f, "quota policy requires valid quota windows")
@@ -286,6 +293,12 @@ pub fn validate_rule_for_owner(
             }
             if is_registration && grant_period_type.is_some() {
                 return Err(DistributionRuleError::PolicyNotAllowedForTrigger);
+            }
+            // registration_credit carries a permanent-validity semantic
+            // (points PRD §4.1 / multi-wallet PRD §4.4): an expiring
+            // registration grant must be rejected, not silently honored.
+            if is_registration && *validity_days != 0 {
+                return Err(DistributionRuleError::RegistrationMustBePermanent);
             }
         }
         DistributionPolicy::Quota { windows } => {
@@ -921,6 +934,46 @@ mod tests {
         assert_eq!(
             validate_rule_for_owner(&bad, None),
             Err(DistributionRuleError::PolicyNotAllowedForTrigger)
+        );
+    }
+
+    #[test]
+    fn realm_registration_credit_must_be_permanent() {
+        // WHY: registration_credit carries a permanent-validity semantic
+        // (points PRD §4.1 / multi-wallet PRD §4.4). An admin configuring
+        // validity_days > 0 must get a validation error, not a grant that
+        // silently expires the welcome credits.
+        let bad = rule(
+            realm_owner(),
+            &[DistributionTrigger::Registration],
+            DistributionPolicy::Fixed {
+                amount: 100,
+                validity_days: 30,
+                grant_period_type: None,
+            },
+        );
+        assert_eq!(
+            validate_rule_for_owner(&bad, None),
+            Err(DistributionRuleError::RegistrationMustBePermanent)
+        );
+
+        // Combined trigger set: a rule firing both registration and
+        // free_periodic must still keep the registration share permanent.
+        let combined = rule(
+            realm_owner(),
+            &[
+                DistributionTrigger::Registration,
+                DistributionTrigger::FreePeriodicGrant,
+            ],
+            DistributionPolicy::Fixed {
+                amount: 100,
+                validity_days: 7,
+                grant_period_type: None,
+            },
+        );
+        assert_eq!(
+            validate_rule_for_owner(&combined, None),
+            Err(DistributionRuleError::RegistrationMustBePermanent)
         );
     }
 

@@ -121,6 +121,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 - 履约完全走既有统一链路：支付尝试成功 → 按购买类型完成发放，provider 无关
 - WeChat 订阅型产品以非续期订阅履约：单次付款、有效期固定、到期后需用户重新购买，系统不自动扣费（积分包/买断为一次性发放）；与 Stripe 订阅的自动续费语义不同（非续期订阅语义见 `docs/prd/billing/pay_model.md`）
 - JSAPI 下单必须校验调用方传入的 openid；缺失 openid 时拒绝下单
+- 下单 `payment_scene` 仅接受 `native` / `jsapi`；未知 `payment_scene` 值将被拒绝（400），不静默回退
 - WeChat 不参与既有 provider 产品目录同步流程（无托管目录概念）
 
 **回调与幂等规则**：

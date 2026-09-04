@@ -95,7 +95,7 @@
 **配置管理规则（复用既有，无新增）**：
 - 每个 Realm 仍使用独立 Stripe / Creem 账户配置，复用既有配置管理界面
 - 钱包支付不引入新的配置项；不需要 Apple Pay 域名注册相关字段
-- 仅 Realm Admin（`billing.manage`）可修改配置；查看需 `billing.view`（与现有 provider 一致）
+- 仅 Realm Admin（`settings.manage`）可修改配置；查看需 `settings.view`（provider 凭证配置走通用 realm_config 通道，与现有 provider 一致；`billing.*` 用于权益映射与发票面）
 
 **流程声明规则（移动 App PaymentIntent 流）**：
 - 客户端可在发起购买时声明托管页流（默认，含不声明）或 PaymentIntent 流
@@ -195,7 +195,7 @@
 - **访问控制原则**：
   - 必须遵守 realm 隔离与既有购买发起 / 状态查询 / 配置查看 scope 鉴权
   - `client_secret` 仅返回给该支付尝试所有者且具备购买发起 scope 的请求方；非所有者请求不得获得他人支付尝试的 `client_secret`
-  - 配置写入需 `billing.manage`，查看需 `billing.view`
+  - 配置写入需 `settings.manage`，查看需 `settings.view`
   - 金额与积分变更必须可追溯；回调必须幂等
 - **租户 / realm 边界**：每个 Realm 使用独立的 Stripe / Creem 配置，钱包可用性按 Realm 配置 + 账号侧启用分别生效；与既有 Stripe / Creem 边界一致。
 - **兼容性要求**：不声明流程的既有客户端行为完全不变（默认托管页流）。与 Stripe、Creem、积分账本、订阅系统的详细契约下沉到技术设计或接口说明。Herald 不交付移动 SDK；移动 App 端钱包 SDK 与 Apple Merchant ID / Google Play 配置由各客户端集成方负责。

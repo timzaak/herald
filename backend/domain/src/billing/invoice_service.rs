@@ -217,14 +217,20 @@ pub fn validate_external_invoice_readonly(provider: InvoiceProvider) -> Result<(
     Ok(())
 }
 
-/// Reject manual invoice creation for Creem MoR transactions.
+/// Reject manual invoice creation for Merchant-of-Record (MoR) transactions.
 ///
-/// Creem acts as Merchant of Record, so Herald must not create a competing invoice.
-pub fn validate_not_creem_mor(payment_provider: Option<&str>) -> Result<(), CoreError> {
-    if payment_provider == Some("creem") {
-        return Err(CoreError::BadRequest(
-            "Creem transactions are managed by Creem as Merchant of Record".to_string(),
-        ));
+/// Creem, Apple (App Store) and Google (Google Play) act as Merchant of
+/// Record, so Herald must not create a competing invoice — regardless of the
+/// realm's invoice_policy (support-iap PRD §4.1: invoice_policy 不影响该约束).
+pub fn validate_not_mor_provider(payment_provider: Option<&str>) -> Result<(), CoreError> {
+    if matches!(
+        payment_provider,
+        Some("creem") | Some("apple") | Some("google")
+    ) {
+        return Err(CoreError::BadRequest(format!(
+            "{} transactions are managed by the platform as Merchant of Record",
+            payment_provider.unwrap_or_default()
+        )));
     }
     Ok(())
 }
@@ -1182,24 +1188,32 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_not_creem_mor_ok() {
+    fn test_validate_not_mor_provider_ok() {
         // None (no payment provider) should pass
-        assert!(validate_not_creem_mor(None).is_ok());
-        // Stripe should pass
-        assert!(validate_not_creem_mor(Some("stripe")).is_ok());
+        assert!(validate_not_mor_provider(None).is_ok());
+        // Stripe should pass (not an MoR provider)
+        assert!(validate_not_mor_provider(Some("stripe")).is_ok());
+        // WeChat should pass (Herald-side merchant, manual fallback allowed)
+        assert!(validate_not_mor_provider(Some("wechat")).is_ok());
         // Empty string should pass
-        assert!(validate_not_creem_mor(Some("")).is_ok());
+        assert!(validate_not_mor_provider(Some("")).is_ok());
     }
 
     #[test]
-    fn test_validate_not_creem_mor_creem_rejected() {
-        let result = validate_not_creem_mor(Some("creem"));
-        assert!(result.is_err());
-        match result {
-            Err(CoreError::BadRequest(msg)) => {
-                assert!(msg.contains("Merchant of Record"));
+    fn test_validate_not_mor_provider_mor_rejected() {
+        // WHY: Creem, Apple App Store and Google Play are all Merchant of
+        // Record — a Herald manual invoice would compete with the store's own
+        // invoice/receipt, and invoice_policy must NOT override this
+        // (support-iap PRD §4.1).
+        for provider in ["creem", "apple", "google"] {
+            let result = validate_not_mor_provider(Some(provider));
+            assert!(result.is_err(), "{provider} must be rejected");
+            match result {
+                Err(CoreError::BadRequest(msg)) => {
+                    assert!(msg.contains("Merchant of Record"));
+                }
+                _ => panic!("Expected BadRequest error"),
             }
-            _ => panic!("Expected BadRequest error"),
         }
     }
 

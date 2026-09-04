@@ -42,6 +42,8 @@
 ### 2.1 包含功能
 
 - Per-realm logo（图片 URL，展示在 auth 流页面头部，替代默认 "Herald" 文字）
+- Per-realm 品牌名称（brand_name）
+- Per-realm 站点图标（favicon_url，与 logo 同样为 http(s) URL 引用）
 - Per-realm 主色 / accent color（影响主按钮、链接等品牌色）
 - Per-realm 背景（图片 URL 或背景渐变，替代当前固定背景）
 - Per-realm 页脚文案（替代当前固定品牌信息）
@@ -121,7 +123,7 @@
 
 ### 5.1 核心需求
 
-- **品牌资产配置**：Realm Admin 可配置本 Realm 的 logo（图片 URL）、主色（accent color）、背景（图片 URL 或背景渐变）、页脚文案、登录/注册页标题与副标题文案
+- **品牌资产配置**：Realm Admin 可配置本 Realm 的品牌名称（brand_name）、logo（图片 URL）、站点图标（favicon_url，http(s) URL 引用）、主色（accent color）、背景（图片 URL 或背景渐变）、页脚文案、登录/注册页标题与副标题文案
 - **草稿与发布**：Realm Admin 可保存草稿、实时预览草稿、放弃草稿，并在确认后发布配置；只有已发布配置会影响终端用户 auth 流页面
 - **错误配置恢复**：Realm Admin 可将已发布配置恢复到上一版，降低 logo、背景、颜色或文案配置错误后的修复成本
 - **配置入口**：管理后台 Settings 页面新增品牌化配置入口（与现有 TOTP / Passkey / Registration 等配置 Tab 同级）

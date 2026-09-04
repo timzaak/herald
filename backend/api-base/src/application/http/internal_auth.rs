@@ -21,8 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// Compares two ASCII strings byte-by-byte without short-circuiting, so timing
 /// does not leak the position of the first mismatched byte. Returns early (non-
 /// constant time) only when the lengths differ, which does not reveal secret
-/// material. Mirrors `herald_infra_shopify::constant_time_compare` to avoid
-/// pulling that crate into `api-base`.
+/// material.
 pub fn constant_time_compare(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;

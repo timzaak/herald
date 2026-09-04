@@ -88,11 +88,11 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 - **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，用于验证）
   - **配置项差异说明**：Account ID 未作为独立 config_key 实现；Environment（test/live）由 API Key 前缀自动决定（`sk_test_*` / `sk_live_*`）；Webhook Endpoint URL 由 `public_base_url` 动态拼接，不作为独立配置项
-- **密钥加密存储**：API Key 必须加密存储在数据库中
+- **凭据存储**：凭据以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - **密钥脱敏**：Secret Key 查看时显示脱敏信息
-- **编辑时密钥保留**：更新配置时，敏感字段（Secret Key、Webhook Secret）为可选，留空则保留现有值；非敏感字段正常更新（✅ RESOLVED — `is_empty_stripe_secret` in `realm_config/mod.rs` L32-36 detects empty secrets and preserves existing values）
+- **编辑时密钥保留**：更新配置时，敏感字段（Secret Key、Webhook Secret）为可选，留空则保留旧值；非敏感字段正常更新
 - **权限控制**：只有 Realm Admin 可以查看和更新 Stripe 配置
-- **删除保护**：无活跃订阅时才可删除配置（✅ RESOLVED — `ensure_stripe_config_deletable` in `realm_config/mod.rs` L38-61 checks active subscriptions before allowing deletion）
+- **删除保护**：删除前存在活跃订阅则拒绝删除；无活跃订阅时才可删除配置
 - **数据隔离**：不同 Realm 的支付数据完全隔离；用户只能查看自己的支付历史；Realm Admin 只能查看所属 Realm 的支付数据
 
 ### 4.2 关键状态与异常
@@ -161,10 +161,10 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 | 项 | 状态 | 说明 |
 |----|------|------|
-| 密钥保留逻辑 | ✅ RESOLVED | `is_empty_stripe_secret` in `realm_config/mod.rs` L32-36 detects empty secrets and preserves existing values |
-| 删除保护 | ✅ RESOLVED | `ensure_stripe_config_deletable` in `realm_config/mod.rs` L38-61 checks active subscriptions before allowing deletion |
-| payment_intent.payment_failed 事件 | ✅ RESOLVED | `handle_payment_failed` in `stripe_webhook_handlers.rs` L735-763 |
-| invoice.payment_failed 事件 | ✅ RESOLVED | Handled by same `handle_payment_failed` in `stripe_webhook_handlers.rs` L735-763 |
+| 密钥保留逻辑 | ✅ RESOLVED | 编辑配置时敏感字段留空则保留旧值 |
+| 删除保护 | ✅ RESOLVED | 删除前存在活跃订阅则拒绝删除 |
+| payment_intent.payment_failed 事件 | ✅ RESOLVED | payment_failed 事件有处理分支 |
+| invoice.payment_failed 事件 | ✅ RESOLVED | 与 payment_intent.payment_failed 共用处理分支 |
 | Disputes 处理 | ✅ RESOLVED | `charge.dispute.created/closed` 标记争议状态；无法从 metadata 映射本地订阅时记录并忽略 |
 | checkout.session.expired | ✅ RESOLVED | Checkout 会话过期未支付时标记 PaymentAttempt 为 failed |
 | checkout.session.async_payment_* | ✅ RESOLVED | 延迟支付方式（银行转账等）的成功/失败处理；`completed` 不再对未结算支付过早履约 |

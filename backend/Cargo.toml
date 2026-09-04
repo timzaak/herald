@@ -8,7 +8,6 @@ members = [
     "infra-iap",
     "infra-stripe",
     "infra-wechatpay",
-    "infra-shopify",
     "core",
     "api-base",
     "api-billing",

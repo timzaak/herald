@@ -2389,22 +2389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "herald-infra-shopify"
-version = "0.5.2"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "herald-domain",
- "hmac",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.19",
- "uuid",
-]
-
-[[package]]
 name = "herald-infra-stripe"
 version = "0.5.2"
 dependencies = [

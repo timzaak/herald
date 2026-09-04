@@ -60,6 +60,7 @@ describe('PasskeyConfigForm', () => {
     await waitFor(() => {
       expect(mockOnSave).toHaveBeenCalledWith({
         enabled: true,
+        forceEnabled: false,
         userVerification: 'preferred',
         crossPlatformAuthenticator: true,
       })

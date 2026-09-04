@@ -28,7 +28,12 @@ export function ApplyInvoiceFormPage({
   const navigate = useNavigate()
   const applyMutation = useApplyInvoice(realmId)
   const { mutate: apply, isPending: isSubmitting } = applyMutation
-  const isCreemRejection = resolveApiError(applyMutation.error).code === 'creem_merchant_of_record'
+  // The legacy `creem_merchant_of_record` code is kept for the rename deploy
+  // window (an older backend may still reject with it); drop it once no
+  // pre-rename backend can serve this page.
+  const rejectionCode = resolveApiError(applyMutation.error).code
+  const isMorRejection =
+    rejectionCode === 'mor_provider_invoice_blocked' || rejectionCode === 'creem_merchant_of_record'
   const defaultValues = useMemo(
     () => getApplyFormDefaults(prefilledReference),
     [prefilledReference]
@@ -89,10 +94,10 @@ export function ApplyInvoiceFormPage({
         </h1>
       </div>
 
-      {isCreemRejection && (
+      {isMorRejection && (
         <div
           className="rounded-md border border-warning/20 bg-warning/10 p-3 text-sm text-warning"
-          data-testid="apply-invoice-creem-rejection"
+          data-testid="apply-invoice-mor-rejection"
         >
           {m['billing.invoice_apply_creem_rejection']()}
         </div>

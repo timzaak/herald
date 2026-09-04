@@ -223,13 +223,12 @@ impl Ldap3Authenticator {
         // Search for exactly one matching entry (DEC-009: zero or multiple hits
         // are a generalized authentication failure — no guess-binding).
         let filter = render_filter(settings, username)?;
+        let mut requested_attrs = vec![settings.mail_attribute.as_str()];
+        if let Some(display_attr) = settings.display_name_attribute.as_deref() {
+            requested_attrs.push(display_attr);
+        }
         let (entries, _result) = ldap
-            .search(
-                &settings.base_dn,
-                Scope::Subtree,
-                &filter,
-                vec![settings.mail_attribute.as_str()],
-            )
+            .search(&settings.base_dn, Scope::Subtree, &filter, requested_attrs)
             .await
             .map_err(|e| unavailable("search", &settings.url, e))?
             .success()
@@ -250,6 +249,13 @@ impl Ldap3Authenticator {
             .and_then(|values| values.first())
             .filter(|mail| !mail.trim().is_empty())
             .cloned();
+        let display_name = settings
+            .display_name_attribute
+            .as_deref()
+            .and_then(|attr| entry.attrs.get(attr))
+            .and_then(|values| values.first())
+            .filter(|name| !name.trim().is_empty())
+            .cloned();
 
         // User bind = the actual credential check for THIS user.
         let user_bind = ldap.simple_bind(&dn, password).await;
@@ -258,7 +264,11 @@ impl Ldap3Authenticator {
             tracing::debug!(error = %e, "LDAP unbind failed (ignored)");
         }
         match user_bind {
-            Ok(result) if result.rc == 0 => Ok(LdapAuthenticatedUser { dn, email }),
+            Ok(result) if result.rc == 0 => Ok(LdapAuthenticatedUser {
+                dn,
+                email,
+                display_name,
+            }),
             Ok(result) => {
                 tracing::debug!(rc = result.rc, "LDAP user bind rejected");
                 Err(LdapAuthError::InvalidCredentials)

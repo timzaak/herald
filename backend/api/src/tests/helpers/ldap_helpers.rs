@@ -40,6 +40,9 @@ pub struct MockLdapUser {
     pub username: String,
     pub dn: String,
     pub email: Option<String>,
+    /// Directory display name; returned as the authenticated user's
+    /// `display_name` (mirrors the real adapter's attribute mapping).
+    pub display_name: Option<String>,
     pub password: String,
 }
 
@@ -98,6 +101,7 @@ impl LdapAuthenticator for MockLdapAuthenticator {
                     [only] if only.password == password => Ok(LdapAuthenticatedUser {
                         dn: only.dn.clone(),
                         email: only.email.clone(),
+                        display_name: only.display_name.clone(),
                     }),
                     // Zero hits, multiple hits, or wrong password — all
                     // InvalidCredentials, exactly like the real adapter.
@@ -132,6 +136,7 @@ pub fn one_mock_user(
             username: username.to_string(),
             dn: dn.to_string(),
             email: email.map(str::to_string),
+            display_name: None,
             password: password.to_string(),
         }],
         fail_with: None,

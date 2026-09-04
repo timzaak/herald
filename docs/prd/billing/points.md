@@ -367,7 +367,7 @@
 - API Key 鉴权实时校验其绑定 Client App 的启用状态（包括缓存命中路径）：Client App 被禁用后，其 API Key 立即失效并返回 401，不依赖缓存 TTL 过期
 - 限流策略：realm 级别 100 次/分钟，user 级别 20 次/分钟
 - 管理接口权限：所有管理端点使用 `require_authenticated_user_in_realm` + `require_permission` 进行权限控制：
-  - 积分数据查询（wallets、transactions）：`points.view`
+  - 积分数据查询（wallets、transactions）：`points.manage`。`points.view` 授权用户本人数据查询（经用户自查端点）；管理端跨用户查询 wallets/transactions 需 `points.manage`（内置 user 角色持有 `points.view`，若管理端仅要求 view 会导致普通用户跨用户读取积分数据）
   - Entitlement Mapping 的积分分发规则（随 mapping 的 `point_rules`）：随 mapping CRUD，`billing.manage`（带 `point_rules` 时额外要 `points.manage`）
   - Realm 注册积分分发规则（`registration-rules`，`owner_type=realm_registration`）：读操作 `points.view`，写操作 `points.manage`
 - 积分变更必须可追溯，所有发放、消费、回收操作创建交易记录

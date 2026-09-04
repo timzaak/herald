@@ -2,6 +2,7 @@ import { HomeLayout } from "fumadocs-ui/layouts/home";
 import {
   Bot,
   ChevronDown,
+  Coins,
   CreditCard,
   Plug,
   Rocket,
@@ -19,7 +20,7 @@ const GITHUB_URL = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 const DEMO_URL = "https://auth.fornetcode.com";
 
 // Order must match the features array in home-texts.ts
-const FEATURE_ICONS = [Shield, Users, CreditCard, ScrollText, Bot];
+const FEATURE_ICONS = [Shield, Users, CreditCard, Coins, ScrollText, Bot];
 
 function GitHubIcon({ className }: { className?: string }) {
   return (

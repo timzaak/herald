@@ -14,7 +14,12 @@ import { PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { m } from '@/paraglide/messages'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
-import { userFeatureAvailabilityQueryOptions } from '@/data/query-options'
+import {
+  passkeyListQueryOptions,
+  passkeyStatusQueryOptions,
+  userFeatureAvailabilityQueryOptions,
+} from '@/data/query-options'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 export const Route = createFileRoute('/$realmId/user/security/')({
   component: ProfileSecurity,
@@ -30,6 +35,7 @@ export function ProfileSecurity() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   // Toggles the inline passkey registration form within the passkey tab.
   const [passkeyRegistering, setPasskeyRegistering] = useState(false)
+  const [activeTab, setActiveTab] = useState('password')
 
   // Whether Passkey/TOTP are enabled for this realm. Each feature's tab is
   // hidden when the realm has it disabled, so users never see setup/management
@@ -39,13 +45,52 @@ export function ProfileSecurity() {
   const passkeyEnabled = userFeatureAvailability?.user.passkeyEnabled ?? false
   const totpEnabled = userFeatureAvailability?.user.totpEnabled ?? false
 
+  // Force-mode guidance (passkey PRD §4.1): when the realm forces Passkey and
+  // this user has none registered, surface a prompt pointing at the passkey
+  // tab. Guidance only — nothing is blocked. The status query is gated on
+  // passkeyEnabled because forceEnabled is only read when that is true, so
+  // realms with Passkey off skip the extra status request.
+  const { data: passkeyStatus } = useQuery({
+    ...passkeyStatusQueryOptions(realmId),
+    enabled: passkeyEnabled,
+  })
+  const { data: passkeyCredentials } = useQuery({
+    ...passkeyListQueryOptions,
+    enabled: passkeyEnabled,
+    select: (data) => data.credentials,
+  })
+  const showPasskeyGuidance =
+    passkeyEnabled &&
+    (passkeyStatus?.forceEnabled ?? false) &&
+    !passkeyRegistering &&
+    (passkeyCredentials?.length ?? 0) === 0
+
   const handleDialogClose = () => setTotpDialog(null)
 
   return (
     <div className="space-y-6">
       <PageHeader title={m['profile.security_page_title']()} headingTestId="security-page-title" />
 
-      <Tabs defaultValue="password">
+      {showPasskeyGuidance && (
+        <Alert data-testid="passkey-force-guidance">
+          <AlertTitle>{m['profile.passkey_force_banner_title']()}</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4">
+            <span>{m['profile.passkey_force_banner_description']()}</span>
+            <Button
+              size="sm"
+              onClick={() => {
+                setActiveTab('passkey')
+                setPasskeyRegistering(true)
+              }}
+              data-testid="passkey-force-guidance-action"
+            >
+              {m['profile.passkey_force_banner_action']()}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="password" data-testid="password-tab">
             {m['profile.password_tab']()}

@@ -102,7 +102,6 @@ pub enum InvoiceProvider {
     Stripe,
     Creem,
     Wechat,
-    Shopify,
 }
 
 impl InvoiceProvider {
@@ -112,7 +111,6 @@ impl InvoiceProvider {
             Self::Stripe => "stripe",
             Self::Creem => "creem",
             Self::Wechat => "wechat",
-            Self::Shopify => "shopify",
         }
     }
 
@@ -122,7 +120,6 @@ impl InvoiceProvider {
             "stripe" => Some(Self::Stripe),
             "creem" => Some(Self::Creem),
             "wechat" => Some(Self::Wechat),
-            "shopify" => Some(Self::Shopify),
             _ => None,
         }
     }

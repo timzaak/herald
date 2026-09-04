@@ -87,6 +87,10 @@ export default defineConfig({
         {
           path: "/zh",
         },
+        // Blog listing — post pages are crawled from links on the listing
+        {
+          path: "/blog",
+        },
         // Legal pages
         {
           path: "/en/privacy",
