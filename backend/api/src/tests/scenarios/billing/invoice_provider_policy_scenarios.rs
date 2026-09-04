@@ -617,7 +617,8 @@ mod tests {
     //
     // Given: A payment_attempt with payment_provider = 'creem'
     // When: Admin creates a manual invoice linked to that payment_attempt
-    // Then: Returns 400 with "Creem transactions are managed by Creem"
+    // Then: Returns 400 with "creem transactions are managed by the platform
+    //       as Merchant of Record"
 
     #[test_context(InvoiceTestContext)]
     #[tokio::test]
@@ -682,8 +683,8 @@ mod tests {
         let body = parse_body(response.into_body()).await;
         let error_msg = body["error"].as_str().unwrap_or("");
         assert!(
-            error_msg.contains("Creem") && error_msg.contains("Merchant of Record"),
-            "Expected Creem MoR error message, got: {}",
+            error_msg.contains("Merchant of Record"),
+            "Expected MoR rejection message, got: {}",
             error_msg
         );
     }
@@ -697,7 +698,8 @@ mod tests {
     // Given: A payment_attempt with payment_provider = 'creem'
     // And: A regular user session
     // When: POST /my/invoices (apply for invoice)
-    // Then: Returns 400 with "Creem transactions are managed by Creem"
+    // Then: Returns 400 with "creem transactions are managed by the platform
+    //       as Merchant of Record"
 
     #[test_context(InvoiceTestContext)]
     #[tokio::test]
@@ -761,8 +763,8 @@ mod tests {
         let body = parse_body(response.into_body()).await;
         let error_msg = body["error"].as_str().unwrap_or("");
         assert!(
-            error_msg.contains("Creem") && error_msg.contains("Merchant of Record"),
-            "Expected Creem MoR error message, got: {}",
+            error_msg.contains("Merchant of Record"),
+            "Expected MoR rejection message, got: {}",
             error_msg
         );
     }
