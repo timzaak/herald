@@ -212,7 +212,7 @@
 - **编辑约束**：仅 draft 状态可编辑行项目、费用和双方信息；编辑后自动重算金额
 - **开具约束**：空发票不可开具；开具时记录开票日期；支持通过 `issue_date` 可选参数覆盖开票日期（默认为当天）；若存在 `due_date`，则 `due_date` 必须大于等于 `issue_date`；开具时 `billing_email` 和 `billing_phone` 至少需填写一个非空值，用于联系开票对象
 - **标记已付约束**：仅 issued / overdue 状态可标记已付；支持通过 `paid_at` 可选时间戳参数覆盖实际付款时间（默认为当前时间）
-- **作废约束**：已付款发票不可作废；可作废 draft 和 issued 状态
+- **作废约束**：已付款发票不可作废；可作废 draft 和 issued 状态。边缘语义：已付款（paid）发票在全部 Credit Note 均已作废（即退款金额归零、剩余应付恢复全额）时允许作废——等价于"该发票从未有效退款"，回到 paid 作废例外；存在任一有效（非作废）Credit Note 时仍不可作废
 - **来源标记**：发票来源（admin_manual / user_application）需持久化，用于筛选和审计
 - **关联可选**：发票可关联 subscription_id 和 payment_attempt_id，关联为可选，不触发自动行为
 - **金额计算规则**：line_item.subtotal = quantity x unit_price；invoice.subtotal = SUM(line_items.subtotal)；invoice.total = subtotal - discount_amount + tax_amount + shipping_amount；所有金额以最小货币单位（分）存储。折扣、税费、运费均以 subtotal 为基准计算，税费未考虑折扣影响（即税费不基于折后金额）

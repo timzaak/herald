@@ -43,7 +43,7 @@
 - API Key 列表页增加「Roles」操作按钮（打开角色管理对话框）
 - API Key 角色管理对话框（查看、分配、清除角色，即时保存）
 - 创建 API Key 表单增加可选角色选择器（创建成功后自动绑定）
-- 创建 API Key 表单增加 Client App 选择器；未选择时默认绑定内置 `admin-api-client`
+- 创建 API Key 表单增加 Client App 选择器；未选择时默认绑定内置 `admin-api-client`（历史遗留的 NULL Client App 绑定 key 在认证语义上视为 Realm 级作用域，仅兼容存量数据，新建不可产生 NULL 绑定）
 - API Key 列表展示绑定的 Client App 名称
 - 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，默认 `enabled=true`）
 - API Key 认证路径受关联 Client App 的 `enabled` 状态影响（Client App 禁用时其下所有 API Key 均不可用）

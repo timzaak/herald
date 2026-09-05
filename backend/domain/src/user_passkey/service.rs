@@ -42,6 +42,12 @@ struct RegistrationChallengeState {
     user_id: Uuid,
     nickname: Option<String>,
     relying_party: PasskeyRelyingParty,
+    /// Realm UV policy captured at begin time so `finish_registration` can
+    /// rebuild the verifier with the same requirement — the library enforces
+    /// the asserted `user_verified` flag only when the finish-side verifier
+    /// carries `require_user_verification(true)`.
+    #[serde(default)]
+    require_uv: bool,
     state: RegistrationState,
 }
 
@@ -49,6 +55,9 @@ struct RegistrationChallengeState {
 struct AuthenticationChallengeState {
     login_state: PasskeyLoginState,
     relying_party: PasskeyRelyingParty,
+    /// See `RegistrationChallengeState::require_uv`.
+    #[serde(default)]
+    require_uv: bool,
     state: AuthenticationState,
 }
 
@@ -153,6 +162,7 @@ where
             user_id: user.id,
             nickname: None,
             relying_party,
+            require_uv: policy.user_verification.is_required(),
             state,
         };
         self.store_challenge(&reg_key(&reg_token), &payload).await?;
@@ -184,11 +194,14 @@ where
 
         let response: RegistrationResponse = serde_json::from_value(resp_json.clone())
             .map_err(|_| PasskeyError::VerificationFailed)?;
-        let webauthn = Webauthn::new(
+        let mut webauthn = Webauthn::new(
             &payload.relying_party.id,
             &payload.relying_party.id,
             &payload.relying_party.origin,
         );
+        if payload.require_uv {
+            webauthn = webauthn.require_user_verification(true);
+        }
         let passkey = webauthn
             .finish_registration(&payload.state, &response)
             .map_err(|_| PasskeyError::VerificationFailed)?;
@@ -241,6 +254,7 @@ where
         let payload = AuthenticationChallengeState {
             login_state: state,
             relying_party,
+            require_uv: policy.user_verification.is_required(),
             state: auth_state,
         };
         self.store_challenge(&auth_key(&auth_token), &payload)
@@ -290,6 +304,7 @@ where
         let payload = AuthenticationChallengeState {
             login_state: temp_session.clone(),
             relying_party,
+            require_uv: policy.user_verification.is_required(),
             state: auth_state,
         };
         self.store_challenge(&two_factor_key(&token), &payload)
@@ -335,11 +350,14 @@ where
             .ok_or(PasskeyError::VerificationFailed)?;
 
         let stored = credential_to_passkey_credential(&credential)?;
-        let webauthn = Webauthn::new(
+        let mut webauthn = Webauthn::new(
             &payload.relying_party.id,
             &payload.relying_party.id,
             &payload.relying_party.origin,
         );
+        if payload.require_uv {
+            webauthn = webauthn.require_user_verification(true);
+        }
         let auth_result = webauthn
             .finish_authentication(&payload.state, &response, &stored)
             .map_err(|_| PasskeyError::VerificationFailed)?;

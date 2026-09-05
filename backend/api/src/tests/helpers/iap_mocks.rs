@@ -25,9 +25,9 @@
 // **rejection** paths that the real Apple Root CA anchor guarantees
 // (malformed JWS, tampered payload, wrong trust anchor) — these rejections
 // hold under any environment because the cryptographic chain is never valid
-// for a fabricated JWS. A note in the Handoff flags the missing
-// LocalTesting-injection seam on the HTTP path so BE-T02 / backend-dev can
-// wire it if a positive HTTP-layer Apple verification test is later required.
+// for a fabricated JWS. The HTTP path has no LocalTesting injection seam for
+// the verifier, so a positive HTTP-layer Apple verification test would need
+// one wired first.
 //
 // =============================================================================
 
@@ -153,10 +153,21 @@ pub fn make_apple_notification_body(
 // realm_config insertion helpers (Apple / Google)
 // =============================================================================
 
+/// A fixed, throwaway EC P-256 key in PKCS#8 PEM form.
+///
+/// `AppleServerApiClient` signs its ES256 JWTs via
+/// `EncodingKey::from_ec_pem`, which panics on non-EC input — tests that drive
+/// the client against a wiremock `base_url` override need a parseable EC key
+/// even though the signature is never validated by anything. This key is
+/// public test material and authenticates nowhere.
+pub fn test_apple_ec_p8_pem() -> &'static str {
+    "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg4PTjHSmxKdgc/3qH\n7psmnyTFvqIUR5q1gzkik/bo2wmhRANCAAQ0R8pYA+QNS30MR4nyoYoBz5NbyJ66\nPUZLrrdOpD/fQtF7xNTQwXV0vpIJhpmfXcu+MnwKdgVcUTWlsXiallSu\n-----END PRIVATE KEY-----"
+}
+
 /// Insert Apple IAP credentials into `realm_config` for a realm.
 ///
 /// `environment` is written verbatim; the production handler currently only
-/// accepts `production` / `sandbox` (see Handoff note in module docs).
+/// accepts `production` / `sandbox`.
 pub async fn insert_apple_realm_config(
     pool: &PgPool,
     realm_id: &str,

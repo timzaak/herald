@@ -12,6 +12,9 @@ use utoipa::ToSchema;
 
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::authentication::BrowserTokenService;
+use herald_core::domain::client::ports::ClientService;
+use herald_core::domain::user::ports::UserRepository;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -26,8 +29,11 @@ pub struct DeviceTokenRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DeviceTokenResponse {
     pub access_token: String,
+    /// Refresh token of the issued browser-token family (present so CLI
+    /// consumers can rotate; the access token alone cannot be refreshed).
+    pub refresh_token: String,
     pub token_type: String,
-    pub expires_in: i64,
+    pub expires_in: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -52,7 +58,8 @@ const DEVICE_TOKEN_FUNCTION_LIBRARY: &str = "herald_device_token";
 /// 1. Key missing           -> expired_token
 /// 2. status == consumed    -> invalid_request
 /// 3. status == denied      -> access_denied
-/// 4. status == authorized  -> consume + return user data
+/// 4. status == authorized  -> realm check (no consume on mismatch),
+///    then consume + return user data
 /// 5. interval too fast     -> slow_down (interval += 5)
 /// 6. pending / verified    -> authorization_pending
 const DEVICE_TOKEN_FUNCTION_CODE: &str = "#!lua name=herald_device_token\n\
@@ -60,6 +67,7 @@ const DEVICE_TOKEN_FUNCTION_CODE: &str = "#!lua name=herald_device_token\n\
 local function device_token_poll(keys, args)\n\
   local key = keys[1]\n\
   local now = tonumber(args[1])\n\
+  local expected_realm = args[2]\n\
 \n\
   local data = redis.call('GET', key)\n\
   if not data then\n\
@@ -77,8 +85,12 @@ local function device_token_poll(keys, args)\n\
     return cjson.encode({ok=false, error='access_denied'})\n\
   end\n\
 \n\
-  -- Authorized: consume and return user data\n\
+  -- Authorized: verify the polling realm matches BEFORE consuming, so a\n\
+  -- wrong-realm poll cannot burn the authorization the user just granted.\n\
   if state.status == 'authorized' then\n\
+    if state.realm_id ~= expected_realm then\n\
+      return cjson.encode({ok=false, error='invalid_realm'})\n\
+    end\n\
     state.status = 'consumed'\n\
     state.last_poll_at = now\n\
     redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
@@ -198,6 +210,7 @@ pub async fn device_token(
         .arg(1) // num_keys
         .arg(&key)
         .arg(now)
+        .arg(&realm_id)
         .query_async(&mut conn)
         .await
         .map_err(|e| {
@@ -214,29 +227,74 @@ pub async fn device_token(
     let ok = parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
 
     if ok {
-        // Success: authorized -> consumed, generate JWT
-        let user_id = parsed.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
-        let stored_realm_id = parsed
-            .get("realm_id")
+        // Success: authorized -> consumed. Issue a REAL browser-token family
+        // (PRD device-code.md §2.3/§8.1: the device token endpoint reuses the
+        // Session Token mechanism) so the CLI's Bearer token is accepted by
+        // the standard middleware — a self-signed JWT is not.
+        let user_id: uuid::Uuid = parsed
+            .get("user_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .ok_or_else(|| {
+                ApiError::internal("Device state carries an invalid user id".to_string())
+            })?;
+        let client_id = parsed
+            .get("client_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        // Validate realm match
-        if stored_realm_id != realm_id {
+        let user = state
+            .user_repository
+            .get_user_by_id(user_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, %user_id, "Device token user lookup failed");
+                ApiError::bad_request("device code user is invalid")
+            })?;
+        if user.realm_id != realm_id {
             return Err(ApiError::bad_request_json(DeviceTokenErrorResponse {
                 error: "invalid_request".to_string(),
                 error_description: "Realm mismatch".to_string(),
             }));
         }
 
-        let jwt_secret = crate::helper::jwt_secret(&state)?;
-        let jwt_token = crate::helper::generate_jwt_token(user_id, stored_realm_id, jwt_secret)?;
-        let expires_in = crate::helper::jwt_expiration_seconds()?;
+        let client_app = state
+            .service
+            .client_service()
+            .get_client_app_by_client_id(&realm_id, client_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, %client_id, "Device token client lookup failed");
+                ApiError::bad_request("device code client is invalid")
+            })?;
+
+        let token_service =
+            herald_core::infrastructure::authentication::RedisBrowserTokenService::new(
+                state.redis_manager.clone(),
+            );
+        let tokens = if client_app.is_first_party {
+            token_service
+                .create_first_party_token_family(&user, &client_app, None, None)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "Device token family creation failed");
+                    ApiError::internal("Internal server error")
+                })?
+        } else {
+            token_service
+                .create_token_family(&user, &client_app, None, None)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "Device token family creation failed");
+                    ApiError::internal("Internal server error")
+                })?
+        };
 
         Ok(Json(DeviceTokenResponse {
-            access_token: jwt_token,
-            token_type: "Bearer".to_string(),
-            expires_in,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            token_type: tokens.token_type,
+            expires_in: tokens.expires_in,
         }))
     } else {
         // Error response
@@ -261,6 +319,7 @@ pub async fn device_token(
                 axum::http::StatusCode::FORBIDDEN,
                 "The user denied the authorization request",
             ),
+            "invalid_realm" => (axum::http::StatusCode::BAD_REQUEST, "Realm mismatch"),
             _ => (axum::http::StatusCode::BAD_REQUEST, "Invalid request"),
         };
 

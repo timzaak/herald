@@ -52,17 +52,15 @@ fn reject_non_admin_platform_signup(
 /// sensitive config key.
 ///
 /// When an admin edits a provider form without re-entering a secret, the
-/// frontend submits the secret field as an empty string (design support-iap
-/// §5.4 / §4.5 "buildProviderConfigRequest"). To avoid clobbering the stored
-/// secret with empty, the upsert path must short-circuit and return the
-/// existing stored row unchanged.
+/// frontend submits the secret field as an empty string. To avoid clobbering
+/// the stored secret with empty, the upsert path must short-circuit and
+/// return the existing stored row unchanged.
 ///
 /// Returns the provider's config_type string name (e.g. `"stripe"`) when the
 /// incoming write should be preserved, or `None` otherwise. The caller uses
 /// the returned name to reload the matching existing config row.
 ///
-/// Covers all four payment providers (stripe / creem / apple / google); the
-/// sensitive key sets are per design support-iap §4.3.2.
+/// Covers all four payment providers (stripe / creem / apple / google).
 fn is_empty_secret_to_preserve(
     config_type: &ConfigType,
     config_key: &str,
@@ -188,7 +186,7 @@ fn validate_ldap_settings_row(
 }
 
 /// Block deletion of a payment provider's configuration while that provider
-/// has active subscriptions in the realm (design support-iap §5.4).
+/// has active subscriptions in the realm.
 ///
 /// Generalized from the Stripe-only `ensure_stripe_config_deletable` to cover
 /// stripe / creem / apple / google: the guard filters active subscriptions by
@@ -276,6 +274,55 @@ async fn audit_payment_config_change(
             realm_id = %realm_id,
             provider = %provider,
             "Failed to record payment config audit event"
+        );
+    }
+}
+
+/// Best-effort audit write for non-payment realm config changes. Audit
+/// boundary for "关键配置变更" (audit PRD): every realm-config KV write/delete
+/// through the generic configs API is audited — payment providers keep their
+/// dedicated `payment_config.*` actions, everything else (SMTP, LDAP,
+/// Turnstile, registration policy, white-label, ...) lands here with the
+/// config type/key in `details`. An audit failure must never fail the
+/// already-succeeded config write.
+async fn audit_realm_config_change(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    config_type: &ConfigType,
+    config_key: &str,
+    action: AuditAction,
+    ip: String,
+    user_agent: Option<String>,
+) {
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::RealmManagement,
+            action,
+            actor_id: identity.user_id(),
+            actor_type: None,
+            actor_name: identity.as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::Realm,
+            target_id: realm_id.to_string(),
+            target_name: Some(format!("{}/{}", config_type.as_static_str(), config_key)),
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "config_type": config_type.as_static_str(),
+                "config_key": config_key,
+            })),
+            ip_address: Some(ip),
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(
+            error = %e,
+            realm_id = %realm_id,
+            config_type = %config_type.as_static_str(),
+            "Failed to record realm config audit event"
         );
     }
 }
@@ -648,21 +695,37 @@ pub async fn upsert_realm_config(
             }
         })?;
 
-    // Payment-provider credential/config writes are security-relevant and
-    // audit-logged (PRD wechat-support §4.1); other config types are not.
-    if let Some(provider) = provider_string_for_config_type(&config.config_type) {
-        let user_agent = user_agent_from_headers(&headers);
-        audit_payment_config_change(
-            &state,
-            &identity,
-            &realm_id,
-            provider,
-            &config.config_key,
-            AuditAction::PaymentConfigUpdate,
-            ip,
-            user_agent,
-        )
-        .await;
+    // Config writes are audit-logged (audit PRD "关键配置变更"): payment
+    // providers keep their dedicated `payment_config.*` actions, all other
+    // config types land under `realm_config.update`.
+    let user_agent = user_agent_from_headers(&headers);
+    match provider_string_for_config_type(&config.config_type) {
+        Some(provider) => {
+            audit_payment_config_change(
+                &state,
+                &identity,
+                &realm_id,
+                provider,
+                &config.config_key,
+                AuditAction::PaymentConfigUpdate,
+                ip,
+                user_agent,
+            )
+            .await;
+        }
+        None => {
+            audit_realm_config_change(
+                &state,
+                &identity,
+                &realm_id,
+                &config.config_type,
+                &config.config_key,
+                AuditAction::RealmConfigUpdate,
+                ip,
+                user_agent,
+            )
+            .await;
+        }
     }
 
     Ok(Json(to_response(config)))
@@ -798,14 +861,21 @@ pub async fn batch_upsert_realm_configs(
         );
     }
 
-    // Collect payment-provider rows before `requests` is moved into the domain
-    // call, so the post-write audit knows what was persisted.
+    // Collect config rows before `requests` is moved into the domain call, so
+    // the post-write audit knows what was persisted: payment rows keep their
+    // dedicated action, every other row is audited under `realm_config.update`
+    // (audit PRD "关键配置变更").
     let payment_rows: Vec<(&'static str, String)> = requests
         .iter()
         .filter_map(|r| {
             provider_string_for_config_type(&r.config_type)
                 .map(|provider| (provider, r.config_key.clone()))
         })
+        .collect();
+    let other_rows: Vec<(ConfigType, String)> = requests
+        .iter()
+        .filter(|r| provider_string_for_config_type(&r.config_type).is_none())
+        .map(|r| (r.config_type.clone(), r.config_key.clone()))
         .collect();
 
     let mut configs = if requests.is_empty() {
@@ -832,23 +902,35 @@ pub async fn batch_upsert_realm_configs(
     };
     configs.extend(skipped_existing);
 
-    // Payment-provider credential/config writes are security-relevant and
-    // audit-logged (PRD wechat-support §4.1); other config types are not.
-    if !payment_rows.is_empty() {
-        let user_agent = user_agent_from_headers(&headers);
-        for (provider, config_key) in payment_rows {
-            audit_payment_config_change(
-                &state,
-                &identity,
-                &realm_id,
-                provider,
-                &config_key,
-                AuditAction::PaymentConfigUpdate,
-                ip.clone(),
-                user_agent.clone(),
-            )
-            .await;
-        }
+    // Config writes are audit-logged (audit PRD "关键配置变更"): payment
+    // providers keep their dedicated `payment_config.*` actions, all other
+    // config types land under `realm_config.update`.
+    let user_agent = user_agent_from_headers(&headers);
+    for (provider, config_key) in payment_rows {
+        audit_payment_config_change(
+            &state,
+            &identity,
+            &realm_id,
+            provider,
+            &config_key,
+            AuditAction::PaymentConfigUpdate,
+            ip.clone(),
+            user_agent.clone(),
+        )
+        .await;
+    }
+    for (config_type, config_key) in other_rows {
+        audit_realm_config_change(
+            &state,
+            &identity,
+            &realm_id,
+            &config_type,
+            &config_key,
+            AuditAction::RealmConfigUpdate,
+            ip.clone(),
+            user_agent.clone(),
+        )
+        .await;
     }
 
     tracing::debug!(
@@ -935,13 +1017,17 @@ pub async fn delete_realm_config(
         ensure_provider_config_deletable(&state, &realm_id, &parsed).await?;
     }
 
-    // Capture the payment-provider identity of the row before it is consumed
-    // by the delete call, so the post-write audit knows what was removed.
-    let deleted_payment_row = parse_config_type(config_type.clone())
-        .ok()
-        .and_then(|parsed| {
-            provider_string_for_config_type(&parsed).map(|provider| (provider, config_key.clone()))
-        });
+    // Capture the row identity before it is consumed by the delete call, so
+    // the post-write audit knows what was removed: payment providers keep
+    // their dedicated action, every other config type is audited under
+    // `realm_config.delete` (audit PRD "关键配置变更").
+    let deleted_config_kind = parse_config_type(config_type.clone()).ok().map(|parsed| {
+        (
+            provider_string_for_config_type(&parsed),
+            parsed,
+            config_key.clone(),
+        )
+    });
 
     realm_config_service
         .delete_config(identity.clone(), realm_id.clone(), config_type, config_key)
@@ -959,21 +1045,36 @@ pub async fn delete_realm_config(
             }
         })?;
 
-    // Payment-provider credential/config deletions are security-relevant and
-    // audit-logged (PRD wechat-support §4.1); other config types are not.
-    if let Some((provider, config_key)) = deleted_payment_row {
-        let user_agent = user_agent_from_headers(&headers);
-        audit_payment_config_change(
-            &state,
-            &identity,
-            &realm_id,
-            provider,
-            &config_key,
-            AuditAction::PaymentConfigDelete,
-            ip,
-            user_agent,
-        )
-        .await;
+    let user_agent = user_agent_from_headers(&headers);
+    if let Some((payment_provider, parsed_type, config_key)) = deleted_config_kind {
+        match payment_provider {
+            Some(provider) => {
+                audit_payment_config_change(
+                    &state,
+                    &identity,
+                    &realm_id,
+                    provider,
+                    &config_key,
+                    AuditAction::PaymentConfigDelete,
+                    ip.clone(),
+                    user_agent.clone(),
+                )
+                .await;
+            }
+            None => {
+                audit_realm_config_change(
+                    &state,
+                    &identity,
+                    &realm_id,
+                    &parsed_type,
+                    &config_key,
+                    AuditAction::RealmConfigDelete,
+                    ip,
+                    user_agent,
+                )
+                .await;
+            }
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)

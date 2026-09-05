@@ -291,6 +291,25 @@ mod tests {
         );
     }
 
+    /// Create an active account row for the token-issuance path. The token
+    /// endpoint resolves the device state's user_id to a real account (the
+    /// Session-Token family is bound to a user), so tests must seed a real
+    /// user id instead of a synthetic string.
+    async fn seed_device_user(ctx: &SchemaTestContext, realm_id: &str) -> String {
+        let user_id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account (id, realm_id, email, password, status)
+             VALUES ($1, $2, $3, '$2a$12$dummy_password_hash', 1)",
+        )
+        .bind(user_id)
+        .bind(realm_id)
+        .bind(format!("dc-user-{}@test.com", user_id))
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("failed to seed device user");
+        user_id.to_string()
+    }
+
     // =========================================================================
     // US-DC-003: Token Polling Endpoint Scenarios
     // =========================================================================
@@ -338,8 +357,10 @@ mod tests {
         let auth_json: Value = response_json(auth_response).await;
         let device_code = auth_json["device_code"].as_str().unwrap();
 
-        // Simulate user authorization: set Redis status to "authorized"
-        set_device_code_status_redis(ctx, device_code, "authorized", Some("user-123")).await;
+        // Simulate user authorization: set Redis status to "authorized" with a
+        // real account id (the token family is user-bound).
+        let device_user = seed_device_user(ctx, &realm_id).await;
+        set_device_code_status_redis(ctx, device_code, "authorized", Some(&device_user)).await;
 
         // Poll for token
         let token_response = device_token_poll(ctx, &realm_id, device_code).await;
@@ -412,8 +433,10 @@ mod tests {
         let auth_json: Value = response_json(auth_response).await;
         let device_code = auth_json["device_code"].as_str().unwrap();
 
-        // Simulate authorization then consume (first poll succeeds)
-        set_device_code_status_redis(ctx, device_code, "authorized", Some("user-456")).await;
+        // Simulate authorization then consume (first poll succeeds); the
+        // user must be a real account (the token family is user-bound).
+        let device_user = seed_device_user(ctx, &realm_id).await;
+        set_device_code_status_redis(ctx, device_code, "authorized", Some(&device_user)).await;
         let first_poll = device_token_poll(ctx, &realm_id, device_code).await;
         assert_eq!(first_poll.status(), 200, "First token poll should succeed");
 

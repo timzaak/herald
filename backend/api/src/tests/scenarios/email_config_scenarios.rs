@@ -247,6 +247,25 @@ async fn test_scenario_email_config_save_via_batch_upsert(ctx: &mut TestContext)
         "missingFields should be empty after complete batch upsert, got: {:?}",
         missing
     );
+
+    // SMTP/Resend writes are "关键配置变更" (audit PRD): every persisted email
+    // row (including the credential) must leave a `realm_config.update` audit
+    // trail — the non-payment counterpart of `payment_config.update`.
+    let audited_keys: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events
+         WHERE realm_id = $1 AND action = 'realm_config.update'
+           AND details->>'config_type' = 'email'
+           AND details->>'config_key' = ANY($2)",
+    )
+    .bind(&ctx._realm_id)
+    .bind(["provider", "from_address", "resend_api_key"])
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audited_keys, 3,
+        "each batch-upserted email config row must be audited (incl. the API key)"
+    );
 }
 
 // =============================================================================

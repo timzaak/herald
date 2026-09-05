@@ -287,6 +287,20 @@ pub fn validate_invoice_policy_allows_creation(
     Ok(())
 }
 
+/// Whether the provider's external-invoice capability is enabled
+/// (`provider_capabilities.{provider}.externalInvoiceEnabled`). An absent or
+/// malformed entry means enabled — the pre-switch provider_first behaviour.
+/// With the capability off, the provider's resources degrade to manual
+/// fallback (PRD invoice.md §4.3).
+pub fn external_invoice_capability_enabled(config: &InvoicePolicyConfig, provider: &str) -> bool {
+    config
+        .provider_capabilities
+        .get(provider)
+        .and_then(|v| v.get("externalInvoiceEnabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
 // ---------------------------------------------------------------------------
 // Stripe status mapping (pure function)
 // ---------------------------------------------------------------------------

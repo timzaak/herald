@@ -610,6 +610,23 @@ async fn find_or_create_user_by_email(
                     _ => AuthError::InternalServerError(format!("Failed to create user: {}", e)),
                 })?;
 
+            // First-login account creation is a registration for points
+            // purposes (mirrors register.rs; idempotent on
+            // `registration:{user_id}`), so a grant failure must not fail
+            // the OAuth login.
+            if let Err(e) = state
+                .registration_service
+                .handle_user_registration(user.id, realm_id)
+                .await
+            {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    user_id = %user.id,
+                    error = %e,
+                    "OAuth auto-register: failed to grant registration points"
+                );
+            }
+
             Ok(user.id)
         }
         Err(e) => Err(AuthError::InternalServerError(format!(

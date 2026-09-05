@@ -70,7 +70,7 @@
 ### 2.3 依赖项
 
 - **积分系统核心**：复用积分账本、过期时间优先消费分摊、交易记录；将单钱包泛化为多池（见 `docs/prd/billing/points.md`）
-- **订阅与 Entitlement Mapping（`docs/prd/billing/subscription.md`）**：购买对象仍为 Mapping；Mapping 强制归属账户，订阅记录绑定账户作为生命周期回收真源
+- **订阅与 Entitlement Mapping（`docs/prd/billing/subscription.md`）**：购买对象仍为 Mapping；订阅记录绑定账户作为生命周期回收真源（Mapping 的"强制归属唯一账户"已被 [multi-wallet-grant-rules.md](multi-wallet-grant-rules.md) 的 0..N 规则扇出模型取代：发放经 `points_distribution_rules` 按规则路由到 1..N 账户，Mapping 不再绑定单一 bucket）
 - **支付与 Webhook 履约**：复用 checkout、webhook 履约与幂等框架，补充账户路由
 - **Client App 与 API Key 作用域（`docs/prd/integration/client-app.md`）**：消费授权沿用 `client_app_scope` 第一层授权，积分账户覆盖集作为第二层池过滤
 - **用户注册系统**：注册初始积分按 `points_distribution_rules`（`owner_type=realm_registration`，`trigger=registration/free_periodic_grant`）路由到目标账户
@@ -119,7 +119,7 @@
 - 调整某积分账户的覆盖集仅影响后续消费资格，不回收已持有池的余额
 
 **套餐/积分包归属账户**：
-- 可购买套餐/积分包（Entitlement Mapping）**必须归属唯一账户**，创建与编辑时均需显式绑定（必填）；不存在"未归属"态，因此不存在"未归属但存在"的套餐/积分包
+- 可购买套餐/积分包（Entitlement Mapping）的发放目标由 [multi-wallet-grant-rules.md](multi-wallet-grant-rules.md) 的分布规则（0..N 账户扇出）决定；本节"必须归属唯一账户"的历史条款已废止
 - 一个积分账户可归属多个套餐/积分包
 - 积分策略（每次发放量、发放周期、有效期、是否订阅即发等）仍归属 Mapping，不在积分账户上
 - `entitlement_key` 仍是权益业务标识，不作为账户标识

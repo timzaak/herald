@@ -5700,6 +5700,26 @@ impl PointsRepository for PostgresPointsRepository {
                         )));
                     }
                     EventInsertOutcome::InsertedProcessing(event_id) => {
+                        // Free → paid transition (PRD points.md: the free
+                        // window stops immediately when a user buys/renews a
+                        // paid plan; registration credits stay). The first
+                        // run of any subscription_* grant event deactivates
+                        // the user's free-periodic window in the same
+                        // transaction; replays of a completed event skip
+                        // this branch, keeping the deactivation idempotent.
+                        if matches!(
+                            event.trigger,
+                            DistributionTrigger::SubscriptionInitial
+                                | DistributionTrigger::SubscriptionRenewal
+                        ) {
+                            Self::deactivate_free_periodic_results_in_tx(
+                                &mut tx,
+                                &event.realm_id,
+                                event.user_id,
+                                event.effective_from,
+                            )
+                            .await?;
+                        }
                         // First-run branch: resolve rules, validate buckets,
                         // write all results + complete the event in one commit.
                         let results =

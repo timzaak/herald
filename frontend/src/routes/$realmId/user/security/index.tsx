@@ -17,6 +17,7 @@ import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 import {
   passkeyListQueryOptions,
   passkeyStatusQueryOptions,
+  totpStatusQueryOptions,
   userFeatureAvailabilityQueryOptions,
 } from '@/data/query-options'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -44,6 +45,17 @@ export function ProfileSecurity() {
   const { data: userFeatureAvailability } = useQuery(userFeatureAvailabilityQueryOptions)
   const passkeyEnabled = userFeatureAvailability?.user.passkeyEnabled ?? false
   const totpEnabled = userFeatureAvailability?.user.totpEnabled ?? false
+  const totpForceEnabled = userFeatureAvailability?.user.totpForceEnabled ?? false
+
+  // TOTP force-mode guidance (totp PRD §5.2): when the realm forces TOTP and
+  // this user has none configured, surface a prompt pointing at the setup
+  // flow. Guidance only — force mode never blocks login.
+  const { data: totpStatus } = useQuery({
+    ...totpStatusQueryOptions,
+    enabled: totpEnabled && totpForceEnabled,
+  })
+  const showTotpGuidance =
+    totpEnabled && totpForceEnabled && totpStatus !== undefined && !totpStatus.enabled
 
   // Force-mode guidance (passkey PRD §4.1): when the realm forces Passkey and
   // this user has none registered, surface a prompt pointing at the passkey
@@ -85,6 +97,22 @@ export function ProfileSecurity() {
               data-testid="passkey-force-guidance-action"
             >
               {m['profile.passkey_force_banner_action']()}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {showTotpGuidance && (
+        <Alert data-testid="totp-force-guidance">
+          <AlertTitle>{m['profile.totp_force_banner_title']()}</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4">
+            <span>{m['profile.totp_force_banner_description']()}</span>
+            <Button
+              size="sm"
+              onClick={() => navigate({ to: realmPath(realmContext, '/user/security/totp-setup') })}
+              data-testid="totp-force-guidance-action"
+            >
+              {m['profile.totp_force_banner_action']()}
             </Button>
           </AlertDescription>
         </Alert>

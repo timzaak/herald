@@ -200,7 +200,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 支持最大累计积分限制（`max_accumulation`）
 
 **数据安全规则**：
-- API Secret Key 和 Webhook Secret 必须加密存储
+- API Secret Key 和 Webhook Secret 以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - 只在创建和更新时显示完整 Secret，查询时只显示部分掩码
 - 删除支付平台前需检查是否有活跃订阅
 
@@ -216,7 +216,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 |------|---------|------|
 | 查看 Entitlement 映射 | `billing.view` | Realm Admin |
 | 触发 Provider 同步 | `points.manage` | Realm Admin；同步会创建 draft mapping 并绑定 credit bucket，故门控在 points.manage（domain 层另校验 billing.manage） |
-| 更新/禁用映射（single PATCH） | `points.manage` | Realm Admin；写 credit 字段时需 points.manage。batch 更新路径用 `billing.manage` 无条件 + credit 字段附加 `points.manage` |
+| 更新/禁用映射（single PATCH） | `billing.manage`（写 credit 字段时附加 `points.manage`） | Realm Admin；batch 更新路径同为 `billing.manage` 无条件 + credit 字段附加 `points.manage` |
 | 查看/禁用映射（batch 更新） | `billing.manage`（+ credit 字段附加 `points.manage`） | Realm Admin |
 | 查看订阅投影 | `billing.view` | Realm Admin |
 | 管理订阅 | `billing.manage` | Realm Admin |

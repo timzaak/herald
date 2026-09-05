@@ -471,7 +471,7 @@ pub async fn create_credit_bucket_handler(
     request_body = UpdateCreditBucketRequest,
     responses(
         (status = 200, description = "Credit bucket updated", body = BucketDetailResponse),
-        (status = 400, description = "Bad request - empty coverage set, or bucket_orphan_mapping (removing attached mappings is rejected: bucket_id is NOT NULL)", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 400, description = "Bad request - empty coverage set (clientAppIds must contain at least one entry)", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - points.manage required", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "Credit bucket not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),

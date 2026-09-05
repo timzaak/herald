@@ -9,18 +9,15 @@
 // User Story: US-IAP-006 (scheduled reconciliation: Google lifecycle primary
 //             driver / Apple compensation)
 //
-// # Testability boundary (handoff note)
+// # Testability boundary
 //
-// The job builds its Apple / Google HTTP clients internally
-// (`build_apple_client` → `AppleServerApiClient::new`,
-//  `build_google_client` → `GoogleDeveloperClient::new`) using the production
-// base URLs — there is no per-realm base-URL override on the client
-// constructors today. Fully exercising the Apple notification-history and
-// Google lifecycle HTTP paths therefore requires either a real Apple / Google
-// sandbox account or a production-code change to thread a base URL through
-// the client constructors (out of scope for an authoring item).
+// The job supports a per-realm `realm_config.apple.base_url` override (the
+// Stripe/Creem `base_url` injection pattern), so Apple happy-path
+// reconciliation IS drivable against wiremock — see the Apple status-drift
+// test below. Real Apple / Google sandbox accounts are still needed for
+// end-to-end delivery verification.
 //
-// The scenario tests here cover the **structurally testable** contract:
+// The remaining structural contracts covered here:
 //
 //   * job construction + `run()` returns `IapReconciliationStats`;
 //   * a realm with no IAP credentials configured is a no-op for the job
@@ -33,16 +30,13 @@
 //     aborting (the production endpoint is unreachable from the test
 //     sandbox, which is exactly the "single token failure" scenario).
 //
-// Full Apple / Google happy-path reconciliation coverage is delegated to the
-// BE-T02 runner; the handoff flags the missing base-URL override seam.
-//
 // =============================================================================
 
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::iap_mocks::{
         build_service_account_json, fresh_rsa_pem, insert_apple_realm_config,
-        insert_google_realm_config,
+        insert_google_realm_config, test_apple_ec_p8_pem,
     };
     use crate::tests::schema_test_context::SchemaTestContext;
     use herald_core::domain::billing::compensation::WebhookEventProcessor;
@@ -278,7 +272,7 @@ mod tests {
     /// poll fails at the API layer (unreachable), but the sweep returns
     /// `Ok(stats)` and the realm is counted. Structural contract for the
     /// Google lifecycle arm; the voided-purchase and state-change happy
-    /// paths require the base-URL override seam (handoff note).
+    /// paths require a Google base-URL override seam.
     #[test_context(IapReconContext)]
     #[tokio::test]
     async fn test_iap_reconciliation_google_state_change_captured(ctx: &mut IapReconContext) {
@@ -356,6 +350,157 @@ mod tests {
         );
     }
 
+    /// User Story: US-IAP-004 / US-IAP-006 (Apple getAllSubscriptionStatuses
+    /// drift fallback — support-iap §4.2)
+    ///
+    /// A locally-active Apple subscription whose Apple status is Expired must
+    /// be detected as drift and repaired by a TARGETED notification-history
+    /// pull (transactionId filter, onlyFailures=false) replayed through the
+    /// shared reprocess pipeline. The global onlyFailures sweep returns
+    /// nothing — the missed notification was "delivered" per Apple (e.g. the
+    /// webhook returned 200 before a local processing failure), so it is only
+    /// discoverable via the status endpoint. This is exactly the fallback the
+    /// PRD names alongside Notification History.
+    #[test_context(IapReconContext)]
+    #[tokio::test]
+    async fn test_iap_reconciliation_apple_status_drift_targeted_replay(ctx: &mut IapReconContext) {
+        let realm_id = ctx._realm_id.clone();
+        let pool: &PgPool = &ctx.app_state.pool;
+        let client_app_id = uuid::Uuid::parse_str(&ctx._client_app_id).unwrap();
+
+        // wiremock standing in for the App Store Server API (per-realm
+        // apple.base_url override).
+        let server = wiremock::MockServer::start().await;
+
+        // Global notification-history sweep (onlyFailures=true) → nothing.
+        // The drift notification is NOT in this stream: Apple delivered it.
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/inApps/v1/notifications/history"))
+            .and(wiremock::matchers::body_partial_json(serde_json::json!({
+                "onlyFailures": true
+            })))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({ "notificationHistory": [], "hasMore": false }),
+                ),
+            )
+            .mount(&server)
+            .await;
+
+        // Status endpoint: Apple reports the subscription Expired (status=2).
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path(
+                "/inApps/v1/subscriptions/apple-orig-1",
+            ))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "environment": "Sandbox",
+                    "bundleId": "com.herald.test",
+                    "appAppleId": 123,
+                    "data": [{
+                        "subscriptionGroupIdentifier": "70001",
+                        "lastTransactions": [{
+                            "status": 2,
+                            "originalTransactionId": "apple-orig-1"
+                        }]
+                    }]
+                })),
+            )
+            .mount(&server)
+            .await;
+
+        // Targeted history pull for the drifted transaction → the missed
+        // EXPIRED notification to replay.
+        let missed_notification =
+            crate::tests::helpers::iap_mocks::make_apple_jws(&serde_json::json!({
+                "notificationType": "EXPIRED",
+                "notificationUUID": "drift-uuid-1"
+            }));
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/inApps/v1/notifications/history"))
+            .and(wiremock::matchers::body_partial_json(serde_json::json!({
+                "transactionId": "apple-orig-1"
+            })))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "notificationHistory": [{ "signedPayload": missed_notification }],
+                    "hasMore": false
+                })),
+            )
+            .mount(&server)
+            .await;
+
+        // Apple credentials, API base pointed at the wiremock. The `.p8` must
+        // be a parseable EC key: the client signs ES256 JWTs before every
+        // call and panics on malformed keys.
+        insert_apple_realm_config(
+            pool,
+            &realm_id,
+            "com.herald.test",
+            "issuer-test",
+            "key-test",
+            test_apple_ec_p8_pem(),
+            "sandbox",
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, is_secret, enabled, metadata)
+             VALUES ($1, 'apple', 'base_url', $2, false, true, null)
+             ON CONFLICT (realm_id, config_type, config_key)
+             DO UPDATE SET config_value = EXCLUDED.config_value, enabled = true",
+        )
+        .bind(&realm_id)
+        .bind(server.uri())
+        .execute(pool)
+        .await
+        .expect("insert apple base_url override");
+
+        // A subscription Herald still believes is active.
+        seed_apple_subscription(pool, &realm_id, client_app_id, "apple-orig-1", "prod.recon").await;
+
+        let processor = MockProcessor::new();
+        let log = processor.call_log();
+        let job = build_job(ctx, processor);
+
+        let stats = job.run().await.expect("sweep must succeed");
+
+        assert_eq!(
+            stats.apple_status_polled, 1,
+            "the local subscription is polled"
+        );
+        assert_eq!(
+            stats.apple_drift_detected, 1,
+            "local active vs Apple expired is drift"
+        );
+        assert_eq!(
+            stats.apple_drift_replayed, 1,
+            "the targeted pull replays the missed notification"
+        );
+        assert_eq!(
+            stats.apple_failed, 0,
+            "no per-object failures against the wiremock"
+        );
+
+        // Exactly the targeted replay reaches the processor (global sweep was
+        // empty), carrying the raw signedPayload for the shared verify+replay
+        // path.
+        let calls = log.lock().unwrap();
+        let apple_replays: Vec<&ReprocessCallRecord> = calls
+            .iter()
+            .filter(|c| c.payment_provider == "apple")
+            .collect();
+        assert_eq!(
+            apple_replays.len(),
+            1,
+            "only the targeted drift replay reaches the processor"
+        );
+        assert_eq!(
+            apple_replays[0].payload["signedPayload"].as_str(),
+            Some(missed_notification.as_str())
+        );
+        assert_eq!(apple_replays[0].realm_id, realm_id);
+    }
+
     // =========================================================================
     // pay_model — non-renewing / recurring / voided reconciliation
     // =========================================================================
@@ -366,13 +511,13 @@ mod tests {
     /// # HTTP-layer posture (same boundary as the sibling recon tests)
     ///
     /// The job builds its Google client with the production base URL (no
-    /// per-realm override seam today), so the poll is unreachable from the
-    /// §5.5): a non-renewing Google subscription IS picked up by the poll SQL
-    /// (it is in the active-Google-subscriptions set, now that the SELECT
-    /// carries `billing_type`), and the sweep completes Ok (failure isolated).
-    /// The positive EXPIRED→Expired transition is a unit-level behaviour of
-    /// `map_google_subscription_change`; the full store-driven happy-path is
-    /// delegated to the BE-T02 runner once the base-URL override seam exists.
+    /// per-realm override seam today), so the poll fails against the
+    /// unreachable endpoint: a non-renewing Google subscription IS picked up
+    /// by the poll SQL (it is in the active-Google-subscriptions set, now
+    /// that the SELECT carries `billing_type`), and the sweep completes Ok
+    /// (failure isolated). The positive EXPIRED→Expired transition is a
+    /// unit-level behaviour of `map_google_subscription_change`; the full
+    /// store-driven happy-path needs a Google base-URL override seam first.
     #[test_context(IapReconContext)]
     #[tokio::test]
     async fn test_pay_model_recon_google_expired_non_renewing_to_expired(
@@ -675,6 +820,38 @@ mod tests {
 
     /// Create a second test realm (distinct from the default realm in
     /// SchemaTestContext) and return its ID.
+    /// Seed an Apple subscription Herald believes is still alive (the drift
+    /// poll only queries locally-alive statuses).
+    async fn seed_apple_subscription(
+        pool: &PgPool,
+        realm_id: &str,
+        client_app_id: uuid::Uuid,
+        external_subscription_id: &str,
+        external_product_id: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO subscription
+                (id, realm_id, user_id, external_subscription_id, external_product_id,
+                 payment_provider, status, entitlement_key, external_price_id,
+                 provider_metadata, synced_at, current_period_start, current_period_end,
+                 cancel_at_period_end, client_app_id, cancel_at, created_at, updated_at,
+                 billing_type)
+             VALUES ($1, $2, $3, $4, $5,
+                     'apple', 'active', 'recon', NULL,
+                     NULL, NOW(), NOW(), NOW() + INTERVAL '30 days',
+                     false, $6, NULL, NOW(), NOW(), 'recurring')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(realm_id)
+        .bind(uuid::Uuid::now_v7())
+        .bind(external_subscription_id)
+        .bind(external_product_id)
+        .bind(client_app_id)
+        .execute(pool)
+        .await
+        .expect("seed apple subscription");
+    }
+
     async fn create_second_realm(pool: &PgPool) -> String {
         let realm_id = uuid::Uuid::now_v7().to_string();
         sqlx::query(

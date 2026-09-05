@@ -59,6 +59,11 @@ pub struct UserFeatureAvailability {
     /// Whether TOTP is enabled for this realm. Consumed by the user security
     /// page to gate the TOTP tab before any TOTP endpoint is called.
     pub totp_enabled: bool,
+    /// Whether the realm forces TOTP (`force_enabled`). Exposed so the user
+    /// security page can render the "set up TOTP" guidance banner the PRD's
+    /// force mode requires (totp.md §5.2) — force mode never blocks login,
+    /// it only guides.
+    pub totp_force_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -129,7 +134,7 @@ pub async fn get_feature_availability(
     let user_points_visible = points_area_visible(&facts);
     let user_invoices_visible = facts.has_invoice_seller_config;
     let passkey_enabled = read_realm_passkey_enabled(&state, &realm_id).await;
-    let totp_enabled = read_realm_totp_enabled(&state, &realm_id).await;
+    let (totp_enabled, totp_force_enabled) = read_realm_totp_flags(&state, &realm_id).await;
 
     // Realm-level invoice eligibility: reuse the already-loaded seller-config
     // fact so we do not issue a second seller-config query here.
@@ -152,6 +157,7 @@ pub async fn get_feature_availability(
             invoices_visible: user_invoices_visible,
             passkey_enabled,
             totp_enabled,
+            totp_force_enabled,
         },
         facts: FeatureAvailabilityFacts {
             has_payment_providers: facts.has_payment_providers,
@@ -186,7 +192,7 @@ pub async fn get_user_feature_availability(
     let realm_id = identity.realm_id();
     let facts = load_feature_facts(&state, &realm_id).await?;
     let passkey_enabled = read_realm_passkey_enabled(&state, &realm_id).await;
-    let totp_enabled = read_realm_totp_enabled(&state, &realm_id).await;
+    let (totp_enabled, totp_force_enabled) = read_realm_totp_flags(&state, &realm_id).await;
     let invoice_eligibility =
         evaluate_realm_invoice_eligibility(&state, &realm_id, facts.has_invoice_seller_config)
             .await?;
@@ -197,6 +203,7 @@ pub async fn get_user_feature_availability(
             invoices_visible: facts.has_invoice_seller_config,
             passkey_enabled,
             totp_enabled,
+            totp_force_enabled,
         },
         invoice_eligibility,
     }))
@@ -298,32 +305,44 @@ async fn read_realm_passkey_enabled(state: &AppState, realm_id: &str) -> bool {
     }
 }
 
-/// Read the realm's TOTP `enabled` flag from `realm_config`
-/// (`config_type='totp'`, `config_key='settings'`).
+/// Read the realm's TOTP `enabled` and `force_enabled` flags from the single
+/// `realm_config` row (`config_type='totp'`, `config_key='settings'`) in one
+/// query.
 ///
-/// Mirrors the gating logic in `handle_enable_totp` (api-auth) and
-/// `read_realm_passkey_enabled` above. Returns `false` when the config row is
-/// absent or its inner `enabled` flag is missing/false. This is the single
-/// user-visible signal the frontend uses to gate the TOTP tab without relying
-/// on a 404 from a TOTP endpoint.
-async fn read_realm_totp_enabled(state: &AppState, realm_id: &str) -> bool {
-    let row = sqlx::query_as::<_, (String,)>(
-        "SELECT config_value FROM realm_config
-         WHERE realm_id = $1 AND config_type = $2 AND config_key = 'settings' AND enabled = true",
+/// `enabled` mirrors the gating logic in `handle_enable_totp` (api-auth) and
+/// `read_realm_passkey_enabled` above: true only when the config row itself
+/// is enabled and its inner `enabled` flag is true — the single user-visible
+/// signal the frontend uses to gate the TOTP tab. `force_enabled` follows the
+/// repository reader (`get_realm_totp_config`, used by `handle_disable_totp`):
+/// the inner JSON flag alone, regardless of the row-level `enabled` column —
+/// force mode guides but never blocks, so a disabled row still reports force.
+/// Best-effort like the other readers: a query failure never fails feature
+/// availability.
+async fn read_realm_totp_flags(state: &AppState, realm_id: &str) -> (bool, bool) {
+    let row = sqlx::query_as::<_, (bool, String)>(
+        "SELECT enabled, config_value FROM realm_config
+         WHERE realm_id = $1 AND config_type = $2 AND config_key = 'settings'",
     )
     .bind(realm_id)
     .bind(ConfigType::Totp.as_ref())
     .fetch_optional(&state.pool)
     .await;
     match row {
-        Ok(Some((value,))) => serde_json::from_str::<serde_json::Value>(&value)
-            .ok()
-            .and_then(|v| v.get("enabled").and_then(|e| e.as_bool()))
-            .unwrap_or(false),
-        Ok(None) => false,
+        Ok(Some((row_enabled, value))) => {
+            let parsed = serde_json::from_str::<serde_json::Value>(&value).ok();
+            let flag = |key: &str| {
+                parsed
+                    .as_ref()
+                    .and_then(|v| v.get(key))
+                    .and_then(|e| e.as_bool())
+                    .unwrap_or(false)
+            };
+            (row_enabled && flag("enabled"), flag("force_enabled"))
+        }
+        Ok(None) => (false, false),
         Err(e) => {
             tracing::warn!(realm_id = %realm_id, error = %e, "Failed to read totp realm config");
-            false
+            (false, false)
         }
     }
 }

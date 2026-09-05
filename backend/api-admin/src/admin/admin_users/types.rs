@@ -18,7 +18,9 @@ pub struct UserCreateRequest {
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
     pub status: Option<i16>,
-    #[validate(length(min = 1))]
+    // PRD users.md §4.1: the create dialog may submit no role assignment; the
+    // domain layer accepts an empty role set. A min=1 here would force every
+    // admin-created user into a role.
     pub role_ids: Vec<Uuid>,
 }
 

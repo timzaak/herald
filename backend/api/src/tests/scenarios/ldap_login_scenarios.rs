@@ -163,6 +163,19 @@ async fn test_scenario_ldap_login_linked_user_success(ctx: &mut TestContext) {
 async fn test_scenario_ldap_jit_placeholder_email_then_relogin_same_account(ctx: &mut TestContext) {
     enable_ldap(ctx).await;
 
+    // JIT provisioning is a registration for points purposes (points PRD
+    // 注册积分): seed a Registration rule so the grant below is observable.
+    const REGISTRATION_BONUS: i64 = 1000;
+    crate::tests::helpers::points_helpers::seed_realm_registration_rules(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        REGISTRATION_BONUS,
+        None,
+        86400,
+        1,
+    )
+    .await;
+
     let dn = "uid=nomail,dc=example,dc=com";
     let agreements = current_effective_agreements(ctx).await;
     let mock = mock_dir(one_mock_user("nomail", dn, None, "corp-password-2"));
@@ -194,6 +207,20 @@ async fn test_scenario_ldap_jit_placeholder_email_then_relogin_same_account(ctx:
     .await
     .unwrap();
     assert!(consent_count >= 1, "register-as-consent must be recorded");
+
+    // The JIT-created account received the registration credit once.
+    let ledgers = crate::tests::helpers::points_helpers::get_user_ledgers_by_credit_type(
+        ctx,
+        user_id,
+        herald_core::domain::points::entities::CreditType::RegistrationCredit,
+    )
+    .await;
+    assert_eq!(ledgers.len(), 1, "exactly one registration ledger row");
+    assert_eq!(ledgers[0].granted_amount, REGISTRATION_BONUS);
+    assert_eq!(
+        ledgers[0].source_type,
+        herald_core::domain::points::entities::CreditSourceType::Registration
+    );
 
     // Second login → same account id, still exactly one account + one link.
     let resp = ldap_login(ctx, &mock, "nomail", "corp-password-2", None).await;

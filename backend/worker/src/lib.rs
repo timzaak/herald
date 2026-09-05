@@ -19,6 +19,7 @@ use sqlx::PgPool;
 
 pub use jobs::IapReconciliationJob;
 pub use jobs::InvoiceOverdueJob;
+pub use jobs::PaymentAttemptExpiryJob;
 pub use jobs::PaymentEventRetryJob;
 pub use jobs::PointsExpirationJob;
 pub use jobs::PointsQuotaExpirationJob;
@@ -59,7 +60,7 @@ where
 
     /// Optional payment-event retry sweep job. When Some, the job sweeps
     /// `payment_event WHERE processed = false` and re-runs each missed event
-    /// through the `WebhookEventProcessor` (design §5.5.1 / BE-D05). This IS a
+    /// through the `WebhookEventProcessor`. This IS a
     /// correctness boundary: it is the backstop that guarantees a webhook the
     /// API layer failed to process is eventually re-run, so a cancel/expire/
     /// refund can never permanently miss its role revoke.
@@ -68,15 +69,19 @@ where
     /// Interval for the payment-event retry sweep job (in seconds).
     pub payment_event_retry_interval_secs: u64,
 
-    /// Optional IAP reconciliation job (design support-iap §5.7 / BE-D04).
-    /// When Some, the job runs Apple notification-history compensation + Google
+    /// Optional payment-attempt expiry job ([US-PA-004]). When Some, the job
+    /// runs alongside the main background arm closing pending payment attempts
+    /// whose `expires_at` has passed (e.g. unscanned WeChat native QR codes).
+    pub payment_attempt_expiry: Option<Arc<PaymentAttemptExpiryJob>>,
+
+    /// Optional IAP reconciliation job. When Some, the job runs Apple notification-history compensation + Google
     /// lifecycle polling (`subscriptionsv2.get` + `voidedpurchases.list`). The
     /// job carries its own Apple/Google intervals (sized for their lookback
     /// windows); the worker fires it on `iap_reconciliation_interval_secs`.
     pub iap_reconciliation: Option<Arc<IapReconciliationJob>>,
 
     /// Interval for the IAP reconciliation job sweep (seconds). Default 1800
-    /// (30 min) per design A5. The job itself fans out Apple compensation +
+    /// (30 min). The job itself fans out Apple compensation +
     /// Google lifecycle polling per realm.
     pub iap_reconciliation_interval_secs: u64,
 }
@@ -105,8 +110,8 @@ where
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(300);
-        // Default 300s (5 min) — shorter than the 30-min WebhookCompensationJob
-        // (design §5.5.1): this sweep is the reliability backstop for missed
+        // Default 300s (5 min) — shorter than the 30-min WebhookCompensationJob:
+        // this sweep is the reliability backstop for missed
         // payment events, so a tighter cadence limits the revoke-grant gap.
         let payment_event_retry_interval_secs =
             std::env::var("WORKER_PAYMENT_EVENT_RETRY_INTERVAL_SECS")
@@ -114,8 +119,7 @@ where
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(300);
         // Default 1800s (30 min) for Apple compensation, 900s (15 min) for
-        // Google lifecycle polling (design support-iap §5.7 / decision A5).
-        // Both cadences are well within Apple's / Google's event-retention
+        // Google lifecycle polling. Both cadences are well within Apple's / Google's event-retention
         // windows (~30 days).
         let iap_reconciliation_interval_secs =
             std::env::var("WORKER_IAP_RECONCILIATION_INTERVAL_SECS")
@@ -133,6 +137,7 @@ where
             quota_expiration_interval_secs,
             payment_event_retry: None,
             payment_event_retry_interval_secs,
+            payment_attempt_expiry: None,
             iap_reconciliation: None,
             iap_reconciliation_interval_secs,
         }
@@ -151,7 +156,7 @@ where
         self
     }
 
-    /// Attach the payment-event retry sweep job (BE-D05). The job runs on
+    /// Attach the payment-event retry sweep job. The job runs on
     /// `payment_event_retry_interval_secs` (default 300s) and is a correctness
     /// boundary: it guarantees missed payment events are eventually re-run.
     pub fn with_payment_event_retry(mut self, job: Arc<PaymentEventRetryJob>) -> Self {
@@ -159,8 +164,14 @@ where
         self
     }
 
-    /// Attach the IAP reconciliation job (design support-iap §5.7 / BE-D04).
-    /// The worker fires the job on `iap_reconciliation_interval_secs`
+    /// Attach the payment-attempt expiry job ([US-PA-004]). The job runs on
+    /// the main background interval (`expiration_interval_secs`).
+    pub fn with_payment_attempt_expiry(mut self, job: Arc<PaymentAttemptExpiryJob>) -> Self {
+        self.payment_attempt_expiry = Some(job);
+        self
+    }
+
+    /// Attach the IAP reconciliation job. The worker fires the job on `iap_reconciliation_interval_secs`
     /// (default 1800s); the job itself owns its Apple/Google intervals (passed
     /// to `IapReconciliationJob::new`) which size the respective lookback
     /// windows (decision A5).
@@ -205,6 +216,7 @@ where
         let iap_reconciliation = self.config.iap_reconciliation.clone();
         let iap_reconciliation_interval =
             Duration::from_secs(self.config.iap_reconciliation_interval_secs);
+        let payment_attempt_expiry = self.config.payment_attempt_expiry.clone();
 
         let handle = tokio::spawn(async move {
             Self::worker_loop(
@@ -221,6 +233,7 @@ where
                 payment_event_retry_interval,
                 iap_reconciliation,
                 iap_reconciliation_interval,
+                payment_attempt_expiry,
             )
             .await
         });
@@ -243,6 +256,7 @@ where
         payment_event_retry_interval: Duration,
         iap_reconciliation: Option<Arc<IapReconciliationJob>>,
         iap_reconciliation_interval: Duration,
+        payment_attempt_expiry: Option<Arc<PaymentAttemptExpiryJob>>,
     ) {
         info!("Starting worker service");
 
@@ -317,6 +331,20 @@ where
                             tracing::error!(error = %e, "Invoice overdue marking failed");
                         }
                     }
+
+                    // Close expired payment attempts ([US-PA-004]) on the same
+                    // cadence; the per-attempt status guard keeps a
+                    // concurrently-succeeded attempt from being flipped.
+                    if let Some(ref job) = payment_attempt_expiry {
+                        match job.run().await {
+                            Ok(expired) => {
+                                info!(expired, "Payment attempt expiry marking completed");
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "Payment attempt expiry marking failed");
+                            }
+                        }
+                    }
                 }
 
                 _ = compensation_timer.tick(), if compensation_job.is_some() => {
@@ -358,7 +386,7 @@ where
 
                 // Run the payment-event retry sweep on its own schedule.
                 // Correctness boundary — guarantees missed payment events are
-                // eventually re-run (design §5.5.1 / BE-D05).
+                // eventually re-run.
                 _ = payment_event_retry_timer.tick(), if payment_event_retry.is_some() => {
                     if let Some(ref job) = payment_event_retry {
                         match job.run().await {
@@ -377,9 +405,8 @@ where
                     }
                 }
 
-                // Run IAP reconciliation on the Apple cadence (design
-                // support-iap §5.7 / BE-D04). The job fans out Apple
-                // notification-history compensation + Google lifecycle polling
+                // Run IAP reconciliation on its own cadence. The job fans out
+                // Apple notification-history compensation + Google lifecycle polling
                 // (subscriptionsv2.get + voidedpurchases.list) per realm.
                 _ = iap_reconciliation_timer.tick(), if iap_reconciliation.is_some() => {
                     if let Some(ref job) = iap_reconciliation {

@@ -504,7 +504,11 @@ impl EmailService {
                     missing.push("smtp_password".to_string());
                 }
             }
-            _ => {} // unknown provider — already flagged by missing "provider"
+            _ => {
+                // Unknown provider values can never send mail; without this
+                // a typo'd provider would report the realm as configured.
+                missing.push("provider".to_string());
+            }
         }
 
         let configured = missing.is_empty();

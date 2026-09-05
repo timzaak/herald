@@ -377,6 +377,19 @@ where
                 ));
             }
         }
+        // Hierarchy guard (same rule as assign_user_roles): a delegated
+        // roles.manage holder must not mint a privileged builtin role (e.g.
+        // realm-admin, with an attacker-chosen initial password) at
+        // account-creation time either — the created account's roles are a
+        // role grant in every practical sense.
+        require_role_grant_hierarchy(
+            &*self.role_policy_repository,
+            &*self.permission_checker,
+            &identity,
+            realm_id,
+            &request.role_ids,
+        )
+        .await?;
 
         // Check if email already exists
         if self
@@ -2189,6 +2202,7 @@ mod tests {
         update_calls: Arc<AtomicUsize>,
         delete_calls: Arc<AtomicUsize>,
         password_calls: Arc<AtomicUsize>,
+        create_calls: Arc<AtomicUsize>,
     }
     impl AdminUserRepository for MockAdminUserRepo {
         async fn create_user_with_profile(
@@ -2199,6 +2213,7 @@ mod tests {
             _nickname: Option<&str>,
             _status: i32,
         ) -> UserAdminResult<Uuid> {
+            self.create_calls.fetch_add(1, Ordering::SeqCst);
             Ok(Uuid::nil())
         }
         async fn update_user_fields(
@@ -2681,6 +2696,7 @@ mod tests {
             update_calls: counts.update_calls.clone(),
             delete_calls: counts.delete_calls.clone(),
             password_calls: counts.password_calls.clone(),
+            create_calls: Arc::new(AtomicUsize::new(0)),
         };
         let token = MockBrowserTokenService {
             revoke_calls,
@@ -3061,6 +3077,82 @@ mod tests {
             replace_calls.load(Ordering::SeqCst),
             0,
             "no role replacement may run for a cross-realm role id"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_user_with_roles_blocks_privileged_builtin_role_the_caller_cannot_hold() {
+        // Hierarchy guard on the CREATE path: a delegated sub-admin holding
+        // users.manage + roles.manage must not mint a fresh account carrying
+        // the builtin realm-admin role (with an attacker-chosen initial
+        // password). Creation is a role grant in every practical sense, so it
+        // must enforce the same guard as assign_user_roles — the created
+        // user's create-write must never run when the guard denies.
+        let role_id = Uuid::now_v7();
+        let mut realm_admin = role_entity(role_id, "r");
+        realm_admin.name = "realm-admin".to_string();
+
+        let admin_repo = MockAdminUserRepo {
+            row: Arc::new(Mutex::new(None)),
+            update_calls: Arc::new(AtomicUsize::new(0)),
+            delete_calls: Arc::new(AtomicUsize::new(0)),
+            password_calls: Arc::new(AtomicUsize::new(0)),
+            create_calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let create_calls = admin_repo.create_calls.clone();
+        let user_role_repo = MockUserRoleRepo::for_user_realm("r");
+        let grant_calls = user_role_repo.replace_calls.clone();
+        let svc = AdminUserServiceImpl::new(
+            Arc::new(admin_repo),
+            Arc::new(user_role_repo),
+            Arc::new(MockRolePolicyRepo {
+                roles: vec![realm_admin],
+                // realm-admin grants policies.manage, which the delegated
+                // caller (users.manage + roles.manage only) does NOT hold.
+                policies: vec![(role_id, "policies".to_string(), "manage".to_string())],
+            }),
+            Arc::new(SelectivePermission {
+                allowed: vec![("users", "manage"), ("roles", "manage")],
+            }),
+            Arc::new(MockAuditRepo),
+            Arc::new(MockBrowserTokenService {
+                revoke_calls: Arc::new(AtomicUsize::new(0)),
+                revoke_err: None,
+            }),
+        );
+
+        let res = svc
+            .create_user_with_roles(
+                admin_identity("r"),
+                audit_ctx(),
+                "r",
+                CreateUserWithRolesRequest {
+                    email: "fresh@example.com".to_string(),
+                    password: "password123".to_string(),
+                    nickname: None,
+                    role_ids: vec![role_id],
+                    status: None,
+                },
+            )
+            .await;
+        match res {
+            Err(UserAdminError::PermissionDenied(msg)) => {
+                assert!(
+                    msg.contains("permission you do not hold"),
+                    "unexpected deny message: {msg}"
+                );
+            }
+            other => panic!("expected PermissionDenied, got {:?}", other),
+        }
+        assert_eq!(
+            create_calls.load(Ordering::SeqCst),
+            0,
+            "no account row may be created when the hierarchy guard denies"
+        );
+        assert_eq!(
+            grant_calls.load(Ordering::SeqCst),
+            0,
+            "no role grant may run when the hierarchy guard denies"
         );
     }
 

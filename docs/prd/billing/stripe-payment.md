@@ -86,7 +86,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 4.1 业务规则
 
-- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，用于验证）
+- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，仅作配置记录，当前不参与验签——验签以 webhook_secret 为准）
   - **配置项差异说明**：Account ID 未作为独立 config_key 实现；Environment（test/live）由 API Key 前缀自动决定（`sk_test_*` / `sk_live_*`）；Webhook Endpoint URL 由 `public_base_url` 动态拼接，不作为独立配置项
 - **凭据存储**：凭据以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - **密钥脱敏**：Secret Key 查看时显示脱敏信息
@@ -98,7 +98,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 ### 4.2 关键状态与异常
 
 - **支付失败处理**：返回用户友好的错误信息，支持支付重试（针对临时性错误），记录所有支付失败事件
-- **Webhook 重试**：代码未实现自动重试机制，依赖 Stripe 自身重试发送策略（已知设计决策）
+- **Webhook 重试**：除依赖 Stripe 自身的重试发送策略外，代码对进程内处理实行最多 3 次的瞬态重试（`MAX_ATTEMPTS = 3`）；非瞬态失败仍依赖 Stripe 重发与补偿框架
 - **安全约束**：API Key 不得暴露给前端（仅 Publishable Key 可暴露）；Webhook 端点必须验证 Stripe Signature；所有支付操作必须通过 HTTPS；支付敏感信息不得存储在本地数据库；所有支付操作必须记录审计日志
 - **Webhook 签名验证**：使用 HMAC-SHA256 验证，签名格式为 `stripe-signature` 头中的 `t=...,v1=...`；包含时间戳重放攻击防护（15 分钟窗口，即 900 秒），拒绝过旧或未来时间戳的请求
 
@@ -155,7 +155,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 - Stripe 支付用户体验在第三方应用中完成，Herald 只负责配置管理和 Webhook 处理
 - Stripe 与 Creem 作为支付平台选项并列存在
 - 复用通用支付平台配置系统
-- Webhook 处理失败不自动重试，依赖 Stripe 自身重试发送策略
+- Webhook 处理失败时有进程内 3 次瞬态重试；仍失败则依赖 Stripe 自身重试发送策略
 
 ### 8.2 与实现已知差异
 

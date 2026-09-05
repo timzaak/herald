@@ -818,6 +818,22 @@ async fn resolve_by_email_or_provision(
 
     record_register_consent(state, created.id, realm_id, &email, agreements).await;
 
+    // JIT-provisioned accounts receive registration credits like any other
+    // self-service signup (idempotent on `registration:{user_id}`); a grant
+    // failure must not fail an otherwise-successful first login.
+    if let Err(e) = state
+        .registration_service
+        .handle_user_registration(created.id, realm_id)
+        .await
+    {
+        tracing::error!(
+            realm_id = %realm_id,
+            user_id = %created.id,
+            error = %e,
+            "LDAP JIT: failed to grant registration points"
+        );
+    }
+
     let user = state
         .user_repository
         .get_user_by_id(created.id)

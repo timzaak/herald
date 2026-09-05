@@ -1,21 +1,20 @@
-//! Apple `SignedDataVerifier` wrapper (design §5.1).
+//! Apple `SignedDataVerifier` wrapper.
 //!
 //! Wraps [`app_store_server_library::signed_data_verifier::SignedDataVerifier`]
 //! with Herald defaults: the bundled Apple Root CA - G3 as the trust anchor and
 //! an explicit OCSP-off posture.
 //!
-//! ## OCSP posture (design deviation note)
+//! ## OCSP posture
 //!
-//! Design §5.1 assumes the upstream verifier performs OCSP and that we must
-//! explicitly disable it. The actual `app-store-server-library` 4.3.0 crates
-//! OCSP behind a **non-default `ocsp` cargo feature** (see its `Cargo.toml`):
-//! with the feature disabled (the default, and the configuration this crate
-//! uses — see `infra-iap/Cargo.toml`) verification is purely offline and the
+//! The `app-store-server-library` 4.3.0 crates OCSP behind a **non-default
+//! `ocsp` cargo feature** (see its `Cargo.toml`): with the feature disabled
+//! (the default, and the configuration this crate uses — see
+//! `infra-iap/Cargo.toml`) verification is purely offline and the
 //! `SignedDataVerifier::new` constructor takes no OCSP flag at all. The
-//! security posture described in the design (trust-anchor self-managed, OCSP
-//! not consulted) is therefore achieved simply by not enabling the `ocsp`
-//! feature. This file documents that fact where the design expected a runtime
-//! knob to exist; no behaviour is lost.
+//! intended security posture (trust-anchor self-managed, OCSP not consulted)
+//! is therefore achieved simply by not enabling the `ocsp` feature. This file
+//! documents that fact where a runtime knob was expected to exist; no
+//! behaviour is lost.
 
 use crate::apple::models::{
     Environment, JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload,
@@ -25,7 +24,7 @@ use app_store_server_library::signed_data_verifier::{SignedDataVerifier, SignedD
 use std::sync::Arc;
 
 /// Apple Root CA - G3, downloaded from the Apple PKI Portal and bundled with
-/// the crate as the JWS verification trust anchor (design §1.4 / §5.1, A4).
+/// the crate as the JWS verification trust anchor.
 ///
 /// Update flow (operations, not implemented here): download a fresh copy from
 /// <https://www.apple.com/certificateauthority/>, replace this file, open a PR.
@@ -107,6 +106,20 @@ impl AppleVerifier {
             .verify_and_decode_notification(signed_payload)
             .map_err(map_verifier_error)
     }
+
+    /// Verify and decode a notification's `data.signedRenewalInfo` JWS.
+    ///
+    /// Renewal info carries the auto-renew flag and the grace-period
+    /// expiration that lifecycle notifications (DID_FAIL_TO_RENEW,
+    /// DID_CHANGE_RENEWAL_STATUS) act on.
+    pub fn verify_signed_renewal_info(
+        &self,
+        signed_renewal_info: &str,
+    ) -> Result<crate::apple::models::JWSRenewalInfoDecodedPayload, IapError> {
+        self.inner
+            .verify_and_decode_renewal_info(signed_renewal_info)
+            .map_err(map_verifier_error)
+    }
 }
 
 /// Flatten the upstream's verbose error enum into a single string-bearing
@@ -120,7 +133,7 @@ fn map_verifier_error(err: SignedDataVerifierError) -> IapError {
 
 #[cfg(test)]
 mod tests {
-    //! Apple verifier three-state coverage (design §6.1).
+    //! Apple verifier three-state coverage.
     //!
     //! The upstream `SignedDataVerifier` is built around Apple's real ES256 +
     //! x5c certificate chain. Reconstructing a valid cryptographic chain inside

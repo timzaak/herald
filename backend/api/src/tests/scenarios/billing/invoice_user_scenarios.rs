@@ -166,7 +166,7 @@ mod tests {
         let pa_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO payment_attempts (id, realm_id, user_id, payment_provider, target_type, target_id, amount, currency, status, expires_at)
-             VALUES ($1, $2, $3, 'stripe', 'entitlement_mapping', $4, 5000, 'USD', 'Succeeded', NOW() + interval '1 hour')"
+             VALUES ($1, $2, $3, 'wechat', 'entitlement_mapping', $4, 5000, 'USD', 'Succeeded', NOW() + interval '1 hour')"
         )
         .bind(pa_id)
         .bind(realm_id)
@@ -187,7 +187,7 @@ mod tests {
         let sub_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO subscription (id, realm_id, external_subscription_id, external_product_id, payment_provider, status, entitlement_key, user_id, created_at, updated_at, billing_type)
-             VALUES ($1, $2, $3, $4, 'stripe', 'active', 'pro', $5, NOW(), NOW(), 'recurring')"
+             VALUES ($1, $2, $3, $4, 'wechat', 'active', 'pro', $5, NOW(), NOW(), 'recurring')"
         )
         .bind(sub_id)
         .bind(realm_id)

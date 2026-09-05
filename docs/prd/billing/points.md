@@ -213,7 +213,7 @@
 - 订阅续费：授予 subscription_credit 配额权益
 - 订阅升级：撤销旧套餐 subscription_credit 配额权益，授予新套餐 subscription_credit 配额权益
 - 直接充值购买：发放 topup_credit
-- 用户注册：发放 registration_credit，并授予 free_periodic_credit 配额权益
+- 用户注册：发放 registration_credit，并授予 free_periodic_credit 配额权益。覆盖所有自助注册入口——密码注册（含邮箱验证确认）、邮箱验证码自动注册、LDAP JIT 开通、OAuth 首次登录建号；以 `registration:{user_id}` 幂等键保证每用户仅一次。管理员建号与平台开通建号（初始 Realm 管理员）不发注册积分
 - 免费用户：按 realm default 的多时间窗滚动配额授予 free_periodic_credit 配额权益
 
 **退款积分回收**：

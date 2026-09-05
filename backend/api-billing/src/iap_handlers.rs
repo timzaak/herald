@@ -35,6 +35,10 @@ use herald_api_base::application::http::common::auth_utils::{
 use herald_api_base::application::http::common::error_helpers::core_error_to_api_error;
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::audit::{
+    ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
+    NewAuditEvent,
+};
 use herald_core::domain::authentication::{CredentialScope, Identity, TokenCredentialContext};
 use herald_core::domain::billing::BillingRepository;
 use herald_core::domain::billing::entities::{BillingType, PaymentEvent, SubscriptionStatus};
@@ -314,6 +318,75 @@ async fn record_idempotent_payment_event(
         .await;
 }
 
+/// Best-effort IAP operation audit (PRD support-iap.md §5.2: all IAP purchase /
+/// fulfillment / lifecycle operations are audited). An audit write failure
+/// never fails the payment path.
+async fn record_iap_audit(
+    state: &AppState,
+    realm_id: &str,
+    action: AuditAction,
+    actor_id: Option<String>,
+    actor_type: Option<ActorType>,
+    target_id: String,
+    details: serde_json::Value,
+) {
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Billing,
+            action,
+            actor_id: actor_id.unwrap_or_else(|| "system".to_string()),
+            actor_type,
+            actor_name: None,
+            target_type: AuditTargetType::Payment,
+            target_id,
+            target_name: None,
+            result: AuditResult::Success,
+            details: Some(details),
+            ip_address: None,
+            user_agent: None,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to record IAP audit event");
+    }
+}
+
+/// Stable string form of an Apple V2 notification type — used both in
+/// synthetic idempotency keys and in event/audit details. Falls back to a
+/// literal `"UNKNOWN"` marker when serde cannot serialize the enum.
+fn apple_notification_type_str(
+    notification_type: &herald_infra_iap::apple::models::NotificationTypeV2,
+) -> String {
+    serde_json::to_string(notification_type).unwrap_or_else(|_| "\"UNKNOWN\"".to_string())
+}
+
+/// Shared idempotency probe for Apple lifecycle notifications: true when a
+/// payment event with this synthetic external id already exists, meaning the
+/// notification was already processed and the caller must skip
+/// re-fulfillment.
+async fn apple_event_already_processed(
+    state: &AppState,
+    realm_id: &str,
+    synthetic_event_id: &str,
+) -> Result<bool, CoreError> {
+    let already = state
+        .billing_repository
+        .find_payment_event_by_external_id(realm_id, synthetic_event_id, "apple")
+        .await?
+        .is_some();
+    if already {
+        tracing::info!(
+            realm_id = %realm_id,
+            external_id = %synthetic_event_id,
+            "apple notification already processed -- skipping"
+        );
+    }
+    Ok(already)
+}
+
 // ============================================================================
 // ============================================================================
 
@@ -356,7 +429,9 @@ pub async fn submit_iap_receipt(
     // Steps 1-2: resolve the entitlement mapping. `resolve_entitlement_mapping`
     // is the existing price-aware resolver; IAP is price-less (external_price_id
     // = None, no metadata key), so it falls through to the single-row
-    // (provider, product) lookup. Missing/disabled → 404 no_mapping.
+    // (provider, product) lookup. Missing → 404 no_mapping; disabled → 409
+    // mapping_disabled (the client surface must not submit purchases against
+    // a disabled product; server notifications keep the projection-only path).
     let resolved = resolve_entitlement_mapping(
         &state,
         &realm_id,
@@ -367,6 +442,11 @@ pub async fn submit_iap_receipt(
     )
     .await
     .map_err(|e| ApiError::not_found(format!("no_mapping: {e}")))?;
+    if !resolved.mapping.enabled {
+        return Err(ApiError::conflict(
+            "mapping_disabled: this product mapping is disabled".to_string(),
+        ));
+    }
 
     // The receipt is verified against `input.product_id`, so the fulfilled
     // mapping must be the one that product resolved to. The client-supplied
@@ -604,6 +684,22 @@ pub async fn submit_iap_receipt(
         }
     };
 
+    record_iap_audit(
+        &state,
+        &realm_id,
+        AuditAction::IapReceiptSubmit,
+        Some(user_id.to_string()),
+        Some(ActorType::User),
+        attempt.id.to_string(),
+        serde_json::json!({
+            "provider": input.provider,
+            "productId": input.product_id,
+            "billingType": billing_type_str,
+            "status": status,
+        }),
+    )
+    .await;
+
     Ok(Json(IapReceiptResponse {
         attempt_id: attempt.id,
         status: status.to_string(),
@@ -795,6 +891,25 @@ async fn process_apple_notification(
         .verify_signed_transaction(signed_txn)
         .map_err(iap_error_to_core_error)?;
 
+    process_apple_notification_decoded(state, realm_id, &verifier, &notification, &txn).await
+}
+
+/// Post-verification core of [`process_apple_notification`]: everything after
+/// the JWS chain check (mapping resolution, lifecycle dispatch, subscription
+/// projection, points grants, idempotency).
+///
+/// The verify-decode step lives in the caller so tests can drive the full
+/// lifecycle behaviour against a real database with decoded payloads instead
+/// of forging an Apple-trusted JWS chain — the cryptographic layer stays
+/// covered by the `infra-iap` verifier unit tests, and this function is the
+/// seam the HTTP-layer happy-path scenario tests call directly.
+pub async fn process_apple_notification_decoded(
+    state: &AppState,
+    realm_id: &str,
+    verifier: &AppleVerifier,
+    notification: &herald_infra_iap::apple::models::ResponseBodyV2DecodedPayload,
+    txn: &herald_infra_iap::apple::models::JWSTransactionDecodedPayload,
+) -> Result<(), CoreError> {
     let product_id = txn.product_id.clone().ok_or_else(|| {
         CoreError::BadRequest("apple notification transaction missing productId".to_string())
     })?;
@@ -807,7 +922,7 @@ async fn process_apple_notification(
     let resolved = resolve_entitlement_mapping(state, realm_id, "apple", &product_id, None, None)
         .await
         .map_err(|e| CoreError::BadRequest(e.to_string()))?;
-    let billing_type = resolved.mapping.billing_type.ok_or_else(|| {
+    let billing_type = resolved.mapping.billing_type.clone().ok_or_else(|| {
         CoreError::BadRequest(format!(
             "apple mapping '{}' has no billing_type",
             resolved.mapping.id
@@ -819,8 +934,9 @@ async fn process_apple_notification(
     // idempotency on `{originalTransactionId}:{notificationType}` so they are
     // NOT deduped against (and do NOT dedupe) the original purchase event.
     use herald_infra_iap::apple::models::NotificationTypeV2;
+    let notification_type = notification.notification_type.clone();
     if matches!(
-        notification.notification_type,
+        notification_type,
         NotificationTypeV2::Refund | NotificationTypeV2::Revoke
     ) {
         return process_apple_refund_or_revoke(
@@ -828,10 +944,67 @@ async fn process_apple_notification(
             realm_id,
             &original_transaction_id,
             &billing_type,
-            &notification.notification_type,
+            &notification_type,
             &product_id,
         )
         .await;
+    }
+
+    // Lifecycle notifications (PRD support-iap.md §3.2/§5.1: Apple server
+    // notifications drive renewal / cancellation / expiry). They MUST be
+    // dispatched before the first-purchase idempotency skip below, which
+    // would otherwise swallow every post-purchase notification against the
+    // original purchase's payment_event.
+    match notification_type {
+        NotificationTypeV2::DidRenew => {
+            return process_apple_renewal(
+                state,
+                realm_id,
+                notification,
+                txn,
+                &resolved.mapping,
+                &billing_type,
+                &original_transaction_id,
+                &product_id,
+            )
+            .await;
+        }
+        NotificationTypeV2::Expired | NotificationTypeV2::GracePeriodExpired => {
+            return process_apple_expiration(
+                state,
+                realm_id,
+                notification,
+                &original_transaction_id,
+                &product_id,
+            )
+            .await;
+        }
+        NotificationTypeV2::DidFailToRenew => {
+            return process_apple_renewal_failure(
+                state,
+                realm_id,
+                verifier,
+                notification,
+                &original_transaction_id,
+                &product_id,
+            )
+            .await;
+        }
+        NotificationTypeV2::DidChangeRenewalStatus => {
+            return process_apple_renewal_status_change(
+                state,
+                realm_id,
+                verifier,
+                notification,
+                &original_transaction_id,
+                &product_id,
+            )
+            .await;
+        }
+        // Subscribed / one-time events and informational notifications fall
+        // through to the first-purchase path below (which idempotency-skips
+        // already-processed originals).
+        _ => {}
     }
 
     // Idempotency: payment_event keyed by originalTransactionId.
@@ -900,8 +1073,7 @@ async fn process_apple_notification(
     .await?;
 
     // Record payment_event for idempotency (best-effort).
-    let notification_type_str = serde_json::to_string(&notification.notification_type)
-        .unwrap_or_else(|_| "\"UNKNOWN\"".to_string());
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
     record_idempotent_payment_event(
         state,
         realm_id,
@@ -911,6 +1083,22 @@ async fn process_apple_notification(
         serde_json::json!({
             "notificationType": notification_type_str,
             "productId": product_id,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "outcome": "purchase_fulfilled",
         }),
     )
     .await;
@@ -937,25 +1125,13 @@ async fn process_apple_refund_or_revoke(
     notification_type: &herald_infra_iap::apple::models::NotificationTypeV2,
     product_id: &str,
 ) -> Result<(), CoreError> {
-    let notification_type_str =
-        serde_json::to_string(notification_type).unwrap_or_else(|_| "\"UNKNOWN\"".to_string());
+    let notification_type_str = apple_notification_type_str(notification_type);
 
     // Idempotency on a per-notification-type key so a replay of this REFUND /
     // REVOKE is a no-op, AND so it does not collide with the original purchase
     // event (which is keyed on the bare originalTransactionId).
     let synthetic_event_id = format!("apple:{original_transaction_id}:{notification_type_str}");
-    if state
-        .billing_repository
-        .find_payment_event_by_external_id(realm_id, &synthetic_event_id, "apple")
-        .await?
-        .is_some()
-    {
-        tracing::info!(
-            realm_id = %realm_id,
-            original_transaction_id = %original_transaction_id,
-            notification_type = %notification_type_str,
-            "apple REFUND/REVOKE already processed -- skipping"
-        );
+    if apple_event_already_processed(state, realm_id, &synthetic_event_id).await? {
         return Ok(());
     }
 
@@ -1129,6 +1305,635 @@ async fn process_apple_refund_or_revoke(
             "notificationType": notification_type_str,
             "productId": product_id,
             "originalTransactionId": original_transaction_id,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "outcome": "refund_or_revoke",
+        }),
+    )
+    .await;
+
+    Ok(())
+}
+
+/// Load the Apple subscription for a lifecycle notification, enforcing the
+/// realm boundary. Returns `Ok(None)` after recording the idempotency event
+/// when no subscription exists in this realm (a lifecycle event for a
+/// purchase Herald never fulfilled must not error the webhook — Apple would
+/// only retry the same dead payload).
+async fn apple_subscription_for_lifecycle(
+    state: &AppState,
+    realm_id: &str,
+    original_transaction_id: &str,
+    synthetic_event_id: &str,
+    notification_type_str: &str,
+    product_id: &str,
+    outcome: &str,
+) -> Result<Option<herald_core::domain::billing::entities::Subscription>, CoreError> {
+    let subscription = state
+        .billing_repository
+        .find_by_external_subscription_id(original_transaction_id, "apple")
+        .await?;
+    match subscription {
+        Some(sub) if sub.realm_id == realm_id => Ok(Some(sub)),
+        other => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                notification_type = %notification_type_str,
+                found_realm_id = ?other.map(|s| s.realm_id),
+                "apple lifecycle notification: no matching subscription in realm — skipping"
+            );
+            record_idempotent_payment_event(
+                state,
+                realm_id,
+                synthetic_event_id,
+                "apple",
+                format!("apple_{notification_type_str}"),
+                serde_json::json!({
+                    "notificationType": notification_type_str,
+                    "productId": product_id,
+                    "originalTransactionId": original_transaction_id,
+                    "outcome": outcome,
+                }),
+            )
+            .await;
+            Ok(None)
+        }
+    }
+}
+
+/// DID_RENEW — advance the subscription period and grant the renewal points
+/// through the same `handle_subscription_paid(is_renewal=true)` path the
+/// Stripe invoice.payment_succeeded handler uses. The renewal period comes
+/// from the signed transaction itself (`purchaseDate` → `expiresDate`), so
+/// the grant's period-anchored event key is stable across replays.
+///
+/// Idempotency: keyed on the renewal's own `transactionId` (unique per
+/// renewal), not the bare originalTransactionId, so successive renewals each
+/// fulfill exactly once while notification replays no-op.
+#[allow(clippy::too_many_arguments)]
+async fn process_apple_renewal(
+    state: &AppState,
+    realm_id: &str,
+    notification: &herald_infra_iap::apple::models::ResponseBodyV2DecodedPayload,
+    txn: &herald_infra_iap::apple::models::JWSTransactionDecodedPayload,
+    mapping: &herald_core::domain::billing::entities::EntitlementMapping,
+    billing_type: &BillingType,
+    original_transaction_id: &str,
+    product_id: &str,
+) -> Result<(), CoreError> {
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
+
+    if billing_type != &BillingType::Recurring {
+        // Renewal notifications only exist for auto-renewable subscriptions;
+        // any other mapping shape is a provider/model mismatch — record and
+        // stop rather than fulfilling through the wrong billing shape.
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            billing_type = ?billing_type,
+            "apple DID_RENEW for non-recurring mapping — skipping renewal fulfillment"
+        );
+        record_idempotent_payment_event(
+            state,
+            realm_id,
+            &format!("apple:{original_transaction_id}:{notification_type_str}"),
+            "apple",
+            format!("apple_{notification_type_str}"),
+            serde_json::json!({
+                "notificationType": notification_type_str,
+                "productId": product_id,
+                "outcome": "non_recurring_mapping",
+            }),
+        )
+        .await;
+        return Ok(());
+    }
+
+    // A renewal transaction carries its own transactionId; fall back to the
+    // original only for degenerate Apple payloads (keeps the key well-defined).
+    let transaction_id = txn
+        .transaction_id
+        .clone()
+        .unwrap_or_else(|| original_transaction_id.to_string());
+    let synthetic_event_id = format!("apple:{original_transaction_id}:renew:{transaction_id}");
+    if apple_event_already_processed(state, realm_id, &synthetic_event_id).await? {
+        return Ok(());
+    }
+
+    let Some(mut subscription) = apple_subscription_for_lifecycle(
+        state,
+        realm_id,
+        original_transaction_id,
+        &synthetic_event_id,
+        &notification_type_str,
+        product_id,
+        "no_subscription",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let period_end = txn.expires_date.ok_or_else(|| {
+        CoreError::BadRequest("apple DID_RENEW transaction missing expiresDate".to_string())
+    })?;
+    let period_start = txn.purchase_date.ok_or_else(|| {
+        CoreError::BadRequest("apple DID_RENEW transaction missing purchaseDate".to_string())
+    })?;
+    if period_start >= period_end {
+        return Err(CoreError::BadRequest(
+            "apple DID_RENEW transaction has a degenerate (start >= end) period".to_string(),
+        ));
+    }
+
+    let user_id = subscription.user_id;
+    subscription.status = SubscriptionStatus::Active;
+    subscription.current_period_start = Some(period_start);
+    subscription.current_period_end = Some(period_end);
+    subscription.cancel_at_period_end = false;
+    subscription.cancel_at = None;
+    subscription.synced_at = Some(Utc::now());
+    subscription.updated_at = Utc::now();
+    let subscription_id = subscription.id;
+    if let Err(e) = state
+        .billing_repository
+        .update_subscription(subscription)
+        .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            subscription_id = %subscription_id,
+            error = %e,
+            "apple DID_RENEW: failed to advance subscription period (best-effort; grant continues)"
+        );
+    }
+
+    // Disabled mapping: the projection above already landed; per PRD
+    // support-iap §4.1 a disabled mapping must not grant points or roles —
+    // re-enabling resumes grants at the next renewal.
+    if !mapping.enabled {
+        tracing::info!(
+            realm_id = %realm_id,
+            subscription_id = %subscription_id,
+            original_transaction_id = %original_transaction_id,
+            "apple DID_RENEW for disabled mapping — projection advanced, grants skipped"
+        );
+        record_idempotent_payment_event(
+            state,
+            realm_id,
+            &synthetic_event_id,
+            "apple",
+            format!("apple_{notification_type_str}"),
+            serde_json::json!({
+                "notificationType": notification_type_str,
+                "productId": product_id,
+                "originalTransactionId": original_transaction_id,
+                "transactionId": transaction_id,
+                "outcome": "mapping_disabled",
+            }),
+        )
+        .await;
+        return Ok(());
+    }
+
+    state
+        .subscription_service
+        .handle_subscription_paid(
+            user_id,
+            subscription_id,
+            realm_id,
+            mapping,
+            true,
+            period_start,
+            period_end,
+            notification.notification_uuid.clone(),
+        )
+        .await?;
+
+    tracing::info!(
+        realm_id = %realm_id,
+        user_id = %user_id,
+        subscription_id = %subscription_id,
+        original_transaction_id = %original_transaction_id,
+        transaction_id = %transaction_id,
+        period_start = %period_start,
+        period_end = %period_end,
+        "apple DID_RENEW: subscription renewed and renewal grant executed"
+    );
+
+    record_idempotent_payment_event(
+        state,
+        realm_id,
+        &synthetic_event_id,
+        "apple",
+        format!("apple_{notification_type_str}"),
+        serde_json::json!({
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "originalTransactionId": original_transaction_id,
+            "transactionId": transaction_id,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "transactionId": transaction_id,
+            "outcome": "renewed",
+        }),
+    )
+    .await;
+
+    Ok(())
+}
+
+/// EXPIRED / GRACE_PERIOD_EXPIRED — the subscription no longer grants
+/// access. Marks the subscription Expired and routes the same
+/// immediate-cancel revocation the Stripe customer.subscription.deleted
+/// handler uses (revoke subscription-sourced points + payment roles).
+async fn process_apple_expiration(
+    state: &AppState,
+    realm_id: &str,
+    notification: &herald_infra_iap::apple::models::ResponseBodyV2DecodedPayload,
+    original_transaction_id: &str,
+    product_id: &str,
+) -> Result<(), CoreError> {
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
+    let synthetic_event_id = format!("apple:{original_transaction_id}:{notification_type_str}");
+    if apple_event_already_processed(state, realm_id, &synthetic_event_id).await? {
+        return Ok(());
+    }
+
+    let Some(mut subscription) = apple_subscription_for_lifecycle(
+        state,
+        realm_id,
+        original_transaction_id,
+        &synthetic_event_id,
+        &notification_type_str,
+        product_id,
+        "no_subscription",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let user_id = subscription.user_id;
+    let subscription_id = subscription.id;
+    let entitlement_key = subscription.entitlement_key.clone();
+
+    if subscription.status != SubscriptionStatus::Expired {
+        subscription.status = SubscriptionStatus::Expired;
+        subscription.synced_at = Some(Utc::now());
+        subscription.updated_at = Utc::now();
+        if let Err(e) = state
+            .billing_repository
+            .update_subscription(subscription)
+            .await
+        {
+            tracing::warn!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                error = %e,
+                "apple expiration: failed to mark subscription Expired"
+            );
+        }
+    }
+
+    state
+        .subscription_service
+        .handle_subscription_cancel(
+            user_id,
+            realm_id,
+            subscription_id,
+            herald_core::domain::points::subscription_service::CancelMode::ImmediateCancel,
+            None,
+            Some(&entitlement_key),
+        )
+        .await?;
+
+    record_idempotent_payment_event(
+        state,
+        realm_id,
+        &synthetic_event_id,
+        "apple",
+        format!("apple_{notification_type_str}"),
+        serde_json::json!({
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "originalTransactionId": original_transaction_id,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "outcome": "expired",
+        }),
+    )
+    .await;
+
+    Ok(())
+}
+
+/// DID_FAIL_TO_RENEW — a renewal charge failed. With the GRACE_PERIOD subtype
+/// Apple keeps granting access until the grace expiration (carried on the
+/// verified renewal info): the period end is stretched to that date while the
+/// subscription stays Active. Without grace (BILLING_RETRY) the subscription
+/// moves to PastDue with no revoke — mirroring the Stripe payment_failed
+/// posture (recovery flows through DID_RENEW, final failure through EXPIRED).
+#[allow(clippy::too_many_arguments)]
+async fn process_apple_renewal_failure(
+    state: &AppState,
+    realm_id: &str,
+    verifier: &AppleVerifier,
+    notification: &herald_infra_iap::apple::models::ResponseBodyV2DecodedPayload,
+    original_transaction_id: &str,
+    product_id: &str,
+) -> Result<(), CoreError> {
+    use herald_infra_iap::apple::models::Subtype;
+
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
+    let in_grace = notification.subtype == Some(Subtype::GracePeriod);
+    // A billing-retry sequence may fire several times; key on the state
+    // transition (grace vs retry) so repeats are deduped but a later
+    // transition still lands.
+    let outcome = if in_grace {
+        "grace_period"
+    } else {
+        "billing_retry"
+    };
+    let synthetic_event_id =
+        format!("apple:{original_transaction_id}:{notification_type_str}:{outcome}");
+    if apple_event_already_processed(state, realm_id, &synthetic_event_id).await? {
+        return Ok(());
+    }
+
+    let Some(mut subscription) = apple_subscription_for_lifecycle(
+        state,
+        realm_id,
+        original_transaction_id,
+        &synthetic_event_id,
+        &notification_type_str,
+        product_id,
+        "no_subscription",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    if in_grace {
+        // Verified renewal info carries the grace expiration. Absent info or
+        // a verification failure leaves the current period untouched (fail
+        // closed on data, not on access).
+        let signed_renewal_info = notification
+            .data
+            .as_ref()
+            .and_then(|d| d.signed_renewal_info.as_deref());
+        let grace_until = match signed_renewal_info {
+            Some(jws) => {
+                verifier
+                    .verify_signed_renewal_info(jws)
+                    .map_err(iap_error_to_core_error)?
+                    .grace_period_expires_date
+            }
+            None => None,
+        };
+        if let Some(grace_until) = grace_until {
+            if subscription
+                .current_period_end
+                .is_none_or(|end| end < grace_until)
+            {
+                subscription.current_period_end = Some(grace_until);
+                subscription.synced_at = Some(Utc::now());
+                subscription.updated_at = Utc::now();
+                if let Err(e) = state
+                    .billing_repository
+                    .update_subscription(subscription)
+                    .await
+                {
+                    tracing::warn!(
+                        realm_id = %realm_id,
+                        original_transaction_id = %original_transaction_id,
+                        error = %e,
+                        "apple grace period: failed to extend period end"
+                    );
+                }
+            }
+            tracing::info!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                grace_until = %grace_until,
+                "apple DID_FAIL_TO_RENEW in grace: access extended to grace expiration"
+            );
+        }
+    } else if subscription.status == SubscriptionStatus::Active {
+        subscription.status = SubscriptionStatus::PastDue;
+        subscription.synced_at = Some(Utc::now());
+        subscription.updated_at = Utc::now();
+        if let Err(e) = state
+            .billing_repository
+            .update_subscription(subscription)
+            .await
+        {
+            tracing::warn!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                error = %e,
+                "apple billing retry: failed to mark subscription PastDue"
+            );
+        }
+    }
+
+    record_idempotent_payment_event(
+        state,
+        realm_id,
+        &synthetic_event_id,
+        "apple",
+        format!("apple_{notification_type_str}"),
+        serde_json::json!({
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "originalTransactionId": original_transaction_id,
+            "outcome": outcome,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "outcome": outcome,
+        }),
+    )
+    .await;
+
+    Ok(())
+}
+
+/// DID_CHANGE_RENEWAL_STATUS — the user flipped auto-renew off/on. Off →
+/// schedule the cancel at the current period end (Stripe's
+/// ScheduledCancel posture, access continues); on → clear the schedule.
+/// No points action either way.
+async fn process_apple_renewal_status_change(
+    state: &AppState,
+    realm_id: &str,
+    verifier: &AppleVerifier,
+    notification: &herald_infra_iap::apple::models::ResponseBodyV2DecodedPayload,
+    original_transaction_id: &str,
+    product_id: &str,
+) -> Result<(), CoreError> {
+    use herald_infra_iap::apple::models::AutoRenewStatus;
+
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
+
+    // The auto-renew flag lives on the verified renewal info; without it the
+    // notification carries no actionable state.
+    let signed_renewal_info = notification
+        .data
+        .as_ref()
+        .and_then(|d| d.signed_renewal_info.as_deref());
+    let Some(signed_renewal_info) = signed_renewal_info else {
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            "apple DID_CHANGE_RENEWAL_STATUS missing signedRenewalInfo — skipping"
+        );
+        return Ok(());
+    };
+    let auto_renew_on = verifier
+        .verify_signed_renewal_info(signed_renewal_info)
+        .map_err(iap_error_to_core_error)?
+        .auto_renew_status
+        == Some(AutoRenewStatus::On);
+
+    // Key on the resulting state (on/off), not the notification occurrence:
+    // repeated off→off notifications dedupe while a later on flips it back.
+    let outcome = if auto_renew_on {
+        "auto_renew_on"
+    } else {
+        "auto_renew_off"
+    };
+    let synthetic_event_id =
+        format!("apple:{original_transaction_id}:{notification_type_str}:{outcome}");
+    if apple_event_already_processed(state, realm_id, &synthetic_event_id).await? {
+        return Ok(());
+    }
+
+    let Some(mut subscription) = apple_subscription_for_lifecycle(
+        state,
+        realm_id,
+        original_transaction_id,
+        &synthetic_event_id,
+        &notification_type_str,
+        product_id,
+        "no_subscription",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    if auto_renew_on {
+        subscription.cancel_at_period_end = false;
+        subscription.cancel_at = None;
+        if subscription.status == SubscriptionStatus::ScheduledCancel {
+            subscription.status = SubscriptionStatus::Active;
+        }
+    } else {
+        subscription.cancel_at_period_end = true;
+        subscription.cancel_at = subscription.current_period_end;
+    }
+    subscription.synced_at = Some(Utc::now());
+    subscription.updated_at = Utc::now();
+    if let Err(e) = state
+        .billing_repository
+        .update_subscription(subscription)
+        .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            error = %e,
+            "apple DID_CHANGE_RENEWAL_STATUS: failed to update subscription"
+        );
+    }
+
+    tracing::info!(
+        realm_id = %realm_id,
+        original_transaction_id = %original_transaction_id,
+        auto_renew_on,
+        "apple DID_CHANGE_RENEWAL_STATUS: subscription cancel schedule updated"
+    );
+
+    record_idempotent_payment_event(
+        state,
+        realm_id,
+        &synthetic_event_id,
+        "apple",
+        format!("apple_{notification_type_str}"),
+        serde_json::json!({
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "originalTransactionId": original_transaction_id,
+            "outcome": outcome,
+        }),
+    )
+    .await;
+
+    record_iap_audit(
+        state,
+        realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        original_transaction_id.to_string(),
+        serde_json::json!({
+            "provider": "apple",
+            "notificationType": notification_type_str,
+            "productId": product_id,
+            "outcome": outcome,
         }),
     )
     .await;
@@ -1352,6 +2157,22 @@ pub async fn reprocess_google_event(
             "google reprocess: sync succeeded but failed to mark payment_event processed — may reprocess next sweep"
         );
     }
+
+    record_iap_audit(
+        &state,
+        &realm_id,
+        AuditAction::IapNotification,
+        None,
+        Some(ActorType::System),
+        purchase_token.to_string(),
+        serde_json::json!({
+            "provider": "google",
+            "eventType": event_type,
+            "productId": product_id,
+            "outcome": "reconciled",
+        }),
+    )
+    .await;
 
     Ok(())
 }

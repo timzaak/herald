@@ -149,7 +149,7 @@
 - User email（ext API 创建用户）：非空且符合邮箱格式
 - User password：最少 8 字符
 - Client App name：非空
-- Client App redirect_uris：必填（传入 `CreateClientAppRequest`，如启用 device_code_grant 且 redirect_uris 为空会触发业务校验失败）
+- Client App redirect_uris：必填；例外——启用 `device_code_grant` 的 Client App 允许空 `redirect_uris`（device flow 无回调，校验按 `device_code_grant_enabled && redirect_uris.is_empty()` 跳过）
 
 ### 分页参数
 

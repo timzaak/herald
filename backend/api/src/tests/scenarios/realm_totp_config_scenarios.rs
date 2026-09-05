@@ -38,6 +38,22 @@ async fn test_scenario_update_realm_totp_config_returns_wrapped_response(ctx: &m
     assert_eq!(body["enabled"], true);
     assert_eq!(body["forceEnabled"], true);
     assert!(body["meta"].is_null());
+
+    // MFA-policy changes are "关键配置变更" (audit PRD): the PUT must leave an
+    // audit trail naming the new policy values.
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events
+         WHERE realm_id = $1 AND action = 'totp_config.update'
+           AND details->>'enabled' = 'true' AND details->>'force_enabled' = 'true'",
+    )
+    .bind(&ctx._realm_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit_count, 1,
+        "TOTP config update must be audited with the new policy values"
+    );
 }
 
 #[test_context(TestContext)]

@@ -1092,8 +1092,8 @@ impl PostgresBillingRepository {
         for upsert in rules {
             let existing_id = upsert.id;
             let resolved = upsert.into_rule_for_owner(realm_id, owner.clone());
-            let bucket_realm_id: Option<String> =
-                sqlx::query_scalar("SELECT realm_id FROM credit_buckets WHERE id = $1")
+            let bucket_state: Option<(String, bool)> =
+                sqlx::query_as("SELECT realm_id, enabled FROM credit_buckets WHERE id = $1")
                     .bind(resolved.bucket_id)
                     .fetch_optional(&mut **tx)
                     .await
@@ -1103,11 +1103,21 @@ impl PostgresBillingRepository {
                             e
                         ))
                     })?;
-            let bucket_realm_id = bucket_realm_id.ok_or(CoreError::NotFound)?;
+            let (bucket_realm_id, bucket_enabled) = bucket_state.ok_or(CoreError::NotFound)?;
             if bucket_realm_id != realm_id {
                 return Err(CoreError::Conflict(format!(
                     "distribution_rule_conflict: bucket {} does not belong to realm {}",
                     resolved.bucket_id, realm_id
+                )));
+            }
+            // A disabled bucket must not receive new/updated rules
+            // (multi-wallet PRD §4.6): grants route to it only while enabled,
+            // so a disabled target would fail loud at event time instead of
+            // at save time.
+            if !bucket_enabled {
+                return Err(CoreError::Conflict(format!(
+                    "distribution_rule_conflict: bucket {} is disabled",
+                    resolved.bucket_id
                 )));
             }
             match existing_id {

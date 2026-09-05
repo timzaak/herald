@@ -43,6 +43,7 @@ use futures::FutureExt as _;
 use herald_core::domain::billing::compensation::WebhookEventProcessor;
 use herald_infra_iap::apple::models::{
     Environment as AppleEnvironment, NotificationHistoryRequest, NotificationHistoryResponse,
+    Status as AppleStatus,
 };
 use herald_infra_iap::google::models::{SubscriptionPurchaseV2, VoidedPurchasesList};
 use herald_infra_iap::google::service_account::GoogleServiceAccountAuth;
@@ -85,6 +86,14 @@ pub struct IapReconciliationStats {
     pub apple_replayed: usize,
     /// Apple failures (per-notification). Does NOT abort the sweep.
     pub apple_failed: usize,
+    /// Apple subscription-status polls (`getAllSubscriptionStatuses` drift
+    /// fallback, support-iap §4.2).
+    pub apple_status_polled: usize,
+    /// Subscriptions whose Apple status contradicts the local (alive) status.
+    pub apple_drift_detected: usize,
+    /// Missed notifications recovered by the targeted per-transaction history
+    /// pull and handed to `reprocess_event`.
+    pub apple_drift_replayed: usize,
     /// Google subscription tokens polled via `subscriptionsv2.get`.
     pub google_tokens_polled: usize,
     /// Google state-change replays handed to `reprocess_event`.
@@ -158,20 +167,49 @@ impl IapReconciliationJob {
 
         for realm in &realms {
             if realm.has_apple {
-                match self.compensate_apple(realm).await {
-                    Ok(apple_stats) => {
-                        stats.apple_notifications_fetched += apple_stats.fetched;
-                        stats.apple_replayed += apple_stats.replayed;
-                        stats.apple_failed += apple_stats.failed;
+                // Build the per-realm client once: both the notification-history
+                // sweep and the status-drift poll share the signing material.
+                match build_apple_client(realm, self.http.clone()) {
+                    Ok(Some(client)) => {
+                        match self.compensate_apple(realm, &client).await {
+                            Ok(apple_stats) => {
+                                stats.apple_notifications_fetched += apple_stats.fetched;
+                                stats.apple_replayed += apple_stats.replayed;
+                                stats.apple_failed += apple_stats.failed;
+                            }
+                            Err(e) => {
+                                // Realm-level failure (e.g. Apple API fully
+                                // unreachable). Log and continue — other realms
+                                // must still be reconciled this cycle.
+                                error!(
+                                    realm_id = %realm.realm_id,
+                                    error = %e,
+                                    "Apple compensation failed for realm"
+                                );
+                            }
+                        }
+                        match self.poll_apple_subscription_statuses(realm, &client).await {
+                            Ok(status_stats) => {
+                                stats.apple_status_polled += status_stats.polled;
+                                stats.apple_drift_detected += status_stats.drift_detected;
+                                stats.apple_drift_replayed += status_stats.replayed;
+                                stats.apple_failed += status_stats.failed;
+                            }
+                            Err(e) => {
+                                error!(
+                                    realm_id = %realm.realm_id,
+                                    error = %e,
+                                    "Apple subscription-status poll failed for realm"
+                                );
+                            }
+                        }
                     }
+                    Ok(None) => {}
                     Err(e) => {
-                        // Realm-level failure (e.g. credentials malformed,
-                        // Apple API fully unreachable). Log and continue —
-                        // other realms must still be reconciled this cycle.
                         error!(
                             realm_id = %realm.realm_id,
                             error = %e,
-                            "Apple compensation failed for realm"
+                            "Apple reconciliation skipped realm (client construction failed)"
                         );
                     }
                 }
@@ -288,15 +326,12 @@ impl IapReconciliationJob {
     /// reconstructs a webhook-style payload and hands it to
     /// `reprocess_event(realm, "apple", type, payload)`. Single-notification
     /// failures are logged and skipped.
-    async fn compensate_apple(&self, realm: &IapRealmConfig) -> anyhow::Result<AppleCompStats> {
+    async fn compensate_apple(
+        &self,
+        realm: &IapRealmConfig,
+        client: &AppleServerApiClient,
+    ) -> anyhow::Result<AppleCompStats> {
         let mut stats = AppleCompStats::default();
-
-        let client = match build_apple_client(realm, self.http.clone())? {
-            Some(client) => client,
-            // Configured-signal was true but individual keys are missing — skip
-            // this realm silently rather than spamming the log every cycle.
-            None => return Ok(stats),
-        };
 
         let now = Utc::now();
         let start = now - Duration::seconds(self.apple_interval_secs * LOOKBACK_OVERLAP_FACTOR);
@@ -397,6 +432,208 @@ impl IapReconciliationJob {
                     pagination_token = token;
                 }
                 _ => break,
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Apple subscription-status drift poll (support-iap §4.2: the
+    /// `getAllSubscriptionStatuses` fallback for notifications lost despite
+    /// the history sweep — e.g. delivered to the webhook but failed local
+    /// processing, which Apple's `onlyFailures` filter will never return).
+    ///
+    /// For each subscription Herald still believes is alive, fetch Apple's
+    /// current status. When Apple reports a terminal status (Expired /
+    /// Revoked) that contradicts the local state, pull that transaction's
+    /// notification history *targeted* (`transactionId` filter,
+    /// `onlyFailures=false`) over the same lookback window and replay each
+    /// notification through the shared `reprocess_event` pipeline — the
+    /// downstream payment_event idempotency dedupes against the live-webhook
+    /// path. No local lifecycle mapping is duplicated here.
+    ///
+    /// Drift with no recoverable notification is logged as a diagnostic only
+    /// (support-iap §4.1: "状态不一致但不存在缺失事件时只记录诊断，不自动改写数据").
+    async fn poll_apple_subscription_statuses(
+        &self,
+        realm: &IapRealmConfig,
+        client: &AppleServerApiClient,
+    ) -> anyhow::Result<AppleStatusStats> {
+        let mut stats = AppleStatusStats::default();
+
+        // Herald-alive statuses — the same access-granting set the Google
+        // refresh pass polls. Terminal states (expired / canceled) have no
+        // drift to detect; refunds still arrive via the history sweep.
+        let subs: Vec<(String, String)> = sqlx::query_as(
+            "SELECT external_subscription_id, status FROM subscription
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND status IN ('active', 'trialing', 'past_due',
+                              'scheduled_cancel', 'dispute')
+             ORDER BY created_at",
+        )
+        .bind(&realm.realm_id)
+        .fetch_all(&self.pg_pool)
+        .await?;
+
+        for (original_transaction_id, local_status) in subs {
+            stats.polled += 1;
+
+            // Same panic guard as the history sweep: a malformed realm `.p8`
+            // panics inside the library's ES256 JWT minting.
+            let response = match AssertUnwindSafe(
+                client.get_all_subscription_status(&original_transaction_id, None),
+            )
+            .catch_unwind()
+            .await
+            {
+                Ok(Ok(response)) => response,
+                Ok(Err(e)) => {
+                    stats.failed += 1;
+                    warn!(
+                        realm_id = %realm.realm_id,
+                        original_transaction_id = %original_transaction_id,
+                        error = %e,
+                        "Apple getAllSubscriptionStatuses failed — skipping (non-blocking)"
+                    );
+                    continue;
+                }
+                Err(panic_payload) => {
+                    stats.failed += 1;
+                    warn!(
+                        realm_id = %realm.realm_id,
+                        panic = %panic_payload_downcast(&panic_payload),
+                        "Apple getAllSubscriptionStatuses panicked (likely malformed realm .p8 EC key) — skipping"
+                    );
+                    continue;
+                }
+            };
+
+            // A subscription group's lastTransactions covers every
+            // auto-renewable product in the group; match the entry for the
+            // subscription we asked about.
+            let apple_status = response
+                .data
+                .iter()
+                .filter_map(|group| group.last_transactions.as_deref())
+                .flatten()
+                .find(|txn| {
+                    txn.original_transaction_id.as_deref() == Some(original_transaction_id.as_str())
+                })
+                .and_then(|txn| txn.status.clone());
+            let Some(apple_status) = apple_status else {
+                stats.failed += 1;
+                warn!(
+                    realm_id = %realm.realm_id,
+                    original_transaction_id = %original_transaction_id,
+                    "Apple subscription status response has no matching lastTransactions entry — skipping"
+                );
+                continue;
+            };
+
+            if !matches!(apple_status, AppleStatus::Expired | AppleStatus::Revoked) {
+                // Active / BillingRetry / BillingGracePeriod all agree with a
+                // locally-alive subscription; no drift to chase.
+                continue;
+            }
+
+            stats.drift_detected += 1;
+            warn!(
+                realm_id = %realm.realm_id,
+                original_transaction_id = %original_transaction_id,
+                local_status = %local_status,
+                apple_status = ?apple_status,
+                "Apple subscription status drift detected — pulling targeted notification history"
+            );
+
+            // Targeted history pull for THIS transaction, including
+            // notifications Apple considers delivered.
+            let now = Utc::now();
+            let start = now - Duration::seconds(self.apple_interval_secs * LOOKBACK_OVERLAP_FACTOR);
+            let request = NotificationHistoryRequest {
+                start_date: Some(start),
+                end_date: Some(now),
+                notification_type: None,
+                notification_subtype: None,
+                transaction_id: Some(original_transaction_id.clone()),
+                only_failures: Some(false),
+            };
+
+            let mut pagination_token = String::new();
+            for _ in 0..APPLE_HISTORY_MAX_PAGES {
+                let page_result =
+                    AssertUnwindSafe(client.get_notification_history(&pagination_token, &request))
+                        .catch_unwind()
+                        .await;
+                let page: NotificationHistoryResponse = match page_result {
+                    Ok(Ok(page)) => page,
+                    Ok(Err(e)) => {
+                        stats.failed += 1;
+                        warn!(
+                            realm_id = %realm.realm_id,
+                            original_transaction_id = %original_transaction_id,
+                            error = %e,
+                            "Targeted Apple notification history call failed — non-blocking"
+                        );
+                        break;
+                    }
+                    Err(panic_payload) => {
+                        stats.failed += 1;
+                        warn!(
+                            realm_id = %realm.realm_id,
+                            panic = %panic_payload_downcast(&panic_payload),
+                            "Targeted Apple notification history panicked — non-blocking"
+                        );
+                        break;
+                    }
+                };
+
+                let items = page.notification_history.as_deref().unwrap_or(&[]);
+                if items.is_empty() {
+                    // Diagnostic only (support-iap §4.1): the drift has no
+                    // recoverable notification in the window; never rewrite
+                    // subscription state from the poll alone.
+                    warn!(
+                        realm_id = %realm.realm_id,
+                        original_transaction_id = %original_transaction_id,
+                        apple_status = ?apple_status,
+                        "Apple status drift with no matching notification in history window — diagnostic only"
+                    );
+                }
+
+                for item in items {
+                    let signed_payload = match item.signed_payload.as_deref() {
+                        Some(s) if !s.is_empty() => s,
+                        _ => {
+                            stats.failed += 1;
+                            warn!(
+                                realm_id = %realm.realm_id,
+                                "Targeted Apple history item missing signedPayload — skipping"
+                            );
+                            continue;
+                        }
+                    };
+                    let payload = serde_json::json!({ "signedPayload": signed_payload });
+                    match self
+                        .processor
+                        .reprocess_event(&realm.realm_id, "apple", "", &payload)
+                        .await
+                    {
+                        Ok(()) => stats.replayed += 1,
+                        Err(e) => {
+                            stats.failed += 1;
+                            warn!(
+                                realm_id = %realm.realm_id,
+                                error = %e,
+                                "Targeted Apple notification replay failed — skipping (non-blocking)"
+                            );
+                        }
+                    }
+                }
+
+                match page.pagination_token {
+                    Some(token) if !token.is_empty() => pagination_token = token,
+                    _ => break,
+                }
             }
         }
 
@@ -517,6 +754,17 @@ impl IapReconciliationJob {
             stats.voided_fetched += list.voided_purchases.len();
 
             for voided in &list.voided_purchases {
+                // Time-window filter: Google returns the full historical
+                // voided-purchases list every sweep; only entries voided
+                // within the lookback window (plus overlap) are new work.
+                // Older entries were already replayed by a previous sweep
+                // and dedup on the payment_event key — skip the replay.
+                if let Some(voided_at) = voided.voided_time_millis
+                    && voided_at < since.timestamp_millis()
+                {
+                    continue;
+                }
+
                 let purchase_token = voided.purchase_token.clone().unwrap_or_default();
                 let payload = serde_json::json!({
                     "purchaseToken": purchase_token,
@@ -969,6 +1217,14 @@ struct GoogleRealmCreds {
 #[derive(Default)]
 struct AppleCompStats {
     fetched: usize,
+    replayed: usize,
+    failed: usize,
+}
+
+#[derive(Default)]
+struct AppleStatusStats {
+    polled: usize,
+    drift_detected: usize,
     replayed: usize,
     failed: usize,
 }

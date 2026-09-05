@@ -175,7 +175,7 @@ pub async fn confirm(
     let client = mailflow::load_client(&state, &code, &realm_id, MailflowType::VerifyEmail).await?;
 
     // Use UserService to verify email
-    state
+    let verified_user = state
         .service
         .user_service()
         .verify_email(&code, &realm_id)
@@ -189,6 +189,24 @@ pub async fn confirm(
                 _ => ApiError::internal("Failed to verify email".to_string()),
             }
         })?;
+
+    // Registration points: the no-verification path grants at register time;
+    // this activation point is the equivalent moment when the realm requires
+    // email verification (points.md: same registration flow must not differ
+    // by the verification toggle). Idempotent on `registration:{user_id}`, so
+    // a re-verify cannot double-grant; best-effort like the register path.
+    if let Err(e) = state
+        .registration_service
+        .handle_user_registration(verified_user.id, &realm_id)
+        .await
+    {
+        tracing::error!(
+            realm_id = %realm_id,
+            user_id = %verified_user.id,
+            error = %e,
+            "Failed to grant registration points at email verification, but verification succeeded"
+        );
+    }
 
     let fallback = herald_api_base::application::http::common::public_helper::realm_public_url(
         &state, &realm_id, "",

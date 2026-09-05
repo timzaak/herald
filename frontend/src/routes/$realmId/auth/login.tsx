@@ -209,6 +209,18 @@ export function LoginPage() {
   const googleProvider = oauthProviders.find((p) => p.name === 'google' && p.enabled && p.clientId)
   const oneTapEligible = Boolean(googleProvider?.clientId) && !oauthParams
 
+  // Shared second-factor routing for every first factor (password, LDAP via
+  // the same mutation, email-OTP): a passkey-capable user lands on the
+  // Passkey second-factor form (which offers a TOTP fallback when the list
+  // also contains "totp"), anything else degrades to the TOTP step.
+  const routeSecondFactor = (tempToken: string, secondFactors: string[]) => {
+    if (secondFactors.includes('passkey')) {
+      setPasskeySecondFactor({ tempToken, secondFactors })
+    } else {
+      setTotpStep({ tempToken })
+    }
+  }
+
   const loginMutation = useMutation({
     mutationFn: async (values: LoginMutationValues) => {
       const isLdap = values.factor === 'ldap'
@@ -251,16 +263,8 @@ export function LoginPage() {
         if (!response.tempToken) {
           // Defensive: secondFactors without a tempToken cannot proceed to any
           // 2FA form. Fall through to consent / direct-login handling below.
-        } else if (secondFactors.includes('passkey')) {
-          // Passkey-capable users (optionally alongside TOTP) land on the
-          // Passkey second-factor form, which offers a TOTP fallback when the
-          // list also contains "totp".
-          setPasskeySecondFactor({ tempToken: response.tempToken, secondFactors })
-          return
         } else {
-          // secondFactors present but has no passkey → TOTP path (covers
-          // ["totp"] and any unknown factors gracefully degrading to TOTP).
-          setTotpStep({ tempToken: response.tempToken })
+          routeSecondFactor(response.tempToken, secondFactors)
           return
         }
       } else if (response.requiresTotp && response.tempToken) {
@@ -609,6 +613,13 @@ export function LoginPage() {
               clientId={resolvedClientId}
               turnstileStatus={turnstileStatus}
               onSuccess={handleEmailOtpSuccess}
+              // OTP verified but the user has an enabled TOTP/passkey: hand
+              // the temp token to the SAME second-factor step the password
+              // login uses (backend mirrors login.rs temp-session shape).
+              onSecondFactorRequired={(tempToken, secondFactors) => {
+                setOtpMode(false)
+                routeSecondFactor(tempToken, secondFactors)
+              }}
               onBack={() => setOtpMode(false)}
               registerPath={realmPath(realmContext, '/auth/register')}
             />

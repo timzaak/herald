@@ -16,6 +16,8 @@ use herald_api::config::ApiConfig;
 use herald_api::observability;
 use herald_core::domain::billing::compensation::WebhookEventProcessor;
 use herald_core::domain::points::{ExpirationService, GrantScheduler};
+use herald_worker::IapReconciliationJob;
+use herald_worker::PaymentAttemptExpiryJob;
 use herald_worker::PaymentEventRetryJob;
 use herald_worker::PointsQuotaExpirationJob;
 use herald_worker::WorkerConfig;
@@ -135,10 +137,10 @@ async fn main() -> Result<()> {
     let event_processor: Arc<dyn WebhookEventProcessor> =
         Arc::new(WebhookEventProcessorImpl::new(state.as_ref().clone()));
 
-    // Construct the payment-event retry sweep job (BE-D05 / design §5.5.1).
-    // Shares the same WebhookEventProcessor as WebhookCompensationJob — both
-    // call reprocess_event, which is idempotent at webhook + business layers
-    // (design §5.5 three-layer guarantee). batch_size mirrors the compensation
+    // Construct the payment-event retry sweep job. Shares the same
+    // WebhookEventProcessor as WebhookCompensationJob — both
+    // call reprocess_event, which is idempotent at webhook + business layers.
+    // batch_size mirrors the compensation
     // job's page size; backoff aligns with the sweep interval so a failed
     // event retries on roughly the next run.
     let payment_event_retry_job = Arc::new(PaymentEventRetryJob::new(
@@ -146,6 +148,35 @@ async fn main() -> Result<()> {
         event_processor.clone(),
         100,
         300,
+    ));
+
+    // Payment-attempt expiry sweep ([US-PA-004]): closes pending attempts
+    // whose expires_at has passed (e.g. unscanned WeChat native QR orders).
+    let payment_attempt_expiry_job = Arc::new(PaymentAttemptExpiryJob::new(Arc::new(
+        herald_core::infrastructure::payment_attempt::PostgresPaymentAttemptRepository::new(
+            state.db.clone(),
+            state.pool.clone(),
+        ),
+    )));
+
+    // IAP reconciliation (support-iap §4.1/§5.1): Apple notification-history
+    // compensation + getAllSubscriptionStatuses drift fallback, Google
+    // lifecycle polling. The per-provider intervals size the lookback windows
+    // (Apple 1800s / Google 900s defaults); the sweep cadence is
+    // `iap_reconciliation_interval_secs` on the worker (same 1800s default).
+    let apple_interval_secs = std::env::var("WORKER_IAP_APPLE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1800);
+    let google_interval_secs = std::env::var("WORKER_IAP_GOOGLE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(900);
+    let iap_reconciliation_job = Arc::new(IapReconciliationJob::new(
+        state.pool.clone(),
+        event_processor.clone(),
+        apple_interval_secs,
+        google_interval_secs,
     ));
 
     // Start API server
@@ -160,7 +191,9 @@ async fn main() -> Result<()> {
     let worker_config = WorkerConfig::new(expiration_service, invoice_repo, state.pool.clone())
         .with_event_processor(event_processor)
         .with_quota_expiration(quota_expiration_job)
-        .with_payment_event_retry(payment_event_retry_job);
+        .with_payment_attempt_expiry(payment_attempt_expiry_job)
+        .with_payment_event_retry(payment_event_retry_job)
+        .with_iap_reconciliation(iap_reconciliation_job);
     let worker_handle = herald_worker::start(worker_config)?;
 
     // Wait for either service to complete or shutdown signal

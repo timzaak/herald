@@ -86,11 +86,10 @@ pub async fn evaluate_realm_invoice_eligibility(
 }
 
 // =============================================================================
-// Per-resource apply-eligibility (Phase B of P0-2)
+// Per-resource apply-eligibility
 // =============================================================================
 //
-// See `.ai/future/invoice_ux.md` P0-2 and the "External-if-synced" decision in
-// the design. The per-resource endpoint (GET
+// The per-resource endpoint (GET
 // /api/bill/{realmId}/my/invoices/apply-eligibility) resolves the facts and
 // delegates here. Keeping this pure makes the rules trivially unit-testable and
 // guarantees the read-path and write-path (`apply_invoice` →
@@ -114,6 +113,8 @@ pub struct ApplyRouteVerdict {
 /// - `has_external_invoice`  — an invoice with `source = external_sync` exists
 ///   for this resource's id (matched on `payment_attempt_id` or
 ///   `subscription_id`).
+/// - `external_capability`   — the provider's external-invoice capability
+///   switch (`externalInvoiceEnabled`, default true when unconfigured).
 ///
 /// Rules are mutually exclusive and evaluated in this order:
 ///
@@ -122,9 +123,10 @@ pub struct ApplyRouteVerdict {
 ///    (platform is Merchant of Record; mirrors `validate_not_mor_provider`
 ///    in the write path)
 /// 3. `!has_seller_config`   => `disabled` (mirrors the `apply_invoice` 400 path)
-/// 4. `policy == "provider_first" && provider == Some("stripe")` =>
-///    `external_provider` (Stripe invoices are pushed via webhook when the
-///    realm prefers provider invoices)
+/// 4. `policy == "provider_first" && provider == Some("stripe")
+///    && external_capability` => `external_provider` (Stripe invoices are
+///    pushed via webhook when the realm prefers provider invoices; with the
+///    capability off the resource degrades to manual fallback — PRD §4.3)
 /// 5. `has_external_invoice` => `external_provider` (read-only — a provider
 ///    invoice already exists; do not offer a duplicate Herald invoice)
 /// 6. otherwise              => `manual_fallback, canApply=true`
@@ -136,6 +138,7 @@ pub(crate) fn determine_invoice_apply_route(
     policy: &str,
     has_seller_config: bool,
     has_external_invoice: bool,
+    external_capability: bool,
 ) -> ApplyRouteVerdict {
     // Rule 1: realm policy disables Herald invoices entirely.
     if policy == "none" {
@@ -175,8 +178,10 @@ pub(crate) fn determine_invoice_apply_route(
 
     // Rule 4: with provider_first, Stripe invoices are expected to arrive via
     // webhook. Keep the resource read-only even before the external invoice has
-    // been synced.
-    if policy == "provider_first" && provider == Some("stripe") {
+    // been synced — unless the realm has turned Stripe's external-invoice
+    // capability OFF, in which case the resource degrades to manual fallback
+    // (PRD §4.3 provider-capability degradation).
+    if policy == "provider_first" && provider == Some("stripe") && external_capability {
         return ApplyRouteVerdict {
             route: "external_provider".to_string(),
             can_apply: false,
@@ -219,7 +224,7 @@ mod tests {
 
     #[test]
     fn policy_none_disables_apply() {
-        let v = determine_invoice_apply_route(Some("stripe"), "none", true, false);
+        let v = determine_invoice_apply_route(Some("stripe"), "none", true, false, true);
         assert_eq!(v.route, "disabled");
         assert!(!v.can_apply);
         assert!(v.reason.as_deref().unwrap().contains("disabled by policy"));
@@ -229,7 +234,7 @@ mod tests {
     fn creem_provider_disables_apply_regardless_of_policy() {
         // Even with seller config and no external invoice, Creem is MoR.
         for policy in ["provider_first", "manual_only"] {
-            let v = determine_invoice_apply_route(Some("creem"), policy, true, false);
+            let v = determine_invoice_apply_route(Some("creem"), policy, true, false, true);
             assert_eq!(v.route, "disabled", "policy={}", policy);
             assert!(!v.can_apply);
             assert!(v.reason.as_deref().unwrap().contains("Merchant of Record"));
@@ -240,7 +245,7 @@ mod tests {
     fn missing_seller_config_disables_apply() {
         // Missing seller config must disable apply before provider routing so
         // the read path mirrors the write path's seller-config rejection.
-        let v = determine_invoice_apply_route(Some("stripe"), "provider_first", false, false);
+        let v = determine_invoice_apply_route(Some("stripe"), "provider_first", false, false, true);
         assert_eq!(v.route, "disabled");
         assert!(!v.can_apply);
         assert!(v.reason.as_deref().unwrap().contains("seller"));
@@ -250,7 +255,7 @@ mod tests {
     fn provider_first_stripe_is_external_provider_before_sync() {
         // Under provider_first, Stripe invoices are pushed via webhook. Keep
         // apply disabled even before the external invoice has landed.
-        let v = determine_invoice_apply_route(Some("stripe"), "provider_first", true, false);
+        let v = determine_invoice_apply_route(Some("stripe"), "provider_first", true, false, true);
         assert_eq!(v.route, "external_provider");
         assert!(!v.can_apply);
         assert!(v.reason.is_none());
@@ -259,7 +264,7 @@ mod tests {
     #[test]
     fn external_invoice_is_external_provider_for_manual_only() {
         // Once a provider invoice exists, manual apply would create a duplicate.
-        let v = determine_invoice_apply_route(Some("stripe"), "manual_only", true, true);
+        let v = determine_invoice_apply_route(Some("stripe"), "manual_only", true, true, true);
         assert_eq!(v.route, "external_provider");
         assert!(!v.can_apply);
         assert!(v.reason.as_deref().unwrap().contains("stripe"));
@@ -269,7 +274,7 @@ mod tests {
     fn manual_only_non_creem_with_seller_is_manual_fallback() {
         // manual_only means Herald self-issues invoices for every non-MoR
         // provider when no external invoice already exists.
-        let v = determine_invoice_apply_route(Some("stripe"), "manual_only", true, false);
+        let v = determine_invoice_apply_route(Some("stripe"), "manual_only", true, false, true);
         assert_eq!(v.route, "manual_fallback");
         assert!(v.can_apply);
     }
@@ -278,7 +283,7 @@ mod tests {
     fn provider_first_no_provider_with_seller_is_manual_fallback() {
         // provider_first still has a manual fallback when no external-provider
         // route is known for the resource.
-        let v = determine_invoice_apply_route(None, "provider_first", true, false);
+        let v = determine_invoice_apply_route(None, "provider_first", true, false, true);
         assert_eq!(v.route, "manual_fallback");
         assert!(v.can_apply);
     }
@@ -287,16 +292,26 @@ mod tests {
     fn external_provider_label_falls_back_when_provider_none() {
         // Resource somehow has an external invoice but no resolved provider
         // (should not happen in practice, but the verdict must not panic).
-        let v = determine_invoice_apply_route(None, "provider_first", true, true);
+        let v = determine_invoice_apply_route(None, "provider_first", true, true, true);
         assert_eq!(v.route, "external_provider");
         assert!(v.reason.as_deref().unwrap().contains("the provider"));
+    }
+
+    #[test]
+    fn provider_first_stripe_capability_off_degrades_to_manual_fallback() {
+        // PRD §4.3: a provider whose external-invoice capability is switched
+        // OFF under provider_first degrades to the manual fallback route —
+        // the write path must stay writable for it too.
+        let v = determine_invoice_apply_route(Some("stripe"), "provider_first", true, false, false);
+        assert_eq!(v.route, "manual_fallback");
+        assert!(v.can_apply);
     }
 
     #[test]
     fn policy_none_takes_precedence_over_creem() {
         // Rule 1 is checked before Rule 2: policy=none + creem => disabled by
         // policy (either reason is correct; precedence is the invariant).
-        let v = determine_invoice_apply_route(Some("creem"), "none", true, false);
+        let v = determine_invoice_apply_route(Some("creem"), "none", true, false, true);
         assert_eq!(v.route, "disabled");
         assert!(!v.can_apply);
     }

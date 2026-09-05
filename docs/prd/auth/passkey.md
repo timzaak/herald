@@ -89,7 +89,7 @@
 - WebAuthn RP 库 — 后端 challenge 生成、attestation/assertion 验证，采用 [passkey-auth 0.1](https://crates.io/crates/passkey-auth)（纯 Rust，RustCrypto end-to-end，不依赖 openssl）
 - 浏览器 Web Authentication API — 前端创建/获取 credential
 - HTTPS 生产环境 — WebAuthn 规范强制要求
-- 可配置的 RP_ID 与 RP_ORIGIN — 支持不同部署域名
+- 多 RP 解析模型 — 默认使用环境变量 `RP_ID`/`RP_ORIGIN`；Client App 配置了 `passkey_rp` 时以该 Client App 的 origin 为 RP；已生效的自定义域名优先于环境变量（三级匹配 `resolve_passkey_rp`）。credential 唯一性按 `(realm, user, rp_id, credential_id)` 隔离，同一用户在不同 RP 下持有各自独立的 passkey，设备列表按当前请求解析出的 RP 过滤
 
 ---
 
@@ -218,7 +218,7 @@ Passkey 同时支持两种认证场景：
 - 一个用户可以拥有多个 Passkey credential，并可在 Security 页面管理。
 - Realm 级别沿用 TOTP 的 `enabled` / `force_enabled` 开关模式，并扩展可选安全策略配置。
 - 后端采用经过安全审计的 WebAuthn RP 库，不自行实现密码学验证。
-- 生产环境必须 HTTPS，RP_ID 与 RP_ORIGIN 需按部署环境配置，不硬编码。
+- 生产环境必须 HTTPS，RP_ID 与 RP_ORIGIN 需按部署环境配置，不硬编码（作为未配置 Client App origin / 自定义域名时的默认 RP）。
 - 服务器不存储私钥；仅存储 credential ID、公钥、计数器、transports、backup 状态、设备昵称等元数据。
 
 ---

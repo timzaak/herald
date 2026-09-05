@@ -28,10 +28,14 @@
 //   * the §6.3 tampered-leaf regression: a well-formed JWS without a real
 //     Apple x5c chain is rejected → 200 OK with no side effects.
 //
-// The cryptographic happy-path (state machine transitions driven by
-// SUBSCRIBED / DID_RENEW / REFUND / DID_CHANGE_RENEWAL_STATUS) is covered
-// by the `infra-iap` verifier unit tests under `LocalTesting`; a handoff
-// note flags that the HTTP path has no `LocalTesting` injection seam.
+// The cryptographic happy-path is covered in two layers: the JWS
+// verification itself by the `infra-iap` verifier unit tests under
+// `LocalTesting`, and the post-verification lifecycle core (mapping
+// resolution, subscription projection, grants, idempotency) by the
+// `process_apple_notification_decoded` scenario tests below — that function
+// is the seam extracted after the JWS chain check, so a real database path
+// is exercised without forging an Apple-trusted chain. The raw HTTP handler
+// still has no `LocalTesting` injection for the verifier itself.
 //
 // =============================================================================
 
@@ -391,8 +395,8 @@ mod tests {
     /// pass verification must produce NO side effects on existing role grants
     /// (the revocation path is never reached). The positive revocation
     /// happy-path (fabricated chain accepted under LocalTesting) is covered by
-    /// the `infra-iap` / `api-billing` unit tests; a handoff note flags the
-    /// missing LocalTesting-injection seam on the HTTP path.
+    /// the `infra-iap` / `api-billing` unit tests; the HTTP path has no
+    /// LocalTesting-injection seam for the verifier.
     ///
     /// Concretely: a user holds both a payment-source buyout role and a manual
     /// role. A fabricated REFUND JWS is delivered → the webhook returns 200
@@ -654,5 +658,266 @@ mod tests {
             after, before,
             "unverified non-renewing REFUND must write no payment_event (verification gate)"
         );
+    }
+
+    // =========================================================================
+    // Post-verification lifecycle core (decoded-notification seam)
+    // =========================================================================
+    //
+    // `process_apple_notification_decoded` is the everything-after-JWS core
+    // of the webhook. Driving it with decoded payloads exercises the real
+    // database path (mapping resolution, subscription projection,
+    // idempotency keys, audits) without forging an Apple-trusted chain.
+
+    use herald_api_billing::iap_handlers::process_apple_notification_decoded;
+    use herald_infra_iap::apple::models::{
+        JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload,
+    };
+    use herald_infra_iap::{AppleEnvironment, AppleVerifier};
+
+    fn decoded_notification(body: &str) -> ResponseBodyV2DecodedPayload {
+        serde_json::from_str(body).expect("test notification JSON must deserialize")
+    }
+
+    fn decoded_transaction(body: &str) -> JWSTransactionDecodedPayload {
+        serde_json::from_str(body).expect("test transaction JSON must deserialize")
+    }
+
+    fn local_verifier() -> AppleVerifier {
+        // Only consulted by branches that verify an embedded
+        // signedRenewalInfo; LocalTesting keeps construction inert.
+        AppleVerifier::new(
+            "com.herald.test".to_string(),
+            AppleEnvironment::LocalTesting,
+        )
+    }
+
+    /// Seed a real account owning an active Apple subscription keyed by
+    /// `original_transaction_id` — the lifecycle processors resolve the
+    /// subscription by that external id and project onto it.
+    async fn seed_apple_owner_and_subscription(
+        ctx: &AppleWebhookContext,
+        realm_id: &str,
+        original_transaction_id: &str,
+        product_id: &str,
+    ) -> Uuid {
+        let user_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account (id, realm_id, email, password, status)
+             VALUES ($1, $2, $3, '$2a$12$dummy_password_hash', 1)",
+        )
+        .bind(user_id)
+        .bind(realm_id)
+        .bind(format!("apple-core-{}@test.com", user_id))
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed apple owner account");
+
+        sqlx::query(
+            "INSERT INTO subscription
+                (id, realm_id, user_id, external_subscription_id, external_product_id,
+                 payment_provider, status, entitlement_key, synced_at,
+                 current_period_start, current_period_end, cancel_at_period_end,
+                 cancel_at, created_at, updated_at, billing_type)
+             VALUES ($1, $2, $3, $4, $5,
+                     'apple', 'active', 'pro', NOW(),
+                     NOW(), NOW() + INTERVAL '5 days', false,
+                     NULL, NOW(), NOW(), 'recurring')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(realm_id)
+        .bind(user_id)
+        .bind(original_transaction_id)
+        .bind(product_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed apple subscription");
+        user_id
+    }
+
+    async fn subscription_row(
+        ctx: &AppleWebhookContext,
+        realm_id: &str,
+        external_id: &str,
+    ) -> (String, Option<chrono::DateTime<chrono::Utc>>) {
+        sqlx::query_as(
+            "SELECT status, current_period_end FROM subscription
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_subscription_id = $2",
+        )
+        .bind(realm_id)
+        .bind(external_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("subscription row must exist")
+    }
+
+    /// User Story: US-IAP-004 (DID_RENEW advances the period exactly once)
+    ///
+    /// A verified DID_RENEW must reactivate the subscription, advance
+    /// current_period_end to the transaction's expiresDate, and record the
+    /// renewal payment_event under `apple:{orig}:renew:{txn}` — a replay of
+    /// the same notification must be a no-op (Apple redelivers).
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_did_renew_advances_period_and_dedupes(ctx: &mut AppleWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        insert_apple_mapping(ctx, &realm_id, "prod.renew", "recurring", None).await;
+        seed_apple_owner_and_subscription(ctx, &realm_id, "orig-renew-1", "prod.renew").await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"DID_RENEW","notificationUUID":"uuid-renew-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        // purchaseDate/expiresDate are epoch milliseconds.
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-renew-1","transactionId":"txn-renew-1",
+                "productId":"prod.renew","purchaseDate":1740000000000,"expiresDate":1750000000000}"#,
+        );
+
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("DID_RENEW must process");
+
+        let (status, period_end) = subscription_row(ctx, &realm_id, "orig-renew-1").await;
+        assert_eq!(status, "active", "renewal reactivates the subscription");
+        assert_eq!(
+            period_end,
+            Some(chrono::DateTime::from_timestamp_millis(1750000000000).unwrap()),
+            "period end must advance to the renewal expiresDate"
+        );
+
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'apple:orig-renew-1:renew:txn-renew-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "renewal event keyed by orig+renewal txn");
+
+        // Apple redelivers: the same notification must dedupe to a no-op.
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("replayed DID_RENEW must still succeed (deduped)");
+        let replay_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'apple:orig-renew-1:renew:txn-renew-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(replay_count, 1, "replayed DID_RENEW must not double-record");
+    }
+
+    /// User Story: US-IAP-004 (EXPIRED ends the subscription)
+    ///
+    /// A verified EXPIRED notification must move the locally-active
+    /// subscription to `expired` and record its own idempotency event.
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_expired_marks_subscription_expired(ctx: &mut AppleWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        insert_apple_mapping(ctx, &realm_id, "prod.renew", "recurring", None).await;
+        seed_apple_owner_and_subscription(ctx, &realm_id, "orig-exp-1", "prod.renew").await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"EXPIRED","notificationUUID":"uuid-exp-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-exp-1","productId":"prod.renew"}"#,
+        );
+
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("EXPIRED must process");
+
+        let (status, _) = subscription_row(ctx, &realm_id, "orig-exp-1").await;
+        assert_eq!(status, "expired", "EXPIRED must flip active → expired");
+
+        // The synthetic id embeds `apple_notification_type_str`'s output,
+        // which is a JSON-serialized enum variant — quotes included
+        // (`"EXPIRED"`). Writer and reader share the helper so dedup works;
+        // this test pins the actual on-disk format.
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'apple:orig-exp-1:\"EXPIRED\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "expiration records its own event");
+    }
+
+    /// User Story: US-IAP-004 (DID_FAIL_TO_RENEW billing retry → past_due)
+    ///
+    /// Without the GRACE_PERIOD subtype the failure is a billing retry: the
+    /// subscription stays recorded but moves to `past_due`, keyed on the
+    /// outcome so repeated retry notifications dedupe.
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_did_fail_to_renew_billing_retry_marks_past_due(ctx: &mut AppleWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        insert_apple_mapping(ctx, &realm_id, "prod.renew", "recurring", None).await;
+        seed_apple_owner_and_subscription(ctx, &realm_id, "orig-fail-1", "prod.renew").await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"DID_FAIL_TO_RENEW","notificationUUID":"uuid-fail-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-fail-1","productId":"prod.renew"}"#,
+        );
+
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("DID_FAIL_TO_RENEW must process");
+
+        let (status, _) = subscription_row(ctx, &realm_id, "orig-fail-1").await;
+        assert_eq!(status, "past_due", "billing retry moves active → past_due");
+
+        // Same quoted-variant key format as the EXPIRED test above
+        // (`"DID_FAIL_TO_RENEW"` from the JSON-serialized enum).
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'apple:orig-fail-1:\"DID_FAIL_TO_RENEW\":billing_retry'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "retry keyed on the billing_retry outcome");
     }
 }

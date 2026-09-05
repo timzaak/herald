@@ -1,5 +1,5 @@
 /**
- * Email-OTP login send/verify mutations (design §4.1, §4.2, §4.4.2).
+ * Email-OTP login send/verify mutations.
  *
  * TanStack `useMutation` over the Herald SDK client
  * (`client.loginWithEmailOtp.send/verify`, DEC-js-sdk-014), with errors mapped
@@ -134,6 +134,13 @@ export function useEmailOtpSendMutation({
 export interface UseEmailOtpVerifyMutationOptions {
   realmId: string
   onSuccess?: () => void
+  /**
+   * Called when verify 200 answered `requires-second-factor` (user with an
+   * enabled TOTP/passkey logged in via OTP). No tokens were issued; the
+   * caller routes the user to the shared second-factor step with the
+   * returned temp token (mirrors the password-login branch).
+   */
+  onSecondFactorRequired?: (tempToken: string, secondFactors: string[]) => void
   onError?: (error: unknown) => void
 }
 
@@ -144,10 +151,16 @@ export interface UseEmailOtpVerifyMutationOptions {
  * and navigation (component/route boundary; mirror `PasskeyLoginForm` →
  * `handlePasskeySuccess`). Verify never returns `redirectTo`/PKCE, so no
  * exchange branch is needed here.
+ *
+ * The one non-token branch is `requires-second-factor` (a user with an
+ * enabled TOTP/passkey must complete the second factor before a session is
+ * issued); it is surfaced through `onSecondFactorRequired` instead of
+ * throwing.
  */
 export function useEmailOtpVerifyMutation({
   realmId,
   onSuccess,
+  onSecondFactorRequired,
   onError,
 }: UseEmailOtpVerifyMutationOptions) {
   return useMutation({
@@ -164,6 +177,10 @@ export function useEmailOtpVerifyMutation({
         code: payload.code,
         ...(payload.agreements ? { agreements: payload.agreements } : {}),
       })
+      if (result.kind === 'requires-second-factor' && result.tempToken) {
+        onSecondFactorRequired?.(result.tempToken, result.secondFactors)
+        return
+      }
       // The backend's verify 200 is always a BrowserTokenResponse (mapped to
       // the SDK's `success` branch, tokens applied internally). Any other
       // branch is outside the contract — surface it loudly.

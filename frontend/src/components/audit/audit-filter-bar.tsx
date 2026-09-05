@@ -24,14 +24,27 @@ export const CATEGORY_ACTIONS: Record<string, string[]> = {
     'role.update',
     'role.delete',
     'permission.create',
+    'permission.update',
     'permission.delete',
     'role.assign',
     'role.unassign',
     'permission.grant',
     'permission.revoke',
   ],
-  realm_management: ['realm.create', 'realm.rbac_init'],
-  auth: ['auth.login', 'auth.logout', 'auth.login_failed'],
+  realm_management: [
+    'realm.create',
+    'realm.rbac_init',
+    'realm_config.update',
+    'realm_config.delete',
+  ],
+  auth: [
+    'auth.login',
+    'auth.logout',
+    'auth.login_failed',
+    'passkey_config.update',
+    'totp_config.update',
+    'email_otp_config.update',
+  ],
 }
 
 const CATEGORY_LABELS: Record<string, () => string> = {

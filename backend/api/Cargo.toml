@@ -79,6 +79,7 @@ pprof = { version = "0.15", optional = true }
 
 [dev-dependencies]
 herald-worker = { path = "../worker" }
+herald-infra-iap = { path = "../infra-iap" }
 herald-test-db = { path = "../test-db" }
 herald-test-support = { path = "../test-support" }
 test-context = { workspace = true }

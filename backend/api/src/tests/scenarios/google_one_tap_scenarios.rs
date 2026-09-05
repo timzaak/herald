@@ -204,6 +204,19 @@ async fn count_provider_links_by_open_id(ctx: &TestContext, provider_user_id: &s
 async fn google_one_tap_creates_new_user_and_returns_token_family(ctx: &mut TestContext) {
     enable_google_provider(ctx).await;
     enable_registration(ctx).await;
+    // OAuth first-login creation is a registration for points purposes
+    // (points PRD 注册积分): seed a Registration rule so the grant is
+    // observable.
+    const REGISTRATION_BONUS: i64 = 1000;
+    crate::tests::helpers::points_helpers::seed_realm_registration_rules(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        REGISTRATION_BONUS,
+        None,
+        86400,
+        1,
+    )
+    .await;
     // Start the wiremock JWKS serving the default keypair under `test_kid()`,
     // and point the One Tap handler at it via the AppState override.
     let jwks = spawn_default_jwks().await;
@@ -257,6 +270,20 @@ async fn google_one_tap_creates_new_user_and_returns_token_family(ctx: &mut Test
     assert_eq!(
         link_count, 1,
         "One Tap must create exactly one oauth_provider_link to Google"
+    );
+
+    // The created account received the registration credit once.
+    let ledgers = crate::tests::helpers::points_helpers::get_user_ledgers_by_credit_type(
+        ctx,
+        user_id,
+        herald_core::domain::points::entities::CreditType::RegistrationCredit,
+    )
+    .await;
+    assert_eq!(ledgers.len(), 1, "exactly one registration ledger row");
+    assert_eq!(ledgers[0].granted_amount, REGISTRATION_BONUS);
+    assert_eq!(
+        ledgers[0].source_type,
+        herald_core::domain::points::entities::CreditSourceType::Registration
     );
 }
 

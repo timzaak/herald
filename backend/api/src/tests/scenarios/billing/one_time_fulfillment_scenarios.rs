@@ -14,7 +14,7 @@
 //
 // User Story: US-PU-006 (one-time purchase), US-PA-001 (create payment attempt),
 //             US-PA-003 (payment success fulfillment)
-// Covers: Design section 5.1 "PurchaseService + FulfillmentService"
+// Covers: the PurchaseService + FulfillmentService one-time purchase flow
 //
 // =============================================================================
 
@@ -204,7 +204,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PU-006, US-PA-003
-    /// Covers: Design section 5.1 "one-time reads mapping.points_per_period"
+    /// Covers: one-time fulfillment reads mapping.points_per_period
     ///
     /// Scenario: One-time purchase fulfillment grants topup_credit points
     /// Given: A one-time mapping with points_per_period=1000 and validity_days=30
@@ -265,7 +265,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PU-006
-    /// Covers: Design section 5.1 "one-time reads mapping.validity_days"
+    /// Covers: one-time fulfillment reads mapping.validity_days
     ///
     /// Scenario: Points are granted with the correct validity period
     /// Given: A one-time mapping with points_per_period=500 and validity_days=90
@@ -320,7 +320,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PU-006
-    /// Covers: Design section 5.1 "validity_days null means permanent"
+    /// Covers: validity_days null means permanent
     ///
     /// Scenario: Points are granted as permanent (no expiration)
     /// Given: A one-time mapping with points_per_period=300 and validity_days=NULL
@@ -368,7 +368,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PU-006, US-PA-003
-    /// Covers: Design section 5.1 "idempotent via payment attempt + ledger source_id"
+    /// Covers: fulfillment is idempotent via payment attempt + ledger source_id
     ///
     /// CRITICAL: This test prevents duplicate points grants from webhook retries.
     ///
@@ -444,7 +444,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PA-001
-    /// Covers: Design section 5.1 "mapping not found -> error"
+    /// Covers: resolve_target with mapping not found -> error
     ///
     /// Scenario: Creating a payment attempt for a non-existent mapping returns error
     /// Given: No mapping exists for the given target_id
@@ -508,7 +508,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PA-001
-    /// Covers: Design section 5.1 "mapping disabled -> error"
+    /// Covers: creating a payment attempt for a disabled mapping -> error
     ///
     /// Scenario: Creating a payment attempt for a disabled mapping returns error
     /// Given: A one-time mapping with enabled=false
@@ -578,7 +578,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PA-001
-    /// Covers: Design section 5.1 "mapping no provider_product_info -> error"
+    /// Covers: mapping with no provider_product_info -> error
     ///
     /// Scenario: Creating a payment attempt for a mapping without provider_product_info
     /// returns an error or creates an attempt with zero amount
@@ -668,22 +668,23 @@ mod tests {
     }
 
     // =========================================================================
-    // Test 8: Disabled mapping allows fulfillment of existing attempt
+    // Test 8: Disabled mapping completes the payment but withholds grants
     // =========================================================================
 
-    /// User Story: US-PA-003
-    /// Covers: Design section 5.1 "mapping disabled only affects new purchase creation, not fulfillment"
+    /// User Story: US-PA-003 + subscription PRD §4 "禁用映射后…不触发积分策略的发放或回收"
     ///
-    /// Scenario: Fulfillment succeeds for an attempt created before mapping was disabled
+    /// Scenario: A mapping disabled between purchase and webhook fulfillment
     /// Given: A one-time mapping that was enabled when a payment attempt was created
     /// And: The mapping is then disabled
     /// And: The payment attempt is still pending
     /// When: Fulfilling the payment attempt
-    /// Then: Fulfillment succeeds
-    /// And: User receives the topup points
+    /// Then: Fulfillment still completes (the user already paid the provider —
+    ///       the attempt is marked succeeded)
+    /// And: NO points are granted while the mapping is disabled (the disabled
+    ///       gate must withhold grants; re-enabling resumes at the next event)
     #[test_context(TestContext)]
     #[tokio::test]
-    async fn test_disabled_mapping_allows_fulfillment_of_existing_attempt(ctx: &mut TestContext) {
+    async fn test_disabled_mapping_withholds_grants_on_fulfillment(ctx: &mut TestContext) {
         let realm_id = ctx._realm_id.clone();
         let user_id = Uuid::now_v7();
 
@@ -710,18 +711,22 @@ mod tests {
         let provider_tx_id = format!("pi_test_{}", attempt_id);
         let result = fulfill_attempt(ctx, attempt_id, &provider_tx_id).await;
 
-        // Then: Fulfillment succeeds
+        // Then: Fulfillment completes — the payment itself is a fact; the
+        // attempt must not be left dangling pending forever.
         assert!(
             result.is_ok(),
-            "Fulfillment should succeed even with disabled mapping: {:?}",
+            "Fulfillment should complete even with disabled mapping: {:?}",
             result
         );
 
-        // And: User receives the topup points
+        // And: no points were granted while the mapping is disabled.
         let account = get_points_wallet_by_user(ctx, user_id).await;
         assert!(account.is_some(), "User should have a points wallet");
         let (_wallet_id, _total_balance, topup_balance, subscription_balance) = account.unwrap();
-        assert_eq!(topup_balance, 600, "User should have 600 topup_credit");
+        assert_eq!(
+            topup_balance, 0,
+            "disabled mapping must not grant topup_credit (PRD §4: 禁用后不触发积分发放)"
+        );
         assert_eq!(subscription_balance, 0, "subscription_balance should be 0");
     }
 }

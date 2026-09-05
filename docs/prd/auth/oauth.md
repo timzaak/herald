@@ -141,7 +141,7 @@
 - OAuth Provider 是 Realm 级别资源，由 Realm Admin 管理，与普通 Realm Config（key-value）独立
 - Authorization Code + PKCE 为 OAuth 2.1 推荐模式，前端只获得 code，后端换 token，安全性高于旧 Implicit Flow
 - 所有 OAuth 凭证（state、authorization_code）为一次性使用，防止重放攻击
-- redirect_uri 白名单精确匹配（origin + port），禁止前缀匹配，防止开放重定向
+- redirect_uri 白名单精确匹配（origin + port），禁止前缀匹配，防止开放重定向；例外：第一方 Client App（内置管理控制台/用户账户中心）跳过 redirect_uri 白名单校验（其回调固定为 Herald 自有前端路由）
 - TOTP 二次认证流程中保持 OAuth 上下文，认证完成后同样返回 redirectTo
 - API Key 绑定到特定 realm，实现跨租户隔离
 - API Key 可绑定到特定 Client App（Client App Scope），普通 Client App 的 Key 仅能访问该 App 资源，Admin API Client 的 Key 可跨 App 访问
@@ -167,7 +167,8 @@
 
 **OAuth 授权流程:**
 - 第三方 SPA 必须使用 Authorization Code + PKCE 流程，不支持 Implicit Flow
-- Client App 必须存在且已启用，redirect_uri 必须在白名单中精确匹配（origin + port 完全一致）
+- Client App 必须存在且已启用，redirect_uri 必须在白名单中精确匹配（origin + port 完全一致；第一方 Client App 例外，见上）
+- Google One Tap 与 Apple 原生（Sign in with Apple）直连登录由专属 PRD 承载（[google-one-tap.md](google-one-tap.md)、[support-mobile-apple-login.md](support-mobile-apple-login.md)），不经本 PRD 的 authorize/code 交换流
 - State 和 authorization_code 必须一次性使用，验证后立即删除
 - PKCE 的 code_challenge 必须使用 S256 方法（SHA256）
 - 无 OAuth 参数时，登录行为与现有普通登录完全一致

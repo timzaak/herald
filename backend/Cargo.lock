@@ -2014,6 +2014,7 @@ dependencies = [
  "herald-api-oauth",
  "herald-api-points",
  "herald-core",
+ "herald-infra-iap",
  "herald-test-db",
  "herald-test-support",
  "herald-worker",

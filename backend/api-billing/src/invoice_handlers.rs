@@ -23,8 +23,9 @@ use herald_core::domain::billing::invoice::{
     NewInvoice, NewLineItem, UpdateInvoiceDraft,
 };
 use herald_core::domain::billing::invoice_service::{
-    InvoicePolicyConfig, parse_invoice_policy_config, validate_external_invoice_readonly,
-    validate_invoice_policy_allows_creation, validate_not_mor_provider, validate_status_transition,
+    InvoicePolicyConfig, external_invoice_capability_enabled, parse_invoice_policy_config,
+    validate_external_invoice_readonly, validate_invoice_policy_allows_creation,
+    validate_not_mor_provider, validate_status_transition,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::realm_config::RealmConfigRepository;
@@ -131,6 +132,43 @@ async fn validate_resource_ownership(
     }
 }
 
+/// Whether an `external_sync` invoice already covers the given resource.
+/// Shared by the creation policy (write path) and the apply-eligibility read
+/// path so the two judgments cannot drift. No repository method exists for
+/// this lookup; this is the minimal SQL. Columns confirmed against migration
+/// 20260508_invoice.sql (`source` is TEXT CHECK in
+/// {'admin_manual','user_application','external_sync'}).
+async fn external_sync_invoice_exists(
+    state: &AppState,
+    realm_id: &str,
+    payment_attempt_id: Option<Uuid>,
+    subscription_id: Option<Uuid>,
+) -> Result<bool, ApiError> {
+    if let Some(pa_id) = payment_attempt_id {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM invoice
+                 WHERE realm_id = $1 AND source = 'external_sync' AND payment_attempt_id = $2)",
+        )
+        .bind(realm_id)
+        .bind(pa_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
+    } else if let Some(sub_id) = subscription_id {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM invoice
+                 WHERE realm_id = $1 AND source = 'external_sync' AND subscription_id = $2)",
+        )
+        .bind(realm_id)
+        .bind(sub_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
+    } else {
+        Ok(false)
+    }
+}
+
 /// Check Creem MoR guard and invoice policy for manual invoice creation.
 ///
 /// Queries the payment_provider from the payment_attempt (if present) to reject
@@ -179,6 +217,28 @@ async fn validate_invoice_creation_policy(
 
     let policy_config = get_invoice_policy(state, realm_id).await?;
     validate_invoice_policy_allows_creation(&policy_config)?;
+
+    // Keep the write path consistent with the eligibility read path
+    // (invoice.md §4.1 behavior matrix / `determine_invoice_apply_route`):
+    // under provider_first a Stripe resource's invoices arrive via webhook
+    // (external_provider verdict), and a resource that already carries an
+    // externally-synced invoice must not get a duplicate manual one. A
+    // provider whose external-invoice capability is switched OFF degrades to
+    // manual fallback and stays writable (§4.3).
+    if policy_config.policy == "provider_first"
+        && payment_provider.as_deref() == Some("stripe")
+        && external_invoice_capability_enabled(&policy_config, "stripe")
+    {
+        return Err(ApiError::conflict(
+            "Invoices for Stripe resources are issued by Stripe under the provider_first policy",
+        ));
+    }
+
+    if external_sync_invoice_exists(state, realm_id, payment_attempt_id, subscription_id).await? {
+        return Err(ApiError::conflict(
+            "An externally-synced invoice already exists for this resource",
+        ));
+    }
 
     Ok(())
 }
@@ -1317,37 +1377,20 @@ pub async fn get_invoice_apply_eligibility(
         .await?
         .is_some();
 
-    // No repository method exists for this lookup; this is the minimal SQL.
-    // Columns confirmed against migration 20260508_invoice.sql:
-    //   invoice.realm_id, invoice.source, invoice.payment_attempt_id,
-    //   invoice.subscription_id (source is TEXT CHECK in
-    //   {'admin_manual','user_application','external_sync'}).
-    let external_invoice_exists: bool = match resource {
-        OwnedResource::PaymentAttempt => sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM invoice
-                 WHERE realm_id = $1 AND source = 'external_sync' AND payment_attempt_id = $2)",
-        )
-        .bind(&realm_id)
-        .bind(query.reference_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?,
-        OwnedResource::Subscription => sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM invoice
-                 WHERE realm_id = $1 AND source = 'external_sync' AND subscription_id = $2)",
-        )
-        .bind(&realm_id)
-        .bind(query.reference_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?,
+    let (payment_attempt_id, subscription_id) = match resource {
+        OwnedResource::PaymentAttempt => (Some(query.reference_id), None),
+        OwnedResource::Subscription => (None, Some(query.reference_id)),
     };
+    let external_invoice_exists =
+        external_sync_invoice_exists(&state, &realm_id, payment_attempt_id, subscription_id)
+            .await?;
 
     let verdict = determine_invoice_apply_route(
         provider.as_deref(),
         &policy,
         has_seller_config,
         external_invoice_exists,
+        external_invoice_capability_enabled(&policy_config, provider.as_deref().unwrap_or("")),
     );
 
     Ok(Json(InvoiceApplyEligibilityResponse {
@@ -1402,7 +1445,17 @@ pub async fn list_my_invoices(
         total: result.total,
         page: result.page,
         page_size: result.page_size,
-        data: result.data.into_iter().map(summary_to_response).collect(),
+        // Regular users must not see the internal payment-attempt identifier
+        // (invoice.md §4.2) — the same trimming the detail endpoint applies.
+        data: result
+            .data
+            .into_iter()
+            .map(|summary| {
+                let mut response = summary_to_response(summary);
+                response.payment_attempt_id = None;
+                response
+            })
+            .collect(),
     }))
 }
 
@@ -1494,8 +1547,8 @@ async fn get_my_invoice_for_user(
 
     let mut response = invoice_to_detail_response_with_credits(detail, credit_notes);
     // Regular users must NOT receive the internal `payment_attempt_id`; only
-    // admin responses carry it. The summary `InvoiceResponse` (used by
-    // list_my_invoices) has no such field, so only the detail path needs trimming.
+    // admin responses carry it. The summary `InvoiceResponse` used by
+    // list_my_invoices strips the same field at its own call site.
     response.payment_attempt_id = None;
 
     Ok(Json(response))

@@ -2,8 +2,7 @@
 // Scenario tests: Email OTP login (send + verify + status)
 // =============================================================================
 //
-// Exercises the email-OTP login flow (design email-otp-login §4.1 / §4.2 /
-// §5.4) end-to-end through the HTTP layer:
+// Exercises the email-OTP login flow end-to-end through the HTTP layer:
 //   POST /api/auth/{realmId}/login/email-otp/send
 //   POST /api/auth/{realmId}/login/email-otp/verify
 //   GET  /api/auth/{realmId}/email-otp/status
@@ -14,7 +13,7 @@
 // Client-App-level Turnstile behaviour (D-PROTECT-01), and enumeration
 // resistance.
 //
-// Notes on environment behaviour (design §6.1, P2):
+// Notes on environment behaviour:
 // - The test Realm has NO email provider configured, so `EmailService::send_email`
 //   is a silent no-op (`Ok(())`). `send` therefore returns 200 and the code is
 //   still stored in Redis for `verify`.
@@ -198,7 +197,7 @@ async fn current_effective_agreements(ctx: &TestContext) -> Vec<serde_json::Valu
 // =============================================================================
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2 / §6.1 — existing active user send → verify →
+/// Covers: existing active user send → verify →
 /// receives a Bearer access/refresh token family.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -246,7 +245,7 @@ async fn test_scenario_email_otp_send_then_verify_login_success(ctx: &mut TestCo
 }
 
 /// User Story: US-EO-002
-/// Covers: Design §4.1 / §4.2 / §5.4 — unregistered email + auto-register ON +
+/// Covers: unregistered email + auto-register ON +
 /// agreements expressed → verify creates + activates an account and issues a
 /// Bearer token.
 #[test_context(TestContext)]
@@ -256,6 +255,19 @@ async fn test_scenario_email_otp_send_unregistered_with_consent_then_auto_regist
 ) {
     enable_email_otp(ctx, true).await;
     enable_registration(ctx).await;
+
+    // OTP auto-register is a registration for points purposes (points PRD
+    // 注册积分): seed a Registration rule so the grant below is observable.
+    const REGISTRATION_BONUS: i64 = 1000;
+    crate::tests::helpers::points_helpers::seed_realm_registration_rules(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        REGISTRATION_BONUS,
+        None,
+        86400,
+        1,
+    )
+    .await;
 
     let email = format!("eo002-{}@test.com", uuid::Uuid::now_v7());
     // Sanity: the email is NOT registered.
@@ -308,6 +320,28 @@ async fn test_scenario_email_otp_send_unregistered_with_consent_then_auto_regist
     let (user_id, status) = row.expect("auto-registered account must exist");
     assert_eq!(status, 1, "auto-registered account must be active");
 
+    // The JIT-created account received the registration credit once
+    // (idempotent on `registration:{user_id}`).
+    let ledgers = crate::tests::helpers::points_helpers::get_user_ledgers_by_credit_type(
+        ctx,
+        user_id,
+        herald_core::domain::points::entities::CreditType::RegistrationCredit,
+    )
+    .await;
+    assert_eq!(ledgers.len(), 1, "exactly one registration ledger row");
+    assert_eq!(ledgers[0].granted_amount, REGISTRATION_BONUS);
+    assert_eq!(
+        ledgers[0].source_type,
+        herald_core::domain::points::entities::CreditSourceType::Registration
+    );
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM points_distribution_events WHERE event_key = $1")
+            .bind(format!("registration:{user_id}"))
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(event_count, 1, "registration distribution event recorded");
+
     // Register-as-consent was recorded best-effort for both agreement types.
     let consent_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM user_agreement_consent WHERE user_id = $1 AND realm_id = $2",
@@ -324,7 +358,7 @@ async fn test_scenario_email_otp_send_unregistered_with_consent_then_auto_regist
 }
 
 /// User Story: US-EO-002 (negative branch)
-/// Covers: Design §4.1 / §4.2.2 — unregistered email + auto-register ON but
+/// Covers: unregistered email + auto-register ON but
 /// missing agreements → 409 `consent_required` with the current effective
 /// agreement list; no code is sent.
 #[test_context(TestContext)]
@@ -379,7 +413,7 @@ async fn test_scenario_email_otp_send_unregistered_without_consent_returns_conse
 }
 
 /// User Story: US-EO-002 (negative branch)
-/// Covers: Design §4.1 / §4.2.2 — unregistered email + auto-register OFF →
+/// Covers: unregistered email + auto-register OFF →
 /// 409 `email_not_registered`; no code is sent.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -415,7 +449,7 @@ async fn test_scenario_email_otp_send_unregistered_auto_register_disabled_return
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §5.4 — consecutive wrong codes increment `attempts`;
+/// Covers: consecutive wrong codes increment `attempts`;
 /// once `attempts >= max_attempts` the code is invalidated (deleted) and
 /// further verification reports the code as expired.
 #[test_context(TestContext)]
@@ -484,7 +518,7 @@ async fn test_scenario_email_otp_verify_wrong_code_increments_attempts_then_inva
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2.2 — a missing / expired code → 401 (已失效).
+/// Covers: a missing / expired code → 401 (已失效).
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_email_otp_verify_expired_code(ctx: &mut TestContext) {
@@ -530,7 +564,7 @@ async fn test_scenario_email_otp_verify_expired_code(ctx: &mut TestContext) {
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.5 — a successfully matched code is consumed
+/// Covers: a successfully matched code is consumed
 /// (deleted); reusing the same code immediately afterwards is 401.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -575,7 +609,7 @@ async fn test_scenario_email_otp_verify_reused_code_after_success(ctx: &mut Test
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.5 / §6.1 (P2) — IP/email send rate limiting.
+/// Covers: IP/email send rate limiting.
 ///
 /// P2 NOTE: `RateLimitConfig.enforce_in_dev` defaults to `false`, and the OTP
 /// handlers use `rate_limit_hit` (NOT `rate_limit_hit_forced`). In the test
@@ -605,7 +639,7 @@ async fn test_scenario_email_otp_send_rate_limited(ctx: &mut TestContext) {
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.5 / §6.1 (P2) — IP/email verify rate limiting.
+/// Covers: IP/email verify rate limiting.
 ///
 /// P2 NOTE: as above, `enforce_in_dev=false` skips the limit in the test
 /// context, so verify returns 401 (invalid code) rather than 429. This test
@@ -642,7 +676,7 @@ async fn test_scenario_email_otp_verify_rate_limited(ctx: &mut TestContext) {
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2.2 — a disabled (non-active) account cannot
+/// Covers: a disabled (non-active) account cannot
 /// complete verify even with a correct code → 401.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -690,7 +724,7 @@ async fn test_scenario_email_otp_disabled_account_rejected(ctx: &mut TestContext
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2.2 — when OTP login is not enabled for the Realm,
+/// Covers: when OTP login is not enabled for the Realm,
 /// both send and verify return 400; the public `status` endpoint reports
 /// `enabled: false`.
 #[test_context(TestContext)]
@@ -731,17 +765,16 @@ async fn test_scenario_email_otp_realm_otp_disabled_returns_400(ctx: &mut TestCo
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2.2 — a disabled Client App is rejected before a
+/// Covers: a disabled Client App is rejected before a
 /// code is issued.
 ///
 /// BEHAVIOUR NOTE: the OTP handlers resolve the Client App via
 /// `mailflow::require_enabled_client`, which returns `bad_request` (400 —
 /// "Client app is disabled") for a disabled client. This differs from the
-/// design §4.2.2 table row "401 Client App 禁用", but it is the actual
+/// originally specified "401 Client App 禁用", but it is the actual
 /// production behaviour shared by every mailflow-bound auth endpoint. This
-/// test asserts the real (400) behaviour and documents the divergence so the
-/// runner/backend-dev can reconcile the design table if needed. It MUST NOT be
-/// weakened or silently flipped to 401.
+/// test asserts the real (400) behaviour and documents the divergence. It
+/// MUST NOT be weakened or silently flipped to 401.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_email_otp_client_app_disabled_returns_401(ctx: &mut TestContext) {
@@ -782,14 +815,14 @@ async fn test_scenario_email_otp_client_app_disabled_returns_401(ctx: &mut TestC
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "disabled client app is rejected by require_enabled_client with 400 (design table says 401; \
-         see test doc comment — do not silently flip to 401)"
+        "disabled client app is rejected by require_enabled_client with 400 (the originally \
+         specified table says 401; see test doc comment — do not silently flip to 401)"
     );
     let _: serde_json::Value = crate::tests::response_json(resp).await;
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.5 (D-PROTECT-01) — when the bound Client App has
+/// Covers: D-PROTECT-01 — when the bound Client App has
 /// Turnstile enabled, a send without a turnstile token is rejected (the
 /// production `verify_turnstile_for_client_app` returns 400
 /// "turnstile token is required").
@@ -849,7 +882,7 @@ async fn test_scenario_email_otp_turnstile_required_when_client_app_enabled(ctx:
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.5 (D-PROTECT-01) — when the bound Client App has
+/// Covers: D-PROTECT-01 — when the bound Client App has
 /// Turnstile NOT enabled, verification is skipped (not blocking) and send
 /// proceeds even without a turnstile token.
 #[test_context(TestContext)]
@@ -873,7 +906,7 @@ async fn test_scenario_email_otp_turnstile_skipped_when_not_configured(ctx: &mut
 }
 
 /// User Story: US-EO-001
-/// Covers: Design §4.1 / §4.2.2 — send returns the same 200 for a non-active
+/// Covers: send returns the same 200 for a non-active
 /// (disabled) account as for a successful send, and crucially does NOT store a
 /// code (enumeration resistance: an attacker cannot distinguish existing-but-
 /// disabled from a successful send by behaviour).
@@ -911,5 +944,75 @@ async fn test_scenario_email_otp_anti_enumeration_non_active_returns_200(ctx: &m
             .await
             .is_none(),
         "no code must be stored for a non-active account"
+    );
+}
+
+/// User Story: US-EO-001 (second-factor coexistence, email-otp-login PRD
+/// §4.1 "不得绕过现有 TOTP 二因素" / D-COEXIST-01)
+/// Covers: an existing user with an ENABLED TOTP config verifying a valid OTP
+/// code must NOT receive a Bearer token family — the OTP is only the first
+/// factor. The response carries the same second-factor branch shape as
+/// password login (`secondFactors` + `tempToken`), and completing verify-totp
+/// with the temp token issues the session.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_email_otp_verify_totp_user_requires_second_factor(ctx: &mut TestContext) {
+    enable_email_otp(ctx, false).await;
+
+    let email = format!("eo-2fa-{}@test.com", uuid::Uuid::now_v7());
+    let user_id = create_active_user_with_consent(ctx, &email).await;
+
+    // Enable TOTP for the user (the probe only reads the enabled flag).
+    sqlx::query(
+        "INSERT INTO user_totp_config (id, user_id, realm_id, secret_hash, enabled, created_at, updated_at)
+         VALUES ($1, $2, $3, 'mock-secret-hash', true, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(user_id)
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to seed TOTP config");
+
+    let send_resp = send_otp(ctx, &email, None, None).await;
+    assert_eq!(send_resp.status(), StatusCode::OK);
+
+    let known_code = "123456";
+    inject_otp_code(
+        ctx,
+        &ctx._realm_id,
+        &email,
+        known_code,
+        0,
+        OTP_MAX_ATTEMPTS,
+        OTP_CODE_TTL_SECONDS,
+    )
+    .await;
+
+    let verify_resp = verify_otp(ctx, &email, known_code, None).await;
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+
+    let body: serde_json::Value = crate::tests::response_json(verify_resp).await;
+    assert!(
+        body["accessToken"].is_null(),
+        "OTP verify must NOT issue tokens for a TOTP-enabled user (2FA bypass)"
+    );
+    let second_factors: Vec<String> = body["secondFactors"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        second_factors,
+        vec!["totp".to_string()],
+        "response must advertise the totp second factor (SDK requires-second-factor branch)"
+    );
+    let temp_token = body["tempToken"].as_str().unwrap_or_default();
+    assert!(
+        !temp_token.is_empty(),
+        "response must carry a temp token for the second-factor step"
     );
 }

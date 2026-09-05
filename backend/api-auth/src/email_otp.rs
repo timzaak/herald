@@ -46,12 +46,17 @@ use herald_core::domain::security_constants::{
 };
 use herald_core::domain::user::ports::{UserRepository, UserService};
 use herald_core::domain::user::value_objects::CreateUserRequest;
+use herald_core::domain::user_passkey::UserPasskeyRepository;
+use herald_core::domain::user_totp::UserTotpRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
+use herald_core::infrastructure::user_passkey::PostgresUserPasskeyRepository;
+use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 use herald_core::third::email::EmailService;
 
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
 use crate::mailflow;
+use crate::passkey_rp::resolve_passkey_rp;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -688,6 +693,21 @@ pub async fn verify(
             )
             .await;
 
+            // JIT account creation is a registration for points purposes
+            // (mirrors register.rs; idempotent on `registration:{user_id}`).
+            if let Err(e) = state
+                .registration_service
+                .handle_user_registration(created.id, &realm_id)
+                .await
+            {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    user_id = %created.id,
+                    error = %e,
+                    "OTP auto-register: failed to grant registration points"
+                );
+            }
+
             state
                 .user_repository
                 .get_user_by_id(created.id)
@@ -723,6 +743,115 @@ pub async fn verify(
         )
         .await;
         return Err(ApiError::unauthorized("账号已被禁用".to_string()));
+    }
+
+    // 9.5 Second-factor gate (PRD email-otp-login.md §4.1: OTP login must not
+    //     bypass an existing TOTP/passkey second factor). Mirrors login.rs:
+    //     a user with an enabled TOTP config or a passkey for the resolved RP
+    //     gets a 5-minute temp session instead of tokens; verify-totp /
+    //     verify-passkey completes the login and re-runs the consent gate.
+    let totp_repo = PostgresUserTotpRepository::new(state.db.clone());
+    let has_totp = totp_repo
+        .get_config_by_user_id(user.id)
+        .await?
+        .map(|config| config.enabled)
+        .unwrap_or(false);
+
+    // Best-effort probe identical to the password-login one: a passkey RP
+    // resolution failure (e.g. no RP configured for this realm) means "no
+    // passkey second factor", never a 500 on the OTP path.
+    let passkey_repo = PostgresUserPasskeyRepository::new(state.db.clone());
+    let has_passkey = match resolve_passkey_rp(
+        &state,
+        &user.realm_id,
+        &headers,
+        Some(client_app.id),
+    )
+    .await
+    {
+        Ok(relying_party) => !passkey_repo
+            .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
+            .await?
+            .is_empty(),
+        Err(error) => {
+            tracing::debug!(
+                user_id = %user.id,
+                realm_id = %user.realm_id,
+                error = %error,
+                "Passkey RP resolution failed during OTP login second-factor probe; passkey will not be offered"
+            );
+            false
+        }
+    };
+
+    let mut second_factors = Vec::new();
+    if has_totp {
+        second_factors.push("totp");
+    }
+    if has_passkey {
+        second_factors.push("passkey");
+    }
+
+    if !second_factors.is_empty() {
+        let temp_token = format!("totp_login_{}", Uuid::now_v7());
+        let temp_key = format!("totp:temp:{}", temp_token);
+        let temp_session_data = serde_json::json!({
+            "user_id": user.id,
+            "realm_id": realm_id.clone(),
+            "client_id": payload.client_id,
+            "client_app_id": client_app.id,
+            "client_ip": ip.clone(),
+            "flow": "custom_user_ui",
+        });
+        let _: () = conn
+            .set_ex(temp_key, temp_session_data.to_string(), 300) // 5 minutes
+            .await
+            .map_err(|_| ApiError::internal("Internal server error".to_string()))?;
+
+        if let Err(audit_err) = state
+            .audit_event_repository
+            .create(NewAuditEvent {
+                realm_id: realm_id.clone(),
+                category: AuditCategory::Auth,
+                action: AuditAction::AuthLogin,
+                actor_id: user.id.to_string(),
+                actor_type: Some(ActorType::User),
+                actor_name: Some(user.email.clone()),
+                target_type: AuditTargetType::User,
+                target_id: user.id.to_string(),
+                target_name: Some(user.email.clone()),
+                result: AuditResult::Success,
+                details: Some(serde_json::json!({
+                    "method": "email_otp",
+                    "totp_required": has_totp,
+                    "passkey_required": has_passkey,
+                })),
+                ip_address: Some(ip.clone()),
+                user_agent,
+                trace_id: None,
+            })
+            .await
+        {
+            tracing::warn!(error = %audit_err, "Failed to record OTP login audit event");
+        }
+
+        // Same multi-branch 200 contract as password login — build the typed
+        // LoginResponse (ldap_login.rs does the same) so the camelCase shape
+        // stays locked to the password-login contract; the SDK maps
+        // `secondFactors` to its requires-second-factor branch.
+        return Ok(Json(crate::login::LoginResponse {
+            message: "second factor required".to_string(),
+            user_id: user.id,
+            realm_id: realm_id.clone(),
+            requires_totp: Some(has_totp),
+            second_factors: Some(second_factors.iter().map(|f| f.to_string()).collect()),
+            temp_token: Some(temp_token),
+            expires_in_seconds: 300,
+            redirect_to: None,
+            consent_required: None,
+            agreements: None,
+        })
+        .into_response());
     }
 
     // 10. Login-as-consent gate for existing users. `Some` ⇒ 200 consent_required,

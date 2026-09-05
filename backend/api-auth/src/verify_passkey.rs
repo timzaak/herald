@@ -560,6 +560,36 @@ async fn finish_login(
                 ApiError::internal("Redis operation error")
             })?;
 
+        // Audit passkey login success on the OAuth branch too (mirrors
+        // login.rs's OAuth-branch audit) — without this, passkey+OAuth logins
+        // formed an audit blind spot.
+        if let Err(audit_err) = state
+            .audit_event_repository
+            .create(NewAuditEvent {
+                realm_id: login_state.realm_id.clone(),
+                category: AuditCategory::Auth,
+                action: AuditAction::AuthLogin,
+                actor_id: user_id.to_string(),
+                actor_type: None,
+                actor_name: Some(user.email.clone()),
+                target_type: AuditTargetType::User,
+                target_id: user_id.to_string(),
+                target_name: Some(user.email.clone()),
+                result: AuditResult::Success,
+                details: Some(serde_json::json!({
+                    "method": "passkey",
+                    "oauth": true,
+                    "client_id": oauth_client_id,
+                })),
+                ip_address: Some(client_ip.clone()),
+                user_agent: user_agent.clone(),
+                trace_id: None,
+            })
+            .await
+        {
+            tracing::warn!(error = %audit_err, "Failed to record passkey login-success audit event");
+        }
+
         let redirect_to = format!("{redirect_uri}?code={auth_code}&state={state_param}");
         return Ok(Json(PasskeyVerifyResponse {
             message: "ok".to_string(),

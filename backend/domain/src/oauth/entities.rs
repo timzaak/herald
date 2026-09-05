@@ -42,7 +42,7 @@ impl OAuthProviderConfig {
         // LDAP identity links reuse the `provider` table (type='ldap') but are
         // never created through the OAuth provider configuration surface;
         // refusing here keeps the admin API from minting an OAuth config row
-        // that would collide with directory-login links (design D2-2).
+        // that would collide with directory-login links.
         if config.provider_type == ProviderType::Ldap {
             return Err(CoreError::BadRequest(
                 "LDAP is not an OAuth provider".to_string(),
@@ -84,12 +84,14 @@ fn default_scopes(provider_type: &ProviderType) -> Vec<String> {
         ProviderType::WeChat => vec!["snsapi_login".to_string()],
         ProviderType::WeChatMiniProgram => vec![],
         // LDAP links carry no OAuth scope concept; the variant exists so the
-        // `provider` table round-trips type='ldap' rows (design D2-2).
+        // `provider` table round-trips type='ldap' rows.
         ProviderType::Ldap => vec![],
     }
 }
 
-fn validate_scopes(provider_type: &ProviderType, scopes: &[String]) -> Result<(), CoreError> {
+// Public so repositories can re-validate on update paths (PUT must uphold
+// the same provider-scope contract as create).
+pub fn validate_scopes(provider_type: &ProviderType, scopes: &[String]) -> Result<(), CoreError> {
     match provider_type {
         // WeChat website only accepts snsapi_login
         ProviderType::WeChat => {
@@ -153,7 +155,7 @@ impl Entity for OAuthProvider {
 /// identity-link table can round-trip `type='ldap'` rows created by LDAP
 /// login (`PostgresOAuthRepository` parses the type column through this
 /// enum). `OAuthProviderConfig::new` rejects it, keeping the OAuth
-/// configuration surface from producing ldap rows (design D2-2).
+/// configuration surface from producing ldap rows.
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderType {

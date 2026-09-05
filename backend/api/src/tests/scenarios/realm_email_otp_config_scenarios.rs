@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // Admin-only configuration for the per-Realm Email-OTP login + auto-register
-// switches (design email-otp-login §4.2.2 / §5.5). Mirrors the TOTP/Passkey
+// switches. Mirrors the TOTP/Passkey
 // config scenario shape and the template `realm_totp_config_scenarios.rs`:
 //   PUT  /api/realms/{realmId}/config/email-otp   (settings.manage)
 //   GET  /api/realms/{realmId}/config/email-otp   (settings.view)
@@ -61,7 +61,7 @@ fn get_config_request(realm_id: &str, token: &str) -> Request<Body> {
 // =============================================================================
 
 /// User Story: US-EO-003
-/// Covers: Design §4.2.2 / §5.5 / §6.1 — admin enables then disables Email OTP
+/// Covers: admin enables then disables Email OTP
 /// and reads each state back consistently via GET.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -117,10 +117,39 @@ async fn test_scenario_admin_enable_disable_email_otp(ctx: &mut TestContext) {
     let body: serde_json::Value = crate::tests::response_json(resp).await;
     assert_eq!(body["enabled"], false);
     assert_eq!(body["autoRegister"], false);
+
+    // Auth-policy changes are "关键配置变更" (audit PRD): each PUT (enable +
+    // disable) must leave an audit trail naming the new values.
+    let enabled_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events
+         WHERE realm_id = $1 AND action = 'email_otp_config.update'
+           AND details->>'enabled' = 'true' AND details->>'auto_register' = 'false'",
+    )
+    .bind(&ctx._realm_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        enabled_count, 1,
+        "Email OTP enable must be audited with the new policy values"
+    );
+    let disabled_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_events
+         WHERE realm_id = $1 AND action = 'email_otp_config.update'
+           AND details->>'enabled' = 'false'",
+    )
+    .bind(&ctx._realm_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        disabled_count, 1,
+        "Email OTP disable must be audited with the new policy values"
+    );
 }
 
 /// User Story: US-EO-003
-/// Covers: Design §4.5 (权限边界) / §6.1 — a realm admin cannot write/read
+/// Covers: 权限边界 — a realm admin cannot write/read
 /// another realm's Email-OTP config (cross-realm access is rejected).
 #[test_context(TestContext)]
 #[tokio::test]
@@ -159,7 +188,7 @@ async fn test_scenario_admin_email_otp_config_cross_realm_rejected(ctx: &mut Tes
 }
 
 /// User Story: US-EO-003
-/// Covers: Design §4.2.2 / §5.5 — the `autoRegister` flag round-trips through
+/// Covers: the `autoRegister` flag round-trips through
 /// PUT → GET independently of `enabled`.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -208,7 +237,7 @@ async fn test_scenario_admin_email_otp_auto_register_toggle(ctx: &mut TestContex
 }
 
 /// User Story: US-EO-003
-/// Covers: Design §4.5 (权限边界) / §6.1 — without `settings.manage` a PUT is
+/// Covers: 权限边界 — without `settings.manage` a PUT is
 /// rejected (403); without `settings.view` a GET is rejected (403). The
 /// default test user (no realm-admin role) has neither permission.
 #[test_context(TestContext)]

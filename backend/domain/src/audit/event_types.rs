@@ -30,6 +30,8 @@ pub enum AuditAction {
     RoleDelete,
     #[serde(rename = "permission.create")]
     PermissionCreate,
+    #[serde(rename = "permission.update")]
+    PermissionUpdate,
     #[serde(rename = "permission.delete")]
     PermissionDelete,
     #[serde(rename = "role.assign")]
@@ -50,6 +52,13 @@ pub enum AuditAction {
     RealmCreate,
     #[serde(rename = "realm.rbac_init")]
     RealmRbacInit,
+    /// Non-payment realm config row written via the generic configs API
+    /// (SMTP, LDAP, Turnstile, registration policy, white-label, ...).
+    /// Payment providers keep their dedicated `payment_config.*` actions.
+    #[serde(rename = "realm_config.update")]
+    RealmConfigUpdate,
+    #[serde(rename = "realm_config.delete")]
+    RealmConfigDelete,
     #[serde(rename = "auth.login")]
     AuthLogin,
     #[serde(rename = "auth.logout")]
@@ -72,6 +81,15 @@ pub enum AuditAction {
     PaymentWebhook,
     #[serde(rename = "payment.replay")]
     PaymentReplay,
+    /// IAP client receipt submission (Apple jwsRepresentation / Google
+    /// purchaseToken) verified and fulfilled.
+    #[serde(rename = "iap.receipt_submit")]
+    IapReceiptSubmit,
+    /// IAP server-driven lifecycle event processed (Apple notification or
+    /// Google reconciliation replay): purchase / renewal / expiration /
+    /// refund / status change.
+    #[serde(rename = "iap.notification")]
+    IapNotification,
     #[serde(rename = "oauth_config.create")]
     OAuthConfigCreate,
     #[serde(rename = "oauth_config.update")]
@@ -80,6 +98,10 @@ pub enum AuditAction {
     OAuthConfigDelete,
     #[serde(rename = "passkey_config.update")]
     PasskeyConfigUpdate,
+    #[serde(rename = "totp_config.update")]
+    TotpConfigUpdate,
+    #[serde(rename = "email_otp_config.update")]
+    EmailOtpConfigUpdate,
     #[serde(rename = "passkey.register")]
     PasskeyRegister,
     #[serde(rename = "passkey.delete")]

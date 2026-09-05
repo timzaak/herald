@@ -123,8 +123,8 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 
 **配置管理规则**：
 - 每个 Realm 使用独立的 App Store / Google Play IAP 凭证配置，复用现有 `realm_config` 与管理端配置 UI，与 Stripe/Creem 配置入口一致
-- 私钥、Service Account JSON 等敏感凭证必须加密存储，查看时脱敏；编辑时留空则保留旧值
-- 仅 Realm Admin（`billing.manage`）可修改配置；查看需 `billing.view`（与现有 provider 一致）
+- 私钥、Service Account JSON 等敏感凭证以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（与 Stripe/Creem 等现有 provider 的凭据存储口径一致）；编辑时留空则保留旧值
+- 仅 Realm Admin（`settings.manage`）可修改配置；查看需 `settings.view`（与 WeChat/Stripe 等现有 provider 的通用 realm_config 权限面一致；permissions.md 中对应的 `billing.*` 表述以本节为准）
 - 删除 IAP 凭证前需检查是否有活跃订阅，存在活跃订阅时拒绝删除并提示数量
 
 **IAP 商品映射规则**：
@@ -185,10 +185,10 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 
 **定时拉取对账规则（IAP 适配）**：
 - 定时按 Realm 调用 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，识别本地缺失或滞后的履约事件
-- 对 Google，该拉取同时承担生命周期主驱动（见上节轮询规则）；对 Apple，承担通知补偿
+- 对 Google，该拉取同时承担生命周期主驱动（见上节轮询规则）；对 Apple，承担通知补偿，分两层：Notification History 拉取（`onlyFailures=true`，补偿投递失败）+ 对本地仍存活的订阅做 getAllSubscriptionStatuses 状态比对，发现 Apple 侧已 Expired/Revoked 的漂移时按 `transactionId` 定向拉取该交易的通知历史（`onlyFailures=false`，覆盖「已投递但本地处理失败」的通知）并复用通知处理管道回放；漂移在通知历史中无可回放事件时仅记诊断，不自动改写订阅状态
 - 拉取到的事件复用与正常服务端通知相同的领域处理与数据库幂等约束，不重复改变订阅或积分
 - 单个 Realm、交易或平台 API 失败不阻塞其他对象；记录拉取数、缺失数、成功数、失败数及上下文错误
-- 对账间隔必须小于平台事件保留窗口；拉取支持分页与限流控制，不触发平台限流
+- 对账间隔必须小于平台事件保留窗口；拉取支持分页与限流控制，不触发平台限流（默认 Apple 1800s / Google 900s，可经 `WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整）
 - 状态不一致但不存在缺失事件时只记录诊断，不自动改写数据；不提供手动触发、管理页面或报警通知
 
 ### 4.2 关键状态与异常
@@ -245,7 +245,8 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 退款或过期后权益按订阅状态机降级，历史保留在订阅变更历史
 
 **定时拉取对账**：
-- 定时向 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，复用既有补偿领域处理与幂等机制；对 Apple 补偿漏发通知，对 Google 驱动全部生命周期
+- 对账 job 随应用接线运行（`WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 Apple / Google 分频默认 1800s / 900s，可经 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整），定时向 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，复用既有补偿领域处理与幂等机制；对 Apple 补偿漏发通知，对 Google 驱动全部生命周期
+- Apple 补偿分两层：Notification History（`onlyFailures=true`）补偿投递失败；再对本地仍存活的订阅轮询 getAllSubscriptionStatuses，发现 Expired/Revoked 漂移时按 `transactionId` 定向拉取通知历史（`onlyFailures=false`，覆盖已投递但本地处理失败的通知）回放；无匹配通知仅记诊断
 - 对账间隔小于平台事件保留窗口；分页与限流；单对象失败不阻塞其他对象
 
 ### 5.2 验收目标
@@ -272,7 +273,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - **接口能力范围**：IAP 在 IAP 凭证配置、商品映射、服务端通知接收、客户端 receipt 提交、权益查询与定时拉取对账上复用既有能力骨架，新增的 IAP 专属能力集中在 Apple 平台通知接收、receipt 校验与定时拉取对账。Herald 不暴露 IAP 专属业务端点给前端；移动 App 通过既有 api-billing 浏览器路由发起 attempt、提交 receipt、查询状态。
 - **访问控制原则**：
   - 必须遵守 realm 隔离与既有 `PurchaseInitiate` / `PurchaseStatusRead` / `PurchaseRead` scope 鉴权
-  - 配置写入需 `billing.manage`，查看需 `billing.view`
+  - 配置写入需 `settings.manage`，查看需 `settings.view`
   - 客户端提交的 receipt / token 不被信任，必须经 Herald 密码学验签（Apple）或调用 Google 服务端 API 校验真实性与归属后才予履约
   - 金额与积分变更必须可追溯；履约必须幂等
 - **租户 / realm 边界**：每个 Realm 使用独立的 IAP 凭证，平台通知按 Realm 隔离路由；与既有 Stripe / Creem 边界一致。
@@ -305,9 +306,9 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 
 ### 8.2 商品类型与履约决策（约束 PRD 边界，不承载实现细节）
 
-- **两种商品类型纳入**：自动续期订阅（recurring）、消耗型积分包（one_time）
+- **两种商品类型为本 PRD 编目边界**：自动续期订阅（recurring）、消耗型积分包（one_time）
 - **复用现有履约**：recurring 复用订阅状态机与续费积分策略，one_time 复用 topup_credit 发放；不扩展 `BillingType`
-- **非消耗型买断与非续期订阅不在本 PRD 定义**：相关产品规则由 [履约模型扩展](pay_model.md) 维护
+- **非消耗型买断（buyout）与非续期订阅（non-renewing）溢入实现**：履约链路按 [履约模型扩展](pay_model.md) 的通用规则完整承载这两种形态（buyout 走 one_time 语义、non-renewing 建订阅行并到期不续），IAP 侧（凭证提交、Apple 通知、Google 轮询）与 Stripe/Creem 路径行为一致；商品规则本体仍由 pay_model.md 维护
 - **跨平台订阅不共享**：App Store 与 Google Play 各自独立订阅，不合并、不共享状态
 
 ### 8.3 显式假设（列为约束）

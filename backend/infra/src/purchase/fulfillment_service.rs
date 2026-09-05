@@ -319,6 +319,22 @@ where
                     attempt.target_id
                 ))
             })?;
+        // Disabled mapping: no points, no roles (PRD support-iap §4.1). The
+        // attempt still completes as succeeded — the user paid the store.
+        if !mapping.enabled {
+            tracing::info!(
+                realm_id = %attempt.realm_id,
+                mapping_id = %mapping.id,
+                attempt_id = %attempt.id,
+                "mapping disabled — one-time purchase completes without points/role grants"
+            );
+            return Ok(FulfillmentResult {
+                fulfillment_type: FulfillmentType::PointsGranted,
+                subscription_id: None,
+                point_grants: Vec::new(),
+                granted_at: chrono::Utc::now(),
+            });
+        }
 
         // Execute the captured rule snapshot. The executor is idempotent on the
         // event key `payment:{attempt_id}`: a replayed (already-completed) event
@@ -544,6 +560,26 @@ where
         // same row); `source_id` = attempt id so the executor's
         // CapturedPaymentRules branch resolves the snapshot. The executor is
         // idempotent on the event key and freezes the first-run result set.
+        //
+        // A disabled mapping keeps the subscription projection (the row above)
+        // but grants nothing (PRD support-iap §4.1: notifications for a
+        // disabled mapping update the projection without points or roles;
+        // re-enabling resumes grants at the next event).
+        if !mapping.enabled {
+            tracing::info!(
+                realm_id = %attempt.realm_id,
+                mapping_id = %mapping.id,
+                subscription_id = %created_subscription.id,
+                "mapping disabled — subscription projected without points/role grants"
+            );
+            return Ok(FulfillmentResult {
+                fulfillment_type: FulfillmentType::SubscriptionCreated,
+                subscription_id: Some(created_subscription.id),
+                point_grants: Vec::new(),
+                granted_at: created_subscription.created_at,
+            });
+        }
+
         let period_start_token = created_subscription
             .current_period_start
             .unwrap_or(created_subscription.created_at)

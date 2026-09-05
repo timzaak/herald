@@ -263,7 +263,15 @@ impl OAuthConfigRepository for PostgresOAuthConfigRepository {
     ) -> Result<OAuthProviderConfig, CoreError> {
         let now = chrono::Utc::now();
 
-        // First update config
+        // A scope change is validated against the stored provider — the
+        // create path enforces the same contract (e.g. WeChat = snsapi_login
+        // only, mini-program = none). Updates that don't touch scopes skip
+        // the lookup entirely.
+        if let Some(ref new_scopes) = request.scopes {
+            let stored = self.get_config_by_id(id).await?;
+            herald_domain::oauth::entities::validate_scopes(&stored.provider_type, new_scopes)?;
+        }
+
         sqlx::query(
             "UPDATE oauth_provider_config
              SET client_id = COALESCE($2, client_id),
@@ -286,7 +294,7 @@ impl OAuthConfigRepository for PostgresOAuthConfigRepository {
             CoreError::InternalServerError(e.to_string())
         })?;
 
-        // Now fetch the full record
+        // Re-read so the returned entity reflects the merged (COALESCE) state.
         let (id, realm_id, provider_type, client_id, client_secret, scopes, enabled, created_at, updated_at): OAuthConfigRow =
             sqlx::query_as(
             "SELECT id, realm_id, provider_type, client_id, client_secret, scopes, enabled, created_at, updated_at

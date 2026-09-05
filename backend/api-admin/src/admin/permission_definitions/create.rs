@@ -11,6 +11,7 @@ use crate::admin::permission_definitions::types::{
 };
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::audit::AuditAction;
 
 /// Create a new permission
 #[utoipa::path(
@@ -88,6 +89,19 @@ pub async fn create_permission(
             ApiError::internal("Failed to create permission")
         }
     })?;
+
+    // Record audit event (mirrors role-definitions create; permissions.md
+    // [US-AU-005] requires permission-definition changes to be audited).
+    super::record_permission_audit(
+        &state,
+        &admin,
+        &realm_id,
+        AuditAction::PermissionCreate,
+        row.id.to_string(),
+        Some(row.name.clone()),
+        Some(serde_json::json!({"name": row.name})),
+    )
+    .await;
 
     Ok(ApiResult::created(row))
 }

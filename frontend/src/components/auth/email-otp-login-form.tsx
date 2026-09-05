@@ -1,5 +1,5 @@
 /**
- * Email-OTP login form (design §4.4.2 wireframe, §4.4.3 constraints).
+ * Email-OTP login form.
  *
  * State machine:
  *   email → (consent gate for auto-register) → Turnstile (per Client App) →
@@ -12,7 +12,7 @@
  * `PasskeyLoginForm` → `handlePasskeySuccess`. The route owns token-family
  * binding + navigation.
  *
- * Error matrix (design §4.2):
+ * Error matrix:
  *   - 409 `consent_required` (auto-register, missing agreements) → consent
  *     gate (agreement list + "agree and continue"), then re-send with
  *     agreements built via `toAuthConsentAgreements`.
@@ -77,6 +77,12 @@ export interface EmailOtpLoginFormProps {
    * callback is needed.
    */
   onSuccess: () => void
+  /**
+   * Called when verify answers `requires-second-factor` (user has an enabled
+   * TOTP/passkey — the OTP alone must not complete the login). The route
+   * swaps in the shared second-factor step keyed by the returned temp token.
+   */
+  onSecondFactorRequired?: (tempToken: string, secondFactors: string[]) => void
   /** Return to the password form (back button). */
   onBack: () => void
   /** Realm-context-aware register path, rendered when `email_not_registered`. */
@@ -88,6 +94,7 @@ export function EmailOtpLoginForm({
   clientId,
   turnstileStatus,
   onSuccess,
+  onSecondFactorRequired,
   onBack,
   registerPath,
 }: EmailOtpLoginFormProps) {
@@ -178,6 +185,10 @@ export function EmailOtpLoginForm({
     onSuccess: () => {
       clearCountdown()
       onSuccess()
+    },
+    onSecondFactorRequired: (tempToken, secondFactors) => {
+      clearCountdown()
+      onSecondFactorRequired?.(tempToken, secondFactors)
     },
     onError: (err) => {
       const status = resolveApiError(err).status

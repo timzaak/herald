@@ -121,11 +121,11 @@ Client App 采用双 ID 系统：
 - Client Secret 由系统自动生成（UUID），仅在创建/重新生成时返回一次
 - 删除 Client App 需要二次确认
 - 浏览器 token 的 refresh 绝对上限策略在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
-- 禁用 Client App 会使绑定到该 App 的 API Key 在外部 API 认证中不可用
+- 禁用 Client App 会使绑定到该 App 的 API Key 在外部 API 认证中不可用；同时实时吊销该 App 名下全部浏览器 token 家族（已登录会话立即失效），删除 Client App 时同样吊销
 - 删除 Client App 后，历史 API Key 的 Client App 关联可为空；空关联仅用于兼容旧数据，不应作为新建默认
 - **人机验证（Turnstile）配置归属 Client App 级**：每个 Client App 配置自己的 Turnstile 启用开关、site_key 与 secret_key；未认证身份端点（注册/登录/找回密码/重置密码/邮箱验证/邮箱验证码登录）的人机验证按当前请求绑定的 Client App 的配置执行，未启用 Turnstile 的 Client App 不强制人机验证
 - **Turnstile secret 不回显**：Turnstile secret_key 属敏感凭证，读取 Client App 详情时不返回；仅在创建/编辑时接受明文
-- 内置管理控制台 Client App（client_id 固定为 `admin-web-console`）不允许被删除，防止 Realm 管理入口不可用
+- 内置第一方 Client App 不允许被删除：`admin-web-console`（管理控制台）与用户账户中心 Client App（`user-account-center`）；二者的 `client_id` 同时受保留字保护，新建 Client App 不得占用。防止内置管理/用户入口不可用
 - `device_code_grant_enabled` 字段控制是否启用 Device Code Grant 流程，默认 false；启用后允许该 Client App 参与 Device Code 授权流程
 
 ### 4.2 关键状态与异常

@@ -3,6 +3,7 @@
 use axum::{
     Json,
     extract::{Extension, Path, State},
+    http::HeaderMap,
 };
 use axum_valid::Valid;
 use serde::{Deserialize, Serialize};
@@ -11,8 +12,13 @@ use validator::Validate;
 
 use crate::application::http::server::api_entities::{ApiError, ApiResult};
 use crate::application::http::state::AppState;
+use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
+use herald_core::domain::audit::{
+    AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType, NewAuditEvent,
+};
 use herald_core::domain::authentication::Identity;
+use herald_core::domain::realm::RealmService;
 use herald_core::domain::realm_config::{ConfigType, RealmConfigService, UpsertRealmConfigRequest};
 use herald_core::domain::user_totp::{RealmTotpConfigRepository, RealmTotpStatistics};
 use herald_core::infrastructure::user_totp::PostgresRealmTotpConfigRepository;
@@ -65,9 +71,11 @@ pub async fn handle_update_realm_totp_config(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Valid(Json(req)): Valid<Json<UpdateRealmTotpConfigRequest>>,
 ) -> Result<ApiResult<UpdateRealmTotpConfigResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm TOTP configuration")?;
+    let admin = AdminIdentity::require(identity.clone(), &realm_id, "realm TOTP configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -108,6 +116,47 @@ pub async fn handle_update_realm_totp_config(
                 _ => ApiError::internal("Internal server error"),
             }
         })?;
+
+    // Audit TOTP policy change (mirrors the passkey config audit rule: admin
+    // MFA-policy changes are "关键配置变更" per the audit PRD). Best-effort: an
+    // audit failure must not fail the already-succeeded config write.
+    let target_name = match state
+        .service
+        .realm_service()
+        .get_realm(identity.clone(), realm_id.clone())
+        .await
+    {
+        Ok(realm) => Some(realm.name),
+        Err(e) => {
+            tracing::warn!(error = %e, realm_id = %realm_id, "Failed to resolve realm name for audit event");
+            None
+        }
+    };
+    if let Err(audit_err) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.clone(),
+            category: AuditCategory::Auth,
+            action: AuditAction::TotpConfigUpdate,
+            actor_id: identity.user_id(),
+            actor_type: None,
+            actor_name: identity.as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::Realm,
+            target_id: realm_id.clone(),
+            target_name,
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "enabled": req.enabled,
+                "force_enabled": req.force_enabled,
+            })),
+            ip_address: Some(ip),
+            user_agent: user_agent_from_headers(&headers),
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %audit_err, "Failed to record TOTP config audit event");
+    }
 
     Ok(ApiResult::ok(UpdateRealmTotpConfigResponse {
         message: "Realm TOTP configuration updated".to_string(),
