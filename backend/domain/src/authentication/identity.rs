@@ -26,6 +26,7 @@ pub enum CredentialScope {
     ProfileRead,
     ProfileWriteNickname,
     ChangePassword,
+    ChangeEmail,
     DeleteAccount,
     TotpManage,
     PasskeyManage,

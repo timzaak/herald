@@ -139,7 +139,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 移动 App 通过既有 api-billing 浏览器路由（Bearer token + `PurchaseInitiate` scope）提交 Apple `jwsRepresentation` 或 Google `purchaseToken`
 - Apple：Herald 用自管的 Apple Root CA 信任锚对 JWS 做 x5c 证书链 + ES256 签名本地验签（密码学证明，无需回调 Apple），验签失败拒绝履约
 - Google：Herald 调 Google Play Developer API（`purchases.subscriptionsv2.get` / `purchases.products.get`）回查真实状态，以 API 返回状态为准
-- 凭证校验失败或归属不符当前用户时拒绝履约，返回明确失败原因，attempt 保持待处理等待平台通知（Apple）/ 定时拉取（Google）或人工介入
+- 凭证校验失败或归属不符当前用户时拒绝履约，返回明确失败原因（4xx）；凭证校验先于支付尝试创建，校验失败不产生 attempt 记录，由客户端修正后重新提交。已创建但履约中断的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
 - 客户端提交不被信任，必须经上述密码学或 API 校验后才予履约
 - 用户绑定：购买 attempt 创建时建立 Herald user_id 与凭证的关联；IAP 凭证本身可能不携带 Herald user_id
 
@@ -187,7 +187,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 定时按 Realm 调用 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，识别本地缺失或滞后的履约事件
 - 对 Google，该拉取同时承担生命周期主驱动（见上节轮询规则）；对 Apple，承担通知补偿，分两层：Notification History 拉取（`onlyFailures=true`，补偿投递失败）+ 对本地仍存活的订阅做 getAllSubscriptionStatuses 状态比对，发现 Apple 侧已 Expired/Revoked 的漂移时按 `transactionId` 定向拉取该交易的通知历史（`onlyFailures=false`，覆盖「已投递但本地处理失败」的通知）并复用通知处理管道回放；漂移在通知历史中无可回放事件时仅记诊断，不自动改写订阅状态
 - 拉取到的事件复用与正常服务端通知相同的领域处理与数据库幂等约束，不重复改变订阅或积分
-- 单个 Realm、交易或平台 API 失败不阻塞其他对象；记录拉取数、缺失数、成功数、失败数及上下文错误
+- 单个 Realm、交易或平台 API 失败不阻塞其他对象；运行统计分别记录 Apple 拉取/状态轮询/漂移发现/回放/失败与 Google token 轮询/voided 拉取/回放/失败。当前不维护独立的笼统“缺失数”：可恢复的缺失以 replayed 计数，只有状态漂移但找不到可回放事件时以 drift detected 与上下文诊断体现
 - 对账间隔必须小于平台事件保留窗口；拉取支持分页与限流控制，不触发平台限流（默认 Apple 1800s / Google 900s，可经 `WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整）
 - 状态不一致但不存在缺失事件时只记录诊断，不自动改写数据；不提供手动触发、管理页面或报警通知
 
@@ -196,7 +196,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 **订阅状态**（复用既有，非 IAP 新增）：Active / Past Due / Canceled / Expired / Grace Period 等；语义见 `docs/prd/billing/subscription.md` §4.2 与 IAP 平台通知映射。
 
 **异常场景**：
-- **客户端凭证校验失败或归属不符**：Herald 拒绝履约，返回明确失败原因（凭证无效 / 归属不符 / 已消耗），attempt 保持待处理等待平台通知（Apple）/ 定时拉取（Google）或人工介入
+- **客户端凭证校验失败或归属不符**：Herald 拒绝履约，返回明确失败原因（凭证无效 / 归属不符 / 已消耗）；校验先于 attempt 创建，失败时不产生支付尝试记录，由客户端修正后重新提交。已创建但履约中断的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
 - **通知签名或来源校验失败**：拒绝处理，记录诊断，不改变任何权益或积分
 - **商品 ID 无对应 mapping**：fail loud，记录诊断并跳过履约，不静默降级
 - **客户端提交与平台通知次序错乱**：幂等约束（以 `originalTransactionId` / `purchaseToken` 为去重键）保证两者各履约一次、最终一致，不重复发放

@@ -95,11 +95,7 @@ pub async fn authenticate_bearer(
     // families when they happen, but a direct-DB edit or a future code path
     // that flips status without revocation must not leave the account usable.
     // WaitVerified users keep access so they can complete email verification.
-    if matches!(
-        user.status,
-        herald_core::domain::user::entities::UserStatus::Forbidden
-            | herald_core::domain::user::entities::UserStatus::Deleted
-    ) {
+    if user.status.is_disabled() {
         return Err(ApiError::unauthorized("invalid bearer token"));
     }
 

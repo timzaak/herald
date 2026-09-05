@@ -209,9 +209,8 @@ pub async fn remove_permission_from_role(
         return Err(ApiError::not_found("Permission not found in this realm"));
     };
 
-    if let Some((role_name, is_builtin)) = role
+    if let Some((_role_name, is_builtin)) = role
         && is_builtin
-        && role_name == "realm-admin"
         && perm_is_builtin
     {
         if let Err(e) = state

@@ -52,7 +52,7 @@
 ### 2.2 不包含功能 (Out of Scope)
 
 - QR 码生成（可在后续迭代中添加，CLI 工具可自行生成）
-- Refresh Token（当前系统不支持 token 刷新，与现有 OAuth 一致）
+- 独立的 Device Flow 刷新协议；首次换取令牌时复用浏览器 token family，响应会包含可轮换的 `refresh_token`，其轮换与撤销规则沿用现有 OAuth 会话
 - Scope 管理（当前系统无 OAuth scope 管理，与现有 OAuth 一致）
 - PKCE（Device Code Flow 不适用 PKCE，RFC 8628 未要求）
 - 标准授权码流程改造（本功能为独立 grant_type，不影响现有流程）
@@ -94,7 +94,7 @@
 1. CLI 工具通过 `client_id` 请求 `device_code` 和 `user_code`
 2. 响应包含 `verification_uri`、`verification_uri_complete`、`expires_in`（默认 900 秒）、`interval`（默认 5 秒）
 3. 用户在 Herald 验证页面输入 `user_code`、登录、查看 Client App 名称并确认授权
-4. CLI 工具以指定间隔轮询令牌端点，系统返回 `authorization_pending`、`slow_down`、`expired_token`、`access_denied`、`invalid_request` 或 access token
+4. CLI 工具以指定间隔轮询令牌端点，系统返回 `authorization_pending`、`slow_down`、`expired_token`、`access_denied`、`invalid_request`，或包含 access token 与可轮换 refresh token 的浏览器 token family
 5. Realm Admin 可为每个 Client App 独立启用或禁用 Device Code Grant
 
 **user_code 生成规则**
@@ -108,6 +108,7 @@
 **API 能力边界**
 - 不需要 `redirect_uri` 参数（与授权码流程的关键区别）
 - 不需要 `client_secret`（适用于 public client / CLI 场景）
+- 授权请求入口按来源 IP 限制为每 60 秒 10 次；当前不维护“单 Client App 同时处于 pending 的设备码数量”这一额外状态
 
 ### 4.2 关键状态与异常
 
@@ -128,7 +129,7 @@
 
 **Realm 隔离校验**
 - 所有端点（authorize、verify、confirm、token）均校验存储的 `realm_id` 与路径参数 `realmId` 一致
-- 不匹配时返回 `invalid_request` 错误（realm mismatch）
+- 不匹配时返回 `invalid_request` 错误（realm mismatch），且不消费已授权的 device code
 
 **幂等性**
 - 同一用户重复调用 verify 端点验证同一 user_code 时，幂等返回 Client App 信息，不会重复修改状态

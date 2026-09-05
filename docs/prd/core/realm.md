@@ -124,7 +124,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 
 **权限要求**
 
-- **查看 Realm 列表**：仅 Super Admin（admin realm 中拥有 `realm.view` 权限的用户）
+- **查看 Realm 列表**：需要当前身份所在 Realm 的 `realm.view` 权限；Admin Realm 身份返回平台列表，其他 Realm 身份经结果过滤仅返回自身 Realm
 - **查看自己 Realm 详情**：无需权限（登录即可查看）
 - **切换 Realm**：用户需要有访问目标 realm 的权限（通过用户-realm 关联检查）
 - **创建 Realm**：需要 Admin Realm 的 `realm.manage` 权限
@@ -167,7 +167,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 ### 5.1 核心需求
 
 - **Realm 创建**：Admin Realm 管理员可创建新 Realm，指定 Realm ID（可选，留空自动生成 UUID v7，格式为字母数字、连字符和下划线，3-36 个字符）、名称、管理员 email 和密码；系统自动初始化 RBAC 基础设施、客户端应用和管理员用户
-- **Realm 列表查看**：仅 Super Admin（admin realm 中拥有 `realm.view` 权限）可查看 Realm 列表，支持分页、排序和搜索
+- **Realm 列表查看**：具有 `realm.view` 的 Admin Realm 身份可查看平台列表；其他 Realm 身份仅查看自身 Realm，支持分页、排序和搜索
 - **Realm 详情查看**：任何已认证用户可查看自己 Realm 的基本信息；Super Admin 可查看其他 Realm 详情
 - **Realm 编辑**：可修改名称和描述，Realm ID 不可修改
 - **Realm 导航与访问**：通过 URL 路径 `/$realmId/*` 访问特定 Realm 的管理界面；后端验证用户权限，实现跨 Realm 的导航隔离
@@ -189,7 +189,8 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 **适用性**: 适用
 
 - Realm 管理能力的访问边界：Realm 创建、列表查询、编辑更新均受权限控制；查看自己 Realm 详情无需权限
-- 创建 Realm 需要 Admin Realm 的 `realm.manage` 权限；列表查询需要 admin realm 的 `realm.view` 权限（仅 Super Admin）
+- 创建 Realm 需要 Admin Realm 的 `realm.manage` 权限；列表查询需要当前 Realm 的 `realm.view` 权限，Admin Realm 身份可见全平台、其他身份仅见自身 Realm
+- 第三方 API-Key 通道：Realm 创建与列表查询同时经第三方 API Key 面（`/api/ext/realms`）开放，权限语义与管理通道一致（创建需 admin realm 的 `realm:manage`，列表查询需 `realm.view`）；经该通道创建时不接受调用方指定 Realm ID，由服务端生成
 - 编辑操作：仅可编辑自己 realm 的元数据，需要 `settings.manage` 权限（即使 Super Admin 也不能编辑其他 Realm 的元数据）
 - 所有 Realm 相关接口必须遵守 realm 隔离原则，确保数据不跨 realm 泄露
 - 敏感操作（如创建 Realm 时传入管理员密码）需遵循安全传输和存储要求

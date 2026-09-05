@@ -38,7 +38,7 @@ pub struct CreateUserExtRequest {
     pub nickname: Option<String>,
 }
 
-fn is_valid_email(email: &str) -> bool {
+pub(crate) fn is_valid_email(email: &str) -> bool {
     let trimmed = email.trim();
     let Some((local, domain)) = trimmed.split_once('@') else {
         return false;
@@ -244,7 +244,7 @@ pub async fn list_users(
     match state
         .service
         .user_service()
-        .list_users(identity, realm_id.clone(), page, page_size, None)
+        .list_users(identity, realm_id.clone(), page, page_size, None, None)
         .await
     {
         Ok((users, total)) => {

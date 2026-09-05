@@ -489,23 +489,19 @@ async fn assert_hostname_globally_unique(
 
     // 2) Other realms' realm_config custom_domain settings rows.
     //
-    // We look for any row of config_type='custom_domain' whose config_value
-    // JSON contains the exact normalized hostname, on a *different* realm.
-    // Matching on the serialized `{"hostname":"<value>"}` JSON substring is
-    // safe here because the hostname was normalized (lowercase, no quotes /
-    // escapes possible) before this call, so it cannot break out of the JSON
-    // string token.
-    let pattern = format!("\"hostname\":\"{hostname}\"");
+    // Parse the stored JSON and compare the hostname field itself. A textual
+    // LIKE depends on serializer whitespace/key ordering and can miss an
+    // otherwise identical claim.
     let conflict: Option<(String,)> = sqlx::query_as(
         "SELECT realm_id FROM realm_config
          WHERE config_type = 'custom_domain'
            AND config_key = 'settings'
            AND realm_id <> $1
-           AND config_value LIKE $2
+           AND config_value::jsonb ->> 'hostname' = $2
          LIMIT 1",
     )
     .bind(realm_id)
-    .bind(format!("%{pattern}%"))
+    .bind(hostname)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {

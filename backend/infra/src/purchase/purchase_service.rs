@@ -856,32 +856,38 @@ where
         &self,
         realm_id: &str,
     ) -> PurchaseResult<StripeClient> {
-        let api_key = sqlx::query_scalar::<_, String>(
-            "SELECT config_value
+        let mut config: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+            "SELECT config_key, config_value
              FROM realm_config
-             WHERE realm_id = $1 AND config_type = 'stripe' AND config_key = 'api_key' AND enabled = true
-             LIMIT 1",
+             WHERE realm_id = $1 AND config_type = 'stripe'
+               AND config_key IN ('api_key', 'timeout', 'base_url') AND enabled = true",
         )
         .bind(realm_id)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?
-        .ok_or_else(|| {
+        .into_iter()
+        .collect();
+        let api_key = config.remove("api_key").ok_or_else(|| {
             CoreError::InternalServerError(format!("Stripe not configured for realm: {realm_id}"))
         })?;
 
-        let timeout = sqlx::query_scalar::<_, String>(
-            "SELECT config_value
-             FROM realm_config
-             WHERE realm_id = $1 AND config_type = 'stripe' AND config_key = 'timeout' AND enabled = true
-             LIMIT 1",
-        )
-        .bind(realm_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(30);
+        let timeout = config
+            .remove("timeout")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(30);
 
-        StripeClient::new(api_key, timeout)
+        // The optional base_url is an internal provider-client seam used by
+        // deterministic integration environments (and mirrors the webhook
+        // compensation client). Production realms omit it and retain Stripe's
+        // canonical API endpoint.
+        let base_url = config
+            .remove("base_url")
+            .filter(|value| !value.trim().is_empty());
+
+        match base_url {
+            Some(base_url) => StripeClient::with_base_url(api_key, base_url, timeout),
+            None => StripeClient::new(api_key, timeout),
+        }
     }
 
     fn validate_completion_source(&self, source: &PaymentCompletionSource) -> PurchaseResult<()> {

@@ -10,7 +10,7 @@ use super::{
     internal_quota::{grant_quota_entitlement, revoke_quota_entitlement},
     registration_rules::{get_registration_rules, upsert_registration_rules},
     transactions::{list_transactions, list_user_transactions},
-    wallets::{get_wallet, list_user_wallets, list_wallets},
+    wallets::{get_wallet, list_user_wallets, list_wallets, update_wallet_status},
 };
 
 /// Points admin router for `/api/points/{realmId}`
@@ -36,6 +36,10 @@ pub fn points_router() -> Router<AppState> {
     Router::new()
         .route("/wallets", routing::get(list_wallets))
         .route("/wallets/{userId}", routing::get(get_wallet))
+        .route(
+            "/wallets/{userId}/{bucketId}/status",
+            routing::patch(update_wallet_status),
+        )
         .route("/transactions", routing::get(list_transactions))
         .route(
             "/registration-rules",

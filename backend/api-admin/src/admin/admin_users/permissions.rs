@@ -435,7 +435,7 @@ pub async fn get_effective_permissions(
             };
 
             EffectivePermission {
-                name: format!("{}:{}", p.resource, p.action),
+                name: format!("{}.{}", p.resource, p.action),
                 source,
                 source_name,
             }

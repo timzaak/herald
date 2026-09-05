@@ -17,6 +17,7 @@ use herald_core::domain::authentication::{CredentialScope, Identity, TokenCreden
 use herald_core::domain::billing::credit_note::{
     CreditNoteRepository, CreditNoteStatus, NewCreditNote,
 };
+use herald_core::domain::billing::entities::SubscriptionStatus;
 use herald_core::domain::billing::invoice::{
     ActorType, AttributionFilter, InvoiceDetail, InvoiceListFilters, InvoicePdfGenerator,
     InvoiceProvider, InvoiceRepository, InvoiceSource, InvoiceStatus, InvoiceStatusTransition,
@@ -28,6 +29,7 @@ use herald_core::domain::billing::invoice_service::{
     validate_not_mor_provider, validate_status_transition,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
+use herald_core::domain::payment_attempt::PaymentAttemptStatus;
 use herald_core::domain::realm_config::RealmConfigRepository;
 use herald_core::infrastructure::billing::IronPressInvoicePdfGenerator;
 
@@ -79,6 +81,7 @@ async fn validate_account_in_realm(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
 enum OwnedResource {
     PaymentAttempt,
     Subscription,
@@ -130,6 +133,82 @@ async fn validate_resource_ownership(
             resource_id
         ))),
     }
+}
+
+/// Whether the referenced purchase has reached a paid state.
+///
+/// A payment attempt is paid only after the provider-confirmed terminal
+/// success state (`completed` is the legacy spelling still allowed by the DB
+/// constraint). A subscription can be invoiced once it has left the unpaid
+/// setup/trial states; canceled/expired subscriptions remain historical paid
+/// purchases and therefore stay invoiceable.
+async fn resource_is_paid(
+    pool: &PgPool,
+    resource: OwnedResource,
+    resource_id: Uuid,
+    realm_id: &str,
+) -> Result<bool, ApiError> {
+    let status: Option<String> = match resource {
+        OwnedResource::PaymentAttempt => sqlx::query_scalar(
+            "SELECT status FROM payment_attempts WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(resource_id)
+        .bind(realm_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?,
+        OwnedResource::Subscription => {
+            sqlx::query_scalar("SELECT status FROM subscription WHERE id = $1 AND realm_id = $2")
+                .bind(resource_id)
+                .bind(realm_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+        }
+    };
+
+    Ok(match resource {
+        OwnedResource::PaymentAttempt => {
+            // `completed` is the legacy spelling still allowed by the DB
+            // constraint; everything else round-trips through the enum.
+            matches!(status.as_deref(), Some("completed"))
+                || matches!(
+                    status
+                        .as_deref()
+                        .and_then(|s| s.parse::<PaymentAttemptStatus>().ok()),
+                    Some(PaymentAttemptStatus::Succeeded)
+                )
+        }
+        OwnedResource::Subscription => matches!(
+            status
+                .as_deref()
+                .and_then(|s| s.parse::<SubscriptionStatus>().ok()),
+            Some(
+                SubscriptionStatus::Active
+                    | SubscriptionStatus::ScheduledCancel
+                    | SubscriptionStatus::Canceled
+                    | SubscriptionStatus::Expired
+                    | SubscriptionStatus::Paused
+                    | SubscriptionStatus::PastDue
+                    | SubscriptionStatus::Dispute
+            )
+        ),
+    })
+}
+
+async fn validate_resource_paid(
+    pool: &PgPool,
+    resource: OwnedResource,
+    resource_id: Uuid,
+    realm_id: &str,
+) -> Result<(), ApiError> {
+    if !resource_is_paid(pool, resource, resource_id, realm_id).await? {
+        return Err(ApiError::bad_request(format!(
+            "Only paid {}s can be invoiced",
+            resource.label()
+        )));
+    }
+    Ok(())
 }
 
 /// Whether an `external_sync` invoice already covers the given resource.
@@ -1189,6 +1268,8 @@ pub async fn apply_invoice(
             &realm_id,
         )
         .await?;
+        validate_resource_paid(&state.pool, OwnedResource::PaymentAttempt, pa_id, &realm_id)
+            .await?;
     }
     if let Some(sub_id) = request.subscription_id {
         validate_resource_ownership(
@@ -1199,6 +1280,7 @@ pub async fn apply_invoice(
             &realm_id,
         )
         .await?;
+        validate_resource_paid(&state.pool, OwnedResource::Subscription, sub_id, &realm_id).await?;
     }
 
     validate_invoice_creation_policy(
@@ -1345,6 +1427,17 @@ pub async fn get_invoice_apply_eligibility(
                 resource.label()
             )));
         }
+    }
+
+    if !resource_is_paid(&state.pool, resource, query.reference_id, &realm_id).await? {
+        return Ok(Json(InvoiceApplyEligibilityResponse {
+            reference_type: query.reference_type,
+            reference_id: query.reference_id,
+            can_apply: false,
+            route: "disabled".to_string(),
+            provider: None,
+            reason: Some(format!("Only paid {}s can be invoiced", resource.label())),
+        }));
     }
 
     // Mirrors the write-path SQL in `validate_invoice_creation_policy` exactly.

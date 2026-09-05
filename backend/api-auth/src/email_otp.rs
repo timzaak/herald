@@ -26,8 +26,9 @@ use uuid::Uuid;
 use validator::Validate;
 
 use herald_api_base::application::http::auth::util::{
-    ClientIp, is_email_otp_enabled, is_registration_enabled, load_email_otp_settings,
-    normalize_email, rate_limit_hit, user_agent_from_headers, verify_turnstile_for_client_app,
+    ClientIp, is_email_otp_enabled, is_registration_email_domain_allowed, is_registration_enabled,
+    load_email_otp_settings, normalize_email, rate_limit_hit, user_agent_from_headers,
+    verify_turnstile_for_client_app,
 };
 use herald_api_base::application::http::server::api_entities::ApiError;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -210,14 +211,25 @@ fn otp_attempts_redis_key(realm_id: &str, email: &str) -> String {
 fn rate_key_send(ip: &str) -> String {
     format!("rl:otp:send:ip:{ip}")
 }
-fn rate_key_send_email(email: &str) -> String {
-    format!("rl:otp:send:email:{email}")
+fn rate_key_send_email(realm_id: &str, email: &str) -> String {
+    format!("rl:otp:send:realm:{realm_id}:email:{email}")
 }
 fn rate_key_verify(ip: &str) -> String {
     format!("rl:otp:verify:ip:{ip}")
 }
-fn rate_key_verify_email(email: &str) -> String {
-    format!("rl:otp:verify:email:{email}")
+fn rate_key_verify_email(realm_id: &str, email: &str) -> String {
+    format!("rl:otp:verify:realm:{realm_id}:email:{email}")
+}
+
+/// `email_not_registered` conflicts never carry a consent payload; only the
+/// message varies by blocking reason.
+fn email_not_registered_conflict(message: &str) -> ApiError {
+    ApiError::conflict_json(EmailOtpConflictResponse {
+        code: "email_not_registered".to_string(),
+        consent_required: None,
+        agreements: None,
+        message: message.to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +298,7 @@ pub async fn send(
     .await?;
     rate_limit_hit(
         &state,
-        rate_key_send_email(&email),
+        rate_key_send_email(&realm_id, &email),
         OTP_SEND_EMAIL_RATE_LIMIT.0,
         OTP_SEND_EMAIL_RATE_LIMIT.1,
     )
@@ -329,20 +341,19 @@ pub async fn send(
                     realm_id = %realm_id,
                     "Email OTP auto-register blocked: registration not enabled for realm"
                 );
-                return Err(ApiError::conflict_json(EmailOtpConflictResponse {
-                    code: "email_not_registered".to_string(),
-                    consent_required: None,
-                    agreements: None,
-                    message: "This email is not registered. Please sign up first.".to_string(),
-                }));
+                return Err(email_not_registered_conflict(
+                    "This email is not registered. Please sign up first.",
+                ));
             }
             if !otp_settings.auto_register {
-                return Err(ApiError::conflict_json(EmailOtpConflictResponse {
-                    code: "email_not_registered".to_string(),
-                    consent_required: None,
-                    agreements: None,
-                    message: "This email is not registered. Please sign up first.".to_string(),
-                }));
+                return Err(email_not_registered_conflict(
+                    "This email is not registered. Please sign up first.",
+                ));
+            }
+            if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
+                return Err(email_not_registered_conflict(
+                    "This email is not eligible for registration.",
+                ));
             }
             // Auto-register requires consent expression BEFORE code issuance
             // (D-CONSENT-01). Missing agreements → 409 with current effective
@@ -488,7 +499,7 @@ pub async fn verify(
     .await?;
     rate_limit_hit(
         &state,
-        rate_key_verify_email(&email),
+        rate_key_verify_email(&realm_id, &email),
         OTP_VERIFY_EMAIL_RATE_LIMIT.0,
         OTP_VERIFY_EMAIL_RATE_LIMIT.1,
     )
@@ -638,12 +649,14 @@ pub async fn verify(
                     realm_id = %realm_id,
                     "OTP verify auto-register blocked: registration or auto-register no longer enabled"
                 );
-                return Err(ApiError::conflict_json(EmailOtpConflictResponse {
-                    code: "email_not_registered".to_string(),
-                    consent_required: None,
-                    agreements: None,
-                    message: "This email is not registered. Please sign up first.".to_string(),
-                }));
+                return Err(email_not_registered_conflict(
+                    "This email is not registered. Please sign up first.",
+                ));
+            }
+            if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
+                return Err(email_not_registered_conflict(
+                    "This email is not eligible for registration.",
+                ));
             }
             // Auto-register path. create_user_without_password starts in
             // WaitVerified (status 0); activate_user flips it to Normal before
@@ -850,6 +863,7 @@ pub async fn verify(
             redirect_to: None,
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }
@@ -866,13 +880,19 @@ pub async fn verify(
     )
     .await
     {
-        // Build a consent-required 200 body reusing BrowserTokenResponse-like
-        // fields is not appropriate; reuse VerifyTotpResponse-style JSON shape
-        // inline to avoid coupling a token DTO to a non-token response.
+        let restricted_session = crate::consent_gate::mint_consent_restricted_session(
+            &state,
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(ip.clone()),
+        )
+        .await?;
         let body = serde_json::json!({
             "message": "consent required",
             "consentRequired": true,
             "agreements": summaries,
+            "restrictedSession": BrowserTokenResponse::from(restricted_session),
         });
         return Ok(Json(body).into_response());
     }

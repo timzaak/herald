@@ -217,11 +217,12 @@ where
             counter: u64::from(passkey.counter),
             transports: passkey.transports.clone(),
             aaguid: uuid_from_aaguid(&passkey.aaguid),
-            // passkey-auth 0.1 does not surface the BE/BS flags; the
-            // passkey ceremony does not gate on them, so default false.
+            // passkey-auth 0.1 does not surface registration UV in its
+            // credential result. A required-UV ceremony could only have
+            // succeeded with UV, while preferred/discouraged remains unknown.
             backup_eligible: false,
             backup_state: false,
-            user_verified: false,
+            user_verified: payload.require_uv,
             nickname: nickname.map(str::to_string).or(payload.nickname),
             last_used_at: None,
             created_at: now,

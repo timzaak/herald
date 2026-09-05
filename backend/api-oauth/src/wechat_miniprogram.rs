@@ -15,6 +15,7 @@ use herald_api_base::application::http::server::api_entities::{ApiError, ErrorRe
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::oauth::value_objects::OAuthConfig;
 use herald_core::domain::security_constants::OAUTH_UPSTREAM_LOGIN_IP_RATE_LIMIT;
+use herald_core::domain::user::UserRepository;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct WeChatMiniProgramLoginRequest {
@@ -110,6 +111,14 @@ pub async fn wechat_miniprogram_login(
 
     // Find or create user
     let user_id = find_or_create_user(&state, &realm_id, &user_info).await?;
+    let user = state
+        .user_repository
+        .get_user_by_id(user_id)
+        .await
+        .map_err(|_| ApiError::unauthorized("WeChat user no longer exists"))?;
+    if user.status.is_disabled() {
+        return Err(ApiError::unauthorized("Account is disabled"));
+    }
 
     // Generate JWT token
     let jwt_secret = crate::helper::jwt_secret(&state)?;

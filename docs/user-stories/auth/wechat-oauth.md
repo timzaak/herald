@@ -171,7 +171,7 @@ And 用户可以使用系统功能
 ```gherkin
 Given 用户点击 "微信登录" 按钮
 When 用户在微信授权页面点击 "取消"
-Then 系统提示 "授权失败，请重试"
+Then 系统显示统一的 OAuth 登录失败提示
 And 用户停留在登录页面
 ```
 
@@ -186,7 +186,7 @@ Then 不显示 "微信登录" 按钮
 ```gherkin
 Given 用户发起微信登录
 When 用户在超过5分钟后完成授权
-Then 系统提示 "登录链接已过期，请重新登录"
+Then 系统显示授权码无效或已过期的统一提示，并允许重新发起登录
 ```
 
 **场景 6：已绑定开放平台的用户登录**
@@ -244,7 +244,7 @@ And 用户可以继续使用之前的账号数据
 Given 用户在小程序中打开登录页面
 And 用户点击 "微信登录" 按钮
 When 授权失败或授权码过期
-Then 系统提示 "授权失败，请重试"
+Then 系统显示统一的微信授权码校验失败提示
 And 用户停留在登录页面
 ```
 
@@ -253,7 +253,7 @@ And 用户停留在登录页面
 Given Realm realm-2 未启用 WeChat Mini Program Provider
 And 用户在小程序中打开登录页面
 When 用户尝试使用微信登录
-Then 系统提示 "微信登录功能未启用"
+Then 系统提示 "WeChat Mini Program provider not configured or not enabled"
 ```
 
 **场景 5：跨应用用户匹配验证**

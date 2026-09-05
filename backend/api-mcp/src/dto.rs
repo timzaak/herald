@@ -242,17 +242,6 @@ pub fn parse_audit_action(field: &str, value: &str) -> Result<AuditAction, ToolE
     })
 }
 
-/// RFC 3339 timestamp (points transactions filter).
-pub fn parse_time_rfc3339(field: &str, value: &str) -> Result<DateTime<Utc>, ToolError> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.to_utc())
-        .map_err(|_| {
-            ToolError::invalid_argument(format!(
-                "'{field}' must be an RFC 3339 timestamp (e.g. 2026-01-01T00:00:00Z)."
-            ))
-        })
-}
-
 /// Audit log time filter: RFC 3339, or a bare YYYY-MM-DD interpreted as
 /// midnight UTC (the admin audit console additionally tolerates
 /// space-separated timezone offsets; this stricter form keeps the tool
@@ -325,11 +314,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_time_rfc3339_rejects_bare_dates() {
-        assert!(parse_time_rfc3339("startTime", "2026-01-01T00:00:00Z").is_ok());
-        // Bare dates are audit-only tolerance; the points filter rejects them.
-        assert!(parse_time_rfc3339("startTime", "2026-01-01").is_err());
-        assert!(parse_time_rfc3339("startTime", "yesterday").is_err());
+    fn points_and_audit_time_filters_accept_the_same_formats() {
+        // WHY: MCP callers should not need tool-specific serialization rules
+        // for two otherwise identical time ranges.
+        assert!(parse_query_time("startTime", "2026-01-01T00:00:00Z").is_ok());
+        assert!(parse_query_time("startTime", "2026-01-01").is_ok());
+        assert!(parse_query_time("startTime", "yesterday").is_err());
     }
 
     #[test]

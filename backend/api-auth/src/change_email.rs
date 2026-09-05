@@ -13,11 +13,12 @@ use herald_api_base::application::http::auth::identity_middleware::authenticate_
 use herald_api_base::application::http::auth::util::{
     ClientIp, epoch_seconds, normalize_email, rate_limit_hit,
 };
+use herald_api_base::application::http::common::auth_utils::require_token_scope;
 use herald_api_base::application::http::common::public_helper::realm_public_url_parts;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
-use herald_core::domain::authentication::TargetOperation;
+use herald_core::domain::authentication::{CredentialScope, TargetOperation};
 use herald_core::domain::security_constants::{
     CHANGE_EMAIL_CONFIRM_IP_RATE_LIMIT, CHANGE_EMAIL_REQUEST_EMAIL_RATE_LIMIT,
     CHANGE_EMAIL_REQUEST_IP_RATE_LIMIT, EMAIL_VERIFICATION_CODE_TTL_SECONDS,
@@ -69,6 +70,7 @@ pub async fn request(
     Valid(Json(payload)): Valid<Json<ChangeEmailRequest>>,
 ) -> Result<ApiResult<ChangeEmailResponse>, ApiError> {
     let (identity, context) = authenticate_bearer(&state, &headers).await?;
+    require_token_scope(&identity, &context, CredentialScope::ChangeEmail)?;
     if identity.realm_id() != realm_id {
         return Err(ApiError::forbidden(
             "cannot request email change for a different realm",
@@ -209,7 +211,8 @@ pub async fn confirm(
     headers: HeaderMap,
     Path((realm_id, code)): Path<(String, String)>,
 ) -> Result<ApiResult<ChangeEmailResponse>, ApiError> {
-    let (identity, _) = authenticate_bearer(&state, &headers).await?;
+    let (identity, context) = authenticate_bearer(&state, &headers).await?;
+    require_token_scope(&identity, &context, CredentialScope::ChangeEmail)?;
 
     rate_limit_hit(
         &state,

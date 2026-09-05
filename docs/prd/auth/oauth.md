@@ -191,7 +191,7 @@
 - Herald 作为 OAuth Client 通过 `/api/oauth/{realmId}/{provider}/login` 发起第三方 Provider 授权
 - 回调路径 `/{provider}/callback` 接收 Provider 授权结果，创建或关联 OAuth 用户账户，完成 SSO 登录
 - 支持所有已配置的 Provider 类型（Google、GitHub、Facebook、Apple、WeChat、WeChat Mini Program）
-- OAuth 账户通过 open_id 关联用户，Email 冲突时自动关联（需验证用户当前未登录，且 Provider 返回的邮箱必须已验证：未验证邮箱不得用于关联既有账号，返回禁止登录错误——防止经 Provider 未验证邮箱接管既有密码账号，如 GitHub 非主邮箱）
+- OAuth 账户通过 open_id 关联用户；未命中 provider 身份时才按 Email 匹配。回调是由一次性 state 约束的未认证入口，不以浏览器中是否另有 Herald 会话作为关联依据；Email 命中既有账号时 Provider 返回的邮箱必须已验证，未验证邮箱不得用于关联既有账号（防止经 Provider 未验证邮箱接管既有密码账号，如 GitHub 非主邮箱）。唯一例外是由已验签 provider subject 确定性生成且完全匹配的内部占位邮箱，用于恢复“账号已创建但 provider link 未落账”的失败重试
 - **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Provider 凭证未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，OAuth 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。该原则与邮箱验证码登录一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」），对所有 OAuth Provider（Google、GitHub、Facebook、Apple、WeChat 等）统一适用。
 
 **Herald 作为身份 Broker（brokered downstream-state redirect）:**
@@ -210,7 +210,7 @@
 - State Token 验证失败（不存在或已过期）：提示"登录链接已过期，请重新发起登录"
 - 授权码无效或过期：提示"授权失败，请重新登录"
 - 获取用户信息失败：提示"无法获取用户信息，请联系管理员"
-- Email 冲突：自动关联 OAuth 账户到已有用户（需验证用户当前未登录，且 Provider 邮箱已验证；Provider 邮箱未验证时拒绝登录并提示无法以该邮箱关联既有账号）
+- Email 冲突：Provider 邮箱已验证时自动关联到已有用户；Provider 邮箱未验证时拒绝以该邮箱关联既有账号。OAuth 回调不依赖或信任当前浏览器会话，关联授权来自已校验的 provider 凭证与一次性 state
 - Provider 被禁用/删除：在列表 API 中过滤掉禁用的 Provider
 
 ### 4.2 关键状态与异常

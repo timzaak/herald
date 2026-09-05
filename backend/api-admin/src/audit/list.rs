@@ -26,6 +26,7 @@ use herald_api_base::application::http::state::AppState;
         ("pageSize" = Option<u64>, Query, description = "Page size (default 20, max 100)"),
     ),
     responses(
+        (status = 400, description = "Invalid filter", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 200, description = "Paginated list of audit events", body = AuditEventListResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -45,12 +46,16 @@ pub async fn list_audit_events(
     let category: Option<AuditCategory> = params
         .category
         .as_deref()
-        .and_then(|s| serde_json::from_str(&format!("\"{s}\"")).ok());
+        .map(|s| serde_json::from_str(&format!("\"{s}\"")))
+        .transpose()
+        .map_err(|_| ApiError::bad_request("Invalid audit category"))?;
 
     let action: Option<AuditAction> = params
         .action
         .as_deref()
-        .and_then(|s| serde_json::from_str(&format!("\"{s}\"")).ok());
+        .map(|s| serde_json::from_str(&format!("\"{s}\"")))
+        .transpose()
+        .map_err(|_| ApiError::bad_request("Invalid audit action"))?;
 
     let parse_query_time = |value: Option<&str>| {
         value

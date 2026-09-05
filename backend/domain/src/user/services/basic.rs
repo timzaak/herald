@@ -127,6 +127,7 @@ where
         page: u64,
         page_size: u64,
         email: Option<String>,
+        status: Option<i16>,
     ) -> Result<(Vec<User>, i64), CoreError> {
         // Policy check
         ensure_policy(
@@ -142,7 +143,7 @@ where
         }
 
         self.user_repository
-            .list_users(&realm_id, page, page_size, email)
+            .list_users(&realm_id, page, page_size, email, status)
             .await
     }
 

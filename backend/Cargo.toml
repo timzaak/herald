@@ -96,6 +96,7 @@ utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 
 # Validation
 validator = { version = "0.20", features = ["derive"] }
+idna = "1.1"
 
 # External Services
 redis = { version = "1.0.1", features = ["connection-manager", "tokio-rustls-comp", "aio"] }
@@ -143,7 +144,7 @@ hex = "0.4"
 passkey-auth = "0.1"
 
 # App Store Server API + JWS/x5c verification (ES256 + Apple Root CA self-managed).
-# RustCrypto p256, MIT, no openssl. See `.ai/design/support-iap.md` §5.1.
+# RustCrypto p256, MIT, no openssl.
 # `api-client-reqwest` enables the App Store Server API client + reqwest transport.
 # `ocsp` is intentionally NOT enabled — verification is offline (trust anchor self-managed).
 app-store-server-library = { version = "4.3", features = ["api-client-reqwest"] }

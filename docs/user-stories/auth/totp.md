@@ -284,7 +284,8 @@ And 验证失败时保留旧密钥（回滚机制）
 Given Realm 管理员在"Settings" -> "Security"页面
 When 启用"Force TOTP"选项
 Then 已启用 TOTP 的用户无法禁用
-And 未启用 TOTP 的用户下次登录时被要求设置（⚠️ 待实现）
+And 未启用 TOTP 的用户登录后访问 Security 页面时看到设置引导
+And 登录本身不被阻断或强制跳转
 ```
 
 **场景 2：禁用强制 TOTP 模式**
@@ -365,7 +366,7 @@ And 显示"Enable TOTP"按钮
 4. **强制 TOTP 模式**：
    - Realm 管理员可强制所有用户启用 TOTP
    - 强制模式下，用户无法禁用 TOTP
-   - 未启用 TOTP 的用户在下次登录时被要求设置（⚠️ 登录时强制设置的流程待实现）
+   - 未启用 TOTP 的用户在 Security 页面看到设置引导；当前不阻断登录，也不在登录后强制跳转
 
 5. **安全规则**：
    - 禁用 TOTP 需验证当前密码

@@ -91,7 +91,7 @@ impl OAuthProviderHandler for WeChatMiniProgramProvider {
                     }
                     40001 => CoreError::BadRequest("Invalid appsecret".to_string()),
                     40029 => CoreError::BadRequest("Invalid code".to_string()),
-                    45011 => CoreError::BadRequest("Code expired".to_string()),
+                    45011 => CoreError::BadRequest("WeChat API rate limit exceeded".to_string()),
                     _ => CoreError::BadRequest(format!("WeChat error {}: {}", errcode, error_msg)),
                 });
             }

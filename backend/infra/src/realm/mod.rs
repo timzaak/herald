@@ -147,7 +147,7 @@ impl RealmRepository for PostgresRealmRepository {
         let sort_order = filters.sort_order.as_deref().unwrap_or("desc");
 
         query = match sort_by {
-            "id" => {
+            "id" | "realm_id" => {
                 if sort_order == "asc" {
                     query.order_by_asc(realm::Column::Id)
                 } else {

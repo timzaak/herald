@@ -163,12 +163,10 @@ pub enum ConfigType {
     ///
     /// Stores the per-realm custom login hostname (precise match, e.g.
     /// `login.acme.com`), reusing the realm_config table and the same
-    /// draft/publish/restore lifecycle as white-label.
+    /// single-save lifecycle used by custom-domain configuration.
     ///
     /// Valid config_key values:
-    /// - `settings`: Published configuration visible to host→realm resolution
-    /// - `draft`: Unpublished configuration edited by realm admins
-    /// - `previous_settings`: Previous published configuration for one-step restore
+    /// - `settings`: Active configuration visible to host→realm resolution
     ///
     /// Example configuration:
     /// ```json
@@ -299,7 +297,7 @@ pub enum ConfigType {
 
     /// App Store IAP (Apple) payment provider configuration
     ///
-    /// Per design support-iap §4.3.2 / §5.4. Reuses the `realm_config` KV
+    /// Reuses the `realm_config` KV
     /// table; no separate IAP table is created.
     ///
     /// Valid config_key values:
@@ -328,7 +326,7 @@ pub enum ConfigType {
 
     /// Google Play Billing (Google) payment provider configuration
     ///
-    /// Per design support-iap §4.3.2 / §5.4. Reuses the `realm_config` KV
+    /// Reuses the `realm_config` KV
     /// table; no separate IAP table is created.
     ///
     /// Valid config_key values:
@@ -433,8 +431,8 @@ pub enum ConfigType {
 
     /// Email OTP login configuration
     ///
-    /// Per-Realm switches for the email verification-code login flow
-    /// (design email-otp-login §4.3.2 / §5.1). Storage reuses the
+    /// Per-Realm switches for the email verification-code login flow.
+    /// Storage reuses the
     /// `realm_config` KV table; no DDL is required.
     ///
     /// - config_key: `settings` (fixed key for Email OTP configuration)
@@ -738,9 +736,9 @@ const MAX_LABEL_LEN: usize = 63;
 /// Normalize and validate a raw custom-domain hostname.
 ///
 /// The normalization is pure (no I/O) so it can be reused by both the infra
-/// and api layers. It applies the following rules (design §4.5):
-/// - IDNA-lowercase (ASCII lowercasing; IDNA-punycode encoding is the caller's
-///   deployment concern, not validated here).
+/// and api layers. It applies the following rules:
+/// - UTS #46 / IDNA normalization to lowercase ASCII Punycode so Unicode and
+///   A-label spellings of the same hostname have one storage identity.
 /// - Strip a single trailing dot (`login.acme.com.` → `login.acme.com`).
 /// - Reject empty input, wildcard hostnames (`*.` or any multilevel wildcard),
 ///   embedded port (`:`), embedded path or fragment (`/`, `#`, `?`),
@@ -772,25 +770,6 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
         ));
     }
 
-    // After lowercasing, reject any disallowed character. Per RFC 1035 a hostname
-    // label is `[a-z0-9-]` separated by dots; we reject `:` (port), `/` (path),
-    // `#` (fragment), `?` (query), `@` (userinfo) and whitespace by exclusion.
-    // Non-ASCII letters are allowed for IDNA domains (canonical punycode
-    // encoding is a deployment-time concern, not validated here).
-    for ch in lowered.chars() {
-        let ok = ch.is_ascii_lowercase()
-            || ch.is_ascii_digit()
-            || ch == '.'
-            || ch == '-'
-            || ch.is_alphabetic();
-        if !ok {
-            return Err(CoreError::bad_request(
-                "custom domain hostname",
-                &format!("hostname contains disallowed character {:?}", ch),
-            ));
-        }
-    }
-
     // Strip a single trailing dot (FQDN form) but keep the inner structure.
     let without_trailing_dot = lowered.strip_suffix('.').unwrap_or(&lowered);
     if without_trailing_dot.is_empty() {
@@ -800,7 +779,8 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
         ));
     }
 
-    // Reject wildcards: leading `*.` or any label equal to `*` (multilevel).
+    // Reject wildcards before IDNA conversion so `*` cannot be interpreted as
+    // a non-host delimiter by a permissive conversion mode.
     if without_trailing_dot.starts_with("*.")
         || without_trailing_dot == "*"
         || without_trailing_dot.split('.').any(|label| label == "*")
@@ -811,8 +791,17 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
         ));
     }
 
-    // Length bounds: total ≤ 253, each label ≤ 63 and non-empty.
-    if without_trailing_dot.len() > MAX_HOSTNAME_LEN {
+    let ascii = idna::domain_to_ascii_strict(without_trailing_dot).map_err(|_| {
+        CoreError::bad_request(
+            "custom domain hostname",
+            "hostname is not a valid IDNA domain",
+        )
+    })?;
+    let normalized = ascii.to_ascii_lowercase();
+
+    // Length bounds apply to the DNS wire representation (ASCII/Punycode),
+    // not to the pre-conversion Unicode spelling.
+    if normalized.len() > MAX_HOSTNAME_LEN {
         return Err(CoreError::bad_request(
             "custom domain hostname",
             &format!(
@@ -821,7 +810,7 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
             ),
         ));
     }
-    for label in without_trailing_dot.split('.') {
+    for label in normalized.split('.') {
         if label.is_empty() {
             return Err(CoreError::bad_request(
                 "custom domain hostname",
@@ -849,7 +838,7 @@ pub fn normalize_and_validate_hostname(raw: &str) -> Result<String, CoreError> {
         }
     }
 
-    Ok(without_trailing_dot.to_string())
+    Ok(normalized)
 }
 
 #[cfg(test)]
@@ -858,7 +847,7 @@ mod config_type_tests {
 
     /// Guards the `From<String> -> ConfigType::Turnstile` fallback quirk:
     /// `"email_otp"` must resolve to `EmailOtp`, not fall through to the
-    /// default `Turnstile` branch. See design email-otp-login §7 risk table.
+    /// default `Turnstile` branch.
     #[test]
     fn email_otp_from_string_does_not_fall_back_to_turnstile() {
         let ct: ConfigType = "email_otp".to_string().into();
@@ -874,7 +863,7 @@ mod config_type_tests {
         );
     }
 
-    /// Platform self-service signup toggle (design realm-create §4.3.2):
+    /// Platform self-service signup toggle:
     /// the canonical string is `platform_signup` and must round-trip.
     #[test]
     fn platform_signup_round_trip() {
@@ -895,8 +884,8 @@ mod config_type_tests {
         assert_ne!(ct, ConfigType::Turnstile);
     }
 
-    /// Guards the `From<String> -> ConfigType::Turnstile` fallback quirk
-    /// (design support-iap §6.3): an unknown config_type string must still
+    /// Guards the `From<String> -> ConfigType::Turnstile` fallback quirk:
+    /// an unknown config_type string must still
     /// resolve to the default `Turnstile` branch, NOT silently become a new
     /// IAP variant.
     #[test]
@@ -925,6 +914,16 @@ mod tests {
             normalize_and_validate_hostname("Login.AcMe.COM").unwrap(),
             "login.acme.com"
         );
+    }
+
+    #[test]
+    fn unicode_and_punycode_spellings_share_one_storage_identity() {
+        // WHY: uniqueness checks operate on the stored hostname. Without IDNA
+        // canonicalization, a tenant could claim both spellings of one domain.
+        let unicode = normalize_and_validate_hostname("bücher.example").unwrap();
+        let ascii = normalize_and_validate_hostname("xn--bcher-kva.example").unwrap();
+        assert_eq!(unicode, "xn--bcher-kva.example");
+        assert_eq!(unicode, ascii);
     }
 
     #[test]

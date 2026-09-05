@@ -90,7 +90,8 @@ impl PostgresDashboardRepository {
             FROM audit_events
             WHERE realm_id = $1
               AND action IN ('auth.login', 'auth.login_failed')
-              AND created_at >= NOW() - INTERVAL '30 days'
+              AND created_at >= CURRENT_DATE - INTERVAL '29 days'
+              AND created_at < CURRENT_DATE + INTERVAL '1 day'
             GROUP BY DATE(created_at)
             ORDER BY date
             "#,

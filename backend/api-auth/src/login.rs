@@ -52,7 +52,7 @@ pub struct LoginRequestPayload {
     pub username: Option<String>, // Optional username login
     #[validate(length(min = 3, max = 254))]
     pub email: Option<String>, // Optional email login
-    #[validate(length(min = 8, max = 36))]
+    #[validate(length(min = 8, max = 100))]
     pub password: String,
     pub turnstile_token: Option<String>, // Optional: required only if Turnstile is enabled for the realm
     // OAuth fields (optional - for third-party app integration)
@@ -91,14 +91,38 @@ pub struct LoginResponse {
     // and NO session is issued. The front-end asks the user to accept those
     // versions, then re-submits login with request `agreements`; the handler
     // records re-consent after credentials/TOTP pass and before session issue.
-    // Absent (None) on every other branch → no frontend breakage. See design
-    // §4.1/§4.2.2.
+    // Absent (None) on every other branch → no frontend breakage.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(required = false)]
     pub consent_required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(required = false)]
     pub agreements: Option<Vec<herald_core::domain::legal::LegalAgreementSummary>>,
+    /// Present only on a consent gate. The family is limited to
+    /// ProfileRead/DeleteAccount/Logout and cannot access application data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(required = false)]
+    pub restricted_session: Option<BrowserTokenResponse>,
+}
+
+/// OAuth hand-off fields must arrive as a complete set: a client id without
+/// its redirect/state pair cannot round-trip through the authorize flow.
+/// Shared by every login entrance that accepts these fields.
+pub(crate) fn ensure_oauth_redirect_fields(
+    oauth_client_id: Option<&str>,
+    redirect_uri: Option<&str>,
+    state: Option<&str>,
+) -> Result<(), ApiError> {
+    let provided = [oauth_client_id, redirect_uri, state]
+        .into_iter()
+        .flatten()
+        .count();
+    if provided != 0 && provided != 3 {
+        return Err(ApiError::bad_request(
+            "oauthClientId, redirectUri, and state must be provided together",
+        ));
+    }
+    Ok(())
 }
 
 /// Authenticate user with email/username and password
@@ -145,6 +169,12 @@ pub async fn login(
             "Either username or email must be provided".to_string(),
         ));
     }
+
+    ensure_oauth_redirect_fields(
+        payload.oauth_client_id.as_deref(),
+        payload.redirect_uri.as_deref(),
+        payload.state.as_deref(),
+    )?;
 
     // Normalize if it's an email
     let normalized_email = payload.email.as_ref().map(|e| normalize_email(e));
@@ -361,35 +391,6 @@ pub async fn login(
             .await
             .map_err(|_| ApiError::internal("Internal server error".to_string()))?;
 
-        // Record login success audit event (user authenticated, TOTP required for second factor)
-        if let Err(audit_err) = state
-            .audit_event_repository
-            .create(NewAuditEvent {
-                realm_id: realm_id.clone(),
-                category: AuditCategory::Auth,
-                action: AuditAction::AuthLogin,
-                actor_id: user.id.to_string(),
-                actor_type: Some(ActorType::User),
-                actor_name: Some(user.email.clone()),
-                target_type: AuditTargetType::User,
-                target_id: user.id.to_string(),
-                target_name: Some(user.email.clone()),
-                result: AuditResult::Success,
-                details: Some(serde_json::json!({
-                    "method": "password",
-                    "client_id": payload.client_id,
-                    "totp_required": has_totp,
-                    "passkey_required": has_passkey,
-                })),
-                ip_address: Some(ip.clone()),
-                user_agent: user_agent.clone(),
-                trace_id: None,
-            })
-            .await
-        {
-            tracing::warn!(error = %audit_err, "Failed to record audit event");
-        }
-
         // Return temp token instead of creating session. Consent is checked
         // after the second factor succeeds in verify_totp.rs.
         return Ok(Json(LoginResponse {
@@ -408,6 +409,7 @@ pub async fn login(
             redirect_to: None,
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }
@@ -444,6 +446,14 @@ pub async fn login(
         )
         .await
         {
+            let restricted_session = crate::consent_gate::mint_consent_restricted_session(
+                &state,
+                &user,
+                &client_app,
+                user_agent.clone(),
+                Some(ip.clone()),
+            )
+            .await?;
             return Ok(Json(LoginResponse {
                 message: "consent required".to_string(),
                 user_id: user.id,
@@ -455,6 +465,7 @@ pub async fn login(
                 redirect_to: None,
                 consent_required: Some(true),
                 agreements: Some(summaries),
+                restricted_session: Some(restricted_session.into()),
             })
             .into_response());
         }
@@ -593,6 +604,7 @@ pub async fn login(
             redirect_to: Some(redirect_to),
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }

@@ -54,6 +54,13 @@ impl From<i16> for UserStatus {
     }
 }
 
+impl UserStatus {
+    /// Blocks authentication while allowing pending users to verify their email.
+    pub fn is_disabled(&self) -> bool {
+        matches!(self, Self::Forbidden | Self::Deleted)
+    }
+}
+
 impl From<UserStatus> for i16 {
     fn from(status: UserStatus) -> Self {
         status as i16
@@ -136,4 +143,18 @@ pub struct CreateUserConfig {
     pub nickname: Option<String>,
     pub password_hash: Option<String>,
     pub provider_ids: Option<Vec<Uuid>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserStatus;
+
+    #[test]
+    fn disabled_status_blocks_access_without_blocking_email_verification() {
+        assert!(!UserStatus::WaitVerified.is_disabled());
+        assert!(!UserStatus::Normal.is_disabled());
+        assert!(UserStatus::Forbidden.is_disabled());
+        assert!(UserStatus::Deleted.is_disabled());
+        assert!(UserStatus::from(-1).is_disabled());
+    }
 }

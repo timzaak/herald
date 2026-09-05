@@ -9,7 +9,7 @@ use herald_domain::client::{
     value_objects::{CreateClientAppRequest, UpdateClientAppRequest},
 };
 use herald_domain::common::entities::app_errors::CoreError;
-use herald_entity::client_app;
+use herald_entity::{client_api_key, client_app};
 
 pub struct PostgresClientRepository {
     db: Arc<sea_orm::DatabaseConnection>,
@@ -260,6 +260,17 @@ impl ClientRepository for PostgresClientRepository {
         if is_builtin_first_party_client(&client.client_id) {
             return Err(CoreError::BadRequest(
                 "Cannot delete a built-in first-party client app".to_string(),
+            ));
+        }
+
+        let has_api_keys = client_api_key::Entity::find()
+            .filter(client_api_key::Column::ClientAppId.eq(id))
+            .one(&*self.db)
+            .await?
+            .is_some();
+        if has_api_keys {
+            return Err(CoreError::Conflict(
+                "Cannot delete a client app while API keys are bound to it".to_string(),
             ));
         }
 

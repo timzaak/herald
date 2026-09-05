@@ -57,6 +57,17 @@ pub trait LegalAgreementRepository: Send + Sync {
         published_by: &str,
     ) -> impl Future<Output = Result<LegalAgreementVersion, CoreError>> + Send;
 
+    /// Append a realm-scoped marker that switches effective resolution back
+    /// to the live platform default while retaining the realm's history.
+    fn publish_default_follow_marker(
+        &self,
+        realm_id: &str,
+        agreement_type: AgreementType,
+        content: serde_json::Value,
+        label: Option<String>,
+        published_by: &str,
+    ) -> impl Future<Output = Result<LegalAgreementVersion, CoreError>> + Send;
+
     fn publish_link_version(
         &self,
         realm_id: &str,

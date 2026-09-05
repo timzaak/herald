@@ -107,12 +107,15 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 2. 如果找不到，通过 openid 查找
 3. 如果还找不到，通过 email 查找（占位邮箱 `{unionid/openid}@wechat.placeholder` 以 `verified=false` 落库，实际微信登录永不依赖 email 匹配成功，占位仅为满足唯一约束）
 4. 如果还找不到，创建新用户（自动注册受 Realm 注册政策门控：注册关闭时不自动建号，按登录失败处理并引导）
+5. OAuth 自动创建用户后触发统一注册后事件，可按 Realm 的积分分发规则发放注册积分
 
 **跨应用匹配**
 - 使用 UnionID 作为跨应用匹配的唯一标识
 - 同一用户可以有多个 Provider 记录（wechat、wechat-miniprogram），UnionID 相同
 
 **与其他 OAuth Provider 的区别**
+
+- WeChat Mini Program 不生成浏览器授权 URL，必须调用专用小程序登录端点；传给通用 `/{provider}/login` 入口会返回 400
 
 | 特性 | Google/GitHub/Facebook/Apple | WeChat (网站应用) | WeChat Mini Program |
 |------|----------------------------|-------------------|---------------------|
@@ -142,6 +145,7 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 - 用户扫码并授权后，微信回调到 Herald 系统并携带 code
 - 系统使用 code 换取 access_token，再获取用户信息（含 unionid）
 - 系统创建或匹配用户并设置 session
+- 专用微信授权 URL 入口支持透传已有 `downstream_state`，用于第三方 Client App 的下游 Code+PKCE 授权事务
 
 **微信小程序登录**
 - 小程序用户触发微信登录，系统接收小程序发送的授权码

@@ -165,7 +165,7 @@ pub async fn create_realm(
     if req.name.len() < 3 || req.name.len() > 50 {
         return json_error(StatusCode::BAD_REQUEST, ErrorCode::ValidationError);
     }
-    if req.admin_user.email.is_empty() {
+    if !crate::user::is_valid_email(&req.admin_user.email) {
         return json_error(StatusCode::BAD_REQUEST, ErrorCode::ValidationError);
     }
     if req.admin_user.password.len() < 8 {

@@ -227,6 +227,7 @@ pub async fn handle_finish_passkey_registration(
     let repo = Arc::new(PostgresUserPasskeyRepository::new(state.db.clone()));
     let service = passkey_service(&state, repo)?;
     let nickname = load_registration_nickname(&state, &req.reg_token).await?;
+    ensure_passkey_enabled(&state, &identity.realm_id()).await?;
 
     // Consume the single-use reauth ticket only after validating the registration
     // token and just before the state-mutating operation.

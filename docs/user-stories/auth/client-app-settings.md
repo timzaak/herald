@@ -34,9 +34,9 @@ And 点击"Add"按钮
 Then 系统提示"Invalid URL format"且不添加该地址
 ```
 
-**场景 3：至少需要一个跳转地址**
+**场景 3：已配置 OAuth 跳转时至少需要一个地址**
 ```gherkin
-Given 管理员在设置页面
+Given 管理员在设置页面编辑一个使用 OAuth 回跳的 Client App
 When 管理员删除所有跳转地址并尝试保存
 Then 系统提示"At least one redirect URI is required"
 ```
@@ -179,7 +179,8 @@ Then 系统提示配置无效且不保存
 ## 业务规则与边界说明
 
 1. **redirect_uris 白名单验证**：
-   - 至少包含一个有效的 HTTPS 地址（开发环境允许 HTTP）
+   - 提交非空 OAuth 回跳配置时至少包含一个有效的 HTTPS 地址（开发环境允许 HTTP）
+   - 创建 Client App 时可暂不提供；仅使用 Device Code Grant 的 App 可不配置 redirect URI
    - 验证 URL 格式，禁止 `javascript:` 协议和协议相对 URL `//`
    - OAuth 授权时严格验证 redirect_uri 是否在白名单中
 

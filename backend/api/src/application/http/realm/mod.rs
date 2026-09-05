@@ -48,10 +48,7 @@ use axum::Router;
 /// - POST /api/realms/{realmId}/config/white-label/publish - Publish white-label settings
 /// - POST /api/realms/{realmId}/config/white-label/restore - Restore previous white-label settings
 /// - GET /api/realms/{realmId}/config/custom-domain - Get custom-domain configuration state
-/// - PUT /api/realms/{realmId}/config/custom-domain/draft - Save custom-domain draft
-/// - DELETE /api/realms/{realmId}/config/custom-domain/draft - Discard custom-domain draft
-/// - POST /api/realms/{realmId}/config/custom-domain/publish - Publish custom-domain settings
-/// - POST /api/realms/{realmId}/config/custom-domain/restore - Restore previous custom-domain settings
+/// - PUT /api/realms/{realmId}/config/custom-domain - Update custom-domain settings
 pub fn realm_router() -> Router<AppState> {
     Router::new()
         // CRUD routes

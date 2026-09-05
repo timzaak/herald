@@ -553,6 +553,26 @@ pub async fn setup_stripe_config(
     .expect("Failed to insert Stripe timeout");
 }
 
+/// Point a provider's `base_url` realm_config override at a test mock server.
+pub async fn insert_realm_base_url(
+    ctx: &TestContext,
+    realm_id: &str,
+    provider: &str,
+    base_url: &str,
+) {
+    sqlx::query(
+        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled, created_at, updated_at)
+         VALUES ($1, $2, 'base_url', $3, true, NOW(), NOW())
+         ON CONFLICT (realm_id, config_type, config_key) DO UPDATE SET config_value = $3, enabled = true, updated_at = NOW()"
+    )
+    .bind(realm_id)
+    .bind(provider)
+    .bind(base_url)
+    .execute(&ctx.app_state.pool)
+    .await
+    .expect("Failed to insert base_url realm config");
+}
+
 /// Verify payment event exists with Stripe event ID
 pub async fn verify_stripe_payment_event_exists(ctx: &TestContext, stripe_event_id: &str) -> bool {
     let count: i64 =

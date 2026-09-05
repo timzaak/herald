@@ -61,6 +61,18 @@ pub async fn get_dashboard_stats(
         .require_permission(&state, "dashboard", "view")
         .await?;
 
+    let realm_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM realm WHERE id = $1)")
+        .bind(&realm_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, %realm_id, "Failed to verify dashboard realm");
+            ApiError::internal("Failed to verify realm")
+        })?;
+    if !realm_exists {
+        return Err(ApiError::not_found("Realm not found"));
+    }
+
     let repo = PostgresDashboardRepository::new(state.db.clone(), state.pool.clone());
     let stats = repo.get_stats(&realm_id).await.map_err(|e| {
         tracing::error!("Failed to fetch dashboard statistics: {e}");

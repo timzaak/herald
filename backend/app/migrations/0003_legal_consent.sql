@@ -4,7 +4,6 @@
 -- Versioned legal agreements (Terms of Service / Privacy Policy) with a
 -- platform-default English template seed, and per-user current consent state.
 --
--- Design ref: .ai/design/legal-consent-account-deletion.md §4.3.2 / §4.3.3.
 -- Pre-launch squash: the platform-default templates are seeded directly in
 -- English (the obsolete zh-CN default + later UPDATE-to-English are folded
 -- into a single English INSERT). No ALTER/DROP.
@@ -64,7 +63,7 @@ COMMENT ON COLUMN legal_agreement_version.version_no IS 'Monotonic within (scope
 COMMENT ON COLUMN legal_agreement_version.content IS 'JSONB { [locale]: body } — at least the default locale body';
 COMMENT ON COLUMN legal_agreement_version.mode IS 'Agreement content mode: full_text or link';
 COMMENT ON COLUMN legal_agreement_version.external_url IS 'External agreement URL when mode is link';
-COMMENT ON COLUMN legal_agreement_version.source IS 'default | custom (revert-to-default snapshots as custom)';
+COMMENT ON COLUMN legal_agreement_version.source IS 'default | custom (a realm-scoped default row is a live-default follow marker)';
 COMMENT ON COLUMN legal_agreement_version.published_by IS 'Publishing user_id; platform default seed = system';
 
 -- (b) user_agreement_consent: per-user current consent state (one row per user/type).

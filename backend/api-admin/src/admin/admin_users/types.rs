@@ -17,6 +17,7 @@ pub struct UserCreateRequest {
     pub password: String,
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
+    #[validate(range(min = 0, max = 3))]
     pub status: Option<i16>,
     // PRD users.md §4.1: the create dialog may submit no role assignment; the
     // domain layer accepts an empty role set. A min=1 here would force every
@@ -28,6 +29,7 @@ pub struct UserCreateRequest {
 pub struct UserUpdateRequest {
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
+    #[validate(range(min = 0, max = 3))]
     pub status: Option<i16>,
 }
 
@@ -61,6 +63,8 @@ pub struct ListUsersQuery {
     pub page: Option<i32>,
     pub page_size: Option<i32>,
     pub email: Option<String>,
+    // Range is enforced in the list handler: query DTOs here are not
+    // extracted through Valid<Query<..>>, so validate attributes never run.
     pub status: Option<i16>,
 }
 

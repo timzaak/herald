@@ -34,7 +34,7 @@ pub fn validate_realm_id(realm_id: &str) -> Result<(), CoreError> {
     if !realm_id
         .chars()
         .next()
-        .map(|c| c.is_alphanumeric())
+        .map(|c| c.is_ascii_alphanumeric())
         .unwrap_or(false)
     {
         return Err(CoreError::BadRequest(
@@ -45,7 +45,7 @@ pub fn validate_realm_id(realm_id: &str) -> Result<(), CoreError> {
     // Check all characters: only alphanumeric, hyphen, and underscore
     if !realm_id
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return Err(CoreError::BadRequest(
             "Realm ID can only contain letters, numbers, hyphens, and underscores".to_string(),
@@ -103,6 +103,7 @@ mod tests {
         assert!(validate_realm_id("realm&id").is_err());
         assert!(validate_realm_id("realm*id").is_err());
         assert!(validate_realm_id("realm+id").is_err());
+        assert!(validate_realm_id("réalm").is_err());
     }
 
     #[test]

@@ -116,7 +116,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - role 来自用户在 Herald 自定义的角色/权限（复用现有 RBAC），不新建权限空间、不引入 `entitlement.*` 新权限格式
 - 支付成功自动授予映射配置的 role
 - 一次性购买（one_time + role）= 永久解锁，role 不设过期；退款或撤销时仅回收该笔支付来源的 role，正常取消或到期不触碰买断 role；`validity_days` 只约束积分有效期，不约束 role
-- 订阅（recurring + role）= 周期内有效（靠 webhook 撤销 + 补偿框架最终一致，非 expires_at TTL 自动失效），续费 webhook 续授
+- 订阅（recurring + role）= 周期内有效（靠 webhook 撤销 + 补偿框架最终一致，非 `expires_at` TTL 自动失效），续费 webhook 续授；`user_roles.expires_at` 仅保存支付周期来源信息，权限检查不按该字段过滤
 
 **重复购买判定规则**：
 - 仅「one_time + 授予 role」组合强制一人一次
@@ -218,7 +218,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 
 **能力边界**：
 - 不新建权限空间；role 授予复用现有 RBAC role/权限模型
-- entitlement mapping 配置接口扩展「role 授予维度」配置能力（与既有积分策略配置同层）；role 授予维度的写入入口为 batch 更新端点（多价格批量管理），single PATCH 不写 `granted_role_ids`
+- entitlement mapping 配置接口扩展「role 授予维度」配置能力（与既有积分策略配置同层）；创建端点可设置 `granted_role_ids`，后续修改走 batch 更新端点（多价格批量管理），single PATCH 不写该字段
 - 支付成功 webhook 处理链路扩展：支付成功→授 role、订阅 canceled/expired/refund→撤 role
 - 第三方应用查询/判断：复用既有 RBAC 权限检查能力，不新增 entitlement 专用门控接口
 

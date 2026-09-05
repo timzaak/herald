@@ -113,7 +113,7 @@ Herald 已支持一个用户同时持有多个积分账户，但既有发放配�
   - `registration`：用户注册成功后的初始积分发放。
   - `free_periodic_grant`：注册后建立或实现免费周期积分/额度。
 - Mapping 下的每条规则必须声明适用的购买/订阅触发源；规则只在命中声明来源时执行。
-- 注册规则必须在 `registration` 与 `free_periodic_grant` 中选择一个来源。
+- 注册规则的来源可从 `registration` 与 `free_periodic_grant` 中声明一个或两个（允许同一条规则同时覆盖注册初始积分与免费周期额度）；两类来源共享同一注册事件锚点选取与提交，重复声明的触发源去重后执行，不因多来源声明而重复发放。
 - `subscription_downgrade` 当前不立即发放积分：用户保留当前周期权益，新配置在后续 `subscription_renewal` 生效，因此不作为独立发放触发源。
 - `admin_grant` 和 `sdk_grant` 是显式定向命令，不读取持久化分发规则，不自动扇出。
 - `refund_revoke`、`expire_revoke`、`cancel_revoke` 和 `upgrade_revoke` 是原发放的派生回收来源，不允许管理员单独配置。

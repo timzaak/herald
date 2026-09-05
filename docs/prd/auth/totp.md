@@ -11,41 +11,35 @@
 
 ### 1.1 故事引用
 
-- `[US-TO-001]` 启用 TOTP 二次认证，优先级 P0，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户为账户启用 TOTP 二次认证，提升账户安全性，防止密码泄露导致账户被盗
-- `[US-TO-003]` 使用 TOTP 登录，优先级 P0，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户在登录时通过 TOTP 验证码进行二次认证
-- `[US-TO-002]` 禁用 TOTP，优先级 P0，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户在更换设备或不再需要时关闭 TOTP 功能
-- `[US-TO-004]` 查看 TOTP 状态，优先级 P2，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户查看 TOTP 设置和使用情况，了解账户安全状态
-- `[US-TO-005]` 查看 TOTP 恢复码，优先级 P1，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户查看 TOTP 恢复码，在无法使用验证器时登录
-- `[US-TO-006]` 重置 TOTP 恢复码，优先级 P1，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Regular User
-  - 摘要：用户在丢失验证器应用或备份码时重新生成密钥和恢复码
-- Realm Admin 启用/禁用 TOTP 功能，优先级 P0，来源 `docs/user-stories/auth/totp.md`
+- `[US-TO-001]` Realm 管理员启用/禁用 TOTP 功能，优先级 P0，来源 `docs/user-stories/auth/totp.md`
   - 角色：Realm Admin
   - 摘要：管理员为本 Realm 启用或禁用 TOTP 二次认证功能
-- Realm Admin 强制启用 TOTP，优先级 P1，来源 `docs/user-stories/auth/totp.md`
+- `[US-TO-002]` 用户启用 TOTP 二次认证，优先级 P0，来源 `docs/user-stories/auth/totp.md`
+  - 角色：Regular User
+  - 摘要：用户为账户启用 TOTP 二次认证，提升账户安全性，防止密码泄露导致账户被盗
+- `[US-TO-003]` 用户使用 TOTP 登录，优先级 P0，来源 `docs/user-stories/auth/totp.md`
+  - 角色：Regular User
+  - 摘要：用户在登录时通过 TOTP 验证码进行二次认证
+- `[US-TO-004]` 用户禁用 TOTP，优先级 P0，来源 `docs/user-stories/auth/totp.md`
+  - 角色：Regular User
+  - 摘要：用户在更换设备或不再需要时关闭 TOTP 功能
+- `[US-TO-005]` 用户重新生成 TOTP 密钥，优先级 P1，来源 `docs/user-stories/auth/totp.md`
+  - 角色：Regular User
+  - 摘要：用户重新生成 TOTP 密钥和备份恢复码，旧密钥在新密钥验证成功前保持有效
+- `[US-TO-006]` Realm 管理员强制启用 TOTP，优先级 P1，来源 `docs/user-stories/auth/totp.md`
   - 角色：Realm Admin
   - 摘要：管理员设置本 Realm 强制启用 TOTP，确保所有用户使用二次认证
-- Realm Admin 查看 TOTP 统计，优先级 P2，来源 `docs/user-stories/auth/totp.md`
-  - 角色：Realm Admin
-  - 摘要：管理员查看本 Realm 的 TOTP 启用率，了解安全状态
+- `[US-TO-007]` 用户查看 TOTP 使用情况，优先级 P2，来源 `docs/user-stories/auth/totp.md`
+  - 角色：Regular User
+  - 摘要：用户查看 TOTP 设置和使用情况，了解账户安全状态
 
 ### 1.2 优先级汇总
 
 | 优先级 | 数量 | 关键故事 |
 |--------|------|----------|
-| P0 | 4 | 用户启用 TOTP、使用 TOTP 登录、用户禁用 TOTP、管理员启用/禁用 TOTP |
-| P1 | 2 | 强制启用 TOTP、重置 TOTP 恢复码 |
-| P2 | 2 | 查看 TOTP 统计、查看 TOTP 状态 |
+| P0 | 4 | 管理员启用/禁用 TOTP、用户启用 TOTP、使用 TOTP 登录、用户禁用 TOTP |
+| P1 | 2 | 重新生成 TOTP 密钥、强制启用 TOTP |
+| P2 | 1 | 查看 TOTP 使用情况 |
 
 ---
 
@@ -106,8 +100,8 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 
 - **验证码规则**：TOTP 验证码为 6 位数字，有效期 30 秒；Setup 阶段支持 -1/0/+1 周期容忍（verify_totp），登录验证阶段为防重放攻击仅支持 0/+1 周期（verify_totp_with_replay_protection，前一个周期的 code 返回 Expired）；连续错误 5 次后锁定 TOTP 验证 15 分钟
 - **备份恢复码规则**：启用 TOTP 时生成 10 个 6 位数字备份恢复码，使用后立即失效（不可重复使用），重新生成 TOTP 密钥时同步重新生成备份码
-- **强制 TOTP 模式规则**：Realm 管理员可强制所有用户启用 TOTP；强制模式下用户无法禁用 TOTP；未启用 TOTP 的用户在下次登录时被引导设置
-- **安全规则**：TOTP 密钥使用 AES-256-GCM 加密存储；禁用 TOTP、重新生成 TOTP 密钥、启用 TOTP 均需通过重新认证（reauth：当前密码，或用户已绑定的其他强因子——TOTP/Passkey，与账户安全操作的统一 reauth 模型一致）；TOTP 验证失败不暴露具体错误（统一提示"验证码已过期或无效"）
+- **强制 TOTP 模式规则**：Realm 管理员可开启强制模式；强制模式下已启用用户无法禁用 TOTP，未启用用户在登录后访问 Security 页面时看到设置引导。当前该模式不阻断登录，也不在登录完成后强制跳转
+- **安全规则**：TOTP 密钥使用 AES-256-GCM 加密存储；生产加解密当前统一使用进程环境变量 `TOTP_SECRET_KEY`，数据库 `key_version=1` 与 `totp_key` Realm 密钥仓库仅为未来轮换预留，尚未接入生产加解密路径。禁用 TOTP、重新生成 TOTP 密钥、启用 TOTP 均需通过重新认证（reauth：当前密码，或用户已绑定的其他强因子——TOTP/Passkey，与账户安全操作的统一 reauth 模型一致）；TOTP 验证失败不暴露具体错误（统一提示"验证码已过期或无效"）
 - **速率限制**：用户级 5 次/60s + IP 级 10 次/60s 速率限制
 - **平滑降级**：Realm 禁用 TOTP 后，新用户无法启用 TOTP（`handle_enable_totp` 已检查 realm 的 TOTP enabled 状态），已启用用户仍需验证
 
@@ -115,9 +109,9 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 
 - **TOTP 未启用**：用户账户未绑定 TOTP 密钥，登录无需二次验证
 - **TOTP 已启用**：用户账户已绑定密钥，登录需二次验证
-- **TOTP 锁定**：连续错误 5 次后锁定 15 分钟，期间无法进行 TOTP 验证
+- **TOTP 锁定**：连续错误 5 次后锁定 15 分钟，锁定 TTL 在首次达到阈值时设定；锁定期间的重复尝试不会滑动延长到期时间
 - **备份码耗尽**：所有备份恢复码已使用，提示用户联系管理员或重新生成
-- **强制模式冲突**：Realm 强制启用但用户未设置时，登录后跳转 TOTP 设置流程
+- **强制模式提示**：Realm 强制启用但用户未设置时，用户仍可登录；Security 页面依据 feature-availability 中的 `totpForceEnabled` 展示 TOTP 设置横幅
 
 ---
 
@@ -129,7 +123,7 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 - **用户启用 TOTP**：用户在个人资料 -> Security 页面发起启用，系统生成密钥和二维码，用户扫描后输入验证码确认，完成后显示 10 个备份恢复码（仅显示一次）
 - **用户禁用 TOTP**：用户在 Security 页面发起禁用，需通过重新认证确认（当前密码或任一已绑定强因子）；Realm 强制模式下不允许禁用
 - **重新生成 TOTP 密钥**：用户在 Security 页面发起重新生成，需通过重新认证确认；新密钥先暂存，必须输入新验证码验证成功后才替换旧密钥（验证失败或放弃时保留旧密钥）
-- **TOTP 登录流程**：密码验证通过后，若用户已启用 TOTP 则进入二次验证页面，用户输入 6 位验证码或备份恢复码，验证通过后创建 Session；TOTP 验证成功后支持 OAuth 授权码流程（authorize 端点可消费 TOTP challenge）
+- **TOTP 登录流程**：密码验证通过后，若用户已启用 TOTP 则进入二次验证页面，用户输入 6 位验证码或备份恢复码，验证通过后创建 Session；携带 OAuth 上下文（登录时带下游 client/redirect 参数）的二次验证在验证成功后直接签发授权码并回跳下游应用（授权码由登录二次验证端点签发，authorize 端点仅负责重定向到登录页，不参与二次验证）
 - **临时 token 机制**：启用/重新生成 TOTP 时生成 5 分钟有效期的临时 token，用于后续验证确认步骤，防止 CSRF 攻击
 - **查看 TOTP 使用情况**：显示启用状态、启用时间、最近验证时间、剩余备份码数量
 
@@ -137,7 +131,7 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 
 - 用户可通过验证器应用（Google Authenticator 等）成功完成 TOTP 启用、验证和禁用全流程
 - 备份恢复码可在验证器不可用时成功替代 TOTP 验证码登录
-- 强制模式下未启用 TOTP 的用户被引导至设置流程，已启用用户无法禁用
+- 强制模式下未启用 TOTP 的用户在 Security 页面看到设置引导，已启用用户无法禁用；强制模式不拦截登录
 - 连续错误 5 次后正确触发锁定，15 分钟后自动解除
 - Realm 禁用 TOTP 后，平滑降级不影响已启用用户的验证流程
 
@@ -149,7 +143,7 @@ Herald 系统支持在 Realm 级别和用户级别配置 TOTP：
 
 - 接口能力范围：TOTP 密钥生成与二维码获取、验证码验证、备份恢复码验证、TOTP 启用/禁用/重新生成、Realm 级别 TOTP 开关与强制模式配置、TOTP 统计查询
 - 访问控制：Realm Admin 可操作 Realm 级别 TOTP 配置；Regular User 仅可操作自身 TOTP 设置；所有 TOTP 操作需在已认证 Session 内进行
-- 数据边界：TOTP 密钥、备份码等凭证数据按 realm 隔离，凭证信息在响应中脱敏
+- 数据边界：TOTP 密钥、备份码等凭证数据按 realm 隔离；常规响应（状态查询等）不返回凭证明文，仅启用/重新生成的 enroll 响应一次性返回明文密钥与备份码（供用户扫描保存，仅显示一次）
 - 安全约束：验证失败不暴露具体原因；备份码使用后立即失效；密钥重新生成需验证密码
 
 ---

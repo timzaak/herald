@@ -4,6 +4,7 @@ use herald_api_base::application::http::auth::error::AuthError;
 use herald_api_base::application::http::auth::util::is_registration_enabled;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::oauth::{
+    entities::ProviderType,
     ports::{OAuthProviderHandler, OAuthRepository},
     value_objects::{OAuthConfig, OAuthUserInfo},
 };
@@ -554,7 +555,13 @@ async fn find_or_create_user_by_email(
             // addresses the user never confirmed (e.g. GitHub non-primary
             // emails); linking on those would let an attacker take over a
             // password account by registering the victim's email upstream.
-            if !user_info.verified {
+            //
+            // The one safe exception is an exact placeholder deterministically
+            // derived from the signed provider subject. This repairs a partial
+            // first-login where account creation committed but the provider
+            // link failed: retrying the same signed identity may reclaim only
+            // its own synthetic address, never an arbitrary account email.
+            if !user_info.verified && !is_provider_owned_placeholder_email(user_info) {
                 tracing::warn!(
                     realm_id = %realm_id,
                     provider = %user_info.provider_type.as_str(),
@@ -587,6 +594,22 @@ async fn find_or_create_user_by_email(
                 );
                 return Err(AuthError::Conflict(
                     "Registration is not enabled for this realm".to_string(),
+                ));
+            }
+            let domain_allowed = herald_api_base::application::http::auth::util::is_registration_email_domain_allowed(
+                state,
+                realm_id,
+                &user_info.email,
+            )
+            .await
+            .map_err(|_| {
+                AuthError::InternalServerError(
+                    "Failed to query registration domain allowlist".to_string(),
+                )
+            })?;
+            if !domain_allowed {
+                return Err(AuthError::Conflict(
+                    "Email domain is not allowed for registration".to_string(),
                 ));
             }
 
@@ -634,6 +657,23 @@ async fn find_or_create_user_by_email(
             e
         ))),
     }
+}
+
+fn is_provider_owned_placeholder_email(user_info: &OAuthUserInfo) -> bool {
+    let expected = match user_info.provider_type {
+        ProviderType::Apple => format!("{}@apple.placeholder", user_info.provider_user_id),
+        ProviderType::WeChat | ProviderType::WeChatMiniProgram => {
+            let stable_id = user_info
+                .union_id
+                .as_deref()
+                .or(user_info.open_id.as_deref())
+                .unwrap_or(&user_info.provider_user_id);
+            format!("{stable_id}@wechat.placeholder")
+        }
+        _ => return false,
+    };
+
+    user_info.email == expected
 }
 
 /// Generate JWT session token
@@ -888,5 +928,35 @@ mod downstream_redirect_tests {
         .expect("legacy state should deserialize");
 
         assert_eq!(state.downstream_state, None);
+    }
+
+    #[test]
+    fn only_exact_provider_derived_placeholders_can_recover_unverified_links() {
+        let mut apple = OAuthUserInfo {
+            provider_type: ProviderType::Apple,
+            provider_user_id: "apple-subject".to_string(),
+            email: "apple-subject@apple.placeholder".to_string(),
+            verified: false,
+            avatar: None,
+            name: None,
+            union_id: None,
+            open_id: Some("apple-subject".to_string()),
+        };
+
+        assert!(is_provider_owned_placeholder_email(&apple));
+        apple.email = "victim@example.com".to_string();
+        assert!(!is_provider_owned_placeholder_email(&apple));
+
+        let wechat = OAuthUserInfo {
+            provider_type: ProviderType::WeChat,
+            provider_user_id: "openid".to_string(),
+            email: "unionid@wechat.placeholder".to_string(),
+            verified: false,
+            avatar: None,
+            name: None,
+            union_id: Some("unionid".to_string()),
+            open_id: Some("openid".to_string()),
+        };
+        assert!(is_provider_owned_placeholder_email(&wechat));
     }
 }

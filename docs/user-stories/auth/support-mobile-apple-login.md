@@ -31,6 +31,7 @@ And 全程不离开当前 App
 ```gherkin
 Given 用户在该 Realm 没有任何 Herald 账号
 And 接入方已在 iOS App 中接入 Apple 原生登录
+And 该 Realm 已允许用户注册
 When 用户在 iOS App 内点击「使用 Apple 登录」并在系统弹窗中确认
 Then 系统自动为该 Apple 身份创建 Herald 账号
 And 用户登录成功，App 显示已登录状态
@@ -155,6 +156,8 @@ When 用户完成 Apple native 登录
 Then 系统仍创建 Herald 账号（使用占位邮箱，标记为未验证）
 And 用户登录成功，不因邮箱缺失而被拒绝
 ```
+
+若账号创建成功后 provider link 因瞬时故障未落账，使用同一已验签 Apple `sub` 重试时可重新认领由该 `sub` 确定性生成的占位邮箱并补建关联；该例外不适用于任意未验证真实邮箱。
 
 ---
 

@@ -66,9 +66,9 @@ Then 系统提示"权限不足"并拒绝访问
 ```gherkin
 Given Realm 管理员在"Settings" -> "Security"页面
 When 启用"Force Passkey"选项
-Then 已注册 Passkey 的用户必须使用 Passkey 登录
+Then 已注册 Passkey 的用户会被优先引导使用 Passkey 登录
 And 未注册 Passkey 的用户下次登录时被引导注册 Passkey
-And 未注册 Passkey 的用户仍可使用密码/TOTP 作为临时回退
+And 所有用户仍可使用密码/TOTP 作为回退
 ```
 
 **场景 2：禁用强制 Passkey 模式**

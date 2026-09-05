@@ -29,6 +29,7 @@ hex = { workspace = true }
 mockall = { workspace = true }
 utoipa = { workspace = true, features = ["uuid", "chrono"] }
 validator = { workspace = true, features = ["derive"] }
+idna = { workspace = true }
 oauth2 = { workspace = true }
 # Heavy deps for CoreError From impls (no proc-macro usage in domain)
 sea-orm = { workspace = true }

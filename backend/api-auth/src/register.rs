@@ -4,8 +4,8 @@ use axum::{
 };
 use axum_valid::Valid;
 use herald_api_base::application::http::auth::util::{
-    ClientIp, is_email_verification_required, is_registration_enabled, normalize_email,
-    rate_limit_hit, verify_turnstile_for_client_app,
+    ClientIp, is_email_verification_required, is_registration_email_domain_allowed,
+    is_registration_enabled, normalize_email, rate_limit_hit, verify_turnstile_for_client_app,
 };
 use herald_api_base::application::http::common::public_helper::realm_public_url_parts;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -30,7 +30,7 @@ pub struct RegisterRequest {
     pub email: String,
     #[validate(length(min = 1, max = 36))]
     pub username: Option<String>, // Optional username
-    #[validate(length(min = 8, max = 36))]
+    #[validate(length(min = 8, max = 100))]
     pub password: String,
     pub turnstile_token: Option<String>, // Optional: required only if Turnstile is enabled for realm
 }
@@ -96,6 +96,11 @@ pub async fn register(
         );
         return Err(ApiError::bad_request(
             "Registration is not enabled for this realm".to_string(),
+        ));
+    }
+    if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
+        return Err(ApiError::bad_request(
+            "Email domain is not allowed for registration".to_string(),
         ));
     }
 

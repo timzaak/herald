@@ -44,6 +44,12 @@ pub async fn list_users(
     Query(query): Query<ListUsersQuery>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<PageResponse<UserResponse>>, ApiError> {
+    if query
+        .status
+        .is_some_and(|status| !(0..=3).contains(&status))
+    {
+        return Err(ApiError::bad_request("status must be between 0 and 3"));
+    }
     let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
     admin
         .require_permission(&state, "users", "view")
@@ -87,6 +93,7 @@ pub async fn list_users(
             norm.page as u64,
             norm.page_size as u64,
             query.email,
+            query.status,
         )
         .await
         .map_err(|e| {

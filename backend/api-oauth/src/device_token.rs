@@ -89,7 +89,7 @@ local function device_token_poll(keys, args)\n\
   -- wrong-realm poll cannot burn the authorization the user just granted.\n\
   if state.status == 'authorized' then\n\
     if state.realm_id ~= expected_realm then\n\
-      return cjson.encode({ok=false, error='invalid_realm'})\n\
+      return cjson.encode({ok=false, error='invalid_request'})\n\
     end\n\
     state.status = 'consumed'\n\
     state.last_poll_at = now\n\
@@ -319,7 +319,6 @@ pub async fn device_token(
                 axum::http::StatusCode::FORBIDDEN,
                 "The user denied the authorization request",
             ),
-            "invalid_realm" => (axum::http::StatusCode::BAD_REQUEST, "Realm mismatch"),
             _ => (axum::http::StatusCode::BAD_REQUEST, "Invalid request"),
         };
 

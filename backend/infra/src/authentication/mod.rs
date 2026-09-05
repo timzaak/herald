@@ -246,7 +246,7 @@ struct BrowserTokenFamilyData {
 
 // Session metadata index payload, stored at `bt:meta:{familyId}`. Written at
 // login independently of the family record so that session listing (admin) and
-// token verification (hot path) stay decoupled (design kickoff-user §4.1/§5.1).
+// token verification (hot path) stay decoupled.
 // Carries only the listing-only display fields the family record does not.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BrowserTokenFamilyMeta {
@@ -337,6 +337,7 @@ impl RedisBrowserTokenService {
             ProfileRead,
             ProfileWriteNickname,
             ChangePassword,
+            ChangeEmail,
             DeleteAccount,
             TotpManage,
             PasskeyManage,
@@ -353,6 +354,32 @@ impl RedisBrowserTokenService {
         ]
         .into_iter()
         .collect()
+    }
+
+    /// Issue a browser family that can only inspect reauthentication factors,
+    /// delete the account, or log out. This is used after valid credentials
+    /// when legal consent blocks a normal session: refusal must not grant
+    /// application access, but it must not strand the user's deletion right.
+    pub async fn create_consent_restricted_token_family(
+        &self,
+        user: &User,
+        client_app: &ClientApp,
+        user_agent: Option<String>,
+        client_ip: Option<String>,
+    ) -> Result<BrowserTokenSet, CoreError> {
+        use CredentialScope::*;
+        self.create_family(
+            user.realm_id.clone(),
+            user.id.to_string(),
+            client_app.id,
+            CredentialClass::CustomUserUi,
+            [ProfileRead, DeleteAccount, Logout].into_iter().collect(),
+            client_app.browser_refresh_absolute_ttl_seconds as u64,
+            Some(client_app.name.clone()),
+            user_agent,
+            client_ip,
+        )
+        .await
     }
 
     async fn create_family(
@@ -437,7 +464,7 @@ impl RedisBrowserTokenService {
             ));
         }
 
-        // Session metadata index (design kickoff-user §5.1). Stored
+        // Session metadata index. Stored
         // independently of the family record so the token-verification hot path
         // stays untouched. Best-effort: the family record is already committed
         // (FCALL returned OK) and is authoritative for auth; meta is auxiliary

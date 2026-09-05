@@ -185,7 +185,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 **防提权约束（授予方权限自持）**:
 
 1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在 `policies.manage`/`roles.manage` 之外，必须自身持有被授予的 `resource.action` 权限
-2. 为用户指派 "user" 以外的内置角色时，调用者必须持有该角色授予的全部权限（普通 "user" 内置角色豁免，作为默认终端用户角色）
+2. 修改既有用户的角色集合必须持有 `roles.manage`；创建用户时仅附带普通 `user` 角色可由 `users.manage` 完成，其他角色仍要求角色管理权限与授予方自持检查
 3. 该规则防止仅持部分管理权限的 delegated-admin 通过授权操作自我提权（例如把高权限内置角色或自身不具备的权限授予自己）；权限不满足时返回权限不足错误
 
 **Realm 操作权限**:
@@ -200,7 +200,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 ### 4.2 关键状态与异常
 
-- 默认角色（`realm-admin`、`user`）和默认权限受内置保护，不能被删除；内置角色的名称不可修改，描述(description)可修改（`US-BP-001`）
+- 默认角色（`realm-admin`、`user`）和默认权限受内置保护，不能被删除；任何内置角色都不能摘除内置权限；内置角色名称不可修改，描述(description)可修改（`US-BP-001`）
 - 权限属于 Realm 级别，跨 Realm 访问必须拒绝
 - 权限检查遵循 `resource.action` 精确匹配和层级规则，不做前端特例判断
 
@@ -210,7 +210,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 | API 风格 | 路径前缀 | 说明 |
 |----------|---------|------|
-| 旧 API | `/api/permission/{realmId}/permissions` | 使用 `PermissionData` 格式，按 client 维度管理权限分配 |
+| 旧 API | `/api/permission/{realmId}/permissions` | 使用 `PermissionData` 格式，按 client 维度管理权限分配；含 RoleWrap 用户角色分配，写操作统一检查 `policies.manage`（而非 `roles.manage`） |
 | 新 API | `/api/permission/{realmId}/define` | 权限定义（permission_definitions）的 CRUD |
 | 新 API | `/api/roles/{realmId}/define` | 角色定义（role_definitions）的 CRUD 及角色权限关联 |
 
@@ -303,7 +303,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | Permissions | `permissions.view` | `permissions.manage` |
 | Roles | `roles.view` | `roles.manage` |
 | Role policy assignment | `roles.view` | 角色策略（旧 API）`policies.manage`；角色权限（新 API `/define`）`roles.manage`；均需自持被授予权限 |
-| User role assignment | `users.view` | `roles.manage`（指派 "user" 以外内置角色需自持其全部权限） |
+| User role assignment | `users.view` | 旧 API RoleWrap 检查 `policies.manage`；新用户管理服务修改既有用户角色检查 `roles.manage`（创建用户仅附带普通 `user` 角色为受限例外） |
 | API Keys | `api_keys.view` | `api_keys.manage` |
 | API Key role assignment | `api_keys.view` | `roles.manage` |
 | Products / Plans / Invoices / Providers | `billing.view` | `billing.manage` |

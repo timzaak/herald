@@ -27,6 +27,8 @@ pub struct WeChatAuthUrlRequest {
     pub client_id: Option<String>,
     #[serde(alias = "redirect_uri")]
     pub redirect_uri: Option<String>,
+    #[serde(alias = "downstream_state")]
+    pub downstream_state: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -43,7 +45,8 @@ pub struct WeChatAuthUrlResponse {
     tag = "oauth",
     params(
         ("realmId" = String, Path, description = "Realm ID"),
-        ("redirect_uri" = Option<String>, Query, description = "Redirect URI after successful login")
+        ("redirect_uri" = Option<String>, Query, description = "Redirect URI after successful login"),
+        ("downstream_state" = Option<String>, Query, description = "Existing downstream authorization transaction state")
     ),
     responses(
         (status = 200, description = "Authorization URL generated", body = WeChatAuthUrlResponse),
@@ -83,7 +86,7 @@ pub async fn wechat_login(
             .client_id
             .unwrap_or_else(|| "admin-web-console".to_string()),
         query.redirect_uri,
-        None,
+        query.downstream_state,
     )
     .await?;
 

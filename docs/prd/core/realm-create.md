@@ -104,7 +104,7 @@ Herald 当前支持已登录的 Admin Realm 管理员在管理后台手动创建
 
 **权限要求**
 
-- **自助注册**：无需任何平台权限，任何未登录访客均可访问注册页面（开关开启时）。
+- **自助注册**：无需任何平台权限，公开端点在开关开启时可访问；后端不根据请求是否同时携带既有会话改变该端点行为，前端只向访客展示入口。
 - **访问新 realm**：注册者开通后仅可访问其新 realm，访问其他 realm 资源被拒绝（沿用 `docs/prd/core/realm.md` 的 realm 隔离原则）。
 - **平台开关控制**：需要 Admin Realm 管理员对本 Realm 的设置管理权限（`settings.manage`）。平台开关作为 admin realm 的 `realm_config` 行承载，开关的查询与更新复用既有 Realm Settings 配置管理端点（见 `.ai/design/realm-create.md` §4.2.1/§4.5）；该端点按 `settings.manage` 授权。仅 admin realm 持有该开关配置行，因此实际可操作者仍限于 Admin Realm 管理员。
 
@@ -160,7 +160,7 @@ Herald 当前支持已登录的 Admin Realm 管理员在管理后台手动创建
 **适用性**: 适用
 
 - **接口能力范围**：自助开通注册接口供未登录访客调用，完成注册信息校验与 realm 开通；平台开关的查询与更新接口供 Admin Realm 管理员操作；另有公开只读状态端点 `GET /api/auth/admin/signup/status`，未登录访客可查询自助开通开关是否开放，供注册页判断入口可用性，仅返回布尔值。新 realm 的初始化沿用既有 realm 创建能力，不在本 PRD 中重复定义接口契约。
-- **访问控制原则**：自助注册接口要求访客未登录且平台开关为开启状态；平台开关接口复用既有 Realm Settings 配置管理端点，按 `settings.manage` 授权（见 §4.1）；signup/status 状态端点为公开只读，无需登录，仅 admin realm 承载（其余 realm 请求返回未找到）。
+- **访问控制原则**：自助注册接口是无需凭证的公开端点且平台开关必须开启；若请求额外携带既有会话，后端不据此拒绝或复用该身份。平台开关接口复用既有 Realm Settings 配置管理端点，按 `settings.manage` 授权（见 §4.1）；signup/status 状态端点为公开只读，无需登录，仅 admin realm 承载（其余 realm 请求返回未找到）。
 - **租户 / realm 数据边界**：开通的新 realm 与其他 realm 严格隔离；注册者仅被授权其开通的 realm，访问其他 realm 资源被拒绝。
 - **安全性**：注册信息（含密码）的传输与存储遵循既有安全要求；实施同一 IP 24 小时 2 个的注册限额（DEC-realm-create-007），并按绑定 Client App 的 Turnstile 配置强制人机验证（DEC-realm-create-008）；IP 识别、计数实现等细节下沉技术设计。
 - 详细接口契约、校验规则与错误模型应在技术设计文档中维护。

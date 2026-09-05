@@ -438,6 +438,14 @@ pub(crate) async fn sync_subscription(
     if let Some(mut subscription) = existing {
         let previous = subscription.clone();
 
+        if !previous.status.can_transition_to(&status) {
+            return Err(CoreError::InvalidSubscriptionStatus(format!(
+                "{} cannot transition to {}",
+                previous.status.as_str(),
+                status.as_str()
+            )));
+        }
+
         subscription.external_subscription_id = external_subscription_id.clone();
         subscription.external_product_id = external_product_id.clone();
         subscription.payment_provider = provider.to_string();
@@ -577,6 +585,14 @@ pub(crate) async fn sync_subscription_in_txn(
 
     if let Some(mut subscription) = existing {
         let previous = subscription.clone();
+
+        if !previous.status.can_transition_to(&status) {
+            return Err(CoreError::InvalidSubscriptionStatus(format!(
+                "{} cannot transition to {}",
+                previous.status.as_str(),
+                status.as_str()
+            )));
+        }
 
         subscription.external_subscription_id = external_subscription_id.clone();
         subscription.external_product_id = external_product_id.clone();

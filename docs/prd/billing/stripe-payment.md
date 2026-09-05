@@ -39,18 +39,18 @@
 ### 2.1 包含功能
 
 - Stripe 作为支付平台选项之一（与 Creem 并列）
-- Stripe 配置管理——通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）统一管理，支持 api_key、webhook_secret、publishable_key、timeout、webhook_endpoint_id 配置项
+- Stripe 配置管理——通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）统一管理，支持 api_key、webhook_secret、publishable_key、timeout、webhook_endpoint_id 配置项
 - 订阅支付处理（周期性计费）
 - 一次性支付处理（Payment Intents）
 - Webhook 事件处理（支付状态同步）
 - 争议处理——`charge.dispute.created`/`charge.dispute.closed` 事件处理，标记订阅 Disputed 状态，争议解决后根据结果恢复或取消订阅（证据提交由 Stripe Dashboard 完成）
-- 退款处理——`charge.refunded` 事件处理，支持 topup（按比例回收积分）和 subscription（回收未使用积分）两种退款类型的积分回收
+- 退款处理——`charge.refunded` 事件处理：topup 退款按比例回收积分；subscription 退款在周期配额模型下按立即取消模式撤销订阅配额权益（原「回收未使用积分」的额度回收路径已被配额模型取代）
 - 支付历史记录查询
 
 ### 2.2 不包含功能
 
 - 批量导入配置
-- 平台健康检查（仅支持 Webhook 连接测试）
+- 平台健康检查与 Webhook 连接测试（本期均未提供专用测试端点）
 - 其他支付网关的详细实现（Creem 是模拟平台，其他平台需单独 PRD）
 - 多币种转换（使用 Stripe 原生币种支持）
 - 税务计算（使用 Stripe Tax 或后续集成）
@@ -86,7 +86,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 4.1 业务规则
 
-- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，仅作配置记录，当前不参与验签——验签以 webhook_secret 为准）
+- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，仅作配置记录，当前不参与验签——验签以 webhook_secret 为准）
   - **配置项差异说明**：Account ID 未作为独立 config_key 实现；Environment（test/live）由 API Key 前缀自动决定（`sk_test_*` / `sk_live_*`）；Webhook Endpoint URL 由 `public_base_url` 动态拼接，不作为独立配置项
 - **凭据存储**：凭据以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - **密钥脱敏**：Secret Key 查看时显示脱敏信息
@@ -99,7 +99,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 - **支付失败处理**：返回用户友好的错误信息，支持支付重试（针对临时性错误），记录所有支付失败事件
 - **Webhook 重试**：除依赖 Stripe 自身的重试发送策略外，代码对进程内处理实行最多 3 次的瞬态重试（`MAX_ATTEMPTS = 3`）；非瞬态失败仍依赖 Stripe 重发与补偿框架
-- **安全约束**：API Key 不得暴露给前端（仅 Publishable Key 可暴露）；Webhook 端点必须验证 Stripe Signature；所有支付操作必须通过 HTTPS；支付敏感信息不得存储在本地数据库；所有支付操作必须记录审计日志
+- **安全约束**：API Key 不得暴露给前端（仅 Publishable Key 可暴露）；Webhook 端点必须验证 Stripe Signature；所有支付操作必须通过 HTTPS；支付敏感信息不得存储在本地数据库；支付生命周期以 `payment_event` 与支付账本追踪，配置变更进入统一审计日志
 - **Webhook 签名验证**：使用 HMAC-SHA256 验证，签名格式为 `stripe-signature` 头中的 `t=...,v1=...`；包含时间戳重放攻击防护（15 分钟窗口，即 900 秒），拒绝过旧或未来时间戳的请求
 
 ---
@@ -108,10 +108,10 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 5.1 核心需求
 
-- **Stripe 配置管理**：每个 Realm 通过通用 `realm_config` API（`/api/realms/{realmId}/config`，ConfigType::Stripe）配置独立 Stripe 账户，支持创建、查看（脱敏）、更新、删除配置
+- **Stripe 配置管理**：每个 Realm 通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）配置独立 Stripe 账户，支持创建、查看（脱敏）、更新、删除配置
 - **一次性支付处理**：创建 Payment Intent → 获取 Client Secret → 确认支付 → 处理支付结果
 - **订阅支付处理**：创建 Stripe Subscription → 处理首次支付 → 处理续费事件 → 取消订阅
-- **Webhook 事件处理**：验证 Stripe Signature（HMAC-SHA256 + 时间戳重放防护）→ 解析事件类型 → 执行业务逻辑 → 更新本地状态 → 记录事件日志；事件覆盖：checkout.session.completed/expired/async_payment_succeeded/async_payment_failed、customer.subscription.created/updated/deleted/paused/resumed、charge.refunded、charge.dispute.created/closed、payment_intent.succeeded、payment_intent.payment_failed、invoice.payment_succeeded、invoice.payment_failed、invoice.payment_action_required、invoice.created/finalized/paid/voided
+- **Webhook 事件处理**：验证 Stripe Signature（HMAC-SHA256 + 时间戳重放防护）→ 解析事件类型 → 执行业务逻辑 → 更新本地状态 → 记录事件日志；事件覆盖：checkout.session.completed/expired/async_payment_succeeded/async_payment_failed、customer.subscription.created/updated/deleted/paused/resumed、charge.refunded、charge.dispute.created/closed、credit_note.created/updated/voided、payment_intent.succeeded、payment_intent.payment_failed、invoice.payment_succeeded、invoice.payment_failed、invoice.payment_action_required、invoice.created/finalized/paid/voided
 - **一次性购买发票同步**：checkout.session.completed（mode=payment）事件处理中，为一次性购买创建 provider=stripe 的外部发票记录（与 Creem inline 同步模式一致）
 - **支付历史查询**：用户查看自己的支付历史，Realm Admin 查看 Realm 所有支付记录，支持按时间、支付提供商筛选和分页
 
@@ -122,7 +122,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 - Webhook 事件正确处理并更新本地状态
 - 支付历史可以正确查询、按时间和支付提供商筛选并分页
 - 不同 Realm 的数据完全隔离
-- 所有支付操作记录审计日志
+- 支付配置变更记录统一审计；购买与 Webhook 履约由 `payment_attempt`、`payment_event` 和账本记录追踪
 
 ---
 
@@ -167,11 +167,11 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 | invoice.payment_failed 事件 | ✅ RESOLVED | 与 payment_intent.payment_failed 共用处理分支 |
 | Disputes 处理 | ✅ RESOLVED | `charge.dispute.created/closed` 标记争议状态；无法从 metadata 映射本地订阅时记录并忽略 |
 | checkout.session.expired | ✅ RESOLVED | Checkout 会话过期未支付时标记 PaymentAttempt 为 failed |
-| checkout.session.async_payment_* | ✅ RESOLVED | 延迟支付方式（银行转账等）的成功/失败处理；`completed` 不再对未结算支付过早履约 |
+| checkout.session.async_payment_* | ✅ RESOLVED | 延迟支付方式的成功/失败处理；默认 Conservative 策略不会在未结算时履约，Realm 显式配置 Eager 时允许 `completed` 立即履约并承担异步失败后的回收风险 |
 | customer.subscription.paused/resumed | ✅ RESOLVED | 订阅暂停/恢复状态同步 |
 | invoice.payment_action_required | ✅ RESOLVED | 支付需额外操作（3D Secure 等）时记录日志 |
 | Account ID 配置项 | 未实现 | Account ID 未作为独立 config_key 实现，如需要可通过 metadata 扩展 |
-| Environment 配置项 | 不需要 | test/live 环境由 API Key 前缀（`sk_test_*` / `sk_live_*`）自动决定，无需独立配置 |
+| Environment 配置项 | 不需要 | Herald 不解析或校验 `sk_test_*` / `sk_live_*` 前缀，密钥原样交给 Stripe；实际环境由 Stripe 密钥本身决定 |
 | Webhook URL 配置项 | 不需要 | 由 `public_base_url` 动态拼接，不作为独立配置项 |
 | Stripe 一次性购买发票同步 | 已实现 | checkout.session.completed（mode=payment）创建外部发票记录，与 Creem inline 同步模式一致 |
 

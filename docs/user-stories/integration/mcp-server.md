@@ -122,6 +122,7 @@ Given agent 已通过具备积分查看权限的 API Key 接入
 And 指定用户存在于本租户
 When 我让 agent 查询该用户的积分余额
 Then 返回该用户的积分余额信息（含余额数量）
+And 余额范围按 API Key 绑定的 Client App 覆盖账户过滤；内置管理 API Client 返回 Realm 范围余额
 ```
 
 **场景 2：缺少积分查看权限**

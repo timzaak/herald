@@ -195,6 +195,7 @@ impl HeraldMcpService {
                         page,
                         page_size,
                         input.email,
+                        None,
                     )
                     .await
                     .map_err(|e| map_core_error(e, "users.view"))?;
@@ -305,12 +306,12 @@ impl HeraldMcpService {
                 start_time: input
                     .start_time
                     .as_deref()
-                    .map(|v| dto::parse_time_rfc3339("startTime", v))
+                    .map(|v| dto::parse_query_time("startTime", v))
                     .transpose()?,
                 end_time: input
                     .end_time
                     .as_deref()
-                    .map(|v| dto::parse_time_rfc3339("endTime", v))
+                    .map(|v| dto::parse_query_time("endTime", v))
                     .transpose()?,
                 page: Some(page),
                 page_size: Some(page_size),

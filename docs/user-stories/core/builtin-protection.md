@@ -62,12 +62,12 @@ Then 内置角色和权限显示"内置"标识
 And 内置项的删除按钮处于禁用状态
 ```
 
-**场景 7：不能从 realm-admin 内置角色中移除内置权限**
+**场景 7：不能从任何内置角色中移除内置权限**
 ```gherkin
-Given 系统中有内置角色 realm-admin 和内置权限 users.manage
-When 管理员尝试从 realm-admin 角色中移除 users.manage 权限
+Given 系统中有内置角色 realm-admin 或 user，以及内置权限 users.manage
+When 管理员尝试从任一内置角色中移除内置权限
 Then 系统拒绝操作并提示 "Cannot remove built-in permission from built-in role"
-And 内置权限的复选框处于禁用状态（针对 realm-admin 内置角色）
+And 内置权限的复选框处于禁用状态（针对所有内置角色）
 ```
 
 **场景 8：不能修改内置权限定义**

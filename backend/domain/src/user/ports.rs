@@ -53,6 +53,7 @@ pub trait UserRepository: Send + Sync {
         page: u64,
         page_size: u64,
         email: Option<String>,
+        status: Option<i16>,
     ) -> impl Future<Output = Result<(Vec<User>, i64), CoreError>> + Send;
 
     fn update_user(
@@ -177,6 +178,7 @@ pub trait UserService: Send + Sync {
         page: u64,
         page_size: u64,
         email: Option<String>,
+        status: Option<i16>,
     ) -> impl Future<Output = Result<(Vec<User>, i64), CoreError>> + Send;
 
     fn update_user(

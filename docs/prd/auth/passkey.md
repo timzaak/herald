@@ -89,7 +89,7 @@
 - WebAuthn RP 库 — 后端 challenge 生成、attestation/assertion 验证，采用 [passkey-auth 0.1](https://crates.io/crates/passkey-auth)（纯 Rust，RustCrypto end-to-end，不依赖 openssl）
 - 浏览器 Web Authentication API — 前端创建/获取 credential
 - HTTPS 生产环境 — WebAuthn 规范强制要求
-- 多 RP 解析模型 — 默认使用环境变量 `RP_ID`/`RP_ORIGIN`；Client App 配置了 `passkey_rp` 时以该 Client App 的 origin 为 RP；已生效的自定义域名优先于环境变量（三级匹配 `resolve_passkey_rp`）。credential 唯一性按 `(realm, user, rp_id, credential_id)` 隔离，同一用户在不同 RP 下持有各自独立的 passkey，设备列表按当前请求解析出的 RP 过滤
+- 多 RP 解析模型 — 默认使用环境变量 `RP_ID`/`RP_ORIGIN`；请求 Origin 命中某启用 Client App 的 `allowed_origins` 时以该 origin 为 RP（Client App 无独立 `passkey_rp` 字段，RP 即请求来源 origin）；已生效的自定义域名优先于环境变量（三级匹配 `resolve_passkey_rp`）。credential 唯一性按 `(realm, user, rp_id, credential_id)` 隔离，同一用户在不同 RP 下持有各自独立的 passkey，设备列表按当前请求解析出的 RP 过滤
 
 ---
 
@@ -125,16 +125,17 @@ Passkey 同时支持两种认证场景：
 
 - **Realm 开关规则**：Realm 管理员可启用/禁用 Passkey 功能。禁用后新用户无法注册 Passkey，已注册用户仍可继续使用已注册凭证登录或回退到密码/TOTP。
 - **强制 Passkey 模式规则**：Realm 管理员可开启强制模式。强制模式下，未注册 Passkey 的用户下次登录时被引导注册，但系统必须保留密码/TOTP 回退入口，防止用户因设备或浏览器限制被锁定。该强制引导为**前端读取 realm config 后的 UI 行为**，后端不阻断登录（登录成功响应可携带引导信号供前端消费）。
-- **多设备规则**：一个用户可以拥有多个 Passkey credential。同一 credential ID 在一个 realm 内必须唯一。
+- **多设备规则**：一个用户可以拥有多个 Passkey credential。同一 credential ID 在 `(realm, user, rp_id, credential_id)` 组合内唯一——多 RP 模型下同一用户可在不同 RP 各持有独立的 credential，同 ID 可在不同 RP 下重复注册。
 - **设备命名规则**：注册成功后系统显示默认设备名（如"iCloud Keychain"、"YubiKey"或浏览器提示的 authenticator 名称），用户可在管理页修改。
 - **删除规则**：删除单个 Passkey 后立即失效；删除最后一个 Passkey 前，系统必须明确提示用户将只能使用密码/TOTP 登录。
 - **回退规则**：Passkey 验证失败、浏览器不支持、用户取消或无可用的 Passkey 时，必须提供切换到密码登录的入口；若用户已启用 TOTP，密码登录后按现有 TOTP 流程继续。
 - **Challenge 规则**：注册和认证流程中的 challenge 必须一次性使用且设置有效期（建议 5 分钟），验证成功后立即失效。
 - **速率限制规则**：Passkey 注册和认证接口应用与现有登录/认证接口一致的速率限制策略。
 - **用户验证策略规则**：Realm 可配置用户验证（User Verification）要求为 `preferred` 或 `required`；注册和认证流程按当前策略执行。
-- **跨平台 Authenticator 规则**：Realm 可配置是否允许跨平台 authenticator（如 YubiKey、手机作为漫游 authenticator）；默认允许以兼容常见 passkey 同步生态。
+- **跨平台 Authenticator 规则**：Realm 可配置是否允许跨平台 authenticator（如 YubiKey、手机作为漫游 authenticator）；允许时注册 challenge 不限制 attachment，不允许时提示浏览器仅展示 platform authenticator。WebAuthn 的 `authenticatorAttachment` 是客户端选择提示，当前依赖库不会在完成阶段暴露可供服务端硬拒绝的 attachment 证明。
 - **安全存储规则**：服务器仅存储 credential ID、公钥（COSE）、签名计数器、transports、aaguid、backup eligibility/state、设备昵称和元数据；私钥不得离开用户设备，也不得在服务端持久化。
   > **已知限制**：passkey-auth 0.1 不暴露 BE/BS（backup eligibility/state）flags，因此这两个字段当前恒为 `false`，sync passkey 同步状态展示失真。后续需升级库或调整字段语义。
+  > **注册 UV 元数据边界**：passkey-auth 0.1 的注册结果不暴露 UV flag；`required` ceremony 成功时可由策略保证并记录 `user_verified=true`，`preferred` 时注册记录保留 `false`（未知）。认证结果会返回实际 UV 并在使用凭据时更新该字段。
 - **审计规则**：关键事件（注册成功、删除 credential、管理员变更 Passkey 策略、强制模式变更、Passkey 登录成功/失败）应记录审计日志。
 
 ### 4.2 关键状态与异常
@@ -178,10 +179,10 @@ Passkey 同时支持两种认证场景：
 
 **适用性**: 适用
 
-- **接口能力范围**：Passkey 注册 challenge 生成与完成、Passkey 认证 challenge 生成与完成、用户已注册 Passkey 列表查询/重命名/删除、Realm 级别 Passkey 开关与策略配置、Passkey 启用率统计查询。
+- **接口能力范围**：Passkey 注册 challenge 生成与完成、Passkey 认证 challenge 生成与完成、用户已注册 Passkey 列表查询/重命名/删除、Realm 级别 Passkey 开关与策略配置（Passkey 启用率统计查询为 US-PK-010，P2，本期未实现）。
 - **访问控制**：Realm Admin 可操作 Realm 级别 Passkey 配置和统计；Regular User 仅可操作自身 Passkey 设置；Passkey 注册和管理操作需在已认证 Session 内进行；Passkey 登录为未认证接口，需应用速率限制。
-- **数据边界**：Passkey credential 数据按 realm 隔离；credential ID 在 realm 内唯一；响应中不返回公钥等敏感元数据。
-- **安全约束**：challenge 一次性且限时；验证 origin 与 RP_ID 必须匹配当前部署配置；签名计数器递增校验防止克隆；验证失败不暴露具体原因；注册和认证接口应用速率限制。
+- **数据边界**：Passkey credential 数据按 realm 隔离；credential ID 在 `(realm, user, rp_id, credential_id)` 组合内唯一；响应中不返回公钥等敏感元数据。
+- **安全约束**：challenge 一次性且限时；验证 origin 与 RP_ID 必须匹配当前 Client App、有效自定义域名或部署默认配置；第一因素与第二因素均按本次目标 Client App 限定 RP 解析；签名计数器递增校验防止克隆；验证失败不暴露具体原因；注册和认证接口应用速率限制。
 - **兼容性约束**：接口设计需支持 usernameless（discoverable credential）和 non-discoverable credential 两种场景；前端需处理不同浏览器对 transports、user verification 的差异。
 
 ---

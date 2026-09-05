@@ -605,7 +605,7 @@ where
         // Load the target user before any write: this enforces the target
         // realm boundary (a cross-realm id must fail here, not mid-mutation)
         // and captures the old status for the Forbidden linkage.
-        let target_user =
+        let _target_user =
             match require_target_user_in_realm(&*self.user_repository, realm_id, user_id).await {
                 Ok(user) => user,
                 Err(e) => {
@@ -626,10 +626,6 @@ where
                     return Err(e);
                 }
             };
-        let old_status = Some(UserStatus::from(
-            i16::try_from(target_user.status).unwrap_or(i16::from(UserStatus::Forbidden)),
-        ));
-
         // Update user fields (email is read-only after creation)
         if let Err(e) = self
             .user_repository
@@ -649,18 +645,16 @@ where
             return Err(e);
         }
 
-        // Forbidden linkage: when the user transitions
-        // INTO Forbidden, revoke all active sessions within the same logical
-        // boundary. Non-target transitions and idempotent re-forbidding do
-        // not revoke.
+        // Forbidden linkage: every explicit write of Forbidden revokes active
+        // sessions. Repeating the write intentionally retries revocation if a
+        // prior status update committed but the external token-store call
+        // failed.
         let new_status = request
             .status
             .and_then(|s| i16::try_from(s).ok())
             .map(UserStatus::from);
         let mut linkage_triggered = false;
-        if matches!(new_status, Some(UserStatus::Forbidden))
-            && old_status != Some(UserStatus::Forbidden)
-        {
+        if matches!(new_status, Some(UserStatus::Forbidden)) {
             self.token_service
                 .revoke_user_families(&user_id.to_string())
                 .await
@@ -1293,7 +1287,7 @@ where
         &self,
         identity: &Identity,
         realm_id: &str,
-        role_ids: &[Uuid],
+        _role_ids: &[Uuid],
     ) -> UserAdminResult<bool> {
         // Check if principal has roles.manage permission
         let principal = identity.principal_ref();
@@ -1309,25 +1303,11 @@ where
             .await
             .unwrap_or(false);
 
-        if can_manage_roles {
-            return Ok(true);
-        }
-
-        // If no roles.manage permission, can only assign "user" role
-        if role_ids.len() != 1 {
-            return Ok(false);
-        }
-
-        let roles = self
-            .role_policy_repository
-            .get_roles_by_ids(role_ids)
-            .await?;
-
-        if roles.len() != 1 {
-            return Ok(false);
-        }
-
-        Ok(roles[0].name == "user")
+        // This domain service is callable independently of the HTTP handler;
+        // keep the same default-deny boundary here even for the built-in user
+        // role. Account-provisioning paths use their dedicated repository
+        // operation and do not need this administrative escape hatch.
+        Ok(can_manage_roles)
     }
 
     async fn assign_api_key_roles(
@@ -2802,7 +2782,9 @@ mod tests {
             "no revoke when target status is non-Forbidden"
         );
 
-        // old=Forbidden and status=Some(2) (idempotent re-forbid) -> no revoke.
+        // old=Forbidden and status=Some(2): retry revocation. This closes the
+        // compensation path when the first status write succeeded but token
+        // revocation failed.
         let revoke_calls3 = Arc::new(AtomicUsize::new(0));
         let svc3 = make_service(
             revoke_calls3.clone(),
@@ -2824,8 +2806,8 @@ mod tests {
         assert!(res3.is_ok(), "expected Ok, got {:?}", res3.err());
         assert_eq!(
             revoke_calls3.load(Ordering::SeqCst),
-            0,
-            "no revoke when already Forbidden (idempotent)"
+            1,
+            "explicitly re-forbidding must retry session revocation"
         );
     }
 

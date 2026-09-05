@@ -113,7 +113,7 @@
 
 ### 5.1 核心需求
 
-- **Registration 配置**：管理用户注册策略，包括是否开放注册（enabled）、是否需要邮箱验证（require_email_verification）、允许的邮箱域名（allowed_domains）
+- **Registration 配置**：管理用户注册策略，包括是否开放注册（enabled）、是否需要邮箱验证（require_email_verification）、允许的邮箱域名（allowed_domains）。`allowed_domains` 为空时不限制；非空时按标准化后的邮箱域名做不区分大小写的精确匹配，不把子域自动视为父域命中。该限制覆盖密码注册、Email OTP 自动注册及 OAuth/One Tap 等首次自动建号，已存在账号的登录不受影响
 - **Email 配置**：管理邮件服务（Resend 或 SMTP），包括发件人地址、Provider 特定参数
 - **OAuth 配置**：通过独立系统管理 OAuth Provider（不在本页面详细定义）
 - **TOTP 配置**：管理 TOTP 二次认证开关设置

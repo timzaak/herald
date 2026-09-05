@@ -347,6 +347,42 @@ pub async fn is_registration_enabled(state: &AppState, realm_id: &str) -> Result
     Ok(enabled)
 }
 
+/// Check the optional registration email-domain allowlist. A missing or blank
+/// `allowed_domains` row means unrestricted registration; otherwise the
+/// normalized email domain must exactly match one comma-separated entry.
+pub async fn is_registration_email_domain_allowed(
+    state: &AppState,
+    realm_id: &str,
+    email: &str,
+) -> Result<bool, ApiError> {
+    let configured: Option<String> = sqlx::query_scalar(
+        "SELECT config_value FROM realm_config
+         WHERE realm_id = $1
+           AND config_type = 'registration'
+           AND config_key = 'allowed_domains'
+           AND enabled = true",
+    )
+    .bind(realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, %realm_id, "Failed to query registration domain allowlist");
+        ApiError::internal("Failed to query registration config")
+    })?;
+
+    let Some(configured) = configured.filter(|value| !value.trim().is_empty()) else {
+        return Ok(true);
+    };
+    let Some((_, email_domain)) = email.rsplit_once('@') else {
+        return Ok(false);
+    };
+    let email_domain = email_domain.trim().to_ascii_lowercase();
+    Ok(configured
+        .split(',')
+        .map(|domain| domain.trim().trim_start_matches('@').to_ascii_lowercase())
+        .any(|domain| !domain.is_empty() && domain == email_domain))
+}
+
 /// Check if email verification is required for user registration in a realm
 ///
 /// Returns true if email verification is explicitly enabled, false otherwise.
@@ -439,8 +475,8 @@ pub async fn is_email_configured(state: &AppState, realm_id: &str) -> Result<boo
     Ok(status.configured)
 }
 
-/// Deserialized shape of the `email_otp` / `settings` config_value JSON
-/// (design email-otp-login §5.1). Both fields default to false when absent
+/// Deserialized shape of the `email_otp` / `settings` config_value JSON.
+/// Both fields default to false when absent
 /// so a partial or legacy payload degrades to "disabled".
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
@@ -486,7 +522,7 @@ pub async fn load_email_otp_settings(
     Ok(settings)
 }
 
-/// Check if email OTP login is enabled for a realm (design §5.1).
+/// Check if email OTP login is enabled for a realm.
 ///
 /// Returns true if the `email_otp` / `settings` config row is active and its
 /// JSON `enabled` field is `true`. Defaults to false when the config is
@@ -508,8 +544,8 @@ fn parse_enabled_ldap_settings(raw: &str) -> Option<LdapDirectorySettings> {
     (settings.enabled && settings.is_credential_channel_secure()).then_some(settings)
 }
 
-/// Load the LDAP directory login configuration for a realm (design
-/// support-ldap §9.2): the `ldap/settings` row plus the separately-stored
+/// Load the LDAP directory login configuration for a realm:
+/// the `ldap/settings` row plus the separately-stored
 /// `ldap/bind_password` row.
 ///
 /// Returns `Ok(None)` — treated as "not enabled" by both `ldap_status`
@@ -522,7 +558,7 @@ pub async fn load_ldap_config(
 ) -> Result<Option<LdapLoginConfig>, ApiError> {
     // Both keys are known upfront; one round trip instead of two serial ones.
     // No row-level `enabled` filter: the JSON `enabled` field is the sole
-    // enablement signal by design (§4.2.3); the row-level column is
+    // enablement signal; the row-level column is
     // display redundancy only.
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT config_key, config_value FROM realm_config

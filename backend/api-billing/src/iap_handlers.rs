@@ -41,9 +41,11 @@ use herald_core::domain::audit::{
 };
 use herald_core::domain::authentication::{CredentialScope, Identity, TokenCredentialContext};
 use herald_core::domain::billing::BillingRepository;
-use herald_core::domain::billing::entities::{BillingType, PaymentEvent, SubscriptionStatus};
+use herald_core::domain::billing::entities::{
+    BillingType, EntitlementMapping, PaymentEvent, SubscriptionStatus,
+};
 use herald_core::domain::common::entities::app_errors::CoreError;
-use herald_core::domain::payment_attempt::PurchasableTarget;
+use herald_core::domain::payment_attempt::{PaymentAttemptStatus, PurchasableTarget};
 use herald_core::domain::purchase::services::CreateIapAttemptInput;
 use herald_core::domain::realm_config::RealmConfigRepository;
 use herald_core::domain::user::UserRepository;
@@ -60,7 +62,7 @@ use crate::webhook_subscription_helpers::{
 // DTOs
 // ============================================================================
 
-/// §4.2.2). Mobile App submits this after the store purchase completes.
+/// Mobile App submits this after the store purchase completes.
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct IapReceiptRequest {
@@ -505,7 +507,7 @@ pub async fn submit_iap_receipt(
                 return Err(ApiError::conflict("type_mismatch".to_string()));
             }
 
-            // §4.1 / §5.4). The store-side product type (Non-Consumable /
+            // The store-side product type (Non-Consumable /
             // Non-Renewing / Auto-Renewable) is a diagnostic only — the
             // mapping.billing_type is the fulfillment routing authority. On
             // mismatch we still fulfill per the mapping (the user already
@@ -595,7 +597,7 @@ pub async fn submit_iap_receipt(
         .map_err(|e| core_error_to_api_error(e, "iap receipt idempotency lookup"))?
     {
         return Ok(Json(
-            iap_response_for_existing_event(&state, &realm_id, &input.provider, &existing).await,
+            iap_response_for_existing_event(&state, &realm_id, &input.provider, &existing).await?,
         ));
     }
 
@@ -621,7 +623,7 @@ pub async fn submit_iap_receipt(
 
     // Step 7: fulfillment transaction. complete_succeeded marks the attempt
     // Succeeded and fulfils (one_time → TopupCredit, recurring → Subscription).
-    // §6.3); a failure here rolls the attempt back to non-succeeded.
+    // A failure here rolls the attempt back to non-succeeded.
     if let Some((creds, developer, auth)) = google_ready.as_ref() {
         let is_consumable_points_pack = mapping_rule_value(&state, &realm_id, resolved.mapping.id)
             .await
@@ -796,7 +798,7 @@ async fn iap_response_for_existing_event(
     realm_id: &str,
     provider: &str,
     event: &PaymentEvent,
-) -> IapReceiptResponse {
+) -> Result<IapReceiptResponse, ApiError> {
     // Best-effort: re-resolve the mapping to enrich entitlement_key. If the
     // mapping has since been deleted, fall back to a bare status response.
     let entitlement_key = state
@@ -816,21 +818,36 @@ async fn iap_response_for_existing_event(
         .flatten()
         .map(|m| m.entitlement_key);
 
-    IapReceiptResponse {
-        // The payment_event row does not carry the attempt id directly; surface
-        // a zeroed id as a "already processed" marker so callers can distinguish
-        // a fresh attempt from an idempotent hit. (A richer join lives in
-        // short-circuit, not a status query.)
-        attempt_id: event.id,
-        status: if event.processed {
-            "succeeded".to_string()
-        } else {
-            "pending".to_string()
-        },
+    let attempt = state
+        .payment_attempt_service
+        .get_payment_attempt_by_provider_reference(provider, &event.external_event_id)
+        .await
+        .map_err(|e| core_error_to_api_error(e, "iap attempt idempotency lookup"))?
+        .filter(|attempt| attempt.realm_id == realm_id)
+        .ok_or_else(|| {
+            ApiError::internal(
+                "IAP idempotency event exists without its payment attempt".to_string(),
+            )
+        })?;
+    let status = match attempt.status {
+        PaymentAttemptStatus::Succeeded => "succeeded",
+        PaymentAttemptStatus::Pending | PaymentAttemptStatus::RequiresAction => "pending",
+        PaymentAttemptStatus::Failed
+        | PaymentAttemptStatus::Cancelled
+        | PaymentAttemptStatus::Expired => "failed",
+    };
+
+    Ok(IapReceiptResponse {
+        attempt_id: attempt.id,
+        status: status.to_string(),
         entitlement_key,
         billing_type: None,
-        failure_reason: None,
-    }
+        failure_reason: (status == "failed").then(|| {
+            attempt
+                .provider_status
+                .unwrap_or_else(|| "payment_failed".to_string())
+        }),
+    })
 }
 
 // ============================================================================
@@ -1047,11 +1064,17 @@ pub async fn process_apple_notification_decoded(
         attributed_user_id = Some(subscription.user_id);
     }
 
+    let attributed_user_id = attributed_user_id.ok_or_else(|| {
+        CoreError::BadRequest(format!(
+            "apple notification purchaser could not be attributed for transaction {original_transaction_id}"
+        ))
+    })?;
+
     let attempt = state
         .purchase_service
         .create_iap_payment_attempt(CreateIapAttemptInput {
             realm_id: realm_id.to_string(),
-            user_id: attributed_user_id.unwrap_or(resolved.mapping.id), // placeholder only when no owner is recoverable; see note above
+            user_id: attributed_user_id,
             payment_provider: "apple".to_string(),
             target_type: PurchasableTarget::EntitlementMapping,
             target_id: resolved.mapping.id,
@@ -1955,8 +1978,6 @@ async fn process_apple_renewal_status_change(
 // `payment_event`-based idempotency guards dedup; the domain handling reuses
 // `fulfill_provider_event`, `sync_subscription`).
 
-/// §5.7).
-///
 /// **SIGNATURE CONTRACT**: `compensation.rs` and the worker reconciliation job
 /// the full "lookup + replay" implementation; the signature MUST NOT change.
 ///
@@ -1988,8 +2009,6 @@ pub async fn reprocess_apple_event(
     process_apple_notification(&state, &realm_id, signed_payload).await
 }
 
-/// §5.7).
-///
 /// internal implementation; the signature is frozen here.
 ///
 /// The worker job hands a payload of shape
@@ -2071,9 +2090,9 @@ pub async fn reprocess_google_event(
     };
 
     // Domain replay. For a state transition the mapped heraldStatus lives on
-    // the payload; for a refund we transition to the Canceled state (points
-    // §4.3.1 "refund does not change subscription status, only triggers points
-    // clawback" — here we record the lifecycle change; the clawback itself
+    // the payload; for a refund we transition to the Canceled state ("refund
+    // does not change subscription status, only triggers points clawback" —
+    // here we record the lifecycle change; the clawback itself
     // runs via the points service when the subscription reaches a terminal
     // state).
     let herald_status = payload
@@ -2101,8 +2120,8 @@ pub async fn reprocess_google_event(
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
-    // Resolve the entitlement mapping so we know the bucket_id / entitlement_key
-    // §5.5): the admin must fix the mapping, and the next sweep will retry.
+    // Resolve the entitlement mapping so we know the bucket_id / entitlement_key;
+    // the admin must fix the mapping, and the next sweep will retry.
     let resolved =
         resolve_entitlement_mapping(&state, &realm_id, "google", product_id, None, None).await?;
 
@@ -2111,7 +2130,7 @@ pub async fn reprocess_google_event(
     // subscription row, so they are handled by an attempt-keyed revoke.
     // NonRenewing creates a subscription row and is expired in place. Recurring
     // continues to use the subscription sync path (unchanged).
-    let mapping_billing_type = resolved.mapping.billing_type;
+    let mapping_billing_type = resolved.mapping.billing_type.clone();
     match mapping_billing_type {
         Some(BillingType::OneTime) => {
             reprocess_google_one_time_revoke(&state, &realm_id, purchase_token, &event_type)
@@ -2135,7 +2154,8 @@ pub async fn reprocess_google_event(
                 &realm_id,
                 purchase_token,
                 product_id,
-                &resolved.entitlement_key,
+                &resolved.mapping,
+                &event_type,
                 new_status,
                 expiry_time,
                 payload.clone(),
@@ -2329,7 +2349,8 @@ async fn reprocess_google_recurring_sync(
     realm_id: &str,
     purchase_token: &str,
     product_id: &str,
-    entitlement_key: &str,
+    mapping: &EntitlementMapping,
+    event_type: &str,
     new_status: SubscriptionStatus,
     expiry_time: Option<DateTime<Utc>>,
     payload: Value,
@@ -2342,7 +2363,7 @@ async fn reprocess_google_recurring_sync(
         SubscriptionStatus::ScheduledCancel | SubscriptionStatus::Canceled
     );
 
-    sync_subscription(
+    let synced = sync_subscription(
         state,
         SyncSubscriptionInput {
             provider: "google",
@@ -2351,7 +2372,7 @@ async fn reprocess_google_recurring_sync(
             external_subscription_id: purchase_token.to_string(),
             external_product_id: product_id.to_string(),
             client_app_id: None,
-            entitlement_key: entitlement_key.to_string(),
+            entitlement_key: mapping.entitlement_key.clone(),
             external_price_id: None,
             provider_metadata: Some(payload),
             status: new_status,
@@ -2363,6 +2384,61 @@ async fn reprocess_google_recurring_sync(
         },
     )
     .await?;
+
+    let Some((subscription, previous)) = synced else {
+        return Ok(());
+    };
+
+    if matches!(
+        subscription.status,
+        SubscriptionStatus::Canceled | SubscriptionStatus::Expired
+    ) {
+        state
+            .subscription_service
+            .handle_subscription_cancel(
+                subscription.user_id,
+                realm_id,
+                subscription.id,
+                herald_core::domain::points::subscription_service::CancelMode::ImmediateCancel,
+                subscription.current_period_end,
+                Some(&subscription.entitlement_key),
+            )
+            .await?;
+    } else if event_type == "subscription.renewed" && mapping.enabled {
+        let period_end = subscription.current_period_end.ok_or_else(|| {
+            CoreError::BadRequest(
+                "google renewal is missing the subscription period end".to_string(),
+            )
+        })?;
+        let period_start = previous
+            .as_ref()
+            .and_then(|prior| prior.current_period_end)
+            .or(subscription.current_period_start)
+            .unwrap_or_else(Utc::now);
+        if period_start < period_end {
+            state
+                .subscription_service
+                .handle_subscription_paid(
+                    subscription.user_id,
+                    subscription.id,
+                    realm_id,
+                    mapping,
+                    true,
+                    period_start,
+                    period_end,
+                    format!("google:{purchase_token}:{event_type}"),
+                )
+                .await?;
+        } else {
+            tracing::warn!(
+                %realm_id,
+                subscription_id = %subscription.id,
+                %period_start,
+                %period_end,
+                "google renewal has no advancing period; renewal grant skipped"
+            );
+        }
+    }
     Ok(())
 }
 

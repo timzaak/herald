@@ -12,7 +12,9 @@ use herald_domain::user::{
     ports::{UserRepository, UserVerificationRepository},
     value_objects::{CreateUserRequest, UpdateUserRequest},
 };
-use herald_entity::{account, profile, user_totp_backup_codes, user_totp_config};
+use herald_entity::{
+    account, profile, user_passkey_credential, user_totp_backup_codes, user_totp_config,
+};
 
 pub struct PostgresUserRepository {
     db: Arc<DatabaseConnection>,
@@ -206,6 +208,7 @@ impl UserRepository for PostgresUserRepository {
         page: u64,
         page_size: u64,
         email: Option<String>,
+        status: Option<i16>,
     ) -> Result<(Vec<User>, i64), CoreError> {
         let page = page.max(1);
         let page_size = page_size.min(100);
@@ -216,6 +219,9 @@ impl UserRepository for PostgresUserRepository {
         // Add email filter if provided
         if let Some(email_filter) = email {
             query = query.filter(account::Column::Email.contains(email_filter));
+        }
+        if let Some(status) = status {
+            query = query.filter(account::Column::Status.eq(status));
         }
 
         let total = query.clone().count(&*self.db).await?;
@@ -374,7 +380,16 @@ impl UserRepository for PostgresUserRepository {
                 .await?;
         }
 
-        // 4. OAuth provider binding wipe. The `provider` table holds the
+        // 4. Passkey credentials are authentication secrets too. Soft-deleting
+        //    the account does not trigger an FK cascade, so remove them in the
+        //    same transaction as the other authenticators.
+        user_passkey_credential::Entity::delete_many()
+            .filter(user_passkey_credential::Column::UserId.eq(user_id))
+            .filter(user_passkey_credential::Column::RealmId.eq(realm_id))
+            .exec(&txn)
+            .await?;
+
+        // 5. OAuth provider binding wipe. The `provider` table holds the
         //    user's third-party identity bindings (open_id / union_id / email).
         //    Because account deletion is a soft delete (status=Deleted, the
         //    account row is NOT removed), the `ON DELETE CASCADE` foreign key

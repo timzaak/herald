@@ -86,7 +86,7 @@
 - 使用统一 Principal + RBAC 模型，API Key 不携带 runtime/management scope，能力由 Principal 的角色和 role policy 决定
 - Realm 隔离：用户和 Client App 操作仅限 API Key 所属 Realm
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限，普通 Realm 的 API Key 不可创建 Realm（RBAC 初始化仅对 admin realm 注册 `realm:manage` 权限）
-- 严格的 Realm 等值边界：`require_realm_membership` 要求 Principal 所属 Realm 与目标 Realm 严格相等；admin realm 的 Principal（包括 API Key）不享有任何跨 Realm 放行，任何 Principal 只能操作自身所属 Realm 的用户、Client App 等资源（admin realm 的特殊之处仅在于持有 `realm.view`/`realm.manage` 等 Admin Realm 专属权限）
+- 严格的目标资源等值边界：用户、Client App 等带目标 Realm 的操作要求 Principal 所属 Realm 与目标 Realm 严格相等；唯一的平台视图例外是 Admin Realm Principal 持 `realm.view` 调用 Realm 列表时返回全平台列表，普通 Realm Principal 只返回自身 Realm
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
 - 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
 
@@ -103,7 +103,7 @@
 
 1. **Realm 管理** -- US-TP-012
    - 创建新 Realm，返回 Realm ID 和基本信息
-   - 查询可见 Realm 列表
+   - 查询可见 Realm 列表：Admin Realm API Key 返回全平台列表，其他 Realm API Key 仅返回自身 Realm
    - 查询指定 Realm 详情
 
 2. **用户管理** -- US-TP-013（P0）
@@ -120,7 +120,7 @@
 
 - 3 个用户故事的全部验收场景通过
 - SDK 新增方法与现有方法风格一致（方法命名、错误处理、参数模式）
-- 所有新增 ext 端点遵循 Realm 隔离原则：API Key 只能操作所属 Realm 的资源（对所有 Realm 一致，admin realm 的 API Key 无跨租户例外，见 4.1）
+- 所有新增 ext 端点遵循 Realm 隔离原则：目标用户与 Client App 操作只能作用于 API Key 所属 Realm；Realm 列表按 4.1 的平台视图例外过滤
 - 所有新增资源管理端点要求 API Key Principal 具备对应权限
 - Realm 创建需额外校验 API Key Principal 属于 admin realm 且具备 `realm:manage`
 
@@ -137,7 +137,7 @@
 - 权限模型：使用统一 Principal + RBAC 模型，能力由 Principal 的角色和 role policy 决定
 - Realm 隔离：用户和 Client App 操作仅限 API Key 所属 Realm
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限
-- Realm 等值边界：`require_realm_membership` 对所有 Principal（含 admin realm 的 Principal 与 API Key）一律要求所属 Realm 与目标 Realm 严格相等，不存在跨 Realm 超级管理员
+- Realm 等值边界：目标资源操作对所有 Principal 一律要求所属 Realm 与目标 Realm 严格相等；Admin Realm `realm.view` 只对 Realm 列表提供平台视图，不授权跨 Realm 修改用户或 Client App
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
 - 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
 

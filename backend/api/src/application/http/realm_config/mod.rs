@@ -224,7 +224,7 @@ async fn ensure_provider_config_deletable(
 
     if active_count > 0 {
         return Err(ApiError::bad_request(format!(
-            "Cannot delete {provider} configuration while active {provider} subscriptions exist"
+            "Cannot delete {provider} configuration while {active_count} active {provider} subscription(s) exist"
         )));
     }
 
@@ -1012,22 +1012,19 @@ pub async fn delete_realm_config(
         .require_permission(&state, "settings", "manage")
         .await?;
 
-    if let Ok(parsed) = parse_config_type(config_type.clone()) {
-        reject_non_admin_platform_signup(&realm_id, &parsed)?;
-        ensure_provider_config_deletable(&state, &realm_id, &parsed).await?;
-    }
+    let parsed_config_type = parse_config_type(config_type.clone())?;
+    reject_non_admin_platform_signup(&realm_id, &parsed_config_type)?;
+    ensure_provider_config_deletable(&state, &realm_id, &parsed_config_type).await?;
 
     // Capture the row identity before it is consumed by the delete call, so
     // the post-write audit knows what was removed: payment providers keep
     // their dedicated action, every other config type is audited under
     // `realm_config.delete` (audit PRD "关键配置变更").
-    let deleted_config_kind = parse_config_type(config_type.clone()).ok().map(|parsed| {
-        (
-            provider_string_for_config_type(&parsed),
-            parsed,
-            config_key.clone(),
-        )
-    });
+    let deleted_config_kind = Some((
+        provider_string_for_config_type(&parsed_config_type),
+        parsed_config_type,
+        config_key.clone(),
+    ));
 
     realm_config_service
         .delete_config(identity.clone(), realm_id.clone(), config_type, config_key)

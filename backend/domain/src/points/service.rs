@@ -46,6 +46,28 @@ where
         )
     }
 
+    /// Freeze, close, or reactivate one concrete wallet. Status is enforced by
+    /// every grant/consume writer, so this management path changes no balance.
+    pub async fn update_wallet_status(
+        &self,
+        identity: Identity,
+        realm_id: &str,
+        user_id: Uuid,
+        bucket_id: Uuid,
+        status: WalletStatus,
+    ) -> Result<PointsWallet, CoreError> {
+        self.ensure_can_manage_points(identity.clone()).await?;
+        if !identity.has_access_to_realm(realm_id) {
+            return Err(CoreError::Forbidden(
+                "Access denied: cannot manage a wallet from a different realm".to_string(),
+            ));
+        }
+        self.repository
+            .update_wallet_status(realm_id, user_id, bucket_id, status)
+            .await?
+            .ok_or(CoreError::NotFound)
+    }
+
     /// Get points wallet for a user
     pub async fn get_wallet(
         &self,

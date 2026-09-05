@@ -122,7 +122,7 @@ Client App 采用双 ID 系统：
 - 删除 Client App 需要二次确认
 - 浏览器 token 的 refresh 绝对上限策略在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
 - 禁用 Client App 会使绑定到该 App 的 API Key 在外部 API 认证中不可用；同时实时吊销该 App 名下全部浏览器 token 家族（已登录会话立即失效），删除 Client App 时同样吊销
-- 删除 Client App 后，历史 API Key 的 Client App 关联可为空；空关联仅用于兼容旧数据，不应作为新建默认
+- 删除 Client App 前必须不存在绑定 API Key；存在绑定时拒绝删除。数据库外键使用 `RESTRICT`，不得因删除把 App 级 Key 转成 Realm 级空绑定；NULL 仅兼容历史数据
 - **人机验证（Turnstile）配置归属 Client App 级**：每个 Client App 配置自己的 Turnstile 启用开关、site_key 与 secret_key；未认证身份端点（注册/登录/找回密码/重置密码/邮箱验证/邮箱验证码登录）的人机验证按当前请求绑定的 Client App 的配置执行，未启用 Turnstile 的 Client App 不强制人机验证
 - **Turnstile secret 不回显**：Turnstile secret_key 属敏感凭证，读取 Client App 详情时不返回；仅在创建/编辑时接受明文
 - 内置第一方 Client App 不允许被删除：`admin-web-console`（管理控制台）与用户账户中心 Client App（`user-account-center`）；二者的 `client_id` 同时受保留字保护，新建 Client App 不得占用。防止内置管理/用户入口不可用
@@ -150,7 +150,7 @@ Client App 采用双 ID 系统：
    - 删除 Client App（二次确认）
 
 2. **OAuth 2.0 与浏览器 token 生命周期配置** — client-app-settings
-   - 配置 Redirect URIs（至少一个有效 URL，禁止 javascript: 和协议相对 URL）
+   - 配置 Redirect URIs：一旦提交列表就至少包含一个有效 URL，禁止 javascript: 和协议相对 URL；创建时可暂不提供，纯 Device Code Client 可在创建时提交空列表
    - 配置浏览器 token 绝对上限（browser_refresh_absolute_ttl_seconds：默认 2,592,000 秒/30 天，合法区间 86,400–7,776,000 秒）
    - 重新生成 Client Secret
 
@@ -211,7 +211,7 @@ Client App 采用双 ID 系统：
 - **双 ID 系统**：Client App 同时拥有 UUID 内部主键和 string 外部 client_id
 - **凭证一次性展示**：Client Secret 仅在创建和重新生成时返回一次
 - **浏览器 token 绝对上限策略固化**：refresh 绝对上限在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
-- **client_id 格式**：允许字母数字、连字符（`-`）和下划线（`_`），3-36 字符
+- **client_id 格式**：仅允许 ASCII 字母数字、连字符（`-`）和下划线（`_`），3-36 字符
 - **管理控制台删除保护**：内置管理控制台 Client App（`admin-web-console`）禁止删除
 - **ext API 自动生成 client_id**：ext API 创建 Client App 时使用 UUID v7 自动生成 client_id，不允许自定义；admin API 允许自定义 client_id
 - **Device Code Grant 开关**：通过 `device_code_grant_enabled` 字段控制，默认关闭

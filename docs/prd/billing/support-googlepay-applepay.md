@@ -95,7 +95,7 @@
 **配置管理规则（复用既有，无新增）**：
 - 每个 Realm 仍使用独立 Stripe / Creem 账户配置，复用既有配置管理界面
 - 钱包支付不引入新的配置项；不需要 Apple Pay 域名注册相关字段
-- 仅 Realm Admin（`settings.manage`）可修改配置；查看需 `settings.view`（provider 凭证配置走通用 realm_config 通道，与现有 provider 一致；`billing.*` 用于权益映射与发票面）
+- Provider 凭证原始配置走通用 realm_config 管理通道：修改需 `settings.manage`，管理端查看需 `settings.view`；面向已登录购买方的 provider 目录 `GET /api/third/pay/{realmId}/providers` 是另一只读能力面，要求 `PurchaseRead` token scope，不授予原始凭证配置读取能力
 
 **流程声明规则（移动 App PaymentIntent 流）**：
 - 客户端可在发起购买时声明托管页流（默认，含不声明）或 PaymentIntent 流
@@ -183,7 +183,7 @@
 - 重复回调不会重复发放权益或重复创建订阅（复用既有幂等保证）
 - 全栈不引入新的前端或后端钱包 SDK；rustls / 去 openssl 路线不被破坏
 - 不同 Realm 的钱包支付可用性按各自 Stripe / Creem 配置独立生效，互不影响
-- 所有支付操作记录审计日志
+- 配置写操作进入统一审计日志；购买尝试、provider 回调与履约结果由 `payment_attempt`、`payment_event`、订阅历史和积分账本形成业务追踪链，不承诺为每个支付步骤额外写入通用审计事件
 
 ---
 
@@ -195,7 +195,7 @@
 - **访问控制原则**：
   - 必须遵守 realm 隔离与既有购买发起 / 状态查询 / 配置查看 scope 鉴权
   - `client_secret` 仅返回给该支付尝试所有者且具备购买发起 scope 的请求方；非所有者请求不得获得他人支付尝试的 `client_secret`
-  - 配置写入需 `settings.manage`，查看需 `settings.view`
+  - 原始 provider 配置写入需 `settings.manage`、管理端查看需 `settings.view`；购买方 provider 目录只返回已配置 provider 及 Stripe 非密钥 publishable key，需 `PurchaseRead`
   - 金额与积分变更必须可追溯；回调必须幂等
 - **租户 / realm 边界**：每个 Realm 使用独立的 Stripe / Creem 配置，钱包可用性按 Realm 配置 + 账号侧启用分别生效；与既有 Stripe / Creem 边界一致。
 - **兼容性要求**：不声明流程的既有客户端行为完全不变（默认托管页流）。与 Stripe、Creem、积分账本、订阅系统的详细契约下沉到技术设计或接口说明。Herald 不交付移动 SDK；移动 App 端钱包 SDK 与 Apple Merchant ID / Google Play 配置由各客户端集成方负责。

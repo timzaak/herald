@@ -17,6 +17,10 @@ use herald_api_base::application::http::auth::util::{
 use herald_api_base::application::http::server::api_entities::ApiError;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::audit::{
+    ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
+    NewAuditEvent,
+};
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::security_constants::{
@@ -101,6 +105,8 @@ pub struct VerifyTotpResponse {
     pub consent_required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agreements: Option<Vec<herald_core::domain::legal::LegalAgreementSummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted_session: Option<BrowserTokenResponse>,
 }
 
 /// Temporary session data for TOTP verification
@@ -118,6 +124,47 @@ struct TempSessionData {
     redirect_uri: Option<String>,
     #[serde(default)]
     state: Option<String>,
+}
+
+async fn record_totp_login_audit(
+    state: &AppState,
+    session: &TempSessionData,
+    client_ip: &str,
+    user_agent: Option<String>,
+    result: AuditResult,
+    reason: Option<&str>,
+) {
+    let action = if result == AuditResult::Success {
+        AuditAction::AuthLogin
+    } else {
+        AuditAction::AuthLoginFailed
+    };
+    if let Err(error) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: session.realm_id.clone(),
+            category: AuditCategory::Auth,
+            action,
+            actor_id: session.user_id.clone(),
+            actor_type: Some(ActorType::User),
+            actor_name: None,
+            target_type: AuditTargetType::User,
+            target_id: session.user_id.clone(),
+            target_name: None,
+            result,
+            details: Some(serde_json::json!({
+                "method": "password_totp",
+                "client_id": session.client_id,
+                "reason": reason,
+            })),
+            ip_address: Some(client_ip.to_string()),
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(%error, "Failed to record TOTP login audit event");
+    }
 }
 
 /// Verify TOTP code for two-factor authentication
@@ -316,17 +363,19 @@ pub async fn handle_verify_totp(
             | TotpVerificationResultWithBackup::BackupCodeUsed(_)
     ) {
         // Record failure
-        let _: () = conn.incr(&fail_count_key, 1).await.map_err(|e| {
+        let failure_count: i64 = conn.incr(&fail_count_key, 1).await.map_err(|e| {
             tracing::error!("Failed to increment fail count: {}", e);
             ApiError::internal("Redis operation error".to_string())
         })?;
-        let _: () = conn
-            .expire(&fail_count_key, TOTP_LOCKOUT_SECONDS as i64)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to set expiry on fail count: {}", e);
-                ApiError::internal("Redis operation error".to_string())
-            })?;
+        if failure_count == 1 {
+            let _: () = conn
+                .expire(&fail_count_key, TOTP_LOCKOUT_SECONDS as i64)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to set expiry on fail count: {}", e);
+                    ApiError::internal("Redis operation error".to_string())
+                })?;
+        }
 
         // Delete temp token on failure (security measure)
         let _: () = conn.del(&temp_key).await.map_err(|e| {
@@ -336,6 +385,16 @@ pub async fn handle_verify_totp(
 
         // Return specific error message
         let error_message = "验证码已过期或无效".to_string();
+
+        record_totp_login_audit(
+            &state,
+            &temp_session,
+            &client_ip,
+            user_agent.clone(),
+            AuditResult::Failure,
+            Some("invalid_totp"),
+        )
+        .await;
 
         return Err(ApiError::unauthorized(error_message));
     }
@@ -366,6 +425,14 @@ pub async fn handle_verify_totp(
     )
     .await
     {
+        let restricted_session = crate::consent_gate::mint_consent_restricted_session(
+            &state,
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(client_ip.clone()),
+        )
+        .await?;
         let response = Json(VerifyTotpResponse {
             message: "consent required".to_string(),
             user_id: temp_session.user_id,
@@ -374,6 +441,7 @@ pub async fn handle_verify_totp(
             redirect_to: None,
             consent_required: Some(true),
             agreements: Some(summaries),
+            restricted_session: Some(restricted_session.into()),
         })
         .into_response();
 
@@ -469,20 +537,45 @@ pub async fn handle_verify_totp(
 
         let response = Json(VerifyTotpResponse {
             message: "ok".to_string(),
-            user_id: temp_session.user_id,
+            user_id: temp_session.user_id.clone(),
             token: String::new(),
             expires_in_seconds: 0,
             redirect_to: Some(redirect_to),
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response();
+
+        record_totp_login_audit(
+            &state,
+            &temp_session,
+            &client_ip,
+            user_agent.clone(),
+            AuditResult::Success,
+            None,
+        )
+        .await;
 
         return Ok(response);
     }
 
     let tokens = RedisBrowserTokenService::new(state.redis_manager.clone())
-        .create_token_family(&user, &client_app, user_agent, Some(client_ip.clone()))
+        .create_token_family(
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(client_ip.clone()),
+        )
         .await?;
+    record_totp_login_audit(
+        &state,
+        &temp_session,
+        &client_ip,
+        user_agent,
+        AuditResult::Success,
+        None,
+    )
+    .await;
     Ok(Json(BrowserTokenResponse::from(tokens)).into_response())
 }

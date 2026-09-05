@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::types::{
     BalancesByType, ListWalletsByBucketResponse, ListWalletsQuery, PointsWalletResponse,
-    QuotaWindowViewResponse, UserWalletsQuery, WalletByBucketResponse,
+    QuotaWindowViewResponse, UpdateWalletStatusRequest, UserWalletsQuery, WalletByBucketResponse,
 };
 use herald_api_base::application::http::common::auth_utils::{
     require_authenticated_user_in_realm, require_token_scope,
@@ -19,7 +19,7 @@ use herald_api_base::application::http::server::api_entities::{
 };
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{CredentialScope, Identity, TokenCredentialContext};
-use herald_core::domain::points::entities::{CreditType, PointsWallet};
+use herald_core::domain::points::entities::{CreditType, PointsWallet, WalletStatus};
 use herald_core::domain::points::ports::{PointsRepository, WalletFilters};
 
 /// Map a derived `(CreditType, amount)` slice into the 5-field
@@ -453,4 +453,49 @@ pub async fn get_wallet(
         }
         Err(e) => Err(ApiError::from(e)),
     }
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/points/{realmId}/wallets/{userId}/{bucketId}/status",
+    params(
+        ("realmId" = String, Path, description = "Realm ID"),
+        ("userId" = Uuid, Path, description = "User ID"),
+        ("bucketId" = Uuid, Path, description = "Credit Bucket ID")
+    ),
+    request_body = UpdateWalletStatusRequest,
+    responses(
+        (status = 200, description = "Wallet status updated", body = PointsWalletResponse),
+        (status = 400, description = "Invalid status", body = ErrorResponse),
+        (status = 403, description = "Missing points.manage", body = ErrorResponse),
+        (status = 404, description = "Wallet not found", body = ErrorResponse)
+    ),
+    tag = "points"
+)]
+pub async fn update_wallet_status(
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+    Path((realm_id, user_id, bucket_id)): Path<(String, Uuid, Uuid)>,
+    Json(request): Json<UpdateWalletStatusRequest>,
+) -> Result<Json<PointsWalletResponse>, ApiError> {
+    let status = request
+        .status
+        .parse::<WalletStatus>()
+        .map_err(ApiError::from)?;
+    let wallet = state
+        .points_service
+        .update_wallet_status(identity, &realm_id, user_id, bucket_id, status)
+        .await
+        .map_err(ApiError::from)?;
+    let derived = state
+        .points_repository
+        .compute_available_balance(
+            &realm_id,
+            user_id,
+            std::slice::from_ref(&bucket_id),
+            chrono::Utc::now(),
+        )
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(wallet_to_response(wallet, derived)))
 }

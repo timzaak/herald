@@ -101,6 +101,8 @@ pub struct PasskeyVerifyResponse {
     pub consent_required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agreements: Option<Vec<herald_core::domain::legal::LegalAgreementSummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted_session: Option<BrowserTokenResponse>,
 }
 
 #[derive(Debug, Deserialize, ToSchema, Validate)]
@@ -207,7 +209,8 @@ pub async fn handle_passkey_options(
     };
 
     let service = passkey_service(&state)?;
-    let relying_party = resolve_passkey_rp(&state, &realm_id, &headers, None).await?;
+    let relying_party =
+        resolve_passkey_rp(&state, &realm_id, &headers, Some(client_app.id)).await?;
     let (options, auth_token) = service
         .begin_login_first_factor(&realm_id, login_state, relying_party)
         .await
@@ -476,6 +479,14 @@ async fn finish_login(
     )
     .await
     {
+        let restricted_session = crate::consent_gate::mint_consent_restricted_session(
+            state,
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(client_ip.clone()),
+        )
+        .await?;
         return Ok(Json(PasskeyVerifyResponse {
             message: "consent required".to_string(),
             user_id: user_id.to_string(),
@@ -484,6 +495,7 @@ async fn finish_login(
             redirect_to: None,
             consent_required: Some(true),
             agreements: Some(summaries),
+            restricted_session: Some(restricted_session.into()),
         })
         .into_response());
     }
@@ -599,6 +611,7 @@ async fn finish_login(
             redirect_to: Some(redirect_to),
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }

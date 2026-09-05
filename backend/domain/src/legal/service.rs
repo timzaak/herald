@@ -237,11 +237,10 @@ where
 
     /// Revert a realm's agreement to the platform default.
     ///
-    /// Implemented as **snapshot semantics**: the current default body is
-    /// copied into a brand-new custom version (new `id`, monotonic
-    /// `version_no`). The previous custom rows are never deleted and version
-    /// tokens never rewind — `current_effective` simply resolves to the new
-    /// snapshot. Records an `agreement.reverted` audit event with
+    /// Appends a realm-scoped default-follow marker (new `id`, monotonic
+    /// `version_no`). History remains append-only, while effective resolution
+    /// follows the latest platform default after the marker. Records an
+    /// `agreement.reverted` audit event with
     /// `reverted_from_custom: true`.
     pub async fn revert_to_default(
         &self,
@@ -258,7 +257,7 @@ where
 
         let new_version = self
             .legal_repo
-            .publish_custom_version(
+            .publish_default_follow_marker(
                 realm_id,
                 agreement_type.clone(),
                 default.content.clone(),
@@ -615,6 +614,33 @@ mod tests {
                     version_label: label,
                     content,
                     source: AgreementSource::Custom,
+                    mode: AgreementMode::FullText,
+                    external_url: None,
+                    published_at: Utc::now(),
+                    published_by: None,
+                };
+                published.lock().unwrap().push(version.clone());
+                Ok(version)
+            }
+        }
+        fn publish_default_follow_marker(
+            &self,
+            _realm_id: &str,
+            agreement_type: AgreementType,
+            content: serde_json::Value,
+            label: Option<String>,
+            _published_by: &str,
+        ) -> impl Future<Output = Result<LegalAgreementVersion, CoreError>> + Send {
+            let published = self.published.clone();
+            async move {
+                let version = LegalAgreementVersion {
+                    id: Uuid::now_v7(),
+                    realm_id: Some("r".to_string()),
+                    agreement_type,
+                    version_no: published.lock().unwrap().len() as i32 + 100,
+                    version_label: label,
+                    content,
+                    source: AgreementSource::Default,
                     mode: AgreementMode::FullText,
                     external_url: None,
                     published_at: Utc::now(),
@@ -1010,7 +1036,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn revert_to_default_publishes_new_id_snapshot() {
+    async fn revert_to_default_publishes_live_default_marker() {
         let default_id = Uuid::now_v7();
         let mut legal = MockLegalRepo::default();
         legal.default.insert(
@@ -1036,9 +1062,10 @@ mod tests {
             .revert_to_default("r", AgreementType::TermsOfService, "admin", actor())
             .await
             .unwrap();
-        // Snapshot semantics: new id, never the default id, custom source.
+        // Revert remains an append-only realm event but its source marks live
+        // default following instead of a permanently detached custom snapshot.
         assert_ne!(new_version.id, default_id);
-        assert_eq!(new_version.source, AgreementSource::Custom);
+        assert_eq!(new_version.source, AgreementSource::Default);
         assert_eq!(
             new_version.content,
             serde_json::json!({"en": "default body"})

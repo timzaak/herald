@@ -1,7 +1,11 @@
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::{ActorType, AuditContext};
+use herald_core::domain::authentication::BrowserTokenSet;
+use herald_core::domain::client::entities::ClientApp;
+use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::legal::{AgreementType, ConsentSource, LegalAgreementSummary};
 use herald_core::domain::user::entities::User;
+use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -143,4 +147,20 @@ pub async fn evaluate_login_consent_gate(
     // affirmative consent action, so it must not refresh consent or emit
     // agreement.consent audit events.
     None
+}
+
+/// Mint the restricted browser family issued when the consent gate blocks a
+/// normal session. Every login entrance that answers `consent_required`
+/// issues the same limited family, so the pairing with
+/// `evaluate_login_consent_gate` stays a single policy here.
+pub async fn mint_consent_restricted_session(
+    state: &AppState,
+    user: &User,
+    client_app: &ClientApp,
+    user_agent: Option<String>,
+    client_ip: Option<String>,
+) -> Result<BrowserTokenSet, CoreError> {
+    RedisBrowserTokenService::new(state.redis_manager.clone())
+        .create_consent_restricted_token_family(user, client_app, user_agent, client_ip)
+        .await
 }

@@ -262,6 +262,6 @@ pub async fn change_password(
 #[serde(rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
     pub reauth_token: String,
-    #[validate(length(min = 8, max = 36))]
+    #[validate(length(min = 8, max = 100))]
     pub new_pass: String,
 }

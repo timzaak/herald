@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, RuntimeErr, Set,
+    IntoActiveModel, QueryFilter, QueryOrder, RuntimeErr, Set,
 };
 use uuid::Uuid;
 
@@ -93,6 +93,80 @@ impl PostgresLegalAgreementRepository {
             .await?;
         Ok(row.map(|m| m.version_no + 1).unwrap_or(1))
     }
+
+    /// Shared insert path behind `publish_custom_version` and the
+    /// default-follow marker: identical version_no race handling, differing
+    /// only in the `source` column, so the marker never exists as a `custom`
+    /// row awaiting correction.
+    async fn publish_version_with_source(
+        &self,
+        realm_id: &str,
+        agreement_type: AgreementType,
+        content: serde_json::Value,
+        label: Option<String>,
+        published_by: &str,
+        source: &str,
+    ) -> Result<LegalAgreementVersion, CoreError> {
+        // Pre-extract owned/copied captures so the insert closure borrows no
+        // value that the retry path must also move. `as_str()` is `&'static str`
+        // (Copy); the owned strings are cloned once up front.
+        let type_str = agreement_type.as_str();
+        let realm_owned = realm_id.to_string();
+        let by_owned = published_by.to_string();
+        let source_owned = source.to_string();
+        let db = &self.db;
+
+        let attempt = |vno: i32| {
+            let active = legal_agreement_version::ActiveModel {
+                id: NotSet,
+                realm_id: Set(Some(realm_owned.clone())),
+                agreement_type: Set(type_str.to_string()),
+                version_no: Set(vno),
+                version_label: Set(label.clone()),
+                content: Set(content.clone()),
+                source: Set(source_owned.clone()),
+                mode: Set("full_text".to_string()),
+                external_url: Set(None),
+                published_at: NotSet,
+                published_by: Set(Some(by_owned.clone())),
+            };
+            active.insert(db)
+        };
+
+        let version_no = self
+            .next_custom_version_no(realm_id, &agreement_type)
+            .await?;
+
+        match attempt(version_no).await {
+            Ok(model) => Self::to_domain(model),
+            Err(err)
+                if is_unique_violation(
+                    &err,
+                    "legal_agreement_version_scope_type_version_unique",
+                ) =>
+            {
+                // Recompute under the now-corrected max and retry once.
+                let next = self
+                    .next_custom_version_no(realm_id, &agreement_type)
+                    .await?;
+                match attempt(next).await {
+                    Ok(model) => Self::to_domain(model),
+                    // Still colliding — a concurrent publish raced ahead twice;
+                    // surface a conflict so the caller re-reads current effective.
+                    Err(err2)
+                        if is_unique_violation(
+                            &err2,
+                            "legal_agreement_version_scope_type_version_unique",
+                        ) =>
+                    {
+                        Err(LegalError::StaleVersion.into())
+                    }
+                    Err(other) => Err(CoreError::from(other)),
+                }
+            }
+            Err(other) => Err(CoreError::from(other)),
+        }
+    }
 }
 
 impl LegalAgreementRepository for PostgresLegalAgreementRepository {
@@ -110,7 +184,9 @@ impl LegalAgreementRepository for PostgresLegalAgreementRepository {
             .order_by_desc(legal_agreement_version::Column::VersionNo)
             .one(&self.db)
             .await?;
-        if let Some(model) = custom {
+        if let Some(model) = custom
+            && AgreementSource::from(model.source.as_str()) == AgreementSource::Custom
+        {
             return Self::to_domain(model).map(Some);
         }
         self.current_default(agreement_type).await
@@ -183,12 +259,15 @@ impl LegalAgreementRepository for PostgresLegalAgreementRepository {
         realm_id: &str,
         agreement_type: AgreementType,
     ) -> Result<bool, CoreError> {
-        let count = legal_agreement_version::Entity::find()
+        let latest = legal_agreement_version::Entity::find()
             .filter(legal_agreement_version::Column::RealmId.eq(realm_id))
             .filter(legal_agreement_version::Column::AgreementType.eq(agreement_type.as_str()))
-            .count(&self.db)
+            .order_by_desc(legal_agreement_version::Column::VersionNo)
+            .one(&self.db)
             .await?;
-        Ok(count > 0)
+        Ok(latest.is_some_and(|row| {
+            AgreementSource::from(row.source.as_str()) == AgreementSource::Custom
+        }))
     }
 
     /// Get the staged draft for `(realm_id, agreement_type)`, if any. Drafts
@@ -320,64 +399,34 @@ impl LegalAgreementRepository for PostgresLegalAgreementRepository {
         label: Option<String>,
         published_by: &str,
     ) -> Result<LegalAgreementVersion, CoreError> {
-        // Pre-extract owned/copied captures so the insert closure borrows no
-        // value that the retry path must also move. `as_str()` is `&'static str`
-        // (Copy); the owned strings are cloned once up front.
-        let type_str = agreement_type.as_str();
-        let realm_owned = realm_id.to_string();
-        let by_owned = published_by.to_string();
-        let db = &self.db;
+        self.publish_version_with_source(
+            realm_id,
+            agreement_type,
+            content,
+            label,
+            published_by,
+            AgreementSource::Custom.as_str(),
+        )
+        .await
+    }
 
-        let attempt = |vno: i32| {
-            let active = legal_agreement_version::ActiveModel {
-                id: NotSet,
-                realm_id: Set(Some(realm_owned.clone())),
-                agreement_type: Set(type_str.to_string()),
-                version_no: Set(vno),
-                version_label: Set(label.clone()),
-                content: Set(content.clone()),
-                source: Set("custom".to_string()),
-                mode: Set("full_text".to_string()),
-                external_url: Set(None),
-                published_at: NotSet,
-                published_by: Set(Some(by_owned.clone())),
-            };
-            active.insert(db)
-        };
-
-        let version_no = self
-            .next_custom_version_no(realm_id, &agreement_type)
-            .await?;
-
-        match attempt(version_no).await {
-            Ok(model) => Self::to_domain(model),
-            Err(err)
-                if is_unique_violation(
-                    &err,
-                    "legal_agreement_version_scope_type_version_unique",
-                ) =>
-            {
-                // Recompute under the now-corrected max and retry once.
-                let next = self
-                    .next_custom_version_no(realm_id, &agreement_type)
-                    .await?;
-                match attempt(next).await {
-                    Ok(model) => Self::to_domain(model),
-                    // Still colliding — a concurrent publish raced ahead twice;
-                    // surface a conflict so the caller re-reads current effective.
-                    Err(err2)
-                        if is_unique_violation(
-                            &err2,
-                            "legal_agreement_version_scope_type_version_unique",
-                        ) =>
-                    {
-                        Err(LegalError::StaleVersion.into())
-                    }
-                    Err(other) => Err(CoreError::from(other)),
-                }
-            }
-            Err(other) => Err(CoreError::from(other)),
-        }
+    async fn publish_default_follow_marker(
+        &self,
+        realm_id: &str,
+        agreement_type: AgreementType,
+        content: serde_json::Value,
+        label: Option<String>,
+        published_by: &str,
+    ) -> Result<LegalAgreementVersion, CoreError> {
+        self.publish_version_with_source(
+            realm_id,
+            agreement_type,
+            content,
+            label,
+            published_by,
+            AgreementSource::Default.as_str(),
+        )
+        .await
     }
 
     async fn publish_link_version(

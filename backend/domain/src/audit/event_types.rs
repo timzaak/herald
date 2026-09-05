@@ -67,12 +67,6 @@ pub enum AuditAction {
     AuthClientSwitch,
     #[serde(rename = "auth.login_failed")]
     AuthLoginFailed,
-    #[serde(rename = "product.create")]
-    ProductCreate,
-    #[serde(rename = "product.update")]
-    ProductUpdate,
-    #[serde(rename = "product.delete")]
-    ProductDelete,
     #[serde(rename = "payment_config.update")]
     PaymentConfigUpdate,
     #[serde(rename = "payment_config.delete")]

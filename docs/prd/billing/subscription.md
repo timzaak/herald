@@ -184,20 +184,16 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **One-time 购买规则**：
 - 购买成功后发放 topup_credit，不创建 subscription 记录
-- 发放积分数量从 mapping 的 points_per_period 读取
-- 积分有效期从 mapping 的 validity_days 读取
-- grant_on_subscribe 字段对 one-time mapping 不适用，购买成功默认发放
+- 发放数量与有效期由 mapping 的积分分发规则（`points_distribution_rules`，trigger=`topup`）决定；原标量积分策略字段（`points_per_period`、`grant_on_subscribe` 等）已移除
 - 用户购买页列出 enabled 且 billing_type=one_time 的 entitlement mappings
 - 没有启用的 one-time mapping 时不显示购买入口
 - 促销策略由支付平台管理（Stripe Coupons/Promotion Codes、Creem Discount Codes），Herald 不在本地实现促销逻辑
 - 购买记录基于支付尝试记录和积分交易记录查询
 
 **积分充值联动规则**：
-- 首次订阅时，根据积分套餐配置中的 `points_on_subscribe` 进行充值
-- 定期续费时，根据 `renewal_enabled` 和 `points_on_renewal` 配置决定是否充值
+- 积分充值由 mapping 的积分分发规则（`points_distribution_rules`）按触发器驱动：首次订阅 `subscription_initial`、续费 `subscription_renewal`、升级 `subscription_upgrade`、一次性购买 `topup`（原 `points_on_subscribe` / `renewal_enabled` / `points_on_renewal` / `max_accumulation` 标量字段已移除，规则模型见 `docs/prd/billing/multi-wallet-grant-rules.md`）
 - 充值操作与数据库事务绑定，使用乐观锁防止并发问题
 - 充值失败不影响订阅状态
-- 支持最大累计积分限制（`max_accumulation`）
 
 **数据安全规则**：
 - API Secret Key 和 Webhook Secret 以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
@@ -219,7 +215,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 | 更新/禁用映射（single PATCH） | `billing.manage`（写 credit 字段时附加 `points.manage`） | Realm Admin；batch 更新路径同为 `billing.manage` 无条件 + credit 字段附加 `points.manage` |
 | 查看/禁用映射（batch 更新） | `billing.manage`（+ credit 字段附加 `points.manage`） | Realm Admin |
 | 查看订阅投影 | `billing.view` | Realm Admin |
-| 管理订阅 | `billing.manage` | Realm Admin |
+| 订阅取消 | — | 无管理端取消入口；仅用户自助取消（Provider 驱动） |
 | 查看订阅变更历史（Realm Admin） | `billing.view` | Realm Admin |
 | 查看自己的订阅变更历史 | 认证用户 | Regular User |
 
@@ -243,11 +239,10 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 **用户自助取消（Provider-driven self-service cancel）**：
 
 - 用户可在「我的订阅」页主动取消自己的订阅；取消请求由 Herald 转发到对应 Provider 的取消 API，而不是仅做本地状态翻转。
-- **Stripe**：调用 Stripe 订阅取消接口；Provider 返回立即生效（`Canceled`）或周期末生效（`Scheduled Cancel`），Herald 按 Provider 返回结果落账。
-- **Creem**：调用 Creem 取消接口；按 Provider 响应区分立即取消（`Canceled`）与预定取消（`Scheduled Cancel`）。
+- **Stripe / Creem**：取消请求成功只确认 Provider 已接收；Herald 不根据同步响应直接改写本地订阅投影，最终 `Canceled` / `Scheduled Cancel` 状态及历史事件由后续 webhook 驱动，以避免响应与事件乱序形成双真源。
 - **Apple / Google（IAP）订阅**：Herald 不支持用户在应用内直接取消 IAP 订阅，对该渠道的自助取消请求返回明确错误（`400`），引导用户前往 App Store / Google Play 系统设置完成取消；IAP 取消由商店服务端通知驱动后续状态流转。
-- 取消结果（立即或周期末）同步为订阅历史事件（`canceled` 或 `scheduled_cancel`），与 Provider webhook 推送的状态保持一致。
-- 管理员侧的订阅管理能力不受影响；本条仅描述终端用户自助入口。
+- Provider webhook 到达后，取消结果（立即或周期末）写入订阅历史事件（`canceled` 或 `scheduled_cancel`）。
+- 管理端不提供直接取消订阅的操作：订阅取消统一经用户自助入口（Provider 驱动）；管理员侧保留订阅列表/详情/历史的查看能力。
 
 **订阅变更事件类型**：
 
@@ -266,8 +261,8 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 | `paused` | 暂停订阅 | 订阅被暂停 |
 
 **异常场景**：
-- 删除有活跃订阅的套餐：拒绝操作并提示活跃订阅数量
-- 删除有活跃订阅的支付平台映射：拒绝操作并提示活跃订阅数量
+- 删除有活跃订阅的支付平台配置：拒绝操作并提示活跃订阅数量
+- 禁用有活跃订阅的 Entitlement 映射：整批更新事务回滚并返回 409（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载
 - 订阅降级时当前用户数超过目标套餐限制：不允许降级
 - Webhook 签名验证失败：拒绝处理请求
 
@@ -335,7 +330,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 同一 Product 的多个 Price 可独立配置或共享 entitlement_key，并按所选价格正确购买和履约
 - Realm Admin 可查看 Realm 内所有订阅变更历史，支持多维度筛选
 - Regular User 可查看自己的订阅变更历史
-- 删除有活跃订阅的套餐或支付平台映射时，系统拒绝并给出明确错误提示
+- 禁用有活跃订阅的 Entitlement 映射时，系统整批拒绝并给出明确错误提示（409 `mapping_in_use` 与活跃订阅数量）；支付平台配置在有活跃订阅时删除被拒绝
 - Webhook 事件处理后订阅状态正确转换
 - 订阅事件（首次订阅、续费）正确触发积分充值
 - 缺失事件能在下一补偿周期被处理，结果与正常 webhook 到达一致且不会产生重复副作用
@@ -356,7 +351,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **访问控制与数据边界**：
 - 所有接口遵守 realm 隔离原则
-- 写入类操作（创建、编辑、删除套餐/映射/分配）需要 `billing.manage` 权限
+- 写入类操作（创建、编辑、禁用映射等）需要 `billing.manage` 权限；映射不提供删除，下线以禁用承载
 - 读取类操作需要 `billing.view` 权限或认证用户身份
 - 金额与积分变更必须可追溯
 
@@ -393,7 +388,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 购买历史基于支付尝试记录和积分交易记录查询
 
 **状态反馈**：
-- 删除支付平台映射时提示活跃订阅数量："Cannot delete mapping with X active subscriptions"
+- 禁用有活跃订阅的映射时整批回滚并提示活跃订阅数量（409 `mapping_in_use`，携带 `activeSubscriptions` 计数）
 - 禁用支付平台映射时提示："Existing subscriptions will continue to work, new users cannot select this provider"
 
 ---

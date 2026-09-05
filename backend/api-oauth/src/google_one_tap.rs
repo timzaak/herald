@@ -216,13 +216,20 @@ pub async fn google_one_tap(
         ));
     }
 
+    let email = claims
+        .email
+        .as_deref()
+        .filter(|email| !email.trim().is_empty())
+        .ok_or_else(|| ApiError::unauthorized("Google ID token is missing email"))?
+        .to_string();
+
     // Match/create the Herald user with the same key as the redirect Google
     // login path: `open_id: Some(claims.sub)` ≡ redirect path's
     // `open_id: Some(user_info.id)`.
     let user_info = OAuthUserInfo {
         provider_type: ProviderType::Google,
         provider_user_id: claims.sub.clone(),
-        email: claims.email.unwrap_or_default(),
+        email,
         verified: true,
         avatar: claims.picture,
         name: claims.name,

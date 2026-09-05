@@ -33,6 +33,13 @@ pub struct PointsWalletResponse {
     pub currency: String,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWalletStatusRequest {
+    /// active, frozen, or closed.
+    pub status: String,
+}
+
 /// Per-credit-type balances (`balancesByType` / `byCreditType`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +63,7 @@ impl BalancesByType {
 }
 
 /// Quota window read view (`QuotaWindowView`), mirrors the domain entity
-/// `herald_core::domain::points::QuotaWindowView` (design §4.2.2).
+/// `herald_core::domain::points::QuotaWindowView`.
 ///
 /// One row per distinct window `key` for a (user, bucket). `key` is the stable
 /// display identity derived from the window length (e.g. `5h`/`week`/`month`),
@@ -73,7 +80,7 @@ pub struct QuotaWindowViewResponse {
     pub remaining: i64,
     /// Sliding window length in seconds (month ≈ 30d).
     pub window_seconds: i64,
-    /// Approximate next reset point of the window (design D1 — precise
+    /// Approximate next reset point of the window (precise
     /// oldest-consume reset is deferred). `None` when no consume has occurred
     /// in the window yet.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,7 +109,7 @@ impl QuotaWindowViewResponse {
     }
 }
 
-/// Free-periodic quota window **request** shape (design §4.2.2 / §4.4.3).
+/// Free-periodic quota window **request** shape.
 ///
 /// Carries only the editable fields; `key` is derived by the backend from
 /// `windowSeconds` (via `derive_window_key`) before persistence, so callers
@@ -140,12 +147,12 @@ pub struct WalletByBucketResponse {
     pub balances_by_type: BalancesByType,
     /// Currently spendable total for this bucket = window-available
     /// (`spendable_from_quota`) + pool balance (`spendable_from_pool`).
-    /// Semantically extended (design §4.2.2): for a pool-only bucket this
+    /// Semantically extended: for a pool-only bucket this
     /// equals the pool sum (zero-regression — `quota_windows` /
     /// `spendable_from_quota` are `None`); for a window bucket it folds in the
     /// tightest window's remaining.
     pub bucket_total: i64,
-    /// Per-window quota view for this (user, bucket) (design §4.2.2).
+    /// Per-window quota view for this (user, bucket).
     /// `None` for a pool-only bucket (no active subscription / free-periodic
     /// quota entitlement). `Some([])` is avoided — pool-only stays `None`.
     #[serde(skip_serializing_if = "Option::is_none")]

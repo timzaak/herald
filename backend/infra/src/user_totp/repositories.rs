@@ -10,7 +10,7 @@ use herald_domain::user_totp::entities::{
     BackupCodeStats, RealmTotpConfig, RealmTotpStatistics, UserTotpBackupCode, UserTotpConfig,
 };
 use herald_domain::user_totp::ports::{RealmTotpConfigRepository, UserTotpRepository};
-use herald_entity::{realm_config, user_totp_backup_codes, user_totp_config};
+use herald_entity::{account, realm_config, user_totp_backup_codes, user_totp_config};
 
 pub struct PostgresUserTotpRepository {
     db: Arc<DatabaseConnection>,
@@ -278,9 +278,11 @@ impl RealmTotpConfigRepository for PostgresRealmTotpConfigRepository {
         realm_id: &str,
         config: RealmTotpConfig,
     ) -> Result<RealmTotpConfig, CoreError> {
-        let metadata = serde_json::json!({
-            "force_enabled": config.force_enabled
-        });
+        let config_value = serde_json::json!({
+            "enabled": config.enabled,
+            "force_enabled": config.force_enabled,
+        })
+        .to_string();
 
         // Check if config exists
         let existing = realm_config::Entity::find()
@@ -294,7 +296,7 @@ impl RealmTotpConfigRepository for PostgresRealmTotpConfigRepository {
             // Update existing
             let mut active_model: realm_config::ActiveModel = existing_config.into();
             active_model.enabled = Set(config.enabled);
-            active_model.metadata = Set(metadata);
+            active_model.config_value = Set(config_value);
             active_model.updated_at = Set(chrono::Utc::now().into());
 
             let result = active_model.update(&*self.db).await?;
@@ -309,11 +311,11 @@ impl RealmTotpConfigRepository for PostgresRealmTotpConfigRepository {
                 id: Set(herald_domain::common::generate_uuid_v7()),
                 realm_id: Set(realm_id.to_string()),
                 config_type: Set("totp".to_string()),
-                config_key: Set("enabled".to_string()),
-                config_value: Set("true".to_string()),
+                config_key: Set("settings".to_string()),
+                config_value: Set(config_value),
                 is_secret: Set(false),
                 enabled: Set(config.enabled),
-                metadata: Set(metadata),
+                metadata: Set(serde_json::json!({})),
                 created_at: Set(now.into()),
                 updated_at: Set(now.into()),
             };
@@ -331,8 +333,8 @@ impl RealmTotpConfigRepository for PostgresRealmTotpConfigRepository {
         realm_id: &str,
     ) -> Result<RealmTotpStatistics, CoreError> {
         // Get total users in realm
-        let total_users = user_totp_config::Entity::find()
-            .filter(user_totp_config::Column::RealmId.eq(realm_id))
+        let total_users = account::Entity::find()
+            .filter(account::Column::RealmId.eq(realm_id))
             .count(&*self.db)
             .await? as i64;
 

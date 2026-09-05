@@ -2837,6 +2837,34 @@ impl PointsRepository for PostgresPointsRepository {
         Self::model_to_points_wallet(result)
     }
 
+    async fn update_wallet_status(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        bucket_id: Uuid,
+        status: WalletStatus,
+    ) -> Result<Option<PointsWallet>, CoreError> {
+        let Some(model) = points_wallet::Entity::find()
+            .filter(points_wallet::Column::RealmId.eq(realm_id))
+            .filter(points_wallet::Column::UserId.eq(user_id))
+            .filter(points_wallet::Column::BucketId.eq(bucket_id))
+            .one(&*self.db)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+
+        let mut active: points_wallet::ActiveModel = model.into();
+        active.status = Set(status.as_str().to_string());
+        active.updated_at = Set(chrono::Utc::now().into());
+        let updated = active
+            .update(&*self.db)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+        Ok(Some(Self::model_to_points_wallet(updated)?))
+    }
+
     async fn create_transaction(
         &self,
         transaction: PointsTransaction,

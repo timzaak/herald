@@ -65,7 +65,7 @@
 - **登出**：吊销当前浏览器 token 及其 refresh token 家族。
 - **积分/交易**：查看当前用户积分余额（按账户分组）、交易历史。
 - **充值/购买**：查看购买选项（套餐/价目）、发起购买、轮询支付状态；支付最终确认由支付提供商页面承接。
-- **发票/订阅**：查看发票列表/详情、申请开票、查看我的订阅。
+- **发票/订阅**：查看发票列表/详情、申请开票、查看我的订阅、自助取消订阅（调用 Provider 取消接口，本地状态经 webhook 回调更新；管理端不再直接取消）。
 
 **跨域基础设施**：
 
@@ -130,7 +130,7 @@
 
 - **凭证类区分**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类，互不混用。`FirstParty` 只能由内置保留 Client App 经 Authorization Code + PKCE 换取；`CustomUserUi` 由 `/login` 直接签发。
 - **用户绑定**：两类浏览器 token 都必须绑定单一登录用户，不可为 realm/client 级凭证。
-- **权限控制**：`CustomUserUi` token 的权限上限为明确归类的用户自服务能力（资料/改密码/TOTP/Passkey/注销账号/登出/积分/交易/购买/发票/订阅）；管理员能力和未知能力默认拒绝。`FirstParty` token 执行完整 RBAC，不受该上限约束。该规则由授权层执行，不依赖路由名称。
+- **权限控制**：`CustomUserUi` token 的权限上限为明确归类的用户自服务能力（资料/改密码/TOTP/Passkey/注销账号/登出/积分/交易/购买/发票/订阅/订阅取消）；管理员能力和未知能力默认拒绝。`FirstParty` token 执行完整 RBAC，不受该上限约束。该规则由授权层执行，不依赖路由名称。
 - **数据边界**：浏览器 token 只能访问当前登录用户自己的数据；跨用户访问拒绝。
 - **未认证身份端点**：注册/登录/找回密码/重置密码/邮箱验证为公开端点，跨域开放后人机验证（Turnstile）按当前请求绑定的 Client App 的配置执行，维持限流防护，不新增 client 维度限流。
 - **origin 精确匹配**：Client App 允许 origin 必须精确、可信，禁止通配或不安全形式。
@@ -161,7 +161,7 @@
 - **高危操作缺少、过期、已消费或目标不匹配的重新认证结果** → 拒绝并要求重新认证。
 - **身份邮件请求的 Client App 无效、已禁用或回跳未登记** → 拒绝启动流程；邮件落地时再次校验绑定状态。
 - **注销账号完成** → 账户不可恢复，当前及后续 token 全部失效。
-- **FirstParty 凭证类由 PKCE 换取且内置保留 Client App 标记决定**：普通 Client App 即便完成 PKCE 也不会升级为 FirstParty。
+- **FirstParty 凭证类由 PKCE 换取且内置保留 Client App 标记决定**：普通 Client App 即便完成 PKCE 也不会升级为 FirstParty，其经 PKCE 换码获得的是 `CustomUserUi` 类浏览器 token（权限上限与 `/login` 签发一致）。
 
 ---
 
@@ -182,7 +182,7 @@
 - **FR-6（登出）**：用浏览器 token 登出，吊销当前 token 及其 refresh token 家族。
 - **FR-7（积分/交易）**：用浏览器 token 查看当前用户积分余额（按账户分组）与交易历史。
 - **FR-8（充值/购买）**：用浏览器 token 查看购买选项、发起购买、轮询支付状态。
-- **FR-9（发票/订阅）**：用浏览器 token 查看发票列表/详情、申请开票、查看我的订阅。
+- **FR-9（发票/订阅）**：用浏览器 token 查看发票列表/详情、申请开票、查看我的订阅、自助取消订阅。
 
 **跨域基础设施**：
 
@@ -250,7 +250,7 @@
 - **D-SEC-01（安全姿态）**：选定"跨域 + 浏览器持有用户 token"主路线。token 明确进入集成方前端，身份解析不再依赖 cookie；传输与凭证模型类比业界标准（浏览器持 token + Bearer + 不走跨域 cookie + 旋转 refresh token）。
 - **D-CRED-01（双轨凭证类）**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类。`FirstParty` 由内置保留 Client App（数据库内部标记，不进入 Admin/Ext API DTO）经 Authorization Code + PKCE 换取，执行完整 RBAC；`CustomUserUi` 由 `/login` 直接签发，受用户自服务权限上限约束。普通 Client App 即便完成 PKCE 也不升级为 FirstParty。判定在服务端 fail-closed，不接受请求体声明凭证类。
 - **D-SCOPE-FULL（用户自服务权限全覆盖）**：`CustomUserUi` token 获得完整用户自服务权限集合，含经重新认证的高危写；管理员能力和未知能力默认拒绝。授权依据是主体、Realm、凭证用途与权限上限，不是路径。即使 token 所属用户拥有管理员角色，`CustomUserUi` 凭证也不能调用管理员能力。
-- **D-LOGIN-01（登录链路）**：集成方自建 UI 登录入口经 `/login` 签发 `CustomUserUi` token，跨域场景不设 cookie；二因素流程同步支持。OAuth Authorization Code + PKCE 链路用于签发 `FirstParty` token（Herald 自有前端），不作为自建 UI 的登录入口。
+- **D-LOGIN-01（登录链路）**：集成方自建 UI 登录入口经 `/login` 签发 `CustomUserUi` token，跨域场景不设 cookie；二因素流程同步支持。OAuth Authorization Code + PKCE 链路用于签发 `FirstParty` token（Herald 自有前端），不作为自建 UI 的登录入口；普通 Client App 经 PKCE 换码获得的是 `CustomUserUi` 类浏览器 token（权限上限与 `/login` 签发一致），不升级为 FirstParty。
 - **D-TOK-01（生命周期 = 旋转 refresh token）**：短时效 access token（内存）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测（旧 RT 再用吊销整个家族）+ RT 绝对有效上限。
 - **D-TOK-02（吊销）**：浏览器 token 变体支持即时吊销。OAuth PRD §2.2 原"Token 撤销（当前不支持）"对浏览器 token 变体不再成立（见 `docs/prd/auth/oauth.md` §2.2 修订），server-side token 维持原状。
 - **D-PROTECT-01（身份端点防护，Client App 级 Turnstile）**：未认证身份端点跨域开放后，人机验证（Turnstile）按当前请求绑定的 Client App 的 Turnstile 配置执行（Turnstile 配置在 Client App 级，不再由 Realm 承载，见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §3.1/§8）；维持 IP/identifier 限流，不新增 client 维度限流。

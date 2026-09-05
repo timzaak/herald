@@ -50,10 +50,11 @@
 - Realm 级别的审计数据隔离
 - 以下操作类别的审计覆盖：
   - **用户管理**：用户创建、更新、删除
-  - **RBAC 变更**：角色创建/更新/删除、权限授予/撤销、角色分配/取消、权限拒绝（`rbac.permission_denied`）
+  - **RBAC 变更**：角色创建/更新/删除、权限定义创建/更新/删除（`permission.create` / `permission.update` / `permission.delete`）、权限授予/撤销、角色分配/取消、权限拒绝（`rbac.permission_denied`）
   - **Realm 管理**：Realm 创建、RBAC 初始化
-  - **认证事件**：用户登录、登出、登录失败、Passkey 注册/删除
-  - **关键配置变更**（边界定义）：经通用 realm_config API 的所有配置行写入/删除均记审计——支付 Provider（Stripe/Creem/Apple/Google/WeChat）记 `payment_config.update` / `payment_config.delete`，其余配置类型（SMTP/Resend、LDAP、Turnstile、注册与密码策略、`totp_key` 等）记 `realm_config.update` / `realm_config.delete`；认证策略配置经专用端点写入时记专用事件（`passkey_config.update` / `totp_config.update` / `email_otp_config.update`）；OAuth Provider 配置记 `oauth_config.*`。白标草稿编辑、自定义域名与 Realm 档案（名称/描述）编辑不在审计范围
+  - **认证事件**：用户登录、登出、登录失败、Passkey 注册/删除、Client App 切换（`auth.client_switch`）
+  - **合规事件**：用户协议/隐私政策同意（`agreement.consent`）、协议发布（`agreement.published`）、协议回退（`agreement.reverted`）
+  - **关键配置变更**（边界定义）：经通用 realm_config API 的所有配置行写入/删除均记审计——支付 Provider（Stripe/Creem/Apple/Google/WeChat）记 `payment_config.update` / `payment_config.delete`，其余配置类型（SMTP/Resend、LDAP、Turnstile、注册策略、`totp_key` 等）记 `realm_config.update` / `realm_config.delete`；白标草稿保存/丢弃、发布和恢复同样记 `realm_config.update/delete` 并在 details 标注生命周期操作；认证策略配置经专用端点写入时记专用事件（`passkey_config.update` / `totp_config.update` / `email_otp_config.update`）；OAuth Provider 配置记 `oauth_config.*`。自定义域名与 Realm 档案（名称/描述）编辑当前不在审计范围
 
 ### 2.2 不包含功能 (Out of Scope)
 
@@ -61,7 +62,7 @@
 - 审计日志的保留策略和自动清理（后续扩展）
 - 实时审计告警和通知
 - 审计日志的不可篡改保证（如区块链存证）
-- 计费相关操作的审计（分层事实标准，经 wechat-support.md §4.1 局部修订）：支付 Provider 的配置变更（Stripe/Creem/WeChat/IAP）与 WeChat 支付回调进入统一审计；Stripe/IAP/Creem 的支付操作事件维持独立追踪表（`payment_event` 等），可从现有数据推导操作者，不纳入统一审计；IAP 的凭证提交与平台通知兑付记入统一审计（`iap.receipt_submit` / `iap.notification`）
+- 计费相关操作的审计（分层事实标准，经 wechat-support.md §4.1 局部修订）：支付 Provider 的配置变更（Stripe/Creem/WeChat/IAP）与 WeChat 支付回调（含重放拒绝 `payment.replay`）进入统一审计；Stripe/IAP/Creem 的支付操作事件维持独立追踪表（`payment_event` 等），可从现有数据推导操作者，不纳入统一审计；IAP 的凭证提交与平台通知兑付记入统一审计（`iap.receipt_submit` / `iap.notification`）
 - 发票操作的审计：发票状态变更历史由发票模块自行记录，含操作者信息
 
 ### 2.3 依赖项
@@ -100,7 +101,7 @@ Herald 系统需要为所有核心操作提供可追溯的审计能力。当前�
 - 审计事件包含操作者标识、操作类型、目标对象（类型+ID）、Realm ID、操作结果、时间戳和变更详情
 - 成功操作和失败操作尝试均须记录，失败事件标记操作结果为失败
 - 审计日志为只读资源，不提供修改或删除接口
-- 审计日志查询仅 Realm Admin 和 Admin Realm 管理员可访问
+- 审计日志查询由 `audit.view` 权限控制；内置 Realm Admin 与 Admin Realm 管理员默认持有该权限，自定义角色也可被显式授予
 - 审计日志严格按 Realm 隔离，不同 Realm 的管理员无法看到彼此的审计记录
 
 ### 4.2 关键状态与异常
@@ -136,7 +137,8 @@ Herald 系统需要为所有核心操作提供可追溯的审计能力。当前�
 
 - 审计日志查询接口仅返回当前用户所属 Realm 的审计记录，遵循 Realm 隔离原则
 - 查询接口支持分页，按操作时间倒序返回
-- 仅 Realm Admin 和 Admin Realm 管理员可访问审计日志查询接口；例外通道：MCP Server 的 `list_audit_logs` 工具（[mcp-server.md](../integration/mcp-server.md)）允许持 `audit.view` 权限的 API Key 经 MCP 查询审计日志，权限语义与 HTTP 通道一致
+- HTTP 与 MCP 审计查询均要求 `audit.view`；内置管理员角色默认拥有该权限，授权给自定义角色或 API Key 时沿用同一权限语义
+- category/action 非法筛选值返回 400，不静默忽略；认证方式只保存在事件 `details.method` 中，当前无独立 method 筛选参数
 - 审计日志为只读资源，不提供修改或删除接口
 - 事件写入接口仅限系统内部调用，不对外暴露
 
@@ -146,7 +148,7 @@ Herald 系统需要为所有核心操作提供可追溯的审计能力。当前�
 
 **适用性**: 适用
 
-- 页面入口：管理后台新增审计日志页面，仅对 Realm Admin 和 Admin Realm 管理员可见
+- 页面入口：管理后台新增审计日志页面，对持 `audit.view` 的身份可见
 - 关键交互：页面以列表形式展示审计日志，默认按操作时间倒序排列
 - 筛选控件：提供事件类型、时间范围和操作者的筛选
 - 详情查看：支持点击单条记录查看详情（P1）

@@ -166,6 +166,15 @@ pub trait PointsRepository: Send + Sync {
         account: PointsWallet,
     ) -> impl Future<Output = Result<PointsWallet, CoreError>> + Send;
 
+    /// Change the operational state of one concrete (user, bucket) wallet.
+    fn update_wallet_status(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        bucket_id: Uuid,
+        status: crate::points::entities::WalletStatus,
+    ) -> impl Future<Output = Result<Option<PointsWallet>, CoreError>> + Send;
+
     /// Create a points transaction
     fn create_transaction(
         &self,

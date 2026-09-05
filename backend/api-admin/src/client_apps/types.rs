@@ -10,7 +10,7 @@ fn validate_client_id(client_id: &str) -> Result<(), validator::ValidationError>
     // Allow alphanumeric characters, hyphens, and underscores (URL-safe)
     if client_id
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         Ok(())
     } else {

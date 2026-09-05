@@ -145,7 +145,7 @@ pub async fn request(
 #[derive(Serialize, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct ResetPasswordConfirmRequest {
-    #[validate(length(min = 8, max = 36))]
+    #[validate(length(min = 8, max = 100))]
     pub new_pass: String,
     pub turnstile_token: Option<String>, // Optional: required only if Turnstile is enabled for realm
 }

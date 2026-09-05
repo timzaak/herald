@@ -59,7 +59,7 @@ use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
-use crate::login::LoginResponse;
+use crate::login::{LoginResponse, ensure_oauth_redirect_fields};
 use crate::mailflow;
 use crate::passkey_rp::resolve_passkey_rp;
 
@@ -155,6 +155,12 @@ pub async fn ldap_login(
     headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<LdapLoginRequest>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ensure_oauth_redirect_fields(
+        payload.oauth_client_id.as_deref(),
+        payload.redirect_uri.as_deref(),
+        payload.state.as_deref(),
+    )?;
+
     let user_agent = user_agent_from_headers(&headers);
 
     // 1. LDAP must be enabled for the realm — checked before the Client App,
@@ -255,24 +261,14 @@ pub async fn ldap_login(
                 redirect_to: None,
                 consent_required: Some(true),
                 agreements: Some(summaries),
+                restricted_session: None,
             })
             .into_response());
         }
         LdapUserResolution::Resolved(user) => user,
     };
 
-    // 6. Link the directory identity to the resolved account (idempotent).
-    ensure_ldap_provider_linked(
-        &state,
-        &realm_id,
-        &ldap_user.dn,
-        ldap_user.email.as_deref(),
-        user.id,
-        known_link,
-    )
-    .await?;
-
-    // 7. Disabled accounts are rejected even though directory credentials
+    // 6. Disabled accounts are rejected even though directory credentials
     //    were valid (account state takes precedence, PRD §4.1).
     if !user.is_active() {
         record_ldap_login_failure(
@@ -287,6 +283,18 @@ pub async fn ldap_login(
         .await;
         return Err(ApiError::forbidden("账号已被禁用".to_string()));
     }
+
+    // 7. Link the directory identity only after account-state enforcement.
+    // A successful directory bind must not mutate a disabled local account.
+    ensure_ldap_provider_linked(
+        &state,
+        &realm_id,
+        &ldap_user.dn,
+        ldap_user.email.as_deref(),
+        user.id,
+        known_link,
+    )
+    .await?;
 
     // 8. Second-factor probe (mirror login.rs; a JIT account has no factors
     //    yet, so the probe is naturally empty for first logins).
@@ -409,6 +417,7 @@ pub async fn ldap_login(
             redirect_to: None,
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }
@@ -425,6 +434,14 @@ pub async fn ldap_login(
     )
     .await
     {
+        let restricted_session = crate::consent_gate::mint_consent_restricted_session(
+            &state,
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(ip.clone()),
+        )
+        .await?;
         return Ok(Json(LoginResponse {
             message: "consent required".to_string(),
             user_id: user.id,
@@ -436,6 +453,7 @@ pub async fn ldap_login(
             redirect_to: None,
             consent_required: Some(true),
             agreements: Some(summaries),
+            restricted_session: Some(restricted_session.into()),
         })
         .into_response());
     }
@@ -566,6 +584,7 @@ pub async fn ldap_login(
             redirect_to: Some(redirect_to),
             consent_required: None,
             agreements: None,
+            restricted_session: None,
         })
         .into_response());
     }

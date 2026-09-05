@@ -17,8 +17,8 @@
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::billing_helpers::{
-        setup_billing_admin_session, setup_billing_admin_session_with_user,
-        setup_test_entitlement_mapping_full,
+        insert_realm_base_url, setup_billing_admin_session, setup_billing_admin_session_with_user,
+        setup_stripe_config, setup_test_entitlement_mapping_full,
     };
     use crate::tests::helpers::client_helpers::create_test_api_key;
     use crate::tests::schema_test_context::SchemaTestContext as TestContext;
@@ -30,6 +30,8 @@ mod tests {
     use test_context::test_context;
     use tower::ServiceExt;
     use uuid::Uuid;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // =========================================================================
     // Helpers
@@ -713,13 +715,10 @@ mod tests {
 
     /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
     ///
-    /// flow=payment_intent + stripe + one-time passes the combination gate and
-    /// reaches the Stripe provider layer. The scenario environment has no
-    /// reachable Stripe API (base URL is the real api.stripe.com), so a 2xx
-    /// with a real pi_..._secret_... only occurs where a mock is wired; here
-    /// the deterministic contract is: never a 400 (a 400 would mean the flow
-    /// combination was rejected), and when 2xx the secret matches the
-    /// PaymentIntent shape and no hosted URL is returned.
+    /// A mobile wallet request must reach Stripe's PaymentIntent API and return
+    /// its client secret without a hosted URL. This encodes the product reason
+    /// for the flow flag: native Apple Pay / Google Pay SDKs cannot consume a
+    /// hosted Checkout URL.
     #[test_context(TestContext)]
     #[tokio::test]
     async fn test_create_payment_attempt_payment_intent_stripe_one_time(ctx: &mut TestContext) {
@@ -727,6 +726,23 @@ mod tests {
         let token = setup_billing_admin_session(ctx, "wallet-pi-stripe@test.com").await;
         let mapping_id =
             create_one_time_mapping(ctx, &realm_id, "wallet-pi-pkg", 100, true, true).await;
+
+        let stripe = MockServer::start().await;
+        setup_stripe_config(ctx, &realm_id, "sk_test_wallet", "whsec_wallet").await;
+        insert_realm_base_url(ctx, &realm_id, "stripe", &stripe.uri()).await;
+        Mock::given(method("POST"))
+            .and(path("/v1/payment_intents"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pi_wallet_test",
+                "client_secret": "pi_wallet_test_secret_native_sdk",
+                "amount": 999,
+                "currency": "usd",
+                "status": "requires_payment_method",
+                "metadata": {}
+            })))
+            .expect(1)
+            .mount(&stripe)
+            .await;
         let app = ctx.create_unified_test_router();
 
         let (status, body) = make_create_attempt_request_with_flow(
@@ -740,26 +756,15 @@ mod tests {
         )
         .await;
 
-        let body_text = body.to_string();
-        if status.is_success() {
-            let secret = body["paymentContext"]["clientSecret"]
-                .as_str()
-                .expect("clientSecret on 2xx");
-            assert!(
-                secret.starts_with("pi_") && secret.contains("_secret_"),
-                "expected a real PaymentIntent secret, got: {secret}"
-            );
-            assert!(
-                body["paymentContext"]["stripeCheckoutUrl"].is_null(),
-                "payment_intent flow must not return a hosted URL: {body_text}"
-            );
-        } else {
-            assert_ne!(
-                status,
-                StatusCode::BAD_REQUEST,
-                "stripe+one_time+payment_intent passed validation; failure must come from the                  provider layer, got: {body_text}"
-            );
-        }
+        assert_eq!(status, StatusCode::CREATED, "response: {body}");
+        assert_eq!(
+            body["paymentContext"]["clientSecret"],
+            "pi_wallet_test_secret_native_sdk"
+        );
+        assert!(
+            body["paymentContext"]["stripeCheckoutUrl"].is_null(),
+            "payment_intent flow must not return a hosted URL: {body}"
+        );
     }
 
     /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)

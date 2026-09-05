@@ -153,6 +153,11 @@ pub async fn issue_callback_token_response(
     if !client_app.enabled {
         return Err(ApiError::bad_request("OAuth client app is not enabled"));
     }
+    if !client_app.is_first_party {
+        return Err(ApiError::bad_request(
+            "Third-party OAuth clients must use the authorization-code flow with PKCE",
+        ));
+    }
     let user = state
         .user_repository
         .get_user_by_id(user_id)
@@ -166,27 +171,17 @@ pub async fn issue_callback_token_response(
     // rejects them downstream, but tokens should not be issued at all).
     // WaitVerified users keep access so they can complete email verification,
     // matching the identity middleware.
-    if matches!(
-        user.status,
-        herald_core::domain::user::entities::UserStatus::Forbidden
-            | herald_core::domain::user::entities::UserStatus::Deleted
-    ) {
+    if user.status.is_disabled() {
         return Err(ApiError::unauthorized("Account is disabled"));
     }
     let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
-    let tokens = if client_app.is_first_party {
-        token_service
-            .create_first_party_token_family(&user, &client_app, user_agent, client_ip)
-            .await
-    } else {
-        token_service
-            .create_token_family(&user, &client_app, user_agent, client_ip)
-            .await
-    }
-    .map_err(|error| {
-        tracing::error!(%error, "Failed to issue browser token family after OAuth callback");
-        ApiError::internal("Internal server error")
-    })?;
+    let tokens = token_service
+        .create_first_party_token_family(&user, &client_app, user_agent, client_ip)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to issue browser token family after OAuth callback");
+            ApiError::internal("Internal server error")
+        })?;
     Ok(Json(OAuthCallbackResponse {
         message: "OAuth login successful".to_string(),
         user_id: user_id.to_string(),

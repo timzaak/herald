@@ -3,13 +3,18 @@
 use axum::{
     Json,
     extract::{Extension, Path, State},
+    http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
+use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
+use herald_core::domain::audit::{
+    AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType, NewAuditEvent,
+};
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::realm_config::{
@@ -188,6 +193,8 @@ pub async fn handle_save_white_label_draft(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(req): Json<UpdateWhiteLabelConfigRequest>,
 ) -> Result<Json<SaveWhiteLabelDraftResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
@@ -200,9 +207,20 @@ pub async fn handle_save_white_label_draft(
     let config = state
         .service
         .realm_config_service()
-        .upsert_config(admin.identity().clone(), realm_id, request)
+        .upsert_config(admin.identity().clone(), realm_id.clone(), request)
         .await
         .map_err(map_realm_config_error)?;
+
+    audit_white_label_change(
+        &state,
+        admin.identity(),
+        &realm_id,
+        "draft_saved",
+        AuditAction::RealmConfigUpdate,
+        ip,
+        user_agent_from_headers(&headers),
+    )
+    .await;
 
     Ok(Json(SaveWhiteLabelDraftResponse {
         message: "White-label draft saved".to_string(),
@@ -232,6 +250,8 @@ pub async fn handle_discard_white_label_draft(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
     admin
@@ -246,7 +266,18 @@ pub async fn handle_discard_white_label_draft(
         true,
     )
     .await?;
-    let state_response = load_state(&state, admin.identity().clone(), realm_id).await?;
+    let state_response = load_state(&state, admin.identity().clone(), realm_id.clone()).await?;
+
+    audit_white_label_change(
+        &state,
+        admin.identity(),
+        &realm_id,
+        "draft_discarded",
+        AuditAction::RealmConfigDelete,
+        ip,
+        user_agent_from_headers(&headers),
+    )
+    .await;
 
     Ok(Json(WhiteLabelLifecycleResponse {
         message: "White-label draft discarded".to_string(),
@@ -281,6 +312,8 @@ pub async fn handle_publish_white_label_config(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     payload: Option<Json<UpdateWhiteLabelConfigRequest>>,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
@@ -328,7 +361,18 @@ pub async fn handle_publish_white_label_config(
             && published.config_key == SETTINGS_KEY,
         "batch_upsert_configs must preserve input order"
     );
-    delete_white_label_config(&state, identity, realm_id, DRAFT_KEY, true).await?;
+    delete_white_label_config(&state, identity.clone(), realm_id.clone(), DRAFT_KEY, true).await?;
+
+    audit_white_label_change(
+        &state,
+        &identity,
+        &realm_id,
+        "published",
+        AuditAction::RealmConfigUpdate,
+        ip,
+        user_agent_from_headers(&headers),
+    )
+    .await;
 
     Ok(Json(WhiteLabelLifecycleResponse {
         message: "White-label configuration published".to_string(),
@@ -362,6 +406,8 @@ pub async fn handle_restore_white_label_config(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
     admin
@@ -394,12 +440,23 @@ pub async fn handle_restore_white_label_config(
     let mut committed = state
         .service
         .realm_config_service()
-        .batch_upsert_configs(identity, realm_id, batch)
+        .batch_upsert_configs(identity.clone(), realm_id.clone(), batch)
         .await
         .map_err(map_realm_config_error)?;
     let restored = committed
         .pop()
         .expect("batch returns entries in input order; settings is the last entry");
+
+    audit_white_label_change(
+        &state,
+        &identity,
+        &realm_id,
+        "restored",
+        AuditAction::RealmConfigUpdate,
+        ip,
+        user_agent_from_headers(&headers),
+    )
+    .await;
 
     Ok(Json(WhiteLabelLifecycleResponse {
         message: "Previous white-label configuration restored".to_string(),
@@ -414,6 +471,49 @@ pub async fn handle_restore_white_label_config(
 struct LoadedWhiteLabelConfig {
     config: WhiteLabelConfig,
     updated_at: String,
+}
+
+/// White-label lifecycle routes bypass the generic realm-config HTTP handlers,
+/// so they write the same realm_config audit family at this boundary.
+async fn audit_white_label_change(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    operation: &str,
+    action: AuditAction,
+    ip: String,
+    user_agent: Option<String>,
+) {
+    if let Err(error) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::RealmManagement,
+            action,
+            actor_id: identity.user_id(),
+            actor_type: None,
+            actor_name: identity.as_user().map(|user| user.email.clone()),
+            target_type: AuditTargetType::Realm,
+            target_id: realm_id.to_string(),
+            target_name: Some(format!("white_label/{operation}")),
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "config_type": ConfigType::WhiteLabel.as_static_str(),
+                "operation": operation,
+            })),
+            ip_address: Some(ip),
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(
+            %error,
+            %realm_id,
+            %operation,
+            "Failed to record white-label audit event"
+        );
+    }
 }
 
 async fn load_state(

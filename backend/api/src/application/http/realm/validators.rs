@@ -18,7 +18,7 @@ pub struct ListRealmsPaginatedQuery {
     #[validate(range(min = 0))]
     pub page: Option<i32>,
 
-    /// Number of items per page (default 25, max 100)
+    /// Number of items per page (default 20, max 100)
     #[validate(range(min = 1, max = 100))]
     pub page_size: Option<i32>,
 

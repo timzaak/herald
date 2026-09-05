@@ -224,7 +224,7 @@ COMMENT ON TABLE role_permissions IS 'Many-to-many relationship between roles an
 -- User-Role associations
 -- Pre-launch squash: the role-grant provenance/expiry columns
 -- (source/source_id/expires_at) and the split manual/payment partial unique
--- indexes (which admit the same role from multiple sources, design §4.2) are
+-- indexes (which admit the same role from multiple sources) are
 -- inlined from the former 0006_support_paywall migration. No ALTER/DROP.
 CREATE TABLE user_roles (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -360,7 +360,7 @@ CREATE TABLE client_api_keys (
     name TEXT NOT NULL,
     api_key_hash TEXT UNIQUE NOT NULL,
     realm_id TEXT NOT NULL,
-    client_app_id UUID REFERENCES client_app(id) ON DELETE SET NULL,
+    client_app_id UUID REFERENCES client_app(id) ON DELETE RESTRICT,
     enabled BOOLEAN DEFAULT true,
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
