@@ -496,6 +496,12 @@ pub struct InvoiceListFilters {
     pub status: Option<InvoiceStatus>,
     pub source: Option<InvoiceSource>,
     pub provider: Option<InvoiceProvider>,
+    /// When true, restrict the list to externally-synced invoices
+    /// (`provider <> 'manual'`). Set by the read path under invoice policy
+    /// `none` (PRD invoice.md 行为矩阵 "发票列表"); not exposed as a
+    /// request-side query param.
+    #[serde(default)]
+    pub external_only: bool,
     pub search: Option<String>,
     pub date_from: Option<chrono::NaiveDate>,
     pub date_to: Option<chrono::NaiveDate>,

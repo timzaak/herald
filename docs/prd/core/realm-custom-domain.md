@@ -108,7 +108,7 @@
 - **Realm 隔离**：自定义域名属于 Realm 级别，一个自定义域名关联唯一一个 Realm；不同 Realm 的自定义域名配置相互独立
 - **域名全局唯一**：同一精确域名不可被多个 Realm 同时占用；后配置的 Realm 在保存时被拒绝并提示域名已被占用
 - **精确域名匹配**：本期仅支持精确域名匹配（如 `login.acme.com`），不支持多级/通配域名（如 `*.acme.com`）
-- **域名规范化**：hostname 服务端强制小写化、去尾点、拒绝含协议/端口/路径/通配的输入，防止通过大小写或尾点绕过唯一约束
+- **域名规范化**：hostname 服务端强制小写化、去尾点、拒绝含协议/端口/路径/通配的输入，防止通过大小写或尾点绕过唯一约束；随后经 UTS #46 IDNA 严格模式归一化为 Punycode A-label 存储——Unicode 原文（U-label）与既有 Punycode 拼写视为同一域名，跨 Realm 冲突判定按归一化后的存储值比较
 - **权限要求**：仅 Realm Admin（持有 `settings.manage` 写 / `settings.view` 读）可查看和配置本 Realm 的自定义域名；Regular User 无配置入口
 - **所有权验证（简化 BYO）**：自定义域名无需单独 DNS TXT 所有权验证步骤；CNAME 到 Herald 指定 hostname 即隐含 DNS 控制权证明，ACME 签发挑战本身进一步验证 DNS 实际指向 Herald，二者组合等价于所有权验证
 - **TLS 自动签发**：Herald 为每个已配置且 CNAME 正确生效的自定义域授权签发 TLS 证书（ACME）；Herald Rust app 不承担 TLS 终止，TLS 由现有 Caddy 反代层承担

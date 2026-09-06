@@ -522,7 +522,7 @@ CREATE INDEX idx_audit_events_realm_actor ON audit_events(realm_id, actor_id);
 CREATE INDEX idx_audit_events_realm_ip ON audit_events(realm_id, ip_address);
 
 COMMENT ON TABLE audit_events IS 'Append-only audit event log for security and compliance';
-COMMENT ON COLUMN audit_events.category IS 'Event category: user_management, rbac, realm_management, auth';
+COMMENT ON COLUMN audit_events.category IS 'Event category: user_management, rbac, realm_management, auth, billing, oauth, compliance';
 COMMENT ON COLUMN audit_events.action IS 'Specific operation within category';
 COMMENT ON COLUMN audit_events.actor_type IS 'Actor classification: user, admin, system';
 COMMENT ON COLUMN audit_events.result IS 'Operation result: success, failure';

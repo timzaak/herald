@@ -583,6 +583,61 @@ async fn test_passkey_first_factor_login_success_and_counter_updates(ctx: &mut T
     assert!(row.1.is_some(), "successful assertion records last_used_at");
 }
 
+/// Covers: users.md "被禁用的用户无法登录" — the passkey entrance must reject a
+/// disabled account even when the credential assertion itself is valid. Every
+/// other entrance (password, email-OTP, LDAP, OAuth callback) refuses before
+/// issuing tokens; without this check a Forbidden/Deleted user could complete
+/// passkey login and mint a fresh token family.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_passkey_first_factor_login_rejects_disabled_user(ctx: &mut TestContext) {
+    setup_passkey_env();
+    setup_realm_passkey_config(ctx, &ctx._realm_id, true).await;
+    let email = "passkey-disabled@test.com";
+    let user_id = create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+    let mut authenticator = softtoken();
+    let credential_id = register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        "Security Key",
+        &mut authenticator,
+    )
+    .await;
+    let credential_bytes = credential_bytes_for_id(ctx, &credential_id).await;
+
+    // Disable the account directly (mirrors user_sessions_scenarios): the
+    // disable happened outside this login flow, so no session teardown ran.
+    sqlx::query("UPDATE account SET status = 2, updated_at = NOW() WHERE id = $1::uuid")
+        .bind(&user_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("user should be disabled");
+
+    let (mut options, auth_token) = begin_first_factor(ctx, &ctx._realm_id).await;
+    add_allow_credential(&mut options, &credential_bytes);
+    let assertion = authenticator.authenticate(&options, RP_ORIGIN);
+    let payload = json!({
+        "authToken": auth_token,
+        "assertion": assertion
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/login/passkey/verify", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "9.9.9.9")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let response = ctx.create_unified_test_router().oneshot(req).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "a valid passkey assertion must not complete login for a disabled account"
+    );
+}
+
 /// User Story: US-PK-006
 /// Covers: passkey design §4.1 second-factor login, §4.2.2 temp session reuse, §6.1.
 #[test_context(TestContext)]

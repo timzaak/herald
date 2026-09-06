@@ -109,7 +109,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - 不裂变 billing_type 枚举，不新增商品类型，不引入「积分包 vs 权益包」之类新名词
 
 **履约一致性规则**：
-- one-time 映射未配置 points_per_period 时，履约不报错、不发积分、记录支付尝试成功
+- one-time 映射未配置积分分发规则（`points_distribution_rules`，trigger=`topup`；原标量 `points_per_period` 等字段已移除，见 subscription.md）时，履约不报错、不发积分、记录支付尝试成功
 - 该行为与 recurring 未配积分时跳过发放的容错一致
 - 此规则为独立修复，与主体 role 授予能力正交
 
@@ -171,7 +171,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 ### 5.1 核心需求
 
 **W1 — one-time 履约一致性修复**：
-- billing_type=one_time 映射未配置 points_per_period 时，履约不报错、不发积分、记录支付尝试成功
+- billing_type=one_time 映射未配置积分分发规则（trigger=`topup`）时，履约不报错、不发积分、记录支付尝试成功
 - 行为与 recurring 未配积分时的容错一致
 
 **M1 — role 授予横切维度**：

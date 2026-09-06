@@ -156,7 +156,7 @@ pub struct InvoiceApplyEligibilityResponse {
     pub can_apply: bool,
     /// "external_provider" | "manual_fallback" | "disabled".
     pub route: String,
-    /// Resolved payment_provider ("stripe"|"shopify"|"wechat"|"creem"|None).
+    /// Resolved payment_provider ("stripe"|"wechat"|"creem"|"apple"|"google"|None).
     pub provider: Option<String>,
     /// Human-readable reason when apply is not available, else `None`.
     pub reason: Option<String>,
@@ -393,6 +393,8 @@ impl InvoiceListQuery {
                 .provider
                 .as_deref()
                 .and_then(|s| s.parse::<InvoiceProvider>().ok()),
+            // Set later by the read-path policy filter, never from the query.
+            external_only: false,
             search: self.search.clone(),
             date_from: self.date_from,
             date_to: self.date_to,

@@ -24,6 +24,7 @@ import {
   validateOAuthParams,
 } from '@/lib/auth-utils'
 import { performLdapLogin } from '@/lib/auth-service'
+import { applyTokenSet } from '@/lib/herald-client'
 import { firstPartyClientForPath } from '@/lib/constants/auth-constants'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +40,8 @@ import { TurnstileWidget } from '@/components/auth/turnstile-widget'
 import {
   publicConfigQueryOptions,
   toAuthConsentAgreements,
+  toRecordConsentRequest,
+  recordConsentMutation,
   turnstileStatusQueryOptions,
   emailOtpStatusQueryOptions,
   passkeyStatusQueryOptions,
@@ -86,8 +89,14 @@ interface ConsentStep {
    * Verbatim first-factor values that triggered the consent gate; replayed
    * with `agreements` attached. The forms are not editable while the consent
    * view is mounted, so the snapshot equals the current field values.
+   *
+   * Absent for OAuth direct-login entrances (Google One Tap): the provider
+   * credential is single-use, so the submission cannot be replayed with
+   * agreements attached. Agree instead records explicit consent via
+   * `POST /api/legal/{realmId}/consent` using the restricted session the gate
+   * returned, and the user re-triggers the entrance for the full session.
    */
-  originalPayload: LoginMutationValues
+  originalPayload?: LoginMutationValues
 }
 
 /**
@@ -322,6 +331,32 @@ export function LoginPage() {
     setGlobalError(message)
   }
 
+  /**
+   * Records explicit consent for the OAuth direct-login consent-gate variant
+   * (`consentStep` without `originalPayload`). The gate response applied a
+   * restricted-session token family (profile-read/delete-account/logout
+   * scopes), which is exactly what `POST /api/legal/{realmId}/consent` needs;
+   * recording cannot replay the login because the provider credential is
+   * single-use. On success the user re-triggers the entrance (e.g. clicks One
+   * Tap again) to obtain the full session.
+   */
+  const oauthConsentRecord = useMutation({
+    mutationFn: async () => {
+      if (!consentStep) throw new Error('Consent step missing')
+      await recordConsentMutation(realmId, toRecordConsentRequest(consentStep.agreements))
+    },
+    onSuccess: () => {
+      setGlobalError(null)
+      setConsentStep(null)
+      toast.success(m['auth.login.reconsent_recorded']())
+    },
+    onError: (error: unknown) => {
+      const message = getErrorMessage(error)
+      toast.error(message)
+      setGlobalError(message)
+    },
+  })
+
   const form = useForm({
     defaultValues: { username: '', password: '', turnstileToken: '' },
     onSubmit: async ({ value }) => {
@@ -345,15 +380,25 @@ export function LoginPage() {
     if (!consentStep) return
     setGlobalError(null)
 
+    // OAuth direct-login variant (no originalPayload): the provider
+    // credential is single-use, so the submission cannot be replayed with
+    // agreements attached — record explicit consent with the restricted
+    // session instead; the user then re-triggers the entrance.
+    if (!consentStep.originalPayload) {
+      oauthConsentRecord.mutate()
+      return
+    }
+
     const agreements = toAuthConsentAgreements(consentStep.agreements)
+    const original = consentStep.originalPayload
 
     // Replay the exact first-factor submission with the agreements attached.
     // The factor snapshot selects the same performer (password vs LDAP) and
     // the same error mapping as the original attempt.
     loginMutation.mutate(
-      { ...consentStep.originalPayload, agreements },
+      { ...original, agreements },
       {
-        onError: (error: unknown) => handleLoginError(error, consentStep.originalPayload.factor),
+        onError: (error: unknown) => handleLoginError(error, original.factor),
       }
     )
   }
@@ -466,8 +511,37 @@ export function LoginPage() {
    * `redirectTo` branch, so only the safe-internal-redirect path applies. The
    * route owns token storage (`completeLoginAfterOneTap`) + navigation; the
    * `OneTapLogin` component handed up the raw response via its `onSuccess` prop.
+   *
+   * Consent-gate variant: when the user's legal consent is stale the same
+   * endpoint answers with the shared `OAuthCallbackResponse` consent shape —
+   * `consentRequired: true` + `agreements` + `restrictedSession`, no token
+   * fields (OAuth direct login is not exempt from the consent gate). The
+   * generated `OneTapDirectResponse` type models only the success shape (the
+   * utoipa schema documents a single 200 body), hence the structural cast.
+   * The restricted family is applied so the consent view's Agree can record
+   * consent; the full session needs a fresh One Tap attempt afterwards.
    */
   async function handleOneTapSuccess(tokenResponse: OneTapDirectResponse): Promise<void> {
+    const gate = tokenResponse as OneTapDirectResponse & {
+      consentRequired?: boolean
+      agreements?: LegalAgreementSummary[]
+      restrictedSession?: { accessToken: string; refreshToken: string }
+    }
+    if (
+      isConsentRequired(gate) &&
+      gate.agreements &&
+      gate.agreements.length > 0 &&
+      gate.restrictedSession
+    ) {
+      applyTokenSet({
+        accessToken: gate.restrictedSession.accessToken,
+        refreshToken: gate.restrictedSession.refreshToken,
+        clientId: resolvedClientId,
+      })
+      setConsentStep({ agreements: gate.agreements })
+      return
+    }
+
     toast.success(m['auth.login.login_successful']())
 
     const { redirectPath } = await completeLoginAfterOneTap(
@@ -516,12 +590,12 @@ export function LoginPage() {
             ))}
             <Button
               type="button"
-              disabled={loginMutation.isPending}
+              disabled={loginMutation.isPending || oauthConsentRecord.isPending}
               className="w-full"
               data-testid="login-agree-and-continue-button"
               onClick={handleConsentAgree}
             >
-              {loginMutation.isPending
+              {loginMutation.isPending || oauthConsentRecord.isPending
                 ? m['auth.login.logging_in']()
                 : m['auth.login.agree_and_continue']()}
             </Button>

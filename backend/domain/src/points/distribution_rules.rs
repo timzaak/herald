@@ -303,8 +303,14 @@ pub fn validate_rule_for_owner(
         }
         DistributionPolicy::Quota { windows } => {
             // Quota is only valid for subscription / free-periodic credit, never
-            // for registration (registration is a one-time fixed grant).
-            if trigger_sources.contains(&DistributionTrigger::Registration) {
+            // for one-time shapes: registration is a one-time fixed grant, and a
+            // topup (one-time purchase, multi-wallet PRD §4.3) has no recurring
+            // window to draw against — the executor has no quota source type
+            // for Topup, so persisting the rule would only defer the failure
+            // to every fulfillment of that product.
+            if trigger_sources.contains(&DistributionTrigger::Registration)
+                || trigger_sources.contains(&DistributionTrigger::Topup)
+            {
                 return Err(DistributionRuleError::PolicyNotAllowedForTrigger);
             }
             if windows.is_empty()
@@ -889,6 +895,30 @@ mod tests {
             },
         );
         assert!(validate_rule_for_owner(&r, Some(BillingType::Recurring)).is_ok());
+    }
+
+    #[test]
+    fn quota_policy_rejected_for_topup_trigger() {
+        // WHY (multi-wallet PRD §4.3/§4.6): a one-time purchase grants only
+        // fixed credit with a validity; the quota executor has no source type
+        // for Topup. If this shape saved, every fulfillment of the product
+        // would fail at execution time and roll back the whole distribution
+        // event — the save-time rejection is the contract.
+        let r = rule(
+            mapping_owner(),
+            &[DistributionTrigger::Topup],
+            DistributionPolicy::Quota {
+                windows: vec![QuotaWindow {
+                    window_seconds: 3600,
+                    limit: 100,
+                    key: "1h".to_string(),
+                }],
+            },
+        );
+        assert_eq!(
+            validate_rule_for_owner(&r, Some(BillingType::OneTime)),
+            Err(DistributionRuleError::PolicyNotAllowedForTrigger)
+        );
     }
 
     #[test]

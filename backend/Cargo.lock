@@ -2199,6 +2199,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "herald-api-auth",
  "herald-api-base",
  "herald-core",
  "jsonwebtoken 9.3.1",

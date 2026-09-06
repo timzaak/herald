@@ -1363,6 +1363,37 @@ mod tests {
     }
 
     #[test]
+    fn map_emits_renewed_for_each_consecutive_period() {
+        // WHY: the poll is the only Google renewal driver, and downstream
+        // idempotency (google_replay_event_id) discriminates renewals by
+        // expiryTime. If the mapper stopped re-emitting after the first
+        // renewal (e.g. compared against the pre-first-renewal expiry), the
+        // second and later renewals would never fulfil.
+        let first_expiry = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let second_expiry = first_expiry + chrono::Duration::days(30);
+        let third_expiry = second_expiry + chrono::Duration::days(30);
+
+        // First renewal: stored expiry is the initial period end.
+        let (event, first_payload) = map_google_subscription_change(
+            &stored("tok-r", "active", Some(first_expiry)),
+            &sub_state("SUBSCRIPTION_STATE_ACTIVE", Some(second_expiry)),
+        )
+        .expect("first renewal must emit");
+        assert_eq!(event, "subscription.renewed");
+
+        // Second renewal: the projection has advanced to second_expiry; the
+        // poll now reports third_expiry and must emit again with a different
+        // period discriminator.
+        let (event, second_payload) = map_google_subscription_change(
+            &stored("tok-r", "active", Some(second_expiry)),
+            &sub_state("SUBSCRIPTION_STATE_ACTIVE", Some(third_expiry)),
+        )
+        .expect("consecutive renewal must emit again");
+        assert_eq!(event, "subscription.renewed");
+        assert_ne!(first_payload["expiryTime"], second_payload["expiryTime"]);
+    }
+
+    #[test]
     fn map_emits_renewed_event_when_stored_expiry_missing() {
         // No recorded expiry + active status + Google returns an expiry → treat
         // as renewal (first observation of an active subscription).

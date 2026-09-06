@@ -138,6 +138,7 @@
       "consent_statement": "登录即表示同意",
       "reconsent_title": "协议已更新",
       "reconsent_description": "请查看并同意更新后的协议以继续。",
+      "reconsent_recorded": "您的同意已记录，请重新登录以继续。",
       "agree_and_continue": "同意并继续",
       "decline_back_to_login": "拒绝并返回登录",
       "passkey_use_button": "使用通行密钥",

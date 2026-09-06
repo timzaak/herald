@@ -125,7 +125,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - provider 商品/价格展示信息来自支付方同步缓存，不由 Herald 本地手工维护
 - `features` 和 `quotas` 由第三方应用自行管理，Herald 不存储这些信息
 - 更新价格以支付方为准；Herald 通过同步刷新 provider_product_info
-- 更新 checkout_url 立即生效，所有新订阅用户使用新 URL
+- 映射不存储 checkout_url：收银台链接由每次购买会话按 provider 动态生成（记在支付尝试上），不存在"更新 URL 立即生效"的映射级字段
 - Provider-to-Entitlement 映射是 Herald 本地的 allowlist 和只读缓存，不是本地商业目录
 - 映射数据以 Herald 本地配置为准；Stripe Product/Price metadata 可作为导入入口，Creem 需要在 Herald 中配置 entitlement 和积分策略
 - 映射承载的信息包括：provider、external_product_id、external_price_id（Creem 不适用）、entitlement_key、积分策略字段、`granted_role_ids`（支付成功后授予的 role，见 [support-paywall.md](support-paywall.md)）、规则集合中的 `quota_windows`（配额窗口策略，保存在 `points_distribution_rules`，不是 Mapping 基表字段）、provider_product_info、synced_at
@@ -263,7 +263,6 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 **异常场景**：
 - 删除有活跃订阅的支付平台配置：拒绝操作并提示活跃订阅数量
 - 禁用有活跃订阅的 Entitlement 映射：单条 PATCH 与批量更新均返回 409；批量更新整批事务回滚（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载
-- 订阅降级时当前用户数超过目标套餐限制：不允许降级
 - Webhook 签名验证失败：拒绝处理请求
 
 ---

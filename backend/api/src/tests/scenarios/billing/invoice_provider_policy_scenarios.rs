@@ -565,7 +565,7 @@ mod tests {
         let pa_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO payment_attempts (id, realm_id, user_id, payment_provider, target_type, target_id, amount, currency, status, expires_at, created_at)
-             VALUES ($1, $2, $3, 'stripe', 'entitlement_mapping', $4, 5000, 'USD', 'completed', NOW() + INTERVAL '1 hour', NOW())",
+             VALUES ($1, $2, $3, 'stripe', 'entitlement_mapping', $4, 5000, 'USD', 'Succeeded', NOW() + INTERVAL '1 hour', NOW())",
         )
         .bind(pa_id)
         .bind(realm_id.as_str())
@@ -632,7 +632,7 @@ mod tests {
         let pa_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO payment_attempts (id, realm_id, user_id, payment_provider, target_type, target_id, amount, currency, status, expires_at, created_at)
-             VALUES ($1, $2, $3, 'creem', 'entitlement_mapping', $4, 10000, 'USD', 'completed', NOW() + INTERVAL '1 hour', NOW())",
+             VALUES ($1, $2, $3, 'creem', 'entitlement_mapping', $4, 10000, 'USD', 'Succeeded', NOW() + INTERVAL '1 hour', NOW())",
         )
         .bind(pa_id)
         .bind(realm_id.as_str())
@@ -721,7 +721,7 @@ mod tests {
         let pa_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO payment_attempts (id, realm_id, user_id, payment_provider, target_type, target_id, amount, currency, status, expires_at, created_at)
-             VALUES ($1, $2, $3, 'creem', 'entitlement_mapping', $4, 5000, 'USD', 'completed', NOW() + INTERVAL '1 hour', NOW())",
+             VALUES ($1, $2, $3, 'creem', 'entitlement_mapping', $4, 5000, 'USD', 'Succeeded', NOW() + INTERVAL '1 hour', NOW())",
         )
         .bind(pa_id)
         .bind(realm_id.as_str())
@@ -1805,5 +1805,277 @@ mod tests {
                 "capability {enabled} must control Stripe manual fallback: {body}"
             );
         }
+    }
+
+    // =========================================================================
+    // Group 7: Read-Path Policy Enforcement (invoice.md 行为矩阵)
+    // =========================================================================
+
+    // =========================================================================
+    // Test: policy filters the admin list and gates PDF downloads
+    // =========================================================================
+    // Covers: PRD invoice.md 行为矩阵 "发票列表"/"PDF 下载" rows — the policy is
+    // enforced by api-billing on the read path, not only on writes.
+    //
+    // WHY this matters: without read-path enforcement, `manual_only` realms
+    // still surface provider-synced invoices in the admin list, and `none`
+    // realms keep serving IronPress PDFs for pre-existing manual invoices —
+    // both contradict the policy the admin configured. Read-time filtering
+    // must also never mutate the hidden rows (Provider 切换兼容): flipping the
+    // policy back to provider_first must make both invoices visible again.
+
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn dream_check_read_policy_filters_admin_list_and_pdf(ctx: &mut InvoiceTestContext) {
+        let app = ctx.create_unified_test_router();
+        let realm_id = ctx._realm_id.clone();
+        let admin_token = setup_billing_admin_session(ctx, "invoice-read-policy@test.com").await;
+        let account_id = ensure_test_account(ctx, &realm_id).await;
+
+        // Start under manual_only so a manual invoice can be created and issued.
+        set_invoice_policy(ctx, &realm_id, "manual_only", "{}").await;
+        let manual_inv = create_draft_invoice(
+            &app,
+            &admin_token,
+            &realm_id,
+            account_id,
+            vec![json!({"name": "Manual Service", "quantity": "1", "unitPrice": 5000})],
+            "Read Policy Client",
+        )
+        .await;
+        let manual_invoice_id = manual_inv["id"].as_str().unwrap().to_string();
+        let issue_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/bill/{}/invoices/{}/issue",
+                        realm_id, manual_invoice_id
+                    ))
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", admin_token))
+                    .body(Body::from(json!({}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(issue_response.status(), StatusCode::OK);
+
+        let stripe_inv_id = create_external_invoice_in_db(
+            ctx,
+            &realm_id,
+            "stripe",
+            "in_read_policy_001",
+            "issued",
+            None,
+            Some("https://stripe.com/invoice/read-policy/pdf"),
+        )
+        .await;
+
+        let list_invoices = |query: String| {
+            let app = app.clone();
+            let realm_id = realm_id.clone();
+            let token = admin_token.clone();
+            async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("GET")
+                            .uri(format!("/api/bill/{}/invoices{}", realm_id, query))
+                            .header("authorization", format!("Bearer {}", token))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                parse_body(response.into_body()).await
+            }
+        };
+        let get_pdf = |invoice_id: String| {
+            let app = app.clone();
+            let realm_id = realm_id.clone();
+            let token = admin_token.clone();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri(format!(
+                            "/api/bill/{}/invoices/{}/pdf",
+                            realm_id, invoice_id
+                        ))
+                        .header("authorization", format!("Bearer {}", token))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        // manual_only: list shows self-developed data only, and an explicit
+        // provider=stripe request must not widen the visible set.
+        let body = list_invoices(String::new()).await;
+        assert_eq!(body["total"], 1, "manual_only must hide external invoices");
+        assert_eq!(body["data"][0]["provider"], "manual");
+        let body = list_invoices("?provider=stripe".to_string()).await;
+        assert_eq!(
+            body["total"], 1,
+            "manual_only must override a provider filter that would widen the set"
+        );
+        assert_eq!(
+            body["data"][0]["provider"], "manual",
+            "the surviving row must be the manual one"
+        );
+
+        // manual_only PDFs: manual → IronPress; external → 403 (not the
+        // provider dual-track).
+        let response = get_pdf(manual_invoice_id.clone()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = get_pdf(stripe_inv_id.to_string()).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "manual_only must block external invoice PDFs"
+        );
+
+        // none: list shows external data only; manual PDF blocked; external
+        // PDF still resolves through the provider URL.
+        set_invoice_policy(ctx, &realm_id, "none", "{}").await;
+        let body = list_invoices(String::new()).await;
+        assert_eq!(body["total"], 1, "none must hide manual invoices");
+        assert_eq!(body["data"][0]["provider"], "stripe");
+        let response = get_pdf(manual_invoice_id).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "none must block manual invoice PDFs"
+        );
+        let response = get_pdf(stripe_inv_id.to_string()).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FOUND,
+            "none must keep external PDFs on the provider redirect track"
+        );
+
+        // provider_first restores full visibility — the hidden rows were
+        // filtered, never mutated.
+        set_invoice_policy(ctx, &realm_id, "provider_first", "{}").await;
+        let body = list_invoices(String::new()).await;
+        assert_eq!(
+            body["total"], 2,
+            "provider_first must show both tracks again"
+        );
+    }
+
+    // =========================================================================
+    // Test: policy filters the user's own invoice list the same way
+    // =========================================================================
+    // Covers: PRD invoice.md §4.2 — the user list endpoint shares the
+    // policy's provider visibility with the admin list.
+    //
+    // WHY this matters: filtering only the admin surface would leave the
+    // user-facing "my invoices" page displaying rows the policy hides, an
+    // inconsistent read model between the two surfaces.
+
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn dream_check_read_policy_filters_user_list(ctx: &mut InvoiceTestContext) {
+        let app = ctx.create_unified_test_router();
+        let realm_id = ctx._realm_id.clone();
+        let _admin_token = setup_billing_admin_session(ctx, "invoice-read-user@test.com").await;
+
+        let (user_token, user_id) = crate::tests::helpers::create_admin_session_with_user(
+            ctx,
+            "user-read-policy@test.com",
+            1800,
+        )
+        .await;
+        let user_uuid = Uuid::parse_str(&user_id).expect("Invalid user_id format");
+
+        // One manual + one external invoice, both linked to the user's account.
+        async fn insert_user_invoice(
+            ctx: &InvoiceTestContext,
+            realm_id: &str,
+            user_uuid: Uuid,
+            provider: &str,
+            number: String,
+        ) -> Uuid {
+            let invoice_id = Uuid::now_v7();
+            sqlx::query(
+                "INSERT INTO invoice (
+                    id, realm_id, invoice_number, source, account_id, status, currency,
+                    subtotal, discount_amount, tax_amount, shipping_amount, total,
+                    provider, payment_provider
+                ) VALUES (
+                    $1, $2, $3, 'admin_manual', $4, 'issued', 'USD',
+                    10000, 0, 0, 0, 10000,
+                    $5, $5
+                )",
+            )
+            .bind(invoice_id)
+            .bind(realm_id)
+            .bind(&number)
+            .bind(user_uuid)
+            .bind(provider)
+            .execute(&ctx.app_state.pool)
+            .await
+            .unwrap();
+            invoice_id
+        }
+        let _manual_inv = insert_user_invoice(
+            ctx,
+            &realm_id,
+            user_uuid,
+            "manual",
+            format!("INV-READ-{}", Uuid::now_v7()),
+        )
+        .await;
+        let _stripe_inv = insert_user_invoice(
+            ctx,
+            &realm_id,
+            user_uuid,
+            "stripe",
+            format!("EXT-STRIPE-{}", Uuid::now_v7()),
+        )
+        .await;
+
+        let list_my_invoices = || {
+            let app = app.clone();
+            let token = user_token.clone();
+            async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("GET")
+                            .uri("/api/user/bill/invoices")
+                            .header("authorization", format!("Bearer {}", token))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                parse_body(response.into_body()).await
+            }
+        };
+
+        set_invoice_policy(ctx, &realm_id, "none", "{}").await;
+        let body = list_my_invoices().await;
+        assert_eq!(body["total"], 1, "none must hide the user's manual invoice");
+        assert_eq!(body["data"][0]["provider"], "stripe");
+
+        set_invoice_policy(ctx, &realm_id, "manual_only", "{}").await;
+        let body = list_my_invoices().await;
+        assert_eq!(
+            body["total"], 1,
+            "manual_only must hide the user's external invoice"
+        );
+        assert_eq!(body["data"][0]["provider"], "manual");
+
+        set_invoice_policy(ctx, &realm_id, "provider_first", "{}").await;
+        let body = list_my_invoices().await;
+        assert_eq!(body["total"], 2, "provider_first must show both again");
     }
 }

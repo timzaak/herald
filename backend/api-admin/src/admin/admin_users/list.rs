@@ -62,21 +62,6 @@ pub async fn list_users(
             );
         })?;
 
-    // Debug logging to investigate UUID issue
-    let user_id = admin.user_id_string();
-    tracing::debug!("user_id from identity: {}", user_id);
-    tracing::debug!("user_id length: {}", user_id.len());
-    tracing::debug!(
-        "user_id is_uuid: {}",
-        uuid::Uuid::parse_str(&user_id).is_ok()
-    );
-
-    tracing::debug!(
-        user_realm = %admin.realm_id(),
-        target_realm = %realm_id,
-        "Realm access check passed"
-    );
-
     // Normalize pagination parameters
     let norm = pagination::PaginationRequest {
         page: query.page.unwrap_or(0) as i64,

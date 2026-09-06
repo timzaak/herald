@@ -54,7 +54,7 @@
   - **Realm 管理**：Realm 创建、RBAC 初始化
   - **认证事件**：用户登录、登出、登录失败、Passkey 注册/删除、Client App 切换（`auth.client_switch`）
   - **合规事件**：用户协议/隐私政策同意（`agreement.consent`）、协议发布（`agreement.published`）、协议回退（`agreement.reverted`）
-  - **关键配置变更**（边界定义）：经通用 realm_config API 的所有配置行写入/删除均记审计——支付 Provider（Stripe/Creem/Apple/Google/WeChat）记 `payment_config.update` / `payment_config.delete`，其余配置类型（SMTP/Resend、LDAP、Turnstile、注册策略、`totp_key` 等）记 `realm_config.update` / `realm_config.delete`；白标草稿保存/丢弃、发布和恢复同样记 `realm_config.update/delete` 并在 details 标注生命周期操作；认证策略配置经专用端点写入时记专用事件（`passkey_config.update` / `totp_config.update` / `email_otp_config.update`）；OAuth Provider 配置记 `oauth_config.*`。自定义域名与 Realm 档案（名称/描述）编辑当前不在审计范围
+  - **关键配置变更**（边界定义）：经通用 realm_config API 的所有配置行写入/删除均记审计——支付 Provider（Stripe/Creem/Apple/Google/WeChat）记 `payment_config.update` / `payment_config.delete`，其余配置类型（SMTP/Resend、LDAP、Turnstile、注册策略、`totp_key` 等）记 `realm_config.update` / `realm_config.delete`；白标草稿保存/丢弃、发布和恢复同样记 `realm_config.update/delete` 并在 details 标注生命周期操作；认证策略配置经专用端点写入时记专用事件（`passkey_config.update` / `totp_config.update` / `email_otp_config.update`）；OAuth Provider 配置记 `oauth_config.*`；自定义域名保存/清空经专用单保存端点写入，记 `realm_config.update` 并在 details 标注 `config_type: "custom_domain"` 与 `operation: saved|cleared`。Realm 档案（名称/描述）编辑当前不在审计范围
 
 ### 2.2 不包含功能 (Out of Scope)
 

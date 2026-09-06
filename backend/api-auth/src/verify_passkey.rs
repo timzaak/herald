@@ -498,6 +498,13 @@ async fn finish_login(
     }
 
     let user = state.user_repository.get_user_by_id(user_id).await?;
+    // Disabled/soft-deleted accounts must not complete passkey login or even
+    // receive a consent-restricted session — every other entrance rejects
+    // before issuing tokens (see the OAuth callback's defense-in-depth note).
+    // WaitVerified still passes so email verification can continue.
+    if user.status.is_disabled() {
+        return Err(ApiError::unauthorized("Account is disabled"));
+    }
     if let Some(summaries) = crate::consent_gate::evaluate_login_consent_gate(
         state,
         &user,

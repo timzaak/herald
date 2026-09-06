@@ -104,7 +104,7 @@ pub struct InitialAdminUser {
     #[validate(email)]
     pub email: String,
 
-    #[validate(length(min = 8))]
+    #[validate(length(min = 8, max = 100))]
     pub password: String,
 }
 

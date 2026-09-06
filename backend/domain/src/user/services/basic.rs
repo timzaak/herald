@@ -85,8 +85,8 @@ where
 
         // Validate password if provided
         if let Some(ref password) = request.password {
-            if password.len() < 8 {
-                return Err(CoreError::BadRequest("Password too short".to_string()));
+            if password.len() < 8 || password.len() > 100 {
+                return Err(CoreError::BadRequest("Password length invalid".to_string()));
             }
             let password_hash = self.hash_password(password).await?;
             let user = self
@@ -371,8 +371,8 @@ where
     ) -> Result<User, CoreError> {
         // Validate password if provided
         if let Some(ref password) = request.password {
-            if password.len() < 8 {
-                return Err(CoreError::BadRequest("Password too short".to_string()));
+            if password.len() < 8 || password.len() > 100 {
+                return Err(CoreError::BadRequest("Password length invalid".to_string()));
             }
             let password_hash = self.hash_password(password).await?;
             let user = self

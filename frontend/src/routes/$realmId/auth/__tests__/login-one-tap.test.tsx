@@ -77,9 +77,21 @@ vi.mock('@/hooks/use-oauth-login', () => ({
 }))
 
 vi.mock('@/components/auth/one-tap-login', () => ({
-  OneTapLogin: (props: { googleClientId: string; realmId: string }) => (
-    <div data-testid="one-tap-container" data-google-client-id={props.googleClientId} />
+  OneTapLogin: (props: {
+    googleClientId: string
+    realmId: string
+    onSuccess: (response: unknown) => void
+  }) => (
+    <div data-testid="one-tap-container" data-google-client-id={props.googleClientId}>
+      <button data-testid="one-tap-trigger" onClick={() => props.onSuccess(mockOneTapResponse)}>
+        trigger
+      </button>
+    </div>
   ),
+}))
+
+vi.mock('@/lib/herald-client', () => ({
+  applyTokenSet: vi.fn(),
 }))
 
 /**
@@ -96,6 +108,11 @@ let mockValidateOAuthParamsReturn: {
   oauthParams: { oauthClientId: string; redirectUri: string; state: string } | null
   hasPartialOAuth: boolean
 } = { oauthParams: null, hasPartialOAuth: false }
+
+/** Response handed to onSuccess when the one-tap trigger button is clicked. */
+let mockOneTapResponse: unknown = {}
+
+const mockRecordConsent = vi.fn()
 
 vi.mock('@/data/query-options', () => ({
   publicConfigQueryOptions: () => ({
@@ -129,11 +146,14 @@ vi.mock('@/data/query-options', () => ({
     queryFn: () => Promise.resolve({ enabled: true }),
   }),
   toAuthConsentAgreements: () => [],
+  toRecordConsentRequest: (agreements: unknown) => agreements,
+  recordConsentMutation: (...args: unknown[]) => mockRecordConsent(...args),
 }))
 
 // Re-import validateOAuthParams after the auth-utils mock so we can override
 // its return per test via vi.mocked.
 import { validateOAuthParams } from '@/lib/auth-utils'
+import { applyTokenSet } from '@/lib/herald-client'
 import { LoginPage } from '../login'
 
 function createTestQueryClient() {
@@ -154,6 +174,7 @@ describe('LoginPage Google One Tap gating', () => {
   beforeEach(() => {
     mockOauthProviders = []
     mockValidateOAuthParamsReturn = { oauthParams: null, hasPartialOAuth: false }
+    mockOneTapResponse = {}
     vi.mocked(validateOAuthParams).mockImplementation(() => mockValidateOAuthParamsReturn)
   })
 
@@ -204,6 +225,61 @@ describe('LoginPage Google One Tap gating', () => {
 
     await waitFor(() => {
       expect(screen.queryByTestId('one-tap-container')).not.toBeInTheDocument()
+    })
+  })
+
+  it('routes a One Tap consent-gate response to the consent view and records consent on Agree', async () => {
+    // Stale legal consent must not hand the user a full session from the OAuth
+    // direct entrance. The backend answers 200 with `consentRequired` +
+    // `agreements` + `restrictedSession` and no token fields; the route must
+    // apply the restricted family and mount the consent view instead of
+    // completing the login.
+    mockOauthProviders = [
+      { name: 'google', displayName: 'Google', enabled: true, clientId: 'google-client-123' },
+    ]
+    const agreements = [
+      {
+        agreement_type: 'terms_of_service',
+        version_id: 'tos-v1',
+        version_no: 2,
+        effective_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    mockOneTapResponse = {
+      message: 'consent required',
+      userId: 'user-1',
+      consentRequired: true,
+      agreements,
+      restrictedSession: {
+        accessToken: 'restricted-at',
+        refreshToken: 'restricted-rt',
+        expiresIn: 300,
+        refreshExpiresIn: 300,
+        tokenType: 'Bearer',
+      },
+    }
+    const { userEvent } = await import('@testing-library/user-event')
+    renderLoginPage()
+
+    await userEvent.click(await screen.findByTestId('one-tap-trigger'))
+
+    // Consent view mounted; the restricted family was applied so the Agree
+    // action can call POST /api/legal/{realmId}/consent with it.
+    expect(await screen.findByTestId('login-reconsent-view')).toBeInTheDocument()
+    expect(applyTokenSet).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'restricted-at', refreshToken: 'restricted-rt' })
+    )
+    expect(mockNavigate).not.toHaveBeenCalled()
+
+    // Agree records explicit consent (the provider credential is single-use,
+    // so the login cannot be replayed) and dismisses the consent view.
+    mockRecordConsent.mockResolvedValue(undefined)
+    await userEvent.click(await screen.findByTestId('login-agree-and-continue-button'))
+    await waitFor(() => {
+      expect(mockRecordConsent).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('login-reconsent-view')).not.toBeInTheDocument()
     })
   })
 })

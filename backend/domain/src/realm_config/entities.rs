@@ -706,7 +706,8 @@ pub struct BatchUpsertRealmConfigRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CustomDomainConfig {
     /// Precise custom login hostname (e.g. `login.acme.com`), normalized to
-    /// lowercase with any trailing dot stripped. `None` clears the draft.
+    /// lowercase with any trailing dot stripped. `None` clears the configured
+    /// hostname (single-save model: saving takes effect immediately).
     pub hostname: Option<String>,
 }
 

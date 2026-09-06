@@ -23,10 +23,11 @@ use herald_core::domain::billing::invoice::{
     InvoiceProvider, InvoiceRepository, InvoiceSource, InvoiceStatus, InvoiceStatusTransition,
     NewInvoice, NewLineItem, UpdateInvoiceDraft,
 };
+use herald_core::domain::billing::invoice_service;
 use herald_core::domain::billing::invoice_service::{
     InvoicePolicyConfig, external_invoice_capability_enabled, parse_invoice_policy_config,
     validate_external_invoice_readonly, validate_invoice_policy_allows_creation,
-    validate_not_mor_provider, validate_status_transition,
+    validate_not_mor_provider, validate_pdf_allowed_by_policy, validate_status_transition,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::payment_attempt::PaymentAttemptStatus;
@@ -138,10 +139,9 @@ async fn validate_resource_ownership(
 /// Whether the referenced purchase has reached a paid state.
 ///
 /// A payment attempt is paid only after the provider-confirmed terminal
-/// success state (`completed` is the legacy spelling still allowed by the DB
-/// constraint). A subscription can be invoiced once it has left the unpaid
-/// setup/trial states; canceled/expired subscriptions remain historical paid
-/// purchases and therefore stay invoiceable.
+/// success state (`Succeeded`). A subscription can be invoiced once it has
+/// left the unpaid setup/trial states; canceled/expired subscriptions remain
+/// historical paid purchases and therefore stay invoiceable.
 async fn resource_is_paid(
     pool: &PgPool,
     resource: OwnedResource,
@@ -168,17 +168,12 @@ async fn resource_is_paid(
     };
 
     Ok(match resource {
-        OwnedResource::PaymentAttempt => {
-            // `completed` is the legacy spelling still allowed by the DB
-            // constraint; everything else round-trips through the enum.
-            matches!(status.as_deref(), Some("completed"))
-                || matches!(
-                    status
-                        .as_deref()
-                        .and_then(|s| s.parse::<PaymentAttemptStatus>().ok()),
-                    Some(PaymentAttemptStatus::Succeeded)
-                )
-        }
+        OwnedResource::PaymentAttempt => matches!(
+            status
+                .as_deref()
+                .and_then(|s| s.parse::<PaymentAttemptStatus>().ok()),
+            Some(PaymentAttemptStatus::Succeeded)
+        ),
         OwnedResource::Subscription => matches!(
             status
                 .as_deref()
@@ -363,6 +358,19 @@ async fn require_invoice_policy_allows_writes(
     realm_id: &str,
 ) -> Result<(), ApiError> {
     validate_invoice_policy_allows_creation(&get_invoice_policy(state, realm_id).await?)?;
+    Ok(())
+}
+
+/// Read-path policy filter for the list endpoints: fetches the realm's
+/// invoice policy and delegates the visible-set mapping to
+/// `invoice_service::apply_invoice_policy_list_filter`.
+async fn apply_invoice_policy_list_filter(
+    state: &AppState,
+    realm_id: &str,
+    filters: &mut InvoiceListFilters,
+) -> Result<(), ApiError> {
+    let policy = get_invoice_policy(state, realm_id).await?;
+    invoice_service::apply_invoice_policy_list_filter(&policy, filters);
     Ok(())
 }
 
@@ -606,7 +614,8 @@ pub async fn list_invoices(
     tracing::info!("Listing invoices for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
-    let filters = query.to_filters();
+    let mut filters = query.to_filters();
+    apply_invoice_policy_list_filter(&state, &realm_id, &mut filters).await?;
 
     let result = state
         .invoice_repository
@@ -1542,7 +1551,8 @@ pub async fn list_my_invoices(
         "view invoices",
     )?;
 
-    let filters = query.to_filters();
+    let mut filters = query.to_filters();
+    apply_invoice_policy_list_filter(&state, &realm_id, &mut filters).await?;
 
     let result = state
         .invoice_repository
@@ -1768,6 +1778,8 @@ pub async fn download_invoice_pdf(
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
     let detail = load_detail(&state, &realm_id, invoice_id).await?;
+    let policy = get_invoice_policy(&state, &realm_id).await?;
+    validate_pdf_allowed_by_policy(&policy, detail.invoice.provider)?;
     validate_pdf_status(detail.invoice.status)?;
 
     // External provider dual-track: redirect or 404
@@ -1830,6 +1842,8 @@ pub async fn download_my_invoice_pdf(
         "You can only download your own invoices",
     )?;
 
+    let policy = get_invoice_policy(&state, &realm_id).await?;
+    validate_pdf_allowed_by_policy(&policy, detail.invoice.provider)?;
     validate_pdf_status(detail.invoice.status)?;
 
     // External provider dual-track: redirect or 404

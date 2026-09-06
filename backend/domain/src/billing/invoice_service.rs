@@ -4,8 +4,8 @@ use uuid::Uuid;
 use crate::common::entities::app_errors::CoreError;
 
 use super::invoice::{
-    ActorType, AdjustmentMode, Invoice, InvoiceProvider, InvoiceRepository, InvoiceStatus,
-    InvoiceStatusTransition, NewInvoice, NewLineItem, UpdateInvoiceDraft,
+    ActorType, AdjustmentMode, Invoice, InvoiceListFilters, InvoiceProvider, InvoiceRepository,
+    InvoiceStatus, InvoiceStatusTransition, NewInvoice, NewLineItem, UpdateInvoiceDraft,
 };
 
 // ---------------------------------------------------------------------------
@@ -286,6 +286,45 @@ pub fn validate_invoice_policy_allows_creation(
         ));
     }
     Ok(())
+}
+
+/// Read-path policy filter for the list endpoints (PRD invoice.md 行为矩阵
+/// "发票列表"): `manual_only` lists only self-developed invoices, `none` only
+/// externally-synced ones, `provider_first` (and unknown values) everything.
+/// The policy overrides a request filter that would widen the visible set —
+/// under `manual_only` an explicit `provider=stripe` still yields manual rows
+/// only. Read-time only: existing invoices are never mutated by a policy
+/// switch (Provider 切换兼容).
+pub fn apply_invoice_policy_list_filter(
+    config: &InvoicePolicyConfig,
+    filters: &mut InvoiceListFilters,
+) {
+    match config.policy.as_str() {
+        "manual_only" => filters.provider = Some(InvoiceProvider::Manual),
+        "none" => filters.external_only = true,
+        _ => {}
+    }
+}
+
+/// Read-path policy gate for the PDF endpoints (PRD invoice.md 行为矩阵
+/// "PDF 下载"): under `manual_only` externally-synced invoices are out of
+/// scope (no Herald-side PDF), and under `none` the realm has no self-developed
+/// invoice entrance, so manual invoices are blocked while external ones still
+/// resolve through the provider dual-track.
+pub fn validate_pdf_allowed_by_policy(
+    config: &InvoicePolicyConfig,
+    provider: InvoiceProvider,
+) -> Result<(), CoreError> {
+    match (config.policy.as_str(), provider) {
+        ("manual_only", p) if p != InvoiceProvider::Manual => Err(CoreError::Forbidden(
+            "External invoice PDF is not available under the manual_only invoice policy"
+                .to_string(),
+        )),
+        ("none", InvoiceProvider::Manual) => Err(CoreError::Forbidden(
+            "Manual invoice PDF is not available under the none invoice policy".to_string(),
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Whether the provider's external-invoice capability is enabled

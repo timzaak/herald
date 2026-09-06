@@ -56,6 +56,9 @@ pub struct AppleNativeRequest {
 // OpenAPI schema — the direct-session branch reuses
 // `issue_callback_token_response`, whose body is already this shape, so this
 // struct is never constructed at runtime (`#[allow(dead_code)]`).
+// Consent-gate variant (stale legal consent): the runtime body additionally
+// carries `consentRequired: true` + `agreements` + `restrictedSession` and NO
+// token fields — not modeled here.
 #[allow(dead_code)]
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

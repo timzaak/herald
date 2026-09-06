@@ -13,6 +13,9 @@
 //     unverified email
 //   - provider config: realm without Google provider → 404
 //   - JWKS unreachable → 503 "Upstream service unavailable"
+//   - legal consent gate: stale/absent consent withholds the token family,
+//     restricted session + explicit consent recovers (direct-login entrances
+//     are not exempt from the consent gate)
 //
 // Framework alignment: mirrors `email_otp_send_verify_scenarios.rs` /
 // `realm_totp_config_scenarios.rs`:
@@ -204,6 +207,17 @@ async fn count_provider_links_by_open_id(ctx: &TestContext, provider_user_id: &s
 async fn google_one_tap_creates_new_user_and_returns_token_family(ctx: &mut TestContext) {
     enable_google_provider(ctx).await;
     enable_registration(ctx).await;
+    // This scenario asserts user creation + token family + registration
+    // credit, not the consent gate. A brand-new OAuth user has no consent
+    // rows, so with the platform-default agreements deployed the direct
+    // session is gated behind consent (consent-required variant — covered by
+    // `google_one_tap_consent_gate_withholds_tokens_until_consent`). Drop the
+    // platform defaults for this schema so the gate stays out of the way
+    // (same pattern as `consent_gate_scenarios`'s missing-seed test).
+    sqlx::query("DELETE FROM legal_agreement_version WHERE realm_id IS NULL")
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("failed to drop platform-default agreement rows");
     // OAuth first-login creation is a registration for points purposes
     // (points PRD 注册积分): seed a Registration rule so the grant is
     // observable.
@@ -749,5 +763,143 @@ async fn google_one_tap_blocked_when_registration_disabled(ctx: &mut TestContext
     assert_eq!(
         user_count, 0,
         "registration-disabled realm must not create an account via OAuth"
+    );
+}
+
+/// OAuth direct-login consent gate: a user without current legal consent must
+/// NOT receive a token family from One Tap — the response mirrors the
+/// password-login consent shape (`consentRequired: true` + `agreements` +
+/// `restrictedSession`, no token fields). The gate lives in
+/// `issue_callback_token_response`, so this One Tap scenario exercises the
+/// shared branch used by the OAuth callback / One Tap / Apple native / WeChat
+/// continuation direct-session entrances.
+///
+/// Recovery: the provider credential is single-use, so the login cannot be
+/// replayed with agreements inline — instead the restricted browser family
+/// (profile-read/delete-account/logout scopes only) posts an explicit consent
+/// to /api/legal/{realmId}/consent (the endpoint intentionally has no scope
+/// check: it is the consent recovery path), and the user re-triggers One Tap,
+/// which then issues the full token family.
+///
+/// WHY this matters: OAuth direct login must not become a consent bypass. If
+/// the gate only ran on password login, publishing a new ToS would strand
+/// password users behind re-consent while Google/Apple users sailed through
+/// on stale (or absent) consent records.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn google_one_tap_consent_gate_withholds_tokens_until_consent(ctx: &mut TestContext) {
+    enable_google_provider(ctx).await;
+    enable_registration(ctx).await;
+    let jwks = spawn_default_jwks().await;
+    let jwks_url = full_jwks_url(&jwks.0.uri());
+
+    let google_sub = format!("ot-consent-{}", uuid::Uuid::now_v7());
+    let email = format!("ot-consent-{}@test.com", uuid::Uuid::now_v7());
+
+    // First One Tap: the account is auto-provisioned with no consent rows,
+    // so the gate must fire before any session is issued.
+    let first_token = mint_test_google_id_token(&MintIdTokenOpts {
+        sub: google_sub.clone(),
+        email: email.clone(),
+        ..Default::default()
+    });
+    let resp = post_one_tap(ctx, &jwks_url, &first_token, &ctx._client_id, None).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "consent gate must stay a 200-flag on OAuth direct login, not a 4xx"
+    );
+    let body: Value = response_json(resp).await;
+    assert_eq!(
+        body["consentRequired"].as_bool(),
+        Some(true),
+        "One Tap must surface consentRequired when consent is absent"
+    );
+    assert!(
+        !body
+            .as_object()
+            .expect("one-tap body must be an object")
+            .contains_key("accessToken"),
+        "the consent-required branch must not carry any token fields"
+    );
+    let agreements = body["agreements"]
+        .as_array()
+        .expect("agreements must be present when consentRequired=true");
+    assert_eq!(
+        agreements.len(),
+        2,
+        "a never-consented user must see both ToS and Privacy summaries"
+    );
+    let restricted_access_token = body["restrictedSession"]["accessToken"]
+        .as_str()
+        .expect("the gate must mint a consent-restricted browser family")
+        .to_string();
+
+    // The account itself is already provisioned — creation happens before the
+    // gate; only session issuance is withheld.
+    let user_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&ctx._realm_id)
+            .bind(&email)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        user_count, 1,
+        "auto-provisioning must still happen; the gate withholds only the session"
+    );
+
+    // Recovery step 1: record explicit consent with the restricted family.
+    let consent_items: Vec<Value> = agreements
+        .iter()
+        .map(|a| {
+            json!({
+                "agreement_type": a["agreement_type"],
+                "version_id": a["version_id"],
+            })
+        })
+        .collect();
+    let consent_request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/legal/{}/consent", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {restricted_access_token}"))
+        .header("x-forwarded-for", "5.5.5.5")
+        .body(Body::from(
+            json!({ "agreements": consent_items }).to_string(),
+        ))
+        .unwrap();
+    let consent_resp = ctx
+        .create_unified_test_router()
+        .oneshot(consent_request)
+        .await
+        .unwrap();
+    assert_eq!(
+        consent_resp.status(),
+        StatusCode::NO_CONTENT,
+        "the restricted family must be able to record consent (recovery path)"
+    );
+
+    // Recovery step 2: re-trigger One Tap (fresh single-use credential) —
+    // consent is now current, so the full token family is issued.
+    let second_token = mint_test_google_id_token(&MintIdTokenOpts {
+        sub: google_sub.clone(),
+        email: email.clone(),
+        ..Default::default()
+    });
+    let resp = post_one_tap(ctx, &jwks_url, &second_token, &ctx._client_id, None).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let (resp, token) = crate::tests::extract_bearer_token(resp).await;
+    assert!(
+        token.is_some(),
+        "after explicit consent, One Tap must issue the full token family"
+    );
+    let body: Value = response_json(resp).await;
+    assert!(
+        !body
+            .as_object()
+            .expect("second one-tap body must be an object")
+            .contains_key("consentRequired"),
+        "consentRequired must be absent once consent is current"
     );
 }

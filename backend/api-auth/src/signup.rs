@@ -43,7 +43,7 @@ pub struct SignupRequest {
     pub realm_slug: Option<String>,
     #[validate(email)]
     pub email: String,
-    #[validate(length(min = 8))]
+    #[validate(length(min = 8, max = 100))]
     pub password: String,
     pub turnstile_token: Option<String>,
 }

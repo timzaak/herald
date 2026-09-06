@@ -138,6 +138,7 @@
       "consent_statement": "By logging in, you agree to",
       "reconsent_title": "Updated Agreements",
       "reconsent_description": "Please review and agree to the updated agreements to continue.",
+      "reconsent_recorded": "Your agreement has been recorded. Please sign in again to continue.",
       "agree_and_continue": "Agree and Continue",
       "decline_back_to_login": "Decline and return to login",
       "passkey_use_button": "Use Passkey",

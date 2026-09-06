@@ -1298,6 +1298,14 @@ impl PostgresInvoiceRepository {
             param_idx += 1;
         }
 
+        // external_only — read-path filter for invoice policy `none` (list
+        // only externally-synced invoices). Static condition (no bind), so it
+        // does not consume a param index — same pattern as the attribution
+        // filter below.
+        if filters.external_only {
+            conditions.push("provider <> 'manual'".to_string());
+        }
+
         if filters.date_from.is_some() {
             conditions.push(format!("created_at >= ${}", param_idx));
             param_idx += 1;

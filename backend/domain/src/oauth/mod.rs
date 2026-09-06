@@ -4,7 +4,6 @@ pub mod config_service;
 pub mod entities;
 pub mod http_client;
 pub mod ports;
-pub mod services;
 pub mod value_objects;
 
 pub use entities::*;

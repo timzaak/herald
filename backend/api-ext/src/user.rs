@@ -139,7 +139,7 @@ pub async fn create_user(
     if !is_valid_email(&req.email) {
         return json_error(StatusCode::BAD_REQUEST, ErrorCode::ValidationError);
     }
-    if req.password.len() < 8 {
+    if req.password.len() < 8 || req.password.len() > 100 {
         return json_error(StatusCode::BAD_REQUEST, ErrorCode::ValidationError);
     }
 

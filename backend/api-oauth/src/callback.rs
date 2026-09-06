@@ -11,11 +11,14 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::helper::handle_oauth_callback;
+use herald_api_auth::browser_token::BrowserTokenResponse;
+use herald_api_auth::consent_gate::{evaluate_login_consent_gate, mint_consent_restricted_session};
 use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{BrowserTokenService, BrowserTokenSet};
 use herald_core::domain::client::ports::ClientService;
+use herald_core::domain::legal::LegalAgreementSummary;
 use herald_core::domain::user::UserRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 
@@ -31,7 +34,23 @@ pub struct OAuthCallbackResponse {
     pub message: String,
     pub user_id: String,
     #[serde(flatten)]
-    pub tokens: BrowserTokenSet,
+    #[schema(required = false)]
+    pub tokens: Option<BrowserTokenSet>,
+    // Consent gate: mirrors the password/OTP/LDAP/passkey entrances — a stale
+    // consent record yields 200 + consentRequired=true + current effective
+    // summaries and NO full session (the OAuth credential is single-use and
+    // cannot be replayed with agreements attached). The restricted family
+    // carried by `restrictedSession` lets the client record explicit consent
+    // via POST /api/legal/{realmId}/consent; the user then re-triggers login.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(required = false)]
+    pub consent_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(required = false)]
+    pub agreements: Option<Vec<LegalAgreementSummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(required = false)]
+    pub restricted_session: Option<BrowserTokenResponse>,
 }
 
 /// Handle OAuth callback from provider for a realm
@@ -174,6 +193,35 @@ pub async fn issue_callback_token_response(
     if user.status.is_disabled() {
         return Err(ApiError::unauthorized("Account is disabled"));
     }
+    // Consent gate: the OAuth direct-login entrance is NOT exempt from the
+    // login-consent rule (legal-consent PRD) — a user whose recorded consent
+    // is stale must accept the current agreements before receiving a full
+    // session, exactly like the password/OTP/LDAP/passkey entrances. Without
+    // this check the "update → re-consent" rule could be bypassed by picking
+    // a social entrance.
+    if let Some(summaries) = evaluate_login_consent_gate(
+        state,
+        &user,
+        realm_id,
+        None,
+        client_ip.clone(),
+        user_agent.clone(),
+    )
+    .await
+    {
+        let restricted_session =
+            mint_consent_restricted_session(state, &user, &client_app, user_agent, client_ip)
+                .await?;
+        return Ok(Json(OAuthCallbackResponse {
+            message: "consent required".to_string(),
+            user_id: user_id.to_string(),
+            tokens: None,
+            consent_required: Some(true),
+            agreements: Some(summaries),
+            restricted_session: Some(restricted_session.into()),
+        })
+        .into_response());
+    }
     let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
     let tokens = token_service
         .create_first_party_token_family(&user, &client_app, user_agent, client_ip)
@@ -185,7 +233,10 @@ pub async fn issue_callback_token_response(
     Ok(Json(OAuthCallbackResponse {
         message: "OAuth login successful".to_string(),
         user_id: user_id.to_string(),
-        tokens,
+        tokens: Some(tokens),
+        consent_required: None,
+        agreements: None,
+        restricted_session: None,
     })
     .into_response())
 }

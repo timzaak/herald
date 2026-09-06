@@ -2009,6 +2009,30 @@ pub async fn reprocess_apple_event(
     process_apple_notification(&state, &realm_id, signed_payload).await
 }
 
+/// Build the idempotency key for a Google replay event.
+///
+/// Renewal events anchor on the period's `expiryTime`: the poll re-emits
+/// `subscription.renewed` with the same event_type for every new period, so a
+/// bare `purchaseToken + event_type` key would permanently short-circuit every
+/// renewal after the first (renewal points stop, the local projection stops
+/// advancing and never self-heals). Mirrors Apple's per-renewal
+/// `apple:{otid}:renew:{transactionId}` anchoring. Every other event type
+/// occurs at most once per token lifecycle, so `purchaseToken + event_type`
+/// stays its discriminator. A renewal without `expiryTime` falls back to the
+/// event_type-only key — without an expiry the replay cannot advance the
+/// subscription period, so repeated no-op replays are safe to dedup.
+fn google_replay_event_id(purchase_token: &str, event_type: &str, payload: &Value) -> String {
+    if event_type == "subscription.renewed"
+        && let Some(expiry) = payload
+            .get("expiryTime")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+    {
+        return format!("google:{purchase_token}:{event_type}:{expiry}");
+    }
+    format!("google:{purchase_token}:{event_type}")
+}
+
 /// internal implementation; the signature is frozen here.
 ///
 /// The worker job hands a payload of shape
@@ -2017,8 +2041,10 @@ pub async fn reprocess_apple_event(
 /// (subscription lifecycle) or
 /// `{ "purchaseToken": ..., "purchaseType": ..., "voidedTimeMillis": ...,
 ///    "orderId": ... }` (voided purchase refund). Both paths are idempotent on
-/// the `purchaseToken` (the external_event_id). The idempotency check is
-/// built on `payment_event` to stay symmetric with Stripe/Creem/Apple.
+/// the `purchaseToken` (the external_event_id), with renewals additionally
+/// anchored on the period expiry (see [`google_replay_event_id`]). The
+/// idempotency check is built on `payment_event` to stay symmetric with
+/// Stripe/Creem/Apple.
 pub async fn reprocess_google_event(
     state: AppState,
     realm_id: String,
@@ -2033,60 +2059,76 @@ pub async fn reprocess_google_event(
             CoreError::BadRequest("google reprocess payload missing purchaseToken".to_string())
         })?;
 
-    // Idempotency: a payment_event keyed by purchaseToken + provider means the
-    // job already replayed this token for this event_type. Skip without error
-    // (symmetric with the Stripe/Creem compensation idempotency guard). Note
-    // that the event_type is part of the synthetic event id so a state
-    // transition (renewed → expired) is NOT incorrectly deduped against the
-    // earlier renewed replay.
-    let synthetic_event_id = format!("google:{purchase_token}:{event_type}");
-    if state
+    // Idempotency: a processed payment_event keyed by this synthetic id means
+    // the job already replayed this token for this event_type/period — skip
+    // without error (symmetric with the Stripe/Creem compensation idempotency
+    // guard). The event_type is part of the synthetic id so a state transition
+    // (renewed → expired) is NOT incorrectly deduped against the earlier
+    // renewed replay; renewals additionally anchor on expiryTime because the
+    // poll re-emits subscription.renewed with the same event_type for every
+    // new period.
+    let synthetic_event_id = google_replay_event_id(purchase_token, &event_type, &payload);
+    let saved_event = match state
         .billing_repository
         .find_payment_event_by_external_id(&realm_id, &synthetic_event_id, "google")
         .await?
-        .is_some()
     {
-        tracing::info!(
-            realm_id = %realm_id,
-            event_type = %event_type,
-            "google reprocess: event already processed, skipping"
-        );
-        return Ok(());
-    }
-
-    // Record the synthetic payment_event up-front (processed=false) so a
-    // concurrent worker / webhook replay can't double-process. On success we
-    // flip processed=true below.
-    let saved_event = match state
-        .billing_repository
-        .create_payment_event(PaymentEvent {
-            id: Uuid::now_v7(),
-            realm_id: realm_id.clone(),
-            external_event_id: synthetic_event_id.clone(),
-            payment_provider: "google".to_string(),
-            event_type: event_type.clone(),
-            subscription_id: None,
-            payload: payload.clone(),
-            processed: false,
-            processing_started_at: Some(Utc::now()),
-            created_at: Utc::now(),
-        })
-        .await
-    {
-        Ok(event) => event,
-        Err(CoreError::DatabaseError(ref msg))
-            if msg.contains("unique constraint") || msg.contains("duplicate key") =>
-        {
-            // Concurrent replay already inserted this event — treat as already
-            // handled.
+        Some(existing) if existing.processed => {
             tracing::info!(
                 realm_id = %realm_id,
                 event_type = %event_type,
-                "google reprocess: concurrent insert detected, event already handled"
+                "google reprocess: event already processed, skipping"
             );
             return Ok(());
         }
-        Err(e) => return Err(e),
+        // A prior replay inserted the row but its fulfillment failed
+        // (processed=false, parked for the payment_event retry sweep). Re-run
+        // the domain replay against that row — the retry sweep's own re-run
+        // would otherwise no-op against the guard above and mark the event
+        // processed without ever fulfilling it.
+        Some(existing) => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                event_type = %event_type,
+                payment_event_id = %existing.id,
+                "google reprocess: prior replay left the event unprocessed — re-running"
+            );
+            existing
+        }
+        // Record the synthetic payment_event up-front (processed=false) so a
+        // concurrent worker / webhook replay can't double-process. On success we
+        // flip processed=true below.
+        None => match state
+            .billing_repository
+            .create_payment_event(PaymentEvent {
+                id: Uuid::now_v7(),
+                realm_id: realm_id.clone(),
+                external_event_id: synthetic_event_id.clone(),
+                payment_provider: "google".to_string(),
+                event_type: event_type.clone(),
+                subscription_id: None,
+                payload: payload.clone(),
+                processed: false,
+                processing_started_at: Some(Utc::now()),
+                created_at: Utc::now(),
+            })
+            .await
+        {
+            Ok(event) => event,
+            Err(CoreError::DatabaseError(ref msg))
+                if msg.contains("unique constraint") || msg.contains("duplicate key") =>
+            {
+                // Concurrent replay already inserted this event — treat as already
+                // handled.
+                tracing::info!(
+                    realm_id = %realm_id,
+                    event_type = %event_type,
+                    "google reprocess: concurrent insert detected, event already handled"
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        },
     };
 
     // Domain replay. For a state transition the mapped heraldStatus lives on
@@ -2580,5 +2622,54 @@ mod tests {
             &ProductType::NonRenewingSubscription,
             &BillingType::Recurring
         ));
+    }
+
+    // The Google poll is the ONLY renewal driver (no RTDN webhook exists), and
+    // it re-emits subscription.renewed with the same event_type for every new
+    // period. If the replay id does not discriminate on the period, the second
+    // renewal hits the first renewal's payment_event key and is short-circuited
+    // forever: renewal points stop being granted and the local projection
+    // stops advancing.
+    #[test]
+    fn google_replay_event_id_discriminates_consecutive_renewals() {
+        let first_period = serde_json::json!({
+            "purchaseToken": "tok-1",
+            "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE",
+            "expiryTime": "2026-01-01T00:00:00+00:00",
+        });
+        let second_period = serde_json::json!({
+            "purchaseToken": "tok-1",
+            "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE",
+            "expiryTime": "2026-02-01T00:00:00+00:00",
+        });
+
+        let first_id = google_replay_event_id("tok-1", "subscription.renewed", &first_period);
+        let second_id = google_replay_event_id("tok-1", "subscription.renewed", &second_period);
+        assert_ne!(first_id, second_id);
+        // Replaying the same period (poll retry) must still dedup.
+        assert_eq!(
+            first_id,
+            google_replay_event_id("tok-1", "subscription.renewed", &first_period)
+        );
+    }
+
+    #[test]
+    fn google_replay_event_id_keeps_lifecycle_events_token_scoped() {
+        let payload = serde_json::json!({
+            "purchaseToken": "tok-2",
+            "heraldStatus": "expired",
+        });
+        // Non-renewal lifecycle transitions occur at most once per token, so
+        // the bare event_type key remains correct for them.
+        assert_eq!(
+            google_replay_event_id("tok-2", "subscription.expired", &payload),
+            "google:tok-2:subscription.expired"
+        );
+        // A renewal without expiryTime cannot advance the period (the sync
+        // would drop it), so falling back to the event_type-only key is safe.
+        assert_eq!(
+            google_replay_event_id("tok-2", "subscription.renewed", &payload),
+            "google:tok-2:subscription.renewed"
+        );
     }
 }

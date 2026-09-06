@@ -201,6 +201,10 @@
 - 下游 Client App 随后通过既有 `/token` 端点 + PKCE 校验换取令牌，与普通 Authorization Code + PKCE 流程一致
 - 该流程使 Herald 在充当 OAuth Client（对接 Google 等 IdP）的同时充当下游 Client App 的身份 Broker，把 IdP 认证结果转换为下游可用的授权码
 
+**第一方直登分支（无 downstream_state）:**
+- Provider 回调 / Google One Tap / Apple 原生登录 / WeChat 直登在无下游上下文时为第一方直登：校验通过后为用户签发第一方浏览器 token family（完整会话）
+- 直登分支同样执行登录同意闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」，直登不豁免）：同意缺失或版本过期时不签发完整会话，响应改为 `consentRequired: true` + 当前生效协议摘要 + 受限会话（仅资料读取/注销账户/退出登录 scope，无 token 字段）；因 provider 凭据一次性、不可携带同意重放登录，补全路径为受限会话显式记录同意（`POST /api/legal/{realmId}/consent`）后重新触发登录入口
+
 **TOTP + OAuth 兼容:**
 - TOTP 临时会话中保存 OAuth 上下文（oauth_client_id、redirect_uri、state）
 - TOTP 验证成功后检查临时会话中的 OAuth 字段，有 OAuth 字段时走同样的 authorization_code 生成逻辑

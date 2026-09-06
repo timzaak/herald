@@ -697,7 +697,7 @@ CREATE TABLE payment_attempts (
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT chk_payment_attempt_provider CHECK (payment_provider IN ('stripe', 'creem', 'apple', 'google', 'wechat')),
     CONSTRAINT chk_target_type CHECK (target_type = 'entitlement_mapping'),
-    CONSTRAINT chk_status CHECK (status IN ('Pending', 'RequiresAction', 'Succeeded', 'Failed', 'Cancelled', 'Expired', 'completed'))
+    CONSTRAINT chk_status CHECK (status IN ('Pending', 'RequiresAction', 'Succeeded', 'Failed', 'Cancelled', 'Expired'))
 );
 
 -- Index for querying user's payment attempts (most recent first)
