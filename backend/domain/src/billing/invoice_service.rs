@@ -263,6 +263,7 @@ pub fn parse_invoice_policy_config(config_value: &str) -> Result<InvoicePolicyCo
 
     let provider_capabilities = parsed
         .get("provider_capabilities")
+        .or_else(|| parsed.get("providerCapabilities"))
         .cloned()
         .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
@@ -296,7 +297,10 @@ pub fn external_invoice_capability_enabled(config: &InvoicePolicyConfig, provide
     config
         .provider_capabilities
         .get(provider)
-        .and_then(|v| v.get("externalInvoiceEnabled"))
+        .and_then(|v| {
+            v.get("externalInvoiceEnabled")
+                .or_else(|| v.get("external_invoice_enabled"))
+        })
         .and_then(|v| v.as_bool())
         .unwrap_or(true)
 }
@@ -1248,6 +1252,21 @@ mod tests {
                 assert!(msg.contains("Invalid invoice policy config JSON"));
             }
             _ => panic!("Expected BadRequest error"),
+        }
+    }
+
+    #[test]
+    fn disabled_external_invoices_survive_both_config_naming_conventions() {
+        for container in ["provider_capabilities", "providerCapabilities"] {
+            for capability in ["externalInvoiceEnabled", "external_invoice_enabled"] {
+                let json = serde_json::json!({
+                    "policy": "provider_first",
+                    (container): {"stripe": {(capability): false}}
+                });
+                let config = parse_invoice_policy_config(&json.to_string()).unwrap();
+                assert!(!external_invoice_capability_enabled(&config, "stripe"));
+                assert!(external_invoice_capability_enabled(&config, "creem"));
+            }
         }
     }
 

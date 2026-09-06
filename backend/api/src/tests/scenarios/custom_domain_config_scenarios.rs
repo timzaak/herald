@@ -462,3 +462,34 @@ async fn custom_domain_update_writes_mapping_visible_to_ask_endpoint(ctx: &mut T
     let body: Value = crate::tests::response_json(ask_resp).await;
     assert_eq!(body["authorized"], true);
 }
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_custom_domain_save_and_clear_are_audited(ctx: &mut TestContext) {
+    let token = crate::tests::helpers::billing_helpers::setup_billing_admin_session(
+        ctx,
+        "dream-domain@test.com",
+    )
+    .await;
+    let app = ctx.create_unified_test_router();
+    for hostname in ["login.example.com", ""] {
+        let response = app
+            .clone()
+            .oneshot(authed_request(
+                "PUT",
+                custom_domain_uri(&ctx._realm_id, ""),
+                &token,
+                Some(json!({"hostname": hostname})),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let operations: Vec<String> = sqlx::query_scalar("SELECT details->>'operation' FROM audit_events WHERE realm_id = $1 AND action = 'realm_config.update' AND details->>'config_type' = 'custom_domain' ORDER BY created_at")
+        .bind(&ctx._realm_id).fetch_all(&ctx.app_state.pool).await.unwrap();
+    assert_eq!(
+        operations,
+        vec!["saved", "cleared"],
+        "both domain ownership changes must be auditable"
+    );
+}

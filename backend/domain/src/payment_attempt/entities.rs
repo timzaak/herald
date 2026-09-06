@@ -241,6 +241,7 @@ pub struct WechatJsapiParams {
 /// Purchase history row returned by the repository's list_purchase_history query.
 #[derive(Debug, Clone)]
 pub struct PurchaseHistoryRow {
+    pub user_id: Uuid,
     pub attempt_id: Uuid,
     pub target_mapping_id: Uuid,
     pub product_name: Option<String>,

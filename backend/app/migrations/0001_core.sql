@@ -5,6 +5,9 @@
 -- and email tables into a single baseline. Pre-launch squash: no ALTER/DROP.
 -- The user_roles role-grant provenance/expiry columns and split manual/payment
 -- partial unique indexes (former 0006_support_paywall) are inlined.
+-- email_verification_code is realm-scoped (realm_id column + realm-scoped
+-- lookup indexes, former email-verification realm linkage): a code issued in
+-- one realm must not be matched or consumed via another realm's path.
 
 -- ====================================
 -- UUID v7 Support (PostgreSQL 18+)
@@ -464,6 +467,7 @@ COMMENT ON COLUMN email_templates.content IS
 -- Email verification codes
 CREATE TABLE email_verification_code (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
+    realm_id text NOT NULL,
     email text NOT NULL,
     type text NOT NULL,
     verification_code text NOT NULL,
@@ -471,6 +475,13 @@ CREATE TABLE email_verification_code (
 );
 
 COMMENT ON TABLE email_verification_code IS 'Verification codes for email confirmation';
+
+-- Codes are looked up by (realm_id, email, type) on issue/verify and by
+-- (realm_id, verification_code) on consume.
+CREATE INDEX idx_email_verification_code_realm_email_type
+    ON email_verification_code(realm_id, email, type);
+CREATE INDEX idx_email_verification_code_realm_code
+    ON email_verification_code(realm_id, verification_code);
 
 -- ====================================
 -- Audit Events Table

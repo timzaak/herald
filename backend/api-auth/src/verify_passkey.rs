@@ -407,6 +407,8 @@ pub async fn handle_passkey_2fa_verify(
     {
         Ok(credential) => credential,
         Err(err) => {
+            audit_second_factor_failure(&state, &temp_session, &client_ip, user_agent.clone())
+                .await;
             record_fail_count(&state, user_id).await?;
             delete_temp_session(&state, &req.temp_token).await?;
             return Err(map_passkey_verify_error(err));
@@ -414,6 +416,7 @@ pub async fn handle_passkey_2fa_verify(
     };
 
     if credential.user_id != user_id || credential.realm_id != temp_session.realm_id {
+        audit_second_factor_failure(&state, &temp_session, &client_ip, user_agent.clone()).await;
         record_fail_count(&state, user_id).await?;
         delete_temp_session(&state, &req.temp_token).await?;
         return Err(ApiError::unauthorized(PASSKEY_VERIFY_FAILED));
@@ -432,6 +435,32 @@ pub async fn handle_passkey_2fa_verify(
         user_agent,
     )
     .await
+}
+
+async fn audit_second_factor_failure(
+    state: &AppState,
+    session: &TempSessionData,
+    client_ip: &str,
+    user_agent: Option<String>,
+) {
+    if let Err(error) = state.audit_event_repository.create(NewAuditEvent {
+        realm_id: session.realm_id.clone(),
+        category: AuditCategory::Auth,
+        action: AuditAction::AuthLoginFailed,
+        actor_id: session.user_id.clone(),
+        actor_type: None,
+        actor_name: None,
+        target_type: AuditTargetType::User,
+        target_id: session.user_id.clone(),
+        target_name: None,
+        result: AuditResult::Failure,
+        details: Some(serde_json::json!({"method": "passkey", "factor": "second", "reason": "verify_failed"})),
+        ip_address: Some(client_ip.to_string()),
+        user_agent,
+        trace_id: None,
+    }).await {
+        tracing::warn!(%error, "Failed to record passkey second-factor failure audit event");
+    }
 }
 
 impl TempSessionData {

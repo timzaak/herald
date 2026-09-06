@@ -355,6 +355,17 @@ pub(crate) async fn get_invoice_policy(
     }
 }
 
+/// Policy gate for the manual invoice write endpoints (update/issue/void/
+/// mark_paid): they share the policy=none "creation disabled" gate with
+/// create, so the check lives in one place if the lifecycles ever diverge.
+async fn require_invoice_policy_allows_writes(
+    state: &AppState,
+    realm_id: &str,
+) -> Result<(), ApiError> {
+    validate_invoice_policy_allows_creation(&get_invoice_policy(state, realm_id).await?)?;
+    Ok(())
+}
+
 fn validate_optional_non_blank(value: Option<&str>, field_name: &str) -> Result<(), ApiError> {
     if value.is_some_and(|s| s.trim().is_empty()) {
         return Err(ApiError::bad_request(format!(
@@ -812,6 +823,7 @@ pub async fn update_invoice(
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
     tracing::info!("Updating invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
+    require_invoice_policy_allows_writes(&state, &realm_id).await?;
     request
         .validate()
         .map_err(|e: validator::ValidationErrors| {
@@ -899,6 +911,7 @@ pub async fn issue_invoice(
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
     tracing::info!("Issuing invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
+    require_invoice_policy_allows_writes(&state, &realm_id).await?;
 
     let detail = load_detail(&state, &realm_id, invoice_id).await?;
 
@@ -994,6 +1007,7 @@ pub async fn void_invoice(
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
     tracing::info!("Voiding invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
+    require_invoice_policy_allows_writes(&state, &realm_id).await?;
 
     let detail = load_detail(&state, &realm_id, invoice_id).await?;
 
@@ -1089,6 +1103,7 @@ pub async fn mark_paid(
         realm_id
     );
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
+    require_invoice_policy_allows_writes(&state, &realm_id).await?;
 
     let detail = load_detail(&state, &realm_id, invoice_id).await?;
 

@@ -2423,3 +2423,40 @@ async fn test_scenario_totp_regenerate_verification_required(ctx: &mut TestConte
 
     println!("\n✅ User Story 完成：TOTP Regenerate - Verification Required");
 }
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_totp_threshold_starts_full_lockout(ctx: &mut TestContext) {
+    use herald_core::domain::user_totp::{UserTotpConfig, UserTotpRepository};
+    use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
+    use redis::AsyncCommands;
+    let user = create_test_user(ctx, "dream-lockout@test.com", "Password123!").await;
+    let user_id = uuid::Uuid::parse_str(&user).unwrap();
+    let mut config = UserTotpConfig::new(
+        user_id,
+        ctx._realm_id.clone(),
+        "unused-backup-code-path".to_string(),
+        1,
+    );
+    config.enable();
+    PostgresUserTotpRepository::new(ctx.app_state.db.clone())
+        .create_config(config)
+        .await
+        .unwrap();
+    let temp = uuid::Uuid::now_v7().to_string();
+    let mut conn = ctx.app_state.redis_manager.get().await.unwrap();
+    let _: () = conn.set_ex(format!("totp:temp:{temp}"), json!({
+        "user_id": user, "realm_id": ctx._realm_id, "client_id": ctx._client_id,
+        "client_app_id": ctx._client_app_id, "client_ip": "127.0.0.1", "flow": "custom_user_ui"
+    }).to_string(), 300).await.unwrap();
+    let key = format!("totp:fail_count:{user}");
+    // A slow series of failures has almost exhausted the counting window.
+    let _: () = conn.set_ex(&key, 4, 10).await.unwrap();
+    let result = complete_totp_login(ctx, &ctx._realm_id, &temp, None, Some("000000")).await;
+    assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
+    let ttl: i64 = conn.ttl(&key).await.unwrap();
+    assert!(
+        ttl >= 890,
+        "fifth failure must start a full 900-second lockout, got {ttl}"
+    );
+}

@@ -367,7 +367,7 @@ pub async fn handle_verify_totp(
             tracing::error!("Failed to increment fail count: {}", e);
             ApiError::internal("Redis operation error".to_string())
         })?;
-        if failure_count == 1 {
+        if failure_count == 1 || failure_count == TOTP_MAX_FAILURES {
             let _: () = conn
                 .expire(&fail_count_key, TOTP_LOCKOUT_SECONDS as i64)
                 .await

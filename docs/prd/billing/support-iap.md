@@ -188,7 +188,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 对 Google，该拉取同时承担生命周期主驱动（见上节轮询规则）；对 Apple，承担通知补偿，分两层：Notification History 拉取（`onlyFailures=true`，补偿投递失败）+ 对本地仍存活的订阅做 getAllSubscriptionStatuses 状态比对，发现 Apple 侧已 Expired/Revoked 的漂移时按 `transactionId` 定向拉取该交易的通知历史（`onlyFailures=false`，覆盖「已投递但本地处理失败」的通知）并复用通知处理管道回放；漂移在通知历史中无可回放事件时仅记诊断，不自动改写订阅状态
 - 拉取到的事件复用与正常服务端通知相同的领域处理与数据库幂等约束，不重复改变订阅或积分
 - 单个 Realm、交易或平台 API 失败不阻塞其他对象；运行统计分别记录 Apple 拉取/状态轮询/漂移发现/回放/失败与 Google token 轮询/voided 拉取/回放/失败。当前不维护独立的笼统“缺失数”：可恢复的缺失以 replayed 计数，只有状态漂移但找不到可回放事件时以 drift detected 与上下文诊断体现
-- 对账间隔必须小于平台事件保留窗口；拉取支持分页与限流控制，不触发平台限流（默认 Apple 1800s / Google 900s，可经 `WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整）
+- 对账间隔必须小于平台事件保留窗口；拉取支持分页与限流控制，不触发平台限流（Apple/Google 回溯窗口参数默认 1800s/900s，实际任务共用定时器，可经 `WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整）
 - 状态不一致但不存在缺失事件时只记录诊断，不自动改写数据；不提供手动触发、管理页面或报警通知
 
 ### 4.2 关键状态与异常
@@ -245,7 +245,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 退款或过期后权益按订阅状态机降级，历史保留在订阅变更历史
 
 **定时拉取对账**：
-- 对账 job 随应用接线运行（`WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 Apple / Google 分频默认 1800s / 900s，可经 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整），定时向 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，复用既有补偿领域处理与幂等机制；对 Apple 补偿漏发通知，对 Google 驱动全部生命周期
+- 对账 job 随应用接线运行（`WORKER_IAP_RECONCILIATION_INTERVAL_SECS` 与 Apple / Google 查询回溯窗口参数默认 1800s / 900s，实际调度共用一个定时器，可经 `WORKER_IAP_APPLE_INTERVAL_SECS` / `WORKER_IAP_GOOGLE_INTERVAL_SECS` 调整），定时向 App Store Server API / Google Play Developer API 拉取近期交易与订阅状态，复用既有补偿领域处理与幂等机制；对 Apple 补偿漏发通知，对 Google 驱动全部生命周期
 - Apple 补偿分两层：Notification History（`onlyFailures=true`）补偿投递失败；再对本地仍存活的订阅轮询 getAllSubscriptionStatuses，发现 Expired/Revoked 漂移时按 `transactionId` 定向拉取通知历史（`onlyFailures=false`，覆盖已投递但本地处理失败的通知）回放；无匹配通知仅记诊断
 - 对账间隔小于平台事件保留窗口；分页与限流；单对象失败不阻塞其他对象
 

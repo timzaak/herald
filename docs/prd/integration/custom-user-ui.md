@@ -187,7 +187,7 @@
 **跨域基础设施**：
 
 - **FR-10（Bearer 鉴权与凭证类判定）**：身份解析接受 `Authorization: Bearer`，按凭证类产出身份与上下文；`CustomUserUi` 授权层只授予用户自服务权限，管理员与未知能力默认拒绝；`FirstParty` 执行完整 RBAC。
-- **FR-11（origin 白名单）**：Realm 管理员可为 Client App 配置允许 origin 列表，精确匹配、即时生效、禁止不安全形式。
+- **FR-11（origin 白名单）**：Realm 管理员可为 Client App 配置允许 origin 列表，精确匹配、禁止不安全形式；服务端授权读取最新配置，跨域 CORS 白名单使用最长 30 秒的进程内快照。
 - **FR-12（token 生命周期）**：短时效 access token（内存）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测 + RT 绝对有效上限。
 - **FR-13（复用检测）**：旧 refresh token 被再次使用时，吊销该 token 家族。
 - **FR-14（吊销）**：可即时吊销浏览器 token（access token 或其 refresh token 家族），吊销不误伤其他正常凭证。

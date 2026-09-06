@@ -198,6 +198,8 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 
 ---
 
+- API Key 扩展面提供 `GET /api/ext/realms/{realmId}`，需要 `realm.view`，仅能读取 Key 所属 Realm；不提供跨 Realm 超管豁免。
+
 ## 7. 前端/交互约束
 
 **适用性**: 适用

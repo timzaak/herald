@@ -446,7 +446,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
     async fn list_purchase_history(
         &self,
         realm_id: &str,
-        user_id: uuid::Uuid,
+        user_id: Option<uuid::Uuid>,
         payment_provider: Option<&str>,
         start_date: Option<&str>,
         end_date: Option<&str>,
@@ -461,7 +461,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
         // Count query
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM payment_attempts pa \
-             WHERE pa.realm_id = $1 AND pa.user_id = $2 \
+             WHERE pa.realm_id = $1 AND ($2::uuid IS NULL OR pa.user_id = $2) \
              AND pa.status = 'Succeeded' AND pa.target_type = 'entitlement_mapping' \
              AND ($3 = '' OR pa.payment_provider = $3) \
              AND ($4 = '' OR pa.created_at >= $4::timestamptz) \
@@ -478,7 +478,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
 
         // Data query
         let rows = sqlx::query(
-            "SELECT pa.id AS attempt_id, pa.target_id AS target_mapping_id, \
+            "SELECT pa.id AS attempt_id, pa.user_id, pa.target_id AS target_mapping_id, \
              pem.provider_product_info, \
              (SELECT SUM(l.granted_amount)::bigint \
                 FROM points_distribution_events e \
@@ -488,7 +488,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
              pa.completed_at, pa.created_at \
              FROM payment_attempts pa \
              LEFT JOIN provider_entitlement_mappings pem ON pa.target_id = pem.id \
-             WHERE pa.realm_id = $1 AND pa.user_id = $2 \
+             WHERE pa.realm_id = $1 AND ($2::uuid IS NULL OR pa.user_id = $2) \
              AND pa.status = 'Succeeded' AND pa.target_type = 'entitlement_mapping' \
              AND ($3 = '' OR pa.payment_provider = $3) \
              AND ($4 = '' OR pa.created_at >= $4::timestamptz) \
@@ -520,6 +520,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
 
                 PurchaseHistoryRow {
                     attempt_id: row.get("attempt_id"),
+                    user_id: row.get("user_id"),
                     target_mapping_id: row.get("target_mapping_id"),
                     product_name,
                     points: granted_points,

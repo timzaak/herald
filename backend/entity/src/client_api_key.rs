@@ -56,7 +56,7 @@ pub enum Relation {
         belongs_to = "super::client_app::Entity",
         from = "Column::ClientAppId",
         to = "super::client_app::Column::Id",
-        on_delete = "SetNull"
+        on_delete = "Restrict"
     )]
     ClientApp,
 }

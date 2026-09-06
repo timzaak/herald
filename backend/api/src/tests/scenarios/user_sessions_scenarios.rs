@@ -1129,15 +1129,12 @@ async fn test_update_user_to_normal_does_not_revoke(ctx: &mut TestContext) {
 
 /// ============================================================================
 /// User Story: docs/user-stories/core/realm-admin.md - US-RA-021
-/// Covers: re-saving a Forbidden user as Forbidden (idempotent) does NOT
-///         re-revoke; an existing session created via the back door
-///         (bypassing the login gate) stays unrevoked at the token-family
-///         level (bearer auth rejects Forbidden users regardless). The
-///         linkage fires only on a transition INTO Forbidden.
+/// Covers: re-saving Forbidden retries revocation so an earlier failed
+///         revocation cannot leave a token family alive indefinitely.
 /// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_update_user_keep_forbidden_no_revoke(ctx: &mut TestContext) {
+async fn test_update_user_keep_forbidden_retries_revoke(ctx: &mut TestContext) {
     let realm_id = ctx._realm_id.clone();
     let (admin_token, admin_user_id) =
         create_admin_session_with_user(ctx, "keep-forbidden-admin@test.com", 1800).await;
@@ -1170,7 +1167,7 @@ async fn test_update_user_keep_forbidden_no_revoke(ctx: &mut TestContext) {
         "back-door session must start unrevoked"
     );
 
-    // PUT status=2 (Forbidden again) — idempotent, no transition INTO Forbidden.
+    // PUT status=2 retries revocation even without a status transition.
     let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -1179,7 +1176,7 @@ async fn test_update_user_keep_forbidden_no_revoke(ctx: &mut TestContext) {
             .lookup_access_token(&token)
             .await
             .unwrap()
-            .is_some(),
-        "token family must stay unrevoked when re-saving Forbidden as Forbidden (no re-revoke)"
+            .is_none(),
+        "re-saving Forbidden must revoke a family left alive by an earlier failed attempt"
     );
 }

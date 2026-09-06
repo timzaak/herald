@@ -108,6 +108,7 @@
 **API 能力边界**
 - 不需要 `redirect_uri` 参数（与授权码流程的关键区别）
 - 不需要 `client_secret`（适用于 public client / CLI 场景）
+- verify 与 confirm 各自按用户限制为每 300 秒 20 次。
 - 授权请求入口按来源 IP 限制为每 60 秒 10 次；当前不维护“单 Client App 同时处于 pending 的设备码数量”这一额外状态
 
 ### 4.2 关键状态与异常

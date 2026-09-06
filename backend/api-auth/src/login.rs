@@ -24,7 +24,6 @@ use herald_core::domain::audit::{
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::security_constants::{
     DEFAULT_OAUTH_CODE_TTL_SECONDS, LOGIN_IDENTIFIER_RATE_LIMIT, LOGIN_IP_RATE_LIMIT,
-    OAUTH_STATE_TTL_SECONDS,
 };
 use herald_core::domain::user::ports::UserService;
 use herald_core::domain::user::value_objects::LoginRequest as DomainLoginRequest;
@@ -557,7 +556,7 @@ pub async fn login(
         .to_string();
 
         let _: () = conn
-            .set_ex(&code_key, code_value, OAUTH_STATE_TTL_SECONDS)
+            .set_ex(&code_key, code_value, DEFAULT_OAUTH_CODE_TTL_SECONDS)
             .await
             .map_err(|_| ApiError::internal("Internal server error".to_string()))?;
 

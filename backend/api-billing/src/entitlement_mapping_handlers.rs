@@ -802,7 +802,10 @@ pub async fn update_entitlement_mapping(
                     error = %e,
                     "Failed to update entitlement mapping"
                 );
-                ApiError::internal("Failed to update entitlement mapping".to_string())
+                herald_api_base::application::http::common::error_helpers::core_error_to_api_error(
+                    e,
+                    "update entitlement mapping",
+                )
             })?
     };
 

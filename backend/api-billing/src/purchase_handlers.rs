@@ -22,6 +22,7 @@ use herald_core::domain::purchase::{
     PaymentFlow, PreparePaymentAttemptInput,
 };
 
+use crate::handlers::require_billing_permission;
 use crate::payment_email::formal_payment_email;
 use crate::provider_common_types::validate_payment_provider_value;
 
@@ -172,6 +173,7 @@ pub struct PurchaseHistoryResponse {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PurchaseHistoryItem {
+    pub user_id: Uuid,
     pub attempt_id: Uuid,
     pub target_mapping_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -559,13 +561,43 @@ pub async fn get_purchase_history(
         "purchase history",
     )?;
 
+    purchase_history_response(&state, &realm_id, Some(user_id), filters).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/bill/{realmId}/purchase/history",
+    tag = "billing",
+    params(("realmId" = String, Path, description = "Realm ID"), PurchaseHistoryQuery),
+    responses(
+        (status = 200, description = "Realm purchase history", body = PurchaseHistoryResponse),
+        (status = 403, description = "Forbidden")
+    ),
+    security(("bearer_auth" = []))
+)]
+pub async fn get_realm_purchase_history(
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+    Path(realm_id): Path<String>,
+    Query(filters): Query<PurchaseHistoryQuery>,
+) -> Result<Json<PurchaseHistoryResponse>, ApiError> {
+    require_billing_permission(&state, &identity, &realm_id, "view").await?;
+    purchase_history_response(&state, &realm_id, None, filters).await
+}
+
+async fn purchase_history_response(
+    state: &AppState,
+    realm_id: &str,
+    user_id: Option<Uuid>,
+    filters: PurchaseHistoryQuery,
+) -> Result<Json<PurchaseHistoryResponse>, ApiError> {
     let page = filters.page.unwrap_or(1).max(1);
-    let page_size = filters.page_size.unwrap_or(20).min(100);
+    let page_size = filters.page_size.unwrap_or(20).clamp(1, 100);
 
     let (rows, total) = state
         .payment_attempt_repository
         .list_purchase_history(
-            &realm_id,
+            realm_id,
             user_id,
             filters.payment_provider.as_deref(),
             filters.start_date.as_deref(),
@@ -583,6 +615,7 @@ pub async fn get_purchase_history(
         .into_iter()
         .map(|row| PurchaseHistoryItem {
             attempt_id: row.attempt_id,
+            user_id: row.user_id,
             target_mapping_id: row.target_mapping_id,
             product_name: row.product_name,
             points: row.points,

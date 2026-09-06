@@ -539,7 +539,7 @@ mod tests {
         async fn list_purchase_history(
             &self,
             _realm_id: &str,
-            _user_id: uuid::Uuid,
+            _user_id: Option<uuid::Uuid>,
             _payment_provider: Option<&str>,
             _start_date: Option<&str>,
             _end_date: Option<&str>,

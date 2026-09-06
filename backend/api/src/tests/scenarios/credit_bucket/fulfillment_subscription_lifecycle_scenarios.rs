@@ -1280,3 +1280,143 @@ async fn subscription_with_unresolved_bucket_fails_loud(ctx: &mut TestContext) {
         "no wallet row created — fail loud prevents implicit-pool wallet creation"
     );
 }
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_disabled_mapping_does_not_grant(ctx: &mut TestContext) {
+    let realm_id = ctx._realm_id.clone();
+    let pool = &ctx.app_state.pool;
+
+    let user_id = create_test_user(pool, &realm_id, "cb_t02_renew@example.com").await;
+    let client_app_id = create_test_client_app(pool, &realm_id).await;
+
+    let bucket = create_test_credit_bucket(
+        pool,
+        &realm_id,
+        CreditBucketOpts {
+            name: Some("Renewal Bucket".into()),
+            bucket_key: Some("renewal-bucket".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let entitlement_key = format!("cb-t02-renew-{}", Uuid::now_v7());
+    // Mapping owns a subscription_renewal rule targeting this bucket (seeded by
+    // create_subscription_mapping_in_bucket); the renewal path reads it.
+    let _mapping_id =
+        create_subscription_mapping_in_bucket(pool, &realm_id, &entitlement_key, bucket, 750).await;
+
+    let subscription_id = insert_subscription_in_bucket(
+        pool,
+        &realm_id,
+        user_id,
+        client_app_id,
+        &entitlement_key,
+        bucket,
+    )
+    .await;
+
+    let period_end = chrono::Utc::now() + chrono::Duration::days(30);
+    let period_start = period_end - chrono::Duration::days(30);
+    let event_id = format!("evt_renew_{}", Uuid::now_v7());
+    let mut mapping = mapping_for_key(ctx, &realm_id, &entitlement_key).await;
+    let role_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO roles (id, name, realm_id, client_id, is_builtin) VALUES ($1, 'disabled-mapping-role', $2, $3, false)")
+        .bind(role_id).bind(&realm_id).bind(&ctx._client_id)
+        .execute(pool).await.unwrap();
+    mapping.granted_role_ids = vec![role_id];
+    mapping.enabled = false;
+    let result = ctx
+        .app_state
+        .subscription_service
+        .handle_subscription_paid(
+            user_id,
+            subscription_id,
+            &realm_id,
+            &mapping,
+            true, // is_renewal
+            period_start,
+            period_end,
+            event_id,
+        )
+        .await;
+
+    assert!(result.is_ok(), "renewal grant should succeed: {:?}", result);
+
+    let ledger_count = count_ledger_in_bucket(pool, user_id, bucket, "subscription_credit").await;
+    assert_eq!(
+        ledger_count, 0,
+        "disabled mappings must not create grant ledger rows"
+    );
+
+    let balance = sum_ledger_granted_in_bucket(pool, user_id, bucket, "subscription_credit").await;
+    assert_eq!(
+        balance, 0,
+        "disabled mappings must not grant renewal points"
+    );
+
+    let leak = count_ledger_outside_bucket(pool, user_id, bucket).await;
+    assert_eq!(
+        leak, 0,
+        "renewal grant did not leak outside the subscription bucket"
+    );
+    let role_grants: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role_id = $2")
+            .bind(user_id)
+            .bind(role_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        role_grants, 0,
+        "disabled mappings must not grant payment roles either"
+    );
+}
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_realm_history_lists_all_users_but_self_history_stays_scoped(
+    ctx: &mut TestContext,
+) {
+    use crate::tests::helpers::credit_bucket_helpers::auth_admin_request_via_api;
+    let realm = ctx._realm_id.clone();
+    let (token, admin) =
+        crate::tests::helpers::billing_helpers::setup_billing_admin_session_with_user(
+            ctx,
+            "dream-history@test.com",
+        )
+        .await;
+    let pool = &ctx.app_state.pool;
+    let other = create_test_user(pool, &realm, "dream-other@test.com").await;
+    let bucket = create_test_credit_bucket(pool, &realm, CreditBucketOpts::default()).await;
+    let mapping =
+        create_subscription_mapping_in_bucket(pool, &realm, "dream-history", bucket, 10).await;
+    for user in [admin, other] {
+        insert_attempt_with_bucket_snapshot(pool, &realm, user, mapping, Some(bucket)).await;
+    }
+    for (path, total) in [
+        (format!("/api/bill/{realm}/purchase/history"), 2),
+        ("/api/user/bill/purchase/history".to_string(), 1),
+    ] {
+        let (status, body) = auth_admin_request_via_api(ctx, "GET", &path, &token, None).await;
+        assert_eq!(
+            status,
+            axum::http::StatusCode::OK,
+            "history request: {body:?}"
+        );
+        assert_eq!(
+            body.unwrap()["total"],
+            total,
+            "only the authorized admin endpoint may omit the user filter"
+        );
+    }
+    let (status, _) = auth_admin_request_via_api(
+        ctx,
+        "GET",
+        "/api/bill/foreign-realm/purchase/history",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+}

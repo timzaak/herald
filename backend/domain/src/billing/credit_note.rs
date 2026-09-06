@@ -112,7 +112,7 @@ pub struct CreditNote {
     pub status: CreditNoteStatus,
     /// Stripe credit note ID; present only for `source = Stripe` (used as idempotency key).
     pub external_credit_note_id: Option<String>,
-    /// Admin-provided memo; present only for `source = Manual`.
+    /// Memo supplied by the administrator or synchronized from Stripe.
     pub memo: Option<String>,
     /// User who created the credit note; present only for `source = Manual`.
     pub created_by_user_id: Option<Uuid>,
@@ -158,6 +158,14 @@ pub trait CreditNoteRepository: Send + Sync {
         external_credit_note_id: &str,
     ) -> impl Future<Output = Result<Option<CreditNote>, CoreError>> + Send;
 
+    /// Synchronize provider memo without applying the refund a second time.
+    fn update_external_memo(
+        &self,
+        realm_id: &str,
+        external_credit_note_id: &str,
+        memo: Option<String>,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
+
     /// Transactional: create the credit note AND atomically update the parent invoice's
     /// `amount_refunded` / `amount_remaining`. Must reject if `amount` would push
     /// `amount_refunded` beyond `total`.
@@ -191,6 +199,15 @@ impl<T: CreditNoteRepository> CreditNoteRepository for Arc<T> {
         external_credit_note_id: &str,
     ) -> impl Future<Output = Result<Option<CreditNote>, CoreError>> + Send {
         (**self).find_by_external_id(external_credit_note_id)
+    }
+
+    fn update_external_memo(
+        &self,
+        realm_id: &str,
+        external_credit_note_id: &str,
+        memo: Option<String>,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send {
+        (**self).update_external_memo(realm_id, external_credit_note_id, memo)
     }
 
     fn create_credit_note_and_update_invoice(

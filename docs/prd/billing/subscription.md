@@ -128,7 +128,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 更新 checkout_url 立即生效，所有新订阅用户使用新 URL
 - Provider-to-Entitlement 映射是 Herald 本地的 allowlist 和只读缓存，不是本地商业目录
 - 映射数据以 Herald 本地配置为准；Stripe Product/Price metadata 可作为导入入口，Creem 需要在 Herald 中配置 entitlement 和积分策略
-- 映射承载的信息包括：provider、external_product_id、external_price_id（Creem 不适用）、entitlement_key、积分策略字段、`granted_role_ids`（支付成功后授予的 role，见 [support-paywall.md](support-paywall.md)）、`quota_windows`（配额窗口策略）、provider_product_info、synced_at
+- 映射承载的信息包括：provider、external_product_id、external_price_id（Creem 不适用）、entitlement_key、积分策略字段、`granted_role_ids`（支付成功后授予的 role，见 [support-paywall.md](support-paywall.md)）、规则集合中的 `quota_windows`（配额窗口策略，保存在 `points_distribution_rules`，不是 Mapping 基表字段）、provider_product_info、synced_at
 - 禁用映射后，匹配该映射的 webhook 订阅事件仍更新订阅投影，但不触发积分策略的发放或回收；管理员重新启用后恢复积分策略执行
 - 映射同步失败不应静默降级为默认策略，应 fail loud 并记录诊断；「fail loud」指单行同步失败可观测（返回 `Partial` 状态 + `partial_errors` 列表），非整体回滚
 
@@ -150,18 +150,18 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 对账间隔必须小于 provider 的事件保留窗口；Stripe 拉取支持分页和限流控制。
 
 **Provider Metadata 契约**：
-- 所有 Herald 使用的 metadata key 使用 `herald_` 前缀，统一命名避免混用
-- 必填 metadata：`herald_realm_id`、`herald_client_app_id`、`herald_user_id`、`herald_entitlement_key`
-- 计费类型标识：`herald_billing_kind`，值为 `subscription` 或 `one_time`
+- Stripe Checkout 原生上下文使用 `herald_realm_id`、`herald_client_app_id`、`herald_user_id` 和 `herald_mapping_id`；Mapping UUID 与 entitlement_key 不可互换
+- Payment Attempt 通道使用 `heraldRealmId`、`heraldUserId`、`targetType`、`targetId`、`attemptId`，作为额外 metadata 传递；这套既有键名与 Stripe 前缀键并存
+- `herald_billing_kind` 是 webhook 可接受的计费类型提示（`subscription` / `one_time`），当前 Checkout 不保证写入；缺省时从事件和本地 Mapping 推导
 - Stripe 分层策略：稳定映射放 Product/Price metadata，请求特定信息（user、client app）放 Checkout Session/Subscription metadata
 - Creem：metadata 写入 checkout 请求，后续 webhook 返回该 metadata
-- Checkout 创建时验证必填 metadata，缺失时拒绝创建
+- Checkout 创建从已验证的 Realm、用户和购买目标构造 metadata，不要求调用方手填上述整套键值
 
 **Webhook Entitlement 解析链**：
 - Webhook 通过 metadata 提取 herald_entitlement_key 等映射信息
 - 解析 fallback 链：webhook metadata 中的 herald_entitlement_key → 本地 mapping（按 provider + external_product_id 查询）→ fail loud
 - 用户绑定优先使用 Subscription metadata，fallback 到本地 mapping
-- Metadata 缺失 entitlement_key 时 fail loud，记录诊断，不静默跳过
+- Metadata 缺失 entitlement_key 时尝试本地 Mapping 解析；所有解析路径均失败时 fail loud，记录诊断
 
 **Provider 同步规则**：
 - 全量同步：管理员手动触发，调用支付方 API 读取所有 Product/Price 信息并更新 provider-sourced cache；Stripe 可同时导入 metadata
@@ -262,7 +262,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **异常场景**：
 - 删除有活跃订阅的支付平台配置：拒绝操作并提示活跃订阅数量
-- 禁用有活跃订阅的 Entitlement 映射：整批更新事务回滚并返回 409（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载
+- 禁用有活跃订阅的 Entitlement 映射：单条 PATCH 与批量更新均返回 409；批量更新整批事务回滚（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载
 - 订阅降级时当前用户数超过目标套餐限制：不允许降级
 - Webhook 签名验证失败：拒绝处理请求
 

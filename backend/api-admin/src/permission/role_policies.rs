@@ -25,6 +25,7 @@ use herald_api_base::application::http::common::validation;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authorization::permission_service::PermissionService;
+use herald_core::domain::user::RolePolicyRepository;
 use herald_core::entity::role_policies;
 
 // ============================================================================
@@ -275,9 +276,8 @@ pub async fn remove_policy_from_role(
             ApiError::internal("Failed to query policy")
         })?;
 
-    let realm_id = policy
-        .ok_or_else(|| ApiError::not_found("Policy not found"))?
-        .realm_id;
+    let policy = policy.ok_or_else(|| ApiError::not_found("Policy not found"))?;
+    let realm_id = policy.realm_id.clone();
 
     let admin = AdminIdentity::require(identity, &realm_id, "role policies")?;
     admin
@@ -288,12 +288,17 @@ pub async fn remove_policy_from_role(
     // caller could delete a realm-mate role's policy while the cache
     // invalidation below targets the unverified path roleId — the affected
     // role would keep serving the removed permission from cache until TTL.
-    let result = role_policies::Entity::delete_many()
-        .filter(role_policies::Column::Id.eq(policy_id))
-        .filter(role_policies::Column::RoleId.eq(role_id))
-        .exec(state.db.as_ref())
+    if policy.role_id != role_id {
+        return Err(ApiError::not_found("Policy not found"));
+    }
+    let deleted = state
+        .role_policy_repository
+        .delete_role_policy(role_id, &policy.resource, &policy.action)
         .await
         .map_err(|e| {
+            if let herald_core::domain::user::UserAdminError::PermissionDenied(message) = &e {
+                return ApiError::forbidden(message.clone());
+            }
             tracing::error!(
                 error = %e,
                 role_id = %role_id,
@@ -303,7 +308,7 @@ pub async fn remove_policy_from_role(
             ApiError::internal("Failed to remove policy")
         })?;
 
-    if result.rows_affected == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Policy not found"));
     }
 

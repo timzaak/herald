@@ -204,6 +204,26 @@ export const invoicePolicyConfigSchema = z.object({
     .default({}),
 })
 
+export function parseInvoicePolicyConfig(configValue: string): InvoicePolicyConfigFormData {
+  const parsed = JSON.parse(configValue)
+  const capabilities = parsed.provider_capabilities ?? parsed.providerCapabilities ?? {}
+  return invoicePolicyConfigSchema.parse({
+    policy: parsed.policy,
+    providerCapabilities: Object.fromEntries(
+      Object.entries(capabilities).map(([provider, value]) => {
+        const capability = value as Record<string, unknown>
+        return [
+          provider,
+          {
+            externalInvoiceEnabled:
+              capability.externalInvoiceEnabled ?? capability.external_invoice_enabled,
+          },
+        ]
+      })
+    ),
+  })
+}
+
 export type InvoicePolicyConfigFormData = z.infer<typeof invoicePolicyConfigSchema>
 
 export function getInvoicePolicyDefaults(): InvoicePolicyConfigFormData {

@@ -1712,4 +1712,98 @@ mod tests {
             "External invoice provider should NOT be manual"
         );
     }
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn dream_check_none_blocks_existing_manual_invoice_writes(ctx: &mut InvoiceTestContext) {
+        let app = ctx.create_unified_test_router();
+        let realm = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "dream-invoice@test.com").await;
+        let account = ensure_test_account(ctx, &realm).await;
+        set_invoice_policy(ctx, &realm, "manual_only", "{}").await;
+        let invoice = create_draft_invoice(
+            &app,
+            &token,
+            &realm,
+            account,
+            vec![json!({"name": "Service", "quantity": "1", "unitPrice": 5000})],
+            "Customer",
+        )
+        .await;
+        let id = invoice["id"].as_str().unwrap();
+        set_invoice_policy(ctx, &realm, "none", "{}").await;
+        for (method, suffix) in [
+            ("PATCH", ""),
+            ("POST", "/issue"),
+            ("POST", "/void"),
+            ("POST", "/mark-paid"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(format!("/api/bill/{realm}/invoices/{id}{suffix}"))
+                        .header("content-type", "application/json")
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::from("{}"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "policy none must block {suffix} on a pre-existing invoice"
+            );
+        }
+    }
+
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn dream_check_provider_first_disabled_capability_allows_manual_invoice(
+        ctx: &mut InvoiceTestContext,
+    ) {
+        let app = ctx.create_unified_test_router();
+        let realm = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "dream-capability@test.com").await;
+        let account = ensure_test_account(ctx, &realm).await;
+        let attempt = Uuid::now_v7();
+        sqlx::query("INSERT INTO payment_attempts (id, realm_id, user_id, payment_provider, target_type, target_id, amount, currency, status, expires_at) VALUES ($1, $2, $3, 'stripe', 'entitlement_mapping', $4, 10000, 'USD', 'Succeeded', NOW() + INTERVAL '1 hour')")
+            .bind(attempt).bind(&realm).bind(account).bind(Uuid::now_v7())
+            .execute(&ctx.app_state.pool).await.unwrap();
+        let payload = json!({
+            "accountId": account, "paymentAttemptId": attempt, "currency": "USD",
+            "lineItems": [{"name": "Service", "quantity": "1", "unitPrice": 10000}],
+            "billingName": "Customer", "billingAddress": "123 Street", "billingTaxId": "TAX-1",
+            "sellerName": "Seller", "sellerAddress": "456 Street", "sellerTaxId": "TAX-2", "dueDate": "2099-12-31"
+        });
+        for (enabled, expected) in [(true, StatusCode::CONFLICT), (false, StatusCode::CREATED)] {
+            set_invoice_policy(
+                ctx,
+                &realm,
+                "provider_first",
+                &json!({"stripe": {"external_invoice_enabled": enabled}}).to_string(),
+            )
+            .await;
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/bill/{realm}/invoices"))
+                        .header("content-type", "application/json")
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::from(payload.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let body = parse_body(response.into_body()).await;
+            assert_eq!(
+                status, expected,
+                "capability {enabled} must control Stripe manual fallback: {body}"
+            );
+        }
+    }
 }

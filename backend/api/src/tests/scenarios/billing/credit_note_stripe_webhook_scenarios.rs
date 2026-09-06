@@ -1065,4 +1065,50 @@ mod tests {
             "voided for a missing credit note must not create a new credit note record"
         );
     }
+    #[test_context(CreditNoteWebhookTestContext)]
+    #[tokio::test]
+    async fn dream_check_credit_note_update_does_not_double_refund(
+        ctx: &mut CreditNoteWebhookTestContext,
+    ) {
+        let app = ctx.create_unified_test_router();
+        let realm = ctx._realm_id.clone();
+        let secret = "whsec_dream_update";
+        setup_stripe_config(ctx, &realm, "sk_test_key", secret).await;
+        let external_invoice = format!("in_{}", Uuid::now_v7());
+        let external_note = format!("cn_{}", Uuid::now_v7());
+        let invoice = insert_stripe_paid_invoice(ctx, &realm, &external_invoice, 10000).await;
+        for event_type in [
+            "credit_note.created",
+            "credit_note.updated",
+            "credit_note.updated",
+        ] {
+            let mut payload = build_stripe_credit_note_event(
+                &external_note,
+                &external_invoice,
+                &realm,
+                3000,
+                "usd",
+            );
+            payload["type"] = json!(event_type);
+            payload["data"]["object"]["memo"] = json!(event_type);
+            let response =
+                crate::tests::helpers::webhook_helpers::send_stripe_webhook_with_signature(
+                    &app, &realm, payload, secret,
+                )
+                .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let memo: Option<String> =
+            sqlx::query_scalar("SELECT memo FROM credit_note WHERE external_credit_note_id = $1")
+                .bind(&external_note)
+                .fetch_one(&ctx.app_state.pool)
+                .await
+                .unwrap();
+        assert_eq!(memo.as_deref(), Some("credit_note.updated"));
+        assert_eq!(
+            get_invoice_refund_fields(ctx, invoice).await,
+            (3000, 7000),
+            "updates must never apply the refund twice"
+        );
+    }
 }

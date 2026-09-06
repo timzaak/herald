@@ -110,6 +110,24 @@ const CREDIT_NOTE_COLUMNS: &str = r#"
 // ---------------------------------------------------------------------------
 
 impl CreditNoteRepository for PostgresCreditNoteRepository {
+    async fn update_external_memo(
+        &self,
+        realm_id: &str,
+        external_credit_note_id: &str,
+        memo: Option<String>,
+    ) -> Result<(), CoreError> {
+        let result = sqlx::query(
+            "UPDATE credit_note SET memo = $3 WHERE realm_id = $1 AND external_credit_note_id = $2 AND source = 'stripe'",
+        )
+        .bind(realm_id).bind(external_credit_note_id).bind(memo)
+        .execute(self.db.get_postgres_connection_pool()).await
+        .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+        if result.rows_affected() == 0 {
+            return Err(CoreError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn find_by_invoice_id(
         &self,
         realm_id: &str,

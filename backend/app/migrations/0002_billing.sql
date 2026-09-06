@@ -23,10 +23,17 @@
 --     service_duration_days + chk_pem_service_duration_days (former 0011) are
 --     inline; chk_pem_billing_type is the FINAL ('recurring','one_time',
 --     'non_renewing') value set (former 0011) and chk_pem_payment_provider is
---     the FINAL ('stripe','creem','apple','google') value set (former 0010)
+--     the FINAL ('stripe','creem','apple','google','wechat') value set
+--     (former 0010 + wechat pay provider)
 --   - payment_attempts.is_one_time_role + idx_payment_attempts_one_time_role
 --     (former 0006) are inline; chk_payment_attempt_provider is the FINAL
---     ('stripe','creem','apple','google') value set (former 0010)
+--     ('stripe','creem','apple','google','wechat') value set (former 0010 +
+--     wechat pay provider)
+--   - payment_event idempotency UNIQUE is realm-scoped (realm_id,
+--     external_event_id, payment_provider): two realms sharing one provider
+--     account receive the same event id and must both fulfill
+--   - idx_points_quota_entitlements_bucket_id is inline (bucket-delete
+--     reference probe)
 --
 -- Available balance is exclusively a derived SUM over points_credit_ledger
 -- (same predicate as consumption); there is no stored/derived dual-track.
@@ -173,7 +180,7 @@ CREATE TABLE payment_event (
     next_retry_at TIMESTAMPTZ NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT payment_event_unique_external_provider
-        UNIQUE (external_event_id, payment_provider)
+        UNIQUE (realm_id, external_event_id, payment_provider)
 );
 
 CREATE INDEX idx_payment_event_realm_id ON payment_event(realm_id);
@@ -181,7 +188,7 @@ CREATE INDEX idx_payment_event_event_type ON payment_event(event_type);
 CREATE INDEX idx_payment_event_processed ON payment_event(processed);
 CREATE INDEX idx_payment_event_provider ON payment_event(payment_provider);
 COMMENT ON TABLE payment_event IS 'Payment events from multiple providers (Creem, Stripe, etc.)';
-COMMENT ON COLUMN payment_event.external_event_id IS 'External event ID from payment provider (unique per provider)';
+COMMENT ON COLUMN payment_event.external_event_id IS 'External event ID from payment provider (unique per realm and provider: realms sharing one provider account receive the same event id)';
 COMMENT ON COLUMN payment_event.payment_provider IS 'Payment provider type (creem, stripe, etc.)';
 COMMENT ON COLUMN payment_event.processing_started_at IS 'When webhook processing last claimed the event for execution; null means idle';
 COMMENT ON COLUMN payment_event.next_retry_at IS
@@ -604,6 +611,13 @@ CREATE INDEX idx_points_quota_entitlements_effective_until_active
     ON points_quota_entitlements (effective_until)
     WHERE status = 'active';
 
+-- Bucket-delete reference probe: delete_credit_bucket checks EXISTS on
+-- bucket_id here (alongside points_distribution_rules); every other points_*
+-- table referencing a bucket carries a bucket_id index, without which this
+-- probe degrades to a sequential scan.
+CREATE INDEX idx_points_quota_entitlements_bucket_id
+    ON points_quota_entitlements(bucket_id);
+
 COMMENT ON TABLE points_quota_entitlements IS 'Window-based quota entitlements for subscription_credit / free_periodic_credit (replaces per-period ledger issuance)';
 COMMENT ON COLUMN points_quota_entitlements.quota_windows IS 'Snapshot of [{windowSeconds, limit, key}] captured at grant time (A2)';
 COMMENT ON COLUMN points_quota_entitlements.source_id IS 'subscription_id or registration/free source identifier';
@@ -635,7 +649,7 @@ CREATE TABLE provider_entitlement_mappings (
     CONSTRAINT uq_pem_realm_provider_product_price UNIQUE NULLS NOT DISTINCT (realm_id, payment_provider, external_product_id, external_price_id),
     CONSTRAINT chk_pem_entitlement_key CHECK (entitlement_key ~ '^[a-z0-9-]{1,64}$'),
     CONSTRAINT chk_pem_billing_type CHECK (billing_type IS NULL OR billing_type IN ('recurring', 'one_time', 'non_renewing')),
-    CONSTRAINT chk_pem_payment_provider CHECK (payment_provider IN ('stripe', 'creem', 'apple', 'google')),
+    CONSTRAINT chk_pem_payment_provider CHECK (payment_provider IN ('stripe', 'creem', 'apple', 'google', 'wechat')),
     CONSTRAINT chk_pem_service_duration_days
         CHECK (
             (billing_type IS DISTINCT FROM 'non_renewing')
@@ -650,7 +664,7 @@ CREATE INDEX idx_pem_entitlement_key ON provider_entitlement_mappings(entitlemen
 COMMENT ON TABLE provider_entitlement_mappings IS 'Maps payment provider products to Herald entitlement keys; points distribution is configured via points_distribution_rules';
 COMMENT ON COLUMN provider_entitlement_mappings.entitlement_key IS 'Herald entitlement identifier, matching [a-z0-9-]{1,64}';
 COMMENT ON COLUMN provider_entitlement_mappings.billing_type IS 'recurring, one_time or non_renewing';
-COMMENT ON COLUMN provider_entitlement_mappings.payment_provider IS 'Payment provider: stripe, creem, apple, google';
+COMMENT ON COLUMN provider_entitlement_mappings.payment_provider IS 'Payment provider: stripe, creem, apple, google, wechat';
 COMMENT ON COLUMN provider_entitlement_mappings.provider_product_info IS 'Cached provider product info (name, price, currency, etc.)';
 COMMENT ON COLUMN provider_entitlement_mappings.granted_role_ids IS
     'Role IDs auto-granted on payment success (paywall). Empty = no role grant.';
@@ -681,7 +695,7 @@ CREATE TABLE payment_attempts (
     is_one_time_role BOOLEAN NOT NULL DEFAULT FALSE,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT chk_payment_attempt_provider CHECK (payment_provider IN ('stripe', 'creem', 'apple', 'google')),
+    CONSTRAINT chk_payment_attempt_provider CHECK (payment_provider IN ('stripe', 'creem', 'apple', 'google', 'wechat')),
     CONSTRAINT chk_target_type CHECK (target_type = 'entitlement_mapping'),
     CONSTRAINT chk_status CHECK (status IN ('Pending', 'RequiresAction', 'Succeeded', 'Failed', 'Cancelled', 'Expired', 'completed'))
 );

@@ -516,7 +516,7 @@ where
             realm_id: attempt.realm_id.clone(),
             user_id: attempt.user_id,
             external_subscription_id: provider_transaction_id.clone(),
-            external_product_id: attempt.target_id.to_string(),
+            external_product_id: mapping.external_product_id.clone(),
             payment_provider: attempt.payment_provider.clone(),
             status: SubscriptionStatus::Active,
             entitlement_key: entitlement_key.clone(),

@@ -61,6 +61,7 @@ pub mod wechat_webhook_handlers;
         crate::purchase_handlers::cancel_payment_attempt,
         crate::purchase_handlers::fulfill_payment,
         crate::purchase_handlers::get_purchase_history,
+        crate::purchase_handlers::get_realm_purchase_history,
         crate::invoice_handlers::get_seller_config,
         crate::invoice_handlers::upsert_seller_config,
         crate::invoice_handlers::create_invoice,

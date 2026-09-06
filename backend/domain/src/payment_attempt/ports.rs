@@ -133,11 +133,12 @@ pub trait PaymentAttemptRepository: Send + Sync {
         before: DateTime<Utc>,
     ) -> Result<Vec<PaymentAttempt>, CoreError>;
 
-    /// List purchase history for a user with filters and pagination
+    /// List successful payments with filters and pagination. None selects all
+    /// users in the realm; callers must authorize realm billing access first.
     async fn list_purchase_history(
         &self,
         realm_id: &str,
-        user_id: Uuid,
+        user_id: Option<Uuid>,
         payment_provider: Option<&str>,
         start_date: Option<&str>,
         end_date: Option<&str>,

@@ -1620,4 +1620,109 @@ mod tests {
         // the covered-by-inspection rationale in the runner manifest.
         let _ = ctx._realm_id.clone();
     }
+    #[test_context(RevokeSweepTestContext)]
+    #[tokio::test]
+    async fn dream_check_period_end_deleted_revokes_payment_role(ctx: &mut RevokeSweepTestContext) {
+        let app = ctx.create_unified_test_router();
+        let webhook_secret = "test_m4_renewal_secret";
+        let realm_id = ctx._realm_id.clone();
+        setup_stripe_config(ctx, &realm_id, "sk_test_m4_renewal", webhook_secret).await;
+
+        let token = setup_billing_admin_session(ctx, "m4-renewal-admin@test.com").await;
+        let role_id = create_role_in_realm(ctx, &realm_id, &token, "m4-renewal-role").await;
+
+        // Recurring mapping granting the role (Stripe provider for the renewal).
+        let entitlement_key = "m4-renewal-plan";
+        let external_product_id = "prod_m4_renewal";
+        create_recurring_mapping_with_role(
+            ctx,
+            &realm_id,
+            "stripe",
+            external_product_id,
+            entitlement_key,
+            role_id,
+        )
+        .await;
+
+        let user_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account (id, realm_id, email, password, status)
+             VALUES ($1, $2, $3, $4, 1)
+             ON CONFLICT (realm_id, email) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(&realm_id)
+        .bind("m4-renewal-user@test.com")
+        .bind("$2a$12$dummy_password_hash")
+        .execute(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        create_points_wallet(ctx, user_id, &realm_id).await;
+
+        // Grant via a Stripe invoice.payment_succeeded webhook (initial grant).
+        let stripe_subscription_id = format!("sub_m4_renewal_{}", generate_test_event_id());
+        let grant_event_id = generate_test_event_id();
+        let grant_payload = build_stripe_invoice_with_herald_metadata(
+            &grant_event_id,
+            &stripe_subscription_id,
+            &realm_id,
+            user_id,
+            entitlement_key,
+            2500,
+        );
+        let grant_response =
+            send_stripe_webhook_with_signature(&app, &realm_id, grant_payload, webhook_secret)
+                .await;
+        assert_webhook_success(&grant_response);
+
+        // Resolve the internal subscription id (the grant + revoke source_id).
+        let internal_sub_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM subscription
+             WHERE external_subscription_id = $1 AND payment_provider = 'stripe'",
+        )
+        .bind(&stripe_subscription_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("subscription must be created by the grant webhook");
+        let source_id = internal_sub_id.to_string();
+
+        // Pre-condition: 1 payment role row.
+        assert_eq!(
+            count_payment_roles_by_source_id(ctx, user_id, &source_id).await,
+            1,
+            "grant must produce 1 payment role row"
+        );
+
+        // The terminal event retains the previous period-end cancellation flag.
+        let cancel_event_id = generate_test_event_id();
+        let mut cancel_payload = crate::tests::helpers::webhook_helpers::build_stripe_subscription_deleted_with_entitlement(
+            &cancel_event_id,
+            &stripe_subscription_id,
+            &realm_id,
+            user_id,
+            entitlement_key,
+        );
+        cancel_payload["data"]["object"]["cancel_at_period_end"] = serde_json::json!(true);
+        let cancel_response =
+            send_stripe_webhook_with_signature(&app, &realm_id, cancel_payload, webhook_secret)
+                .await;
+        assert_webhook_success(&cancel_response);
+
+        // After cancel: 0 payment role rows.
+        assert_eq!(
+            count_payment_roles_by_source_id(ctx, user_id, &source_id).await,
+            0,
+            "terminal deleted must revoke roles even when cancel_at_period_end remains true"
+        );
+
+        let status: String = sqlx::query_scalar("SELECT status FROM subscription WHERE id = $1")
+            .bind(internal_sub_id)
+            .fetch_one(&ctx.app_state.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "canceled",
+            "deleted must not return to scheduled_cancel"
+        );
+    }
 }

@@ -1101,3 +1101,142 @@ async fn plain_user_session(ctx: &mut TestContext, email: &str) -> (String, Uuid
     let user_uuid = Uuid::parse_str(&user_id_str).unwrap_or_else(|_| Uuid::nil());
     (token, user_uuid)
 }
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_inactive_quota_reference_blocks_bucket_delete(ctx: &mut TestContext) {
+    let realm = ctx._realm_id.clone();
+    let token = setup_billing_admin_session(ctx, "dream-quota@test.com").await;
+    let bucket =
+        create_test_credit_bucket(&ctx.app_state.pool, &realm, CreditBucketOpts::default()).await;
+    seed_active_subscription_on_bucket(&ctx.app_state.pool, &realm, bucket).await;
+    sqlx::query("UPDATE subscription SET status = 'canceled' WHERE realm_id = $1")
+        .bind(&realm)
+        .execute(&ctx.app_state.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE points_quota_entitlements SET status = 'revoked' WHERE bucket_id = $1")
+        .bind(bucket)
+        .execute(&ctx.app_state.pool)
+        .await
+        .unwrap();
+    let (status, body) = auth_admin_request_via_api(
+        ctx,
+        "DELETE",
+        &format!("/api/realms/{realm}/billing/credit-buckets/{bucket}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "historical quota references must return a useful conflict: {body:?}"
+    );
+    assert_eq!(error_code(&body), Some("bucket_in_use"));
+}
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_disabled_rule_reference_blocks_bucket_delete(ctx: &mut TestContext) {
+    let realm = ctx._realm_id.clone();
+    let token = setup_billing_admin_session(ctx, "dream-rule@test.com").await;
+    let mapping =
+        setup_test_entitlement_mapping(ctx, &realm, "stripe", "prod-dream", "dream-rule").await;
+    let bucket =
+        create_test_credit_bucket(&ctx.app_state.pool, &realm, CreditBucketOpts::default()).await;
+    sqlx::query("INSERT INTO points_distribution_rules (id, realm_id, owner_type, entitlement_mapping_id, bucket_id, trigger_sources, grant_mode, points_amount, validity_days, enabled, display_order) VALUES ($1, $2, 'entitlement_mapping', $3, $4, ARRAY['subscription_initial'], 'fixed', 100, 0, false, 0)")
+        .bind(Uuid::now_v7()).bind(&realm).bind(mapping).bind(bucket)
+        .execute(&ctx.app_state.pool).await.unwrap();
+    let (status, body) = auth_admin_request_via_api(
+        ctx,
+        "DELETE",
+        &format!("/api/realms/{realm}/billing/credit-buckets/{bucket}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "disabled rules still reference their bucket: {body:?}"
+    );
+    assert_eq!(error_code(&body), Some("bucket_in_use"));
+}
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_legacy_policy_delete_protects_builtin_permissions(ctx: &mut TestContext) {
+    use herald_core::domain::user::RolePolicyRepository;
+    let realm = ctx._realm_id.clone();
+    let token = setup_billing_admin_session(ctx, "dream-policy@test.com").await;
+    let (role, policy, resource, action): (Uuid, Uuid, String, String) = sqlx::query_as(
+        "SELECT r.id, rp.id, rp.resource, rp.action FROM roles r JOIN role_policies rp ON rp.role_id = r.id JOIN permissions p ON p.realm_id = r.realm_id AND p.resource = rp.resource AND p.action = rp.action WHERE r.realm_id = $1 AND r.is_builtin AND p.is_builtin LIMIT 1",
+    ).bind(&realm).fetch_one(&ctx.app_state.pool).await.unwrap();
+    let result = ctx
+        .app_state
+        .role_policy_repository
+        .delete_role_policy(role, &resource, &action)
+        .await;
+    assert!(matches!(
+        result,
+        Err(herald_core::domain::user::UserAdminError::PermissionDenied(
+            _
+        ))
+    ));
+    let (status, _) = auth_admin_request_via_api(
+        ctx,
+        "DELETE",
+        &format!("/api/permission/roles/{role}/policies/{policy}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "legacy HTTP deletion must use the same builtin guard"
+    );
+}
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn dream_check_single_patch_cannot_disable_active_mapping(ctx: &mut TestContext) {
+    let realm = ctx._realm_id.clone();
+    let token = setup_billing_admin_session(ctx, "dream-mapping@test.com").await;
+    let mapping =
+        setup_test_entitlement_mapping(ctx, &realm, "creem", "prod-seed", "dream-mapping").await;
+    sqlx::query("UPDATE provider_entitlement_mappings SET enabled = true WHERE id = $1")
+        .bind(mapping)
+        .execute(&ctx.app_state.pool)
+        .await
+        .unwrap();
+    let bucket =
+        create_test_credit_bucket(&ctx.app_state.pool, &realm, CreditBucketOpts::default()).await;
+    seed_active_subscription_on_bucket(&ctx.app_state.pool, &realm, bucket).await;
+    for body in [
+        json!({"enabled": false}),
+        json!({"enabled": false, "pointRules": []}),
+    ] {
+        let (status, response) = auth_admin_request_via_api(
+            ctx,
+            "PATCH",
+            &format!("/api/bill/{realm}/entitlement-mappings/{mapping}"),
+            &token,
+            Some(&body),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::CONFLICT,
+            "both PATCH paths must protect live subscriptions: {response:?}"
+        );
+        let enabled: bool =
+            sqlx::query_scalar("SELECT enabled FROM provider_entitlement_mappings WHERE id = $1")
+                .bind(mapping)
+                .fetch_one(&ctx.app_state.pool)
+                .await
+                .unwrap();
+        assert!(enabled, "rejected changes must roll back");
+    }
+}

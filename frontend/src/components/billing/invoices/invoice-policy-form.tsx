@@ -16,6 +16,7 @@ import {
   invoicePolicyConfigSchema,
   type InvoicePolicyConfigFormData,
   getInvoicePolicyDefaults,
+  parseInvoicePolicyConfig,
 } from '@/lib/schemas/invoice-forms'
 import { getProviderLabel } from '@/lib/invoice-utils'
 import { invoicePolicyConfigQueryOptions } from '@/data/invoice-query-options'
@@ -34,7 +35,7 @@ function parsePolicyConfig(
   const settings = configs.find((c) => c.configKey === 'settings')
   if (settings?.configValue) {
     try {
-      return invoicePolicyConfigSchema.parse(JSON.parse(settings.configValue))
+      return parseInvoicePolicyConfig(settings.configValue)
     } catch {
       return getInvoicePolicyDefaults()
     }

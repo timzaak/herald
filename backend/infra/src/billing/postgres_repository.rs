@@ -30,6 +30,12 @@ use crate::points::postgres_repository::{
     parse_quota_windows_value, serialize_quota_windows_value,
 };
 
+/// Subscription statuses that keep an entitlement mapping protected from being
+/// disabled. Single-PATCH (`update_mapping_in_tx`) and batch-PATCH must use
+/// the same set or the two disable paths diverge in protection strength.
+const ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL: &str =
+    "'active','trialing','past_due','scheduled_cancel','dispute'";
+
 /// PostgreSQL implementation of billing repository
 pub struct PostgresBillingRepository {
     db: DatabaseConnection,
@@ -620,7 +626,7 @@ impl PostgresBillingRepository {
     }
 
     /// Delete a Credit Bucket. Refused with `BucketInUse` when in-flight
-    /// subscriptions exist for this bucket OR any wallet still holds a balance.
+    /// subscriptions, spendable balances, distribution rules, or quota entitlements reference it.
     pub async fn delete_credit_bucket(
         &self,
         realm_id: &str,
@@ -702,7 +708,18 @@ impl PostgresBillingRepository {
         .await
         .map_err(|e| CoreError::DatabaseError(format!("Failed to count holders: {}", e)))?;
 
-        if active_subscriptions > 0 || holders_with_balance > 0 {
+        let has_rule_or_quota_references: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM points_distribution_rules WHERE bucket_id = $1) \
+             OR EXISTS (SELECT 1 FROM points_quota_entitlements WHERE bucket_id = $1)",
+        )
+        .bind(bucket_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            CoreError::DatabaseError(format!("Failed to check bucket references: {}", e))
+        })?;
+
+        if active_subscriptions > 0 || holders_with_balance > 0 || has_rule_or_quota_references {
             // Roll back before surfacing the structured error.
             let _ = tx.rollback().await;
             return Err(CreditBucketError::BucketInUse {
@@ -731,6 +748,77 @@ impl PostgresBillingRepository {
         })?;
 
         Ok(())
+    }
+
+    async fn update_mapping_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        mapping: EntitlementMapping,
+    ) -> Result<EntitlementMapping, CoreError> {
+        let was_enabled: bool = sqlx::query_scalar(
+            "SELECT enabled FROM provider_entitlement_mappings WHERE id = $1 AND realm_id = $2 FOR UPDATE",
+        )
+        .bind(mapping.id).bind(&mapping.realm_id)
+        .fetch_optional(&mut **tx).await
+        .map_err(|e| CoreError::DatabaseError(e.to_string()))?
+        .ok_or(CoreError::NotFound)?;
+        if was_enabled && !mapping.enabled {
+            let active: bool = sqlx::query_scalar(&format!(
+                "SELECT EXISTS (SELECT 1 FROM subscription WHERE realm_id = $1 \
+                 AND payment_provider = $2 AND external_product_id = $3 \
+                 AND external_price_id IS NOT DISTINCT FROM $4 \
+                 AND status IN ({ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL}))"
+            ))
+            .bind(&mapping.realm_id)
+            .bind(&mapping.payment_provider)
+            .bind(&mapping.external_product_id)
+            .bind(&mapping.external_price_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+            if active {
+                return Err(CoreError::Conflict(
+                    "Cannot disable mapping with active subscriptions".to_string(),
+                ));
+            }
+        }
+        // Write ONLY the mutable base fields, ON the transaction so a subsequent
+        // rule-write failure rolls them back (DEC-005). Raw sqlx on `&mut **tx`
+        // mirrors upsert_rules_in_tx / batch_update_mappings. Identity columns (realm_id,
+        // payment_provider, external_product_id, external_price_id, id,
+        // created_at) are intentionally not written, matching the prior
+        // SeaORM ActiveModel field set exactly.
+        let row = sqlx::query(
+            "UPDATE provider_entitlement_mappings SET \
+                entitlement_key = $1, billing_type = $2, billing_period = $3, \
+                service_duration_days = $4, enabled = $5, provider_product_info = $6, \
+                granted_role_ids = $7, synced_at = $8, updated_at = $9 \
+             WHERE id = $10 AND realm_id = $11 \
+             RETURNING *",
+        )
+        .bind(&mapping.entitlement_key)
+        .bind(
+            mapping
+                .billing_type
+                .as_ref()
+                .map(|t| t.as_str().to_string()),
+        )
+        .bind(&mapping.billing_period)
+        .bind(mapping.service_duration_days.map(|v| v as i32))
+        .bind(mapping.enabled)
+        .bind(&mapping.provider_product_info)
+        .bind(&mapping.granted_role_ids)
+        .bind(mapping.synced_at)
+        .bind(mapping.updated_at)
+        .bind(mapping.id)
+        .bind(&mapping.realm_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => CoreError::NotFound,
+            other => CoreError::DatabaseError(other.to_string()),
+        })?;
+        let mapping = Self::row_to_entitlement_mapping(&row);
+        Ok(mapping)
     }
 
     async fn clear_deletable_bucket_references_tx(
@@ -1707,31 +1795,17 @@ impl BillingRepository for PostgresBillingRepository {
         &self,
         mapping: EntitlementMapping,
     ) -> Result<EntitlementMapping, CoreError> {
-        let existing = provider_entitlement_mapping::Entity::find_by_id(mapping.id)
-            .one(&self.db)
-            .await
-            .map_err(|e| CoreError::DatabaseError(e.to_string()))?
-            .ok_or(CoreError::NotFound)?;
-
-        let mut active_model: provider_entitlement_mapping::ActiveModel =
-            existing.into_active_model();
-        let update = Self::entitlement_mapping_to_active_model(mapping);
-        active_model.entitlement_key = update.entitlement_key;
-        active_model.billing_type = update.billing_type;
-        active_model.billing_period = update.billing_period;
-        active_model.service_duration_days = update.service_duration_days;
-        active_model.enabled = update.enabled;
-        active_model.provider_product_info = update.provider_product_info;
-        active_model.granted_role_ids = update.granted_role_ids;
-        active_model.synced_at = update.synced_at;
-        active_model.updated_at = update.updated_at;
-
-        let result = active_model
-            .update(&self.db)
+        let mut tx = self
+            .db
+            .get_postgres_connection_pool()
+            .begin()
             .await
             .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
-
-        Ok(Self::model_to_entitlement_mapping(result))
+        let mapping = Self::update_mapping_in_tx(&mut tx, mapping).await?;
+        tx.commit()
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+        Ok(mapping)
     }
 
     async fn upsert_entitlement_mapping(
@@ -2233,17 +2307,17 @@ impl BillingRepository for PostgresBillingRepository {
             // Branch 1: subscriptions whose external_price_id is one of the
             // disabling non-null price ids. Branch 2 (only when a disabling row
             // is price-less): subscriptions with NULL external_price_id.
-            let active_count: i64 = sqlx::query_scalar(
+            let active_count: i64 = sqlx::query_scalar(&format!(
                 "SELECT COUNT(*) FROM subscription \
                  WHERE realm_id = $1 \
                    AND payment_provider = $2 \
                    AND external_product_id = $3 \
-                   AND status IN ('active','trialing','past_due','scheduled_cancel','dispute') \
+                   AND status IN ({ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL}) \
                    AND ( \
                         external_price_id = ANY($4) \
                      OR ($5 AND external_price_id IS NULL) \
-                   )",
-            )
+                   )"
+            ))
             .bind(&input.realm_id)
             .bind(&input.payment_provider)
             .bind(&input.external_product_id)
@@ -2438,43 +2512,7 @@ impl BillingRepository for PostgresBillingRepository {
             .begin()
             .await
             .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
-        // Write ONLY the mutable base fields, ON the transaction so a subsequent
-        // rule-write failure rolls them back (DEC-005). Raw sqlx on `&mut *tx`
-        // mirrors upsert_rules_in_tx / batch_update_mappings and removes the
-        // separate pre-read round-trip. Identity columns (realm_id,
-        // payment_provider, external_product_id, external_price_id, id,
-        // created_at) are intentionally not written, matching the prior
-        // SeaORM ActiveModel field set exactly.
-        let row = sqlx::query(
-            "UPDATE provider_entitlement_mappings SET \
-                entitlement_key = $1, billing_type = $2, billing_period = $3, \
-                service_duration_days = $4, enabled = $5, provider_product_info = $6, \
-                granted_role_ids = $7, synced_at = $8, updated_at = $9 \
-             WHERE id = $10 \
-             RETURNING *",
-        )
-        .bind(&mapping.entitlement_key)
-        .bind(
-            mapping
-                .billing_type
-                .as_ref()
-                .map(|t| t.as_str().to_string()),
-        )
-        .bind(&mapping.billing_period)
-        .bind(mapping.service_duration_days.map(|v| v as i32))
-        .bind(mapping.enabled)
-        .bind(&mapping.provider_product_info)
-        .bind(&mapping.granted_role_ids)
-        .bind(mapping.synced_at)
-        .bind(mapping.updated_at)
-        .bind(mapping.id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => CoreError::NotFound,
-            other => CoreError::DatabaseError(other.to_string()),
-        })?;
-        let mapping = Self::row_to_entitlement_mapping(&row);
+        let mapping = Self::update_mapping_in_tx(&mut tx, mapping).await?;
         // Upsert the rule set under the mapping id.
         Self::upsert_rules_in_tx(
             &mut tx,

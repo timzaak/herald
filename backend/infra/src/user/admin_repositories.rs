@@ -1240,6 +1240,22 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
         resource: &str,
         action: &str,
     ) -> UserAdminResult<bool> {
+        let protected: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM roles r JOIN permissions p ON p.realm_id = r.realm_id \
+             WHERE r.id = $1 AND r.is_builtin AND p.is_builtin \
+             AND p.resource = $2 AND p.action = $3)",
+        )
+        .bind(role_id)
+        .bind(resource)
+        .bind(action)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| UserAdminError::DatabaseError(e.to_string()))?;
+        if protected {
+            return Err(UserAdminError::PermissionDenied(
+                "Cannot remove built-in permission from built-in role".to_string(),
+            ));
+        }
         let result = sqlx::query(
             r#"
             DELETE FROM role_policies

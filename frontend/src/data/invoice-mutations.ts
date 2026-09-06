@@ -276,7 +276,10 @@ export function useUpsertInvoicePolicy(realmId: string) {
         body: {
           configType: 'invoice_policy',
           configKey: 'settings',
-          configValue: JSON.stringify(values),
+          configValue: JSON.stringify({
+            policy: values.policy,
+            provider_capabilities: values.providerCapabilities,
+          }),
           enabled: true,
         },
       })

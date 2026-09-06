@@ -18,8 +18,12 @@ use utoipa::ToSchema;
 
 use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
+use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::common::public_helper::normalize_custom_domain_host;
+use herald_core::domain::audit::{
+    AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType, NewAuditEvent,
+};
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::custom_domain::CustomDomainMappingRepository;
@@ -134,6 +138,8 @@ pub async fn handle_update_custom_domain_config(
     State(state): State<AppState>,
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(req): Json<UpdateCustomDomainConfigRequest>,
 ) -> Result<Json<CustomDomainUpdateResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "realm custom-domain configuration")?;
@@ -212,6 +218,33 @@ pub async fn handle_update_custom_domain_config(
         tracing::error!(%error, "Failed to release custom-domain claim lock");
         ApiError::internal("Failed to update custom-domain configuration")
     })?;
+
+    if let Err(error) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.clone(),
+            category: AuditCategory::RealmManagement,
+            action: AuditAction::RealmConfigUpdate,
+            actor_id: identity.user_id(),
+            actor_type: None,
+            actor_name: identity.as_user().map(|user| user.email.clone()),
+            target_type: AuditTargetType::Realm,
+            target_id: realm_id.clone(),
+            target_name: Some("custom_domain/settings".to_string()),
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "config_type": "custom_domain",
+                "operation": if config.hostname.is_some() { "saved" } else { "cleared" },
+                "hostname": config.hostname,
+            })),
+            ip_address: Some(ip),
+            user_agent: user_agent_from_headers(&headers),
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(%error, %realm_id, "Failed to record custom-domain audit event");
+    }
 
     Ok(Json(CustomDomainUpdateResponse {
         message: "Custom-domain configuration updated".to_string(),

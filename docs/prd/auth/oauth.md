@@ -132,7 +132,7 @@
 
 3. **第三方 API 接入**：第三方应用通过 API Key 认证接入 Herald 系统，实现用户登录状态验证、权限检查和订阅状态查询等功能。Ext API 还提供 Realm、User、Client App、Billing（订阅计划查询）、Points（余额查询与消费）等完整管理能力。详细内容参考各自独立 PRD。
 
-4. **Herald OAuth Client SSO 登录**：Herald 本身作为 OAuth Client，通过通用登录路径 `/api/oauth/{realmId}/{provider}/login` 发起第三方 Provider 授权，回调路径 `/{provider}/callback` 接收授权结果并完成用户关联登录。支持所有已配置的 Provider 类型。
+4. **Herald OAuth Client SSO 登录**：Herald 本身作为 OAuth Client，通过通用登录路径 `/api/oauth/{realmId}/{provider}/login` 发起第三方 Provider 授权，回调路径 `/{provider}/callback` 接收授权结果并完成用户关联登录。通用路径适用于 Google、GitHub、Facebook、Apple；微信网站登录使用微信专属路由，小程序通过 code2session 直连接口完成登录，见 [wechat-oauth.md](wechat-oauth.md)。
 
 5. **OAuth 2.0 Device Authorization Grant**：完整实现 RFC 8628 设备授权流程，包含 authorize、token、verify、confirm 四个独立端点，详见独立 PRD `docs/prd/auth/device-code.md`。
 

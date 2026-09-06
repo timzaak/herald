@@ -161,6 +161,9 @@ where
         period_end: DateTime<Utc>,
         _provider_event_id: String,
     ) -> Result<Vec<DistributionGrantResult>, CoreError> {
+        if !mapping.enabled {
+            return Ok(Vec::new());
+        }
         let source_id = subscription_id.to_string();
         let results = if is_renewal {
             let event = DistributionEvent {
@@ -210,6 +213,9 @@ where
         period_end: DateTime<Utc>,
         provider_event_id: &str,
     ) -> Result<Vec<DistributionGrantResult>, CoreError> {
+        if !new_mapping.enabled {
+            return Ok(Vec::new());
+        }
         let source_id = subscription_id.to_string();
         let now = Utc::now();
         let event = DistributionEvent {

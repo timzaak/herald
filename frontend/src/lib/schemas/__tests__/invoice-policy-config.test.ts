@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { invoicePolicyConfigSchema, getInvoicePolicyDefaults } from '../invoice-forms'
+import {
+  invoicePolicyConfigSchema,
+  getInvoicePolicyDefaults,
+  parseInvoicePolicyConfig,
+} from '../invoice-forms'
 
 // ==================== invoicePolicyConfigSchema ====================
 
@@ -80,5 +84,21 @@ describe('getInvoicePolicyDefaults', () => {
     const defaults = getInvoicePolicyDefaults()
     const result = invoicePolicyConfigSchema.safeParse(defaults)
     expect(result.success).toBe(true)
+  })
+})
+
+describe('persisted invoice policy compatibility', () => {
+  it('preserves disabled capabilities when reopening either legacy config format', () => {
+    for (const container of ['provider_capabilities', 'providerCapabilities']) {
+      for (const key of ['externalInvoiceEnabled', 'external_invoice_enabled']) {
+        const config = parseInvoicePolicyConfig(
+          JSON.stringify({
+            policy: 'provider_first',
+            [container]: { stripe: { [key]: false } },
+          })
+        )
+        expect(config.providerCapabilities.stripe.externalInvoiceEnabled).toBe(false)
+      }
+    }
   })
 })

@@ -25,8 +25,10 @@ use herald_core::domain::client::ports::ClientService;
     ),
     responses(
         (status = 204, description = "Client App deleted"),
-        (status = 403, description = "Cannot delete built-in admin console", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 400, description = "Cannot delete built-in admin console", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "Client App not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 409, description = "Client App is bound to an API Key", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     )
 )]
@@ -91,6 +93,9 @@ pub async fn delete_client_app(
             }
             herald_core::domain::common::entities::app_errors::CoreError::BadRequest(msg) => {
                 ApiError::bad_request(msg)
+            }
+            herald_core::domain::common::entities::app_errors::CoreError::Conflict(msg) => {
+                ApiError::conflict(msg)
             }
             e => {
                 tracing::error!("Failed to delete client app: {}", e);

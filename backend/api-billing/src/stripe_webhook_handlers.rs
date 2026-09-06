@@ -731,6 +731,8 @@ struct StripeCreditNoteCreatedPayload {
     /// Credit note total in the smallest currency unit (Stripe Credit Note `total`).
     amount: i64,
     currency: String,
+    /// Free-form memo Stripe attaches to the credit note; synced to `credit_notes.memo`.
+    memo: Option<String>,
 }
 
 fn parse_credit_note_created_payload(
@@ -754,6 +756,7 @@ fn parse_credit_note_created_payload(
             .as_str()
             .ok_or_else(|| CoreError::BadRequest("Missing credit note currency".to_string()))?
             .to_string(),
+        memo: object["memo"].as_str().map(str::to_string),
     })
 }
 
@@ -2334,7 +2337,7 @@ async fn handle_subscription_status_change(
 
 /// Handle customer.subscription.deleted events
 ///
-/// Handles subscription cancellation (immediate or end-of-period).
+/// Finalizes cancellation after either immediate or end-of-period termination.
 async fn handle_subscription_deleted(
     app_state: AppState,
     event: Value,
@@ -2366,17 +2369,10 @@ async fn handle_subscription_deleted(
     let external_price_id = existing_subscription
         .as_ref()
         .and_then(|s| s.external_price_id.clone());
-    let cancel_mode = if payload.cancel_at_period_end {
-        CancelMode::DefaultCancel
-    } else {
-        CancelMode::ImmediateCancel
-    };
-
-    let status = if payload.cancel_at_period_end {
-        SubscriptionStatus::ScheduledCancel
-    } else {
-        SubscriptionStatus::Canceled
-    };
+    // Deleted is terminal, including a previously scheduled cancellation.
+    // cancel_at_period_end describes how it ended, not a pending action.
+    let cancel_mode = CancelMode::ImmediateCancel;
+    let status = SubscriptionStatus::Canceled;
 
     let cancel_entitlement_key = entitlement_key.clone();
 
@@ -2395,13 +2391,7 @@ async fn handle_subscription_deleted(
         payload.current_period_start,
         payload.current_period_end,
         payload.cancel_at_period_end,
-        Some(if payload.cancel_at_period_end {
-            payload
-                .current_period_end
-                .unwrap_or_else(|| Utc::now() + ChronoDuration::days(30))
-        } else {
-            Utc::now()
-        }),
+        Some(Utc::now()),
         existing_subscription.clone(),
         HistoryEventType::Canceled,
     )
@@ -2418,11 +2408,7 @@ async fn handle_subscription_deleted(
             realm_id,
             subscription.id,
             cancel_mode,
-            if payload.cancel_at_period_end {
-                payload.current_period_end
-            } else {
-                None
-            },
+            payload.current_period_end,
             Some(&cancel_entitlement_key),
         )
         .await?;
@@ -3376,7 +3362,7 @@ async fn handle_credit_note_created(
         currency: payload.currency.clone(),
         source: CreditNoteSource::Stripe,
         external_credit_note_id: Some(payload.stripe_credit_note_id.clone()),
-        memo: None,
+        memo: payload.memo.clone(),
         created_by_user_id: None,
     };
 
@@ -3401,6 +3387,23 @@ async fn handle_credit_note_created(
         realm_id,
         TransactionType::RefundRevoke,
     ))
+}
+
+/// Updates synchronize the memo; refund totals are owned by create/void.
+async fn handle_credit_note_updated(
+    app_state: AppState,
+    event: Value,
+    realm_id: &str,
+    idempotency_key: &str,
+) -> Result<PointsTransaction, CoreError> {
+    let payload = parse_credit_note_created_payload(&event)?;
+    let result =
+        handle_credit_note_created(app_state.clone(), event, realm_id, idempotency_key).await?;
+    app_state
+        .credit_note_repository
+        .update_external_memo(realm_id, &payload.stripe_credit_note_id, payload.memo)
+        .await?;
+    Ok(result)
 }
 
 /// Handle `credit_note.voided` events.
@@ -3867,6 +3870,10 @@ async fn process_stripe_event_once(
         }
         "credit_note.created" => {
             handle_credit_note_created(app_state.clone(), event.clone(), realm_id, idempotency_key)
+                .await
+        }
+        "credit_note.updated" => {
+            handle_credit_note_updated(app_state.clone(), event.clone(), realm_id, idempotency_key)
                 .await
         }
         "credit_note.voided" => {
