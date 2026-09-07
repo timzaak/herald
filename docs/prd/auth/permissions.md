@@ -200,7 +200,9 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 ### 4.2 关键状态与异常
 
-- 默认角色（`realm-admin`、`user`）和默认权限受内置保护，不能被删除；任何内置角色都不能摘除内置权限；内置角色名称不可修改，描述(description)可修改（`US-BP-001`）
+- 默认角色（`realm-admin`、`user`）和默认权限受内置保护：内置角色不能被删除、不能摘除内置权限、名称不可修改（描述 description 可修改，`US-BP-001`）；内置权限定义完全不可修改（含 description）
+- 已被引用的角色/权限不可删除：仍有用户持有的角色返回 409，仍分配给角色的权限返回 409
+- 权限定义的 resource/action（即 `name`）在权限仍被引用（分配给角色，或被角色策略匹配）期间不可修改（返回 409）；description 可随时修改。授权运行时按 `role_policies` 中的 resource/action 快照判定，放行 rename 会导致展示与运行时授权漂移
 - 权限属于 Realm 级别，跨 Realm 访问必须拒绝
 - 权限检查遵循 `resource.action` 精确匹配和层级规则，不做前端特例判断
 
@@ -232,7 +234,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 ### 5.1 核心需求
 
-- RBAC 元数据管理：支持角色定义的创建、查询、更新、删除；权限定义的创建、查询、更新、删除；角色权限关联的管理
+- RBAC 元数据管理：支持角色定义的创建、查询、更新、删除；权限定义的创建、查询、更新、删除；角色权限关联的管理。生命周期约束：使用中（有用户持有/分配给角色）的角色与权限不可删除（409）；使用中的权限不可修改 resource/action（409）
 - 权限运行时：支持用户角色分配、API Key 角色分配、用户直接权限分配/移除、资源访问策略管理
 - 权限检查：Service 层集成 `resource.action` 权限检查，`manage` 隐含 `view` 和 `create`
 - 前端权限控制：侧边栏菜单根据 `resource.view` 权限动态显示/隐藏；按钮级权限控制新增、编辑、删除操作
@@ -302,7 +304,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | Users | `users.view` | `users.manage` |
 | Permissions | `permissions.view` | `permissions.manage` |
 | Roles | `roles.view` | `roles.manage` |
-| Role policy assignment | `roles.view` | 角色策略（旧 API）`policies.manage`；角色权限（新 API `/define`）`roles.manage`；均需自持被授予权限 |
+| Role policy assignment | 角色策略（旧 API）`policies.view`；角色权限（新 API `/define`）`roles.view` | 角色策略（旧 API）`policies.manage`；角色权限（新 API `/define`）`roles.manage`；均需自持被授予权限 |
 | User role assignment | `users.view` | 旧 API RoleWrap 检查 `policies.manage`；新用户管理服务修改既有用户角色检查 `roles.manage`（创建用户仅附带普通 `user` 角色为受限例外） |
 | API Keys | `api_keys.view` | `api_keys.manage` |
 | API Key role assignment | `api_keys.view` | `roles.manage` |

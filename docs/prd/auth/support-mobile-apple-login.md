@@ -95,7 +95,7 @@
 - **Provider 启用条件**：Realm 必须配置并启用 Apple Provider，否则 Herald 拒绝校验 native 凭证
 - **凭证校验严格性**：Herald 必须在服务端校验 Apple identityToken 的签名（使用 Apple JWKS 公钥）、签发者（`https://appleid.apple.com`）、受众（等于该 Realm 配置的 Apple Client ID）和有效期，不得信任 App 传来的任何明文用户信息
 - **用户匹配策略**：与现有 Apple web 跳转登录完全一致——通过 Apple 用户唯一标识（sub）匹配 → 邮箱匹配 → 创建新用户；Apple 不提供 union_id（与微信不同）
-- **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Apple identityToken 未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，native 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）。
+- **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Apple identityToken 未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，native 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。注册政策还包括可选的注册邮箱域白名单（`registration.allowed_domains`）：配置后，Apple 邮箱域名不在白名单内时建号同样返回 `409 conflict`；无邮箱时生成的 `@apple.placeholder` 占位邮箱同样接受白名单检查——配置白名单的 Realm 需将 `apple.placeholder` 纳入白名单，否则该路径无法建号（与 §5.2「首次建号邮箱缺失仍能建号」仅在白名单为空/含占位域时兼容）。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）。
 - **邮箱处理规则**（与 Apple web 跳转登录有意不同，详见 §8 DEC-005）：
   - Apple 中转邮箱（`@privaterelay.appleid.apple.com`）是合法可收信地址，作真实邮箱处理，不生成占位邮箱
   - 凭证未返回邮箱 + Apple 用户唯一标识未命中已有 provider 记录（首次建号）→ 生成 `{sub}@apple.placeholder` 占位邮箱并标记未验证后建号（对齐微信占位邮箱策略）

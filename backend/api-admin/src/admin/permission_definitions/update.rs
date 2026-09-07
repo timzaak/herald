@@ -13,6 +13,7 @@ use crate::admin::permission_definitions::types::{
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::AuditAction;
+use herald_core::domain::authorization::PermissionService;
 
 /// Update permission
 #[utoipa::path(
@@ -31,6 +32,7 @@ use herald_core::domain::audit::AuditAction;
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions (requires permissions.manage) or attempting to modify built-in permission", body = ErrorResponse),
         (status = 404, description = "Permission not found", body = ErrorResponse),
+        (status = 409, description = "Conflict - Cannot change resource/action of a permission assigned to roles", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     ),
     security(("bearer_auth" = []))
@@ -56,22 +58,32 @@ pub async fn update_permission(
     let resource = parts[0];
     let action = parts[1];
 
-    let permission_check: Option<(bool,)> =
-        sqlx::query_as("SELECT is_builtin FROM permissions WHERE id = $1 AND realm_id = $2")
-            .bind(id)
-            .bind(&realm_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to check permission: {e}");
-                ApiError::internal("Failed to check permission")
-            })?;
+    let Some(permission) = super::fetch_permission_definition(&state, id, &realm_id).await? else {
+        return Err(ApiError::not_found("Permission not found"));
+    };
 
-    if let Some((is_builtin,)) = permission_check
-        && is_builtin
-    {
+    if permission.is_builtin {
         return Err(ApiError::forbidden(
             "Cannot modify built-in permission definition",
+        ));
+    }
+
+    // resource/action are mirrored into role_policies (runtime authorization)
+    // and role_permissions (admin display), so changing them on an assigned
+    // permission would leave runtime grants and the admin UI out of sync.
+    // Mirror the delete path: refuse while the permission is referenced.
+    if (resource, action) != (permission.resource.as_str(), permission.action.as_str())
+        && super::permission_in_use(
+            &state,
+            id,
+            &realm_id,
+            &permission.resource,
+            &permission.action,
+        )
+        .await?
+    {
+        return Err(ApiError::conflict(
+            "Cannot change resource/action of a permission that is assigned to roles",
         ));
     }
 
@@ -104,6 +116,17 @@ pub async fn update_permission(
     })?;
 
     let row = row.ok_or_else(|| ApiError::not_found("Permission not found"))?;
+
+    // Authorization caches are keyed by resource/action, so only a rename
+    // (not a description-only edit) requires dropping cached results.
+    if (row.resource.as_str(), row.action.as_str())
+        != (permission.resource.as_str(), permission.action.as_str())
+    {
+        let _ = state
+            .permission_checker
+            .invalidate_realm_cache(&realm_id)
+            .await;
+    }
 
     // Record audit event (mirrors role-definitions update; permissions.md
     // [US-AU-005] requires permission-definition changes to be audited).

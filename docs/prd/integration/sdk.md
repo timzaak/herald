@@ -145,9 +145,9 @@
 
 - Realm name：3-50 字符（代码中 `req.name.len() < 3 || req.name.len() > 50` 时返回 400 ValidationError）
 - Realm admin email：非空且符合邮箱格式
-- Realm admin password：最少 8 字符（代码中 `req.admin_user.password.len() < 8`）
+- Realm admin password：8–100 字符（代码中 `req.admin_user.password.len() < 8 || > 100` 时返回 400 ValidationError）
 - User email（ext API 创建用户）：非空且符合邮箱格式
-- User password：最少 8 字符
+- User password：8–100 字符
 - Client App name：非空
 - Client App redirect_uris：必填；例外——启用 `device_code_grant` 的 Client App 允许空 `redirect_uris`（device flow 无回调，校验按 `device_code_grant_enabled && redirect_uris.is_empty()` 跳过）
 

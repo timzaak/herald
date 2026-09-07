@@ -6,8 +6,7 @@
 /// - 内置权限不能被删除
 /// - 内置角色不能被删除
 ///
-/// 来源：`.ai/design/fix-permission.md` Section 5.5.2
-/// 用户故事：US-RA-002, US-RA-010
+/// 用户故事：US-RA-002, US-RA-010 (docs/user-stories/core/realm-admin.md)
 #[cfg(test)]
 mod tests {
     use crate::application::http::admin::permission_definitions::types::PermissionCreateRequest;
@@ -354,5 +353,257 @@ mod tests {
         );
 
         tracing::info!("✓ Delete role correctly requires roles.manage");
+    }
+
+    /// 构造更新权限定义的 PUT 请求（供下方 in-use rename 场景复用）
+    fn put_permission_request(
+        token: &str,
+        realm_id: &str,
+        permission_id: &str,
+        name: &str,
+        description: &str,
+    ) -> Request<Body> {
+        Request::builder()
+            .method("PUT")
+            .uri(format!("/api/permission/{realm_id}/define/{permission_id}"))
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::from(
+                json!({ "name": name, "description": description }).to_string(),
+            ))
+            .unwrap()
+    }
+
+    /// 场景测试：使用中的权限定义不可修改 resource/action
+    ///
+    /// **Given**: 一个已分配给角色的自定义权限定义
+    /// **When**: 管理员尝试修改其 resource/action（变更授权语义）
+    /// **Then**: API 返回 409 Conflict（授权运行时读 role_policies 的
+    /// resource/action 快照，放行会导致展示与运行时授权漂移）；
+    /// 仅修改 description 不受影响，解除引用后 rename 恢复允许
+    #[test_context(PermissionSecurityTestContext)]
+    #[tokio::test]
+    async fn test_scenario_update_in_use_permission_resource_action_conflict(
+        ctx: &mut PermissionSecurityTestContext,
+    ) {
+        // Given: 管理员 + 自定义角色 + 自定义权限定义并分配给该角色
+        let (admin_token, user_id_str) =
+            create_admin_session_with_user(ctx, "test-update-perm@test.com", 1800).await;
+        grant_realm_admin_role(ctx, &user_id_str).await;
+
+        let role_id = create_role(
+            ctx,
+            &ctx._realm_id,
+            &admin_token,
+            "test-perm-update-role",
+            "Role referencing an updatable permission",
+        )
+        .await;
+
+        let app = ctx.create_unified_test_router();
+        let create_req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/permission/{}/define", ctx._realm_id))
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::from(
+                json!(PermissionCreateRequest {
+                    name: "test.update".to_string(),
+                    description: Some("Test permission to update".to_string()),
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let create_response = app.clone().oneshot(create_req).await.unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let created: serde_json::Value = crate::tests::response_json(create_response).await;
+        let permission_id = created["id"].as_str().unwrap();
+
+        sqlx::query(
+            "INSERT INTO role_permissions (role_id, permission_id) VALUES ($1::uuid, $2::uuid)",
+        )
+        .bind(role_id)
+        .bind(uuid::Uuid::parse_str(permission_id).unwrap())
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to link permission to role");
+
+        // When: 尝试 rename resource/action
+        let rename_response = app
+            .clone()
+            .oneshot(put_permission_request(
+                &admin_token,
+                &ctx._realm_id,
+                permission_id,
+                "test.renamed",
+                "Renamed while in use",
+            ))
+            .await
+            .unwrap();
+
+        // Then: 409，防止授权语义漂移
+        assert_eq!(
+            rename_response.status(),
+            StatusCode::CONFLICT,
+            "Renaming an in-use permission's resource/action must conflict"
+        );
+
+        // And: 仅改 description 仍允许
+        let desc_response = app
+            .clone()
+            .oneshot(put_permission_request(
+                &admin_token,
+                &ctx._realm_id,
+                permission_id,
+                "test.update",
+                "Description-only change while in use",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(desc_response.status(), StatusCode::OK);
+
+        // And: 解除角色引用后 rename 恢复允许
+        sqlx::query("DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2")
+            .bind(role_id)
+            .bind(uuid::Uuid::parse_str(permission_id).unwrap())
+            .execute(&ctx._app_state.pool)
+            .await
+            .expect("Failed to unlink permission");
+
+        let rename_after_response = app
+            .clone()
+            .oneshot(put_permission_request(
+                &admin_token,
+                &ctx._realm_id,
+                permission_id,
+                "test.renamed",
+                "Renamed after unlink",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rename_after_response.status(), StatusCode::OK);
+
+        tracing::info!("✓ In-use permission resource/action updates conflict until unassigned");
+    }
+
+    /// 场景测试：使用中的权限定义不可删除
+    ///
+    /// **Given**: 一个自定义权限定义，其 resource/action 仍被角色引用
+    /// **When**: 管理员尝试删除该定义
+    /// **Then**: API 返回 409 Conflict——role_policies 是运行时授权的
+    /// resource/action 快照，删除定义会留下无主的运行时授权（展示与
+    /// 运行时漂移）；直接策略镜像（无 role_permissions 关联）同样阻止
+    /// 删除，解除引用后删除恢复允许
+    #[test_context(PermissionSecurityTestContext)]
+    #[tokio::test]
+    async fn test_scenario_delete_in_use_permission_conflicts(
+        ctx: &mut PermissionSecurityTestContext,
+    ) {
+        // Given: 管理员 + 自定义角色 + 自定义权限定义
+        let (admin_token, user_id_str) =
+            create_admin_session_with_user(ctx, "test-delete-perm@test.com", 1800).await;
+        grant_realm_admin_role(ctx, &user_id_str).await;
+
+        let role_id = create_role(
+            ctx,
+            &ctx._realm_id,
+            &admin_token,
+            "test-perm-delete-role",
+            "Role referencing a deletable permission",
+        )
+        .await;
+
+        let app = ctx.create_unified_test_router();
+        let create_req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/permission/{}/define", ctx._realm_id))
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::from(
+                json!(PermissionCreateRequest {
+                    name: "test.delete-me".to_string(),
+                    description: Some("Test permission to delete".to_string()),
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let create_response = app.clone().oneshot(create_req).await.unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let created: serde_json::Value = crate::tests::response_json(create_response).await;
+        let permission_id = uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+        // When: 分配给角色（写入 role_permissions + role_policies 镜像）后删除
+        sqlx::query(
+            "INSERT INTO role_permissions (role_id, permission_id) VALUES ($1::uuid, $2::uuid)",
+        )
+        .bind(role_id)
+        .bind(permission_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to link permission to role");
+
+        let delete_uri = format!("/api/permission/{}/define/{}", ctx._realm_id, permission_id);
+        let delete_req = Request::builder()
+            .method("DELETE")
+            .uri(&delete_uri)
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let delete_response = app.clone().oneshot(delete_req).await.unwrap();
+        assert_eq!(
+            delete_response.status(),
+            StatusCode::CONFLICT,
+            "Deleting an assigned permission must conflict"
+        );
+
+        // And: 仅剩直接策略镜像（无 role_permissions 关联）时同样 409
+        sqlx::query("DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2")
+            .bind(role_id)
+            .bind(permission_id)
+            .execute(&ctx._app_state.pool)
+            .await
+            .expect("Failed to unlink permission");
+
+        sqlx::query(
+            "INSERT INTO role_policies (id, role_id, realm_id, resource, action)
+             VALUES ($1, $2, $3, 'test', 'delete-me')",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(role_id)
+        .bind(&ctx._realm_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to mirror permission into role_policies");
+
+        let mirror_only_req = Request::builder()
+            .method("DELETE")
+            .uri(&delete_uri)
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let mirror_only_response = app.clone().oneshot(mirror_only_req).await.unwrap();
+        assert_eq!(
+            mirror_only_response.status(),
+            StatusCode::CONFLICT,
+            "A role_policies runtime mirror must block deletion even without a role_permissions link"
+        );
+
+        // And: 解除镜像后删除恢复允许
+        sqlx::query("DELETE FROM role_policies WHERE role_id = $1 AND resource = 'test' AND action = 'delete-me'")
+            .bind(role_id)
+            .execute(&ctx._app_state.pool)
+            .await
+            .expect("Failed to remove policy mirror");
+
+        let unlink_req = Request::builder()
+            .method("DELETE")
+            .uri(&delete_uri)
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+        let unlink_response = app.clone().oneshot(unlink_req).await.unwrap();
+        assert_eq!(unlink_response.status(), StatusCode::NO_CONTENT);
+
+        tracing::info!("✓ In-use permission deletion conflicts until fully unreferenced");
     }
 }

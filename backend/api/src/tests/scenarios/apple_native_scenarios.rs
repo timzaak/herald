@@ -211,6 +211,16 @@ async fn count_provider_links_by_open_id(ctx: &TestContext, provider_user_id: &s
 async fn apple_native_creates_new_user_and_returns_token_family(ctx: &mut TestContext) {
     enable_apple_provider(ctx).await;
     enable_registration(ctx).await;
+    // This scenario asserts user creation + token family, not the consent
+    // gate. A brand-new OAuth user has no consent rows, so with the
+    // platform-default agreements deployed the direct session is gated behind
+    // consent (the consent-required variant of the shared direct-login branch
+    // is covered by the One Tap consent scenarios). Drop the platform
+    // defaults for this schema so the gate stays out of the way.
+    sqlx::query("DELETE FROM legal_agreement_version WHERE realm_id IS NULL")
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("failed to drop platform-default agreement rows");
     // Start the wiremock JWKS serving the default keypair under `test_kid()`,
     // and point the Apple native handler at it via the AppState override.
     let jwks = spawn_apple_default_jwks().await;

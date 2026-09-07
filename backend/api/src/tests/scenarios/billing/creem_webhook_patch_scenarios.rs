@@ -553,7 +553,6 @@ mod tests {
     // Test 11: Creem subscription.active syncs status
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.active -> reactivate from paused
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription in 'paused' status
@@ -621,7 +620,6 @@ mod tests {
     // Test 12: Creem subscription.trialing syncs status
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.trialing -> status=trialing, history=created
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription
@@ -655,7 +653,9 @@ mod tests {
             &ext_sub_id,
             &format!("prod_creem_{}", entitlement_key),
             "creem",
-            "active",
+            // pending is the only legal predecessor of trialing under the
+            // webhook status-transition guard (active -> trialing is rejected)
+            "pending",
             entitlement_key,
         )
         .await;
@@ -692,7 +692,6 @@ mod tests {
     // Test 13: Creem subscription.paused syncs status
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.paused -> status=paused, history=paused
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription in 'active' status
@@ -760,7 +759,6 @@ mod tests {
     // Test 14: Creem subscription.past_due syncs status (no credit revoke)
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.past_due -> status=past_due, no credit revoke
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription in 'active' status
@@ -832,7 +830,6 @@ mod tests {
     // Test 15: Creem subscription.scheduled_cancel syncs status
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.scheduled_cancel -> status=scheduled_cancel + cancel_at_period_end=true
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription in 'active' status
@@ -912,7 +909,6 @@ mod tests {
     // Test 16: Creem subscription.expired revokes credits
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.expired -> status=expired, subscription_balance=0 (credits revoked)
     ///
     /// Given: Creem config, a recurring mapping, a user + wallet with subscription_balance > 0,
@@ -998,7 +994,6 @@ mod tests {
     // Test 17: Creem dispute.created sets dispute status
     // =========================================================================
 
-    /// User Story: US-BILL-DISPUTE
     /// Covers: Creem dispute.created -> status=dispute
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription in 'active' status
@@ -1057,7 +1052,6 @@ mod tests {
     // Test 19: Creem subscription.scheduled_cancel idempotent
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: Duplicate subscription.scheduled_cancel with same event_id -> no double history
     ///
     /// Given: Creem config, a recurring mapping, a user, and a subscription
@@ -1140,7 +1134,6 @@ mod tests {
     // Test B4: Creem subscription.canceled immediate revokes credits
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.canceled with cancelAtPeriodEnd=false -> immediate cancel,
     ///         credits revoked, status=canceled
     ///
@@ -1230,7 +1223,6 @@ mod tests {
     // Test B5: Creem subscription.update changes entitlement key
     // =========================================================================
 
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.update -> entitlement_key change from key-A to key-B,
     ///         upgrade detected (500 -> 1000 points), history has "upgraded" event
     ///
@@ -1308,7 +1300,6 @@ mod tests {
 
     /// Sequence test: Active -> Paused -> Active (reactivation via lifecycle events)
     ///
-    /// User Story: US-BILL-CREEM-LIFECYCLE
     /// Covers: subscription.paused followed by subscription.active (reactivation),
     ///         credits preserved throughout pause/reactivation cycle
     ///

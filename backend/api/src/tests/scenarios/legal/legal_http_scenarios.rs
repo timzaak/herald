@@ -8,15 +8,7 @@
 // `user_agreement_consent` + the seeded platform-default rows for both
 // agreement types); NO second DDL is maintained here.
 //
-// Design reference: `.ai/design/legal-consent-account-deletion.md`
-//   - §4.2.1 endpoint list (public agreements, self consent, admin mgmt)
-//   - §4.2.2 GET/POST/PUT/DELETE details + error codes (404/401/403/409)
-//   - §4.5  permission model (public no login; self identity ownership;
-//           admin settings.view/manage + has_access_to_realm)
-//   - §5.1  reconsent gate (publish flips needs_reconsent; StaleVersion gate)
-//   - §6.1  API scene-test items (legal subset)
-//
-// User stories (`.ai/user-stories/core/legal-consent-account-deletion.md`):
+// User stories (docs/user-stories/core/legal-consent-account-deletion.md):
 //   - US-RU-012  version change → reconsent
 //   - US-RU-013  public view of agreements (no login)
 //   - US-RU-015  consent to current version (204 / 409 stale / 401 unauth)
@@ -228,7 +220,7 @@ fn admin_view<'a>(body: &'a Value, agreement_type: &str) -> &'a Value {
 /// Return the highest `version_no` of custom (`source = 'custom'`) agreements
 /// for `(realm_id, agreement_type)`. Returns 0 when no custom version exists yet.
 ///
-/// WHY: design §4.3 scopes `version_no` by `(COALESCE(realm_id,''), agreement_type)`,
+/// WHY: `version_no` is scoped by `(COALESCE(realm_id,''), agreement_type)`,
 /// so a realm's first custom publish starts at 1, the same as the platform default.
 /// Monotonicity must therefore be checked against the realm's own custom history,
 /// not against the effective default template.
@@ -250,7 +242,7 @@ async fn max_custom_version_no(ctx: &TestContext, realm_id: &str, agreement_type
 // =============================================================================
 
 /// User Story: US-RU-013 (public view of agreements, no login required)
-/// Covers: Design §4.2.1 — the agreements list endpoint is PUBLIC (no
+/// Covers: the agreements list endpoint is PUBLIC (no
 /// Bearer authentication requirement). An anonymous request must resolve and return both
 /// agreement types' current effective summaries from the seeded platform
 /// defaults.
@@ -319,7 +311,7 @@ async fn test_public_list_agreements_without_login(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-013 (public view of a single agreement detail)
-/// Covers: Design §4.2.2 — public detail endpoint returns the localized body
+/// Covers: public detail endpoint returns the localized body
 /// plus the version identifiers. The seeded default carries a `zh-CN` body.
 ///
 /// WHY this matters: a summary (Scenario 1) is not enough to obtain informed
@@ -364,7 +356,7 @@ async fn test_public_get_single_agreement_by_type(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-013 (negative path)
-/// Covers: Design §4.2.2 — an unknown `agreementType` path segment must surface
+/// Covers: an unknown `agreementType` path segment must surface
 /// as 400, not a silent 404-on-missing-row nor a 500. `AgreementType::try_from`
 /// rejects anything other than `terms_of_service`/`privacy_policy`.
 ///
@@ -397,7 +389,7 @@ async fn test_public_get_agreement_unknown_type_is_400(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019 (cross-realm isolation of custom agreements)
-/// Covers: Design §4.5 (Realm isolation) — realm-A publishes a custom ToS;
+/// Covers: realm isolation — realm-A publishes a custom ToS;
 /// realm-B never publishes. Reading realm-A's ToS must return the custom body,
 /// reading realm-B's must return the platform default. The two must not bleed.
 ///
@@ -496,7 +488,7 @@ async fn test_cross_realm_agreements_isolated(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-012 / US-RA-019 (publish triggers user reconsent, HTTP side)
-/// Covers: Design §5.1 / §4.2.2 — a user who already consented to the current
+/// Covers: a user who already consented to the current
 /// ToS must see `needs_reconsent=true` over HTTP after an admin publishes a
 /// newer custom version.
 ///
@@ -608,7 +600,7 @@ async fn test_consent_status_needs_reconsent_true_after_admin_publish(ctx: &mut 
 // =============================================================================
 
 /// User Story: US-RU-012 (do not re-prompt up-to-date users — regression)
-/// Covers: Design §5.1 — when the user has consented to the current effective
+/// Covers: when the user has consented to the current effective
 /// version and nothing newer has been published, every item must report
 /// `needs_reconsent=false`.
 ///
@@ -681,7 +673,7 @@ async fn test_consent_status_needs_reconsent_false_when_consented_latest(ctx: &m
 // =============================================================================
 
 /// User Story: US-RU-015 (consent to current version succeeds)
-/// Covers: Design §4.2.2 — POST /consent with the current effective version_id
+/// Covers: POST /consent with the current effective version_id
 /// returns 204 (no content). The upsert is idempotent, so re-consenting to the
 /// same version also yields 204.
 ///
@@ -734,7 +726,7 @@ async fn test_post_consent_returns_204_on_current_version(ctx: &mut TestContext)
 // =============================================================================
 
 /// User Story: US-RU-012 (stale version is refused — gate side)
-/// Covers: Design §4.2.2 — POST /consent with a `version_id` that is NOT the
+/// Covers: POST /consent with a `version_id` that is NOT the
 /// current effective one must return 409, so the client re-reads the effective
 /// version and re-prompts. The service layer surfaces StaleVersion as a
 /// Conflict-class error mapped to 409.
@@ -827,7 +819,7 @@ async fn test_post_consent_returns_409_on_stale_version(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-015 (consent is a self-service, identity-bound action)
-/// Covers: Design §4.5 — consent is self-service and gated behind
+/// Covers: consent is self-service and gated behind
 /// Bearer authentication. An unauthenticated POST must return 401 before any write
 /// happens, so an anonymous client cannot fabricate consent on someone's behalf.
 ///
@@ -869,7 +861,7 @@ async fn test_post_consent_requires_login(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019 (admin publish produces a new version)
-/// Covers: Design §4.2.2 (PUT admin) — an admin with `settings.manage` +
+/// Covers: admin PUT — an admin with `settings.manage` +
 /// `has_access_to_realm` PUTs a custom ToS; the response carries a fresh
 /// `{version_id, version_no, effective_at}` whose `version_no` is strictly
 /// greater than any previous *custom* version for that `(realm, type)` scope.
@@ -879,7 +871,7 @@ async fn test_post_consent_requires_login(ctx: &mut TestContext) {
 /// as a real version change — without a fresh id, existing user consent would
 /// silently match and reconsent would never fire. `version_no` monotonicity
 /// within the realm/type scope is the DB-side ordering invariant the resolver
-/// relies on (design §4.3 scopes `version_no` by
+/// relies on (`version_no` is scoped by
 /// `(COALESCE(realm_id,''), agreement_type)`).
 #[test_context(TestContext)]
 #[tokio::test]
@@ -989,20 +981,21 @@ async fn test_admin_publish_creates_new_version_and_triggers_reconsent(ctx: &mut
 }
 
 // =============================================================================
-// Scenario 11: admin revert snapshots default into a new version
+// Scenario 11: admin revert appends a live-default follow marker
 // =============================================================================
 
-/// User Story: US-RA-019 (revert = snapshot semantics, HTTP side)
-/// Covers: Design §4.1 / §4.2.2 (DELETE admin .../custom) — after a realm has a
-/// custom ToS (version_no = N), DELETE .../custom must return a NEW version
-/// (version_no = N+1) whose body equals the platform default template. No prior
-/// row is deleted; the new version_id triggers user reconsent.
+/// User Story: US-RA-019 (revert = live-default follow marker, HTTP side)
+/// Covers: DELETE admin .../custom — after a realm has a
+/// custom ToS (version_no = N), DELETE .../custom must return a NEW marker
+/// version (version_no = N+1, source=default) and effective resolution then
+/// follows the live platform default (not a detached snapshot). No prior row
+/// is deleted; the new version_id triggers user reconsent.
 ///
 /// WHY this matters: revert is NOT a row deletion — it is itself a version
-/// change (snapshot the default into a fresh custom row). Rewinding the id or
-/// deleting rows would let an old consent silently match and bypass the
-/// reconsent gate; the snapshot semantic is what makes revert observable to
-/// users as a binding new version.
+/// change. Rewinding the id or deleting rows would let an old consent silently
+/// match and bypass the reconsent gate; the follow-marker semantic makes
+/// revert observable as a binding new version while keeping later
+/// platform-default updates visible to the realm.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestContext) {
@@ -1017,6 +1010,26 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
         )
         .await;
     grant_settings_role(ctx, &admin_user_id, &realm_id, "manage").await;
+
+    // Baseline: the effective version BEFORE any custom publish is the live
+    // platform default — after revert, effective resolution must return to
+    // exactly this row (live-default following, not a detached snapshot).
+    let baseline_effective: Value = {
+        let r = app
+            .clone()
+            .oneshot(build_request(
+                "GET",
+                &format!("/api/legal/{realm_id}/agreements/terms_of_service"),
+            ))
+            .await
+            .expect("baseline GET must dispatch");
+        crate::tests::response_json(r).await
+    };
+    let baseline_version_id = baseline_effective["version_id"]
+        .as_str()
+        .expect("baseline version_id must be present")
+        .to_string();
+    let baseline_content = baseline_effective["content"].clone();
 
     // Establish a realm custom ToS (version_no = N).
     let first_publish: Value = {
@@ -1063,22 +1076,6 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
         .expect("POST must dispatch");
     assert_eq!(consent_resp.status(), StatusCode::NO_CONTENT);
 
-    // Resolve the platform default body to compare the snapshot against.
-    let default_content = ctx
-        .app_state
-        .legal_service
-        .list_history(
-            &realm_id,
-            herald_core::domain::legal::entities::AgreementType::TermsOfService,
-            50,
-        )
-        .await
-        .expect("list_history must resolve")
-        .into_iter()
-        .find(|v| v.source == herald_core::domain::legal::entities::AgreementSource::Default)
-        .expect("seeded default ToS must exist")
-        .content;
-
     // Revert.
     let revert_resp = app
         .clone()
@@ -1106,7 +1103,9 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
         "revert must mint a fresh version_id, never reuse a prior one"
     );
 
-    // The now-effective body must equal the platform default template.
+    // The now-effective version is the live platform default row itself —
+    // the marker delegates effective resolution to the default, it is not a
+    // detached snapshot of it.
     let effective: Value = {
         let r = app
             .clone()
@@ -1120,13 +1119,12 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
     };
     assert_eq!(
         effective["version_id"].as_str(),
-        Some(new_version_id),
-        "the snapshot version must be the new effective one"
+        Some(baseline_version_id.as_str()),
+        "effective resolution must follow the live platform default after the marker"
     );
     assert_eq!(
-        effective["content"],
-        pick_locale(&default_content, None),
-        "revert snapshot body must equal the platform default template"
+        effective["content"], baseline_content,
+        "the effective body must be the live platform default template"
     );
 
     // And the realm user must now be flagged for reconsent.
@@ -1152,7 +1150,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
 // =============================================================================
 
 /// User Story: US-RA-019 (admin view distinguishes default/custom + shows history)
-/// Covers: Design §4.2.2 (GET admin) — after a realm has published custom ToS,
+/// Covers: admin GET — after a realm has published custom ToS,
 /// the admin view reports `source=custom` and a `history` whose custom entries
 /// are ordered by `version_no` DESC (most recent first).
 ///
@@ -1247,7 +1245,7 @@ async fn test_admin_view_shows_source_and_history(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019 (cross-realm isolation of admin endpoints)
-/// Covers: Design §4.5 — an admin belonging to realm-A (with full settings perms
+/// Covers: an admin belonging to realm-A (with full settings perms
 /// on A) must be refused (403) when targeting realm-B's admin endpoints, because
 /// `has_access_to_realm(B)` is false. The settings permission check never even
 /// runs.
@@ -1299,7 +1297,7 @@ async fn test_admin_cross_realm_forbidden(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019 (permission boundary: settings.manage required to publish)
-/// Covers: Design §4.5 — a user with `settings.view` only (no `manage`) +
+/// Covers: a user with `settings.view` only (no `manage`) +
 /// `has_access_to_realm` must be refused (403) on PUT admin publish. The view
 /// permission is read-only; publishing mutates binding legal text.
 ///
@@ -1343,7 +1341,7 @@ async fn test_admin_publish_requires_settings_manage(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019 (permission boundary: settings.view required to read admin view)
-/// Covers: Design §4.5 — an authenticated user with `has_access_to_realm` but NO
+/// Covers: an authenticated user with `has_access_to_realm` but NO
 /// `settings.view` permission must be refused (403) on GET admin. The admin view
 /// exposes agreement history and source flags; it is not public data.
 ///
@@ -1424,24 +1422,6 @@ async fn read_effective_version_id(
         .as_str()
         .expect("version_id must be present on the detail response")
         .to_string()
-}
-
-/// Replicate the server-side `pick_locale` so the revert-snapshot test can
-/// assert the effective body matches the default template under the same
-/// locale-selection rule (default locale when no preference is given).
-fn pick_locale(content: &Value, locale: Option<&str>) -> Value {
-    let Some(map) = content.as_object() else {
-        return content.clone();
-    };
-    if let Some(loc) = locale
-        && let Some(body) = map.get(loc)
-    {
-        return body.clone();
-    }
-    map.iter()
-        .next()
-        .map(|(_, body)| body.clone())
-        .unwrap_or_else(|| content.clone())
 }
 
 // =============================================================================
@@ -1718,7 +1698,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
 // =============================================================================
 
 /// User Story: US-RA-019 (admin views a past version's body)
-/// Covers: Design §4.2.1 (admin endpoint list) — `GET
+/// Covers: admin endpoint — `GET
 /// /api/legal/admin/{realmId}/agreements/versions/{versionId}` returns the
 /// full localized `content` for a single history entry (the list endpoint only
 /// returns summaries, so the body is fetched on demand for the "view" dialog).

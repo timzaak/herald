@@ -21,7 +21,7 @@ use crate::audit::AuditContext;
 use crate::authentication::Identity;
 
 // ============================================================================
-// Payment-driven role grant outcomes (design §5.3)
+// Payment-driven role grant outcomes
 // ============================================================================
 
 /// Outcome of an idempotent payment-driven role grant.
@@ -186,7 +186,7 @@ pub trait UserRoleRepository: Send + Sync {
     /// given `source_id` (payment-attempt id or subscription id).
     ///
     /// Deletes only rows with `source='payment' AND source_id=$1 AND user_id`;
-    /// manual grants (`source='manual'`) are never affected (design §5.5).
+    /// manual grants (`source='manual'`) are never affected.
     /// Returns `RevokeRoleOutcome::NotFound` when zero rows matched.
     fn revoke_roles_by_payment_source(
         &self,
@@ -236,12 +236,14 @@ pub trait UserRoleRepository: Send + Sync {
 
 /// Repository for role policy operations
 pub trait RolePolicyRepository: Send + Sync {
-    /// Get all role policies for a user (via their assigned roles)
+    /// Get all role policies for a user (via their assigned roles).
+    /// Each entry pairs the policy with the role that grants it so callers
+    /// can attribute the permission source correctly.
     fn get_role_policies_for_user(
         &self,
         realm_id: &str,
         role_ids: &[Uuid],
-    ) -> impl Future<Output = UserAdminResult<Vec<PolicyEntity>>> + Send;
+    ) -> impl Future<Output = UserAdminResult<Vec<(Uuid, PolicyEntity)>>> + Send;
 
     /// Get direct user policies (not via roles)
     fn get_direct_user_policies(

@@ -1030,7 +1030,7 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
         &self,
         realm_id: &str,
         role_ids: &[Uuid],
-    ) -> UserAdminResult<Vec<PolicyEntity>> {
+    ) -> UserAdminResult<Vec<(Uuid, PolicyEntity)>> {
         if role_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -1045,7 +1045,7 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
 
         let query = format!(
             r#"
-            SELECT DISTINCT rp.id, rp.realm_id, rp.resource, rp.action, NULL::text AS policy_json, rp.created_at, rp.updated_at
+            SELECT rp.role_id, rp.id, rp.realm_id, rp.resource, rp.action, NULL::text AS policy_json, rp.created_at, rp.updated_at
             FROM role_policies rp
             WHERE rp.realm_id = $1 AND rp.role_id IN ({}) AND rp.effect = true
             "#,
@@ -1055,6 +1055,7 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
         let mut query_builder = sqlx::query_as::<
             _,
             (
+                Uuid,
                 Uuid,
                 String,
                 String,
@@ -1078,16 +1079,19 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
         let policies = rows
             .into_iter()
             .map(
-                |(id, realm_id, resource, action, policy_json, created_at, updated_at)| {
-                    PolicyEntity {
-                        id,
-                        realm_id,
-                        resource,
-                        action,
-                        policy_json,
-                        created_at,
-                        updated_at,
-                    }
+                |(role_id, id, realm_id, resource, action, policy_json, created_at, updated_at)| {
+                    (
+                        role_id,
+                        PolicyEntity {
+                            id,
+                            realm_id,
+                            resource,
+                            action,
+                            policy_json,
+                            created_at,
+                            updated_at,
+                        },
+                    )
                 },
             )
             .collect();

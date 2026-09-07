@@ -1,11 +1,11 @@
 // =============================================================================
-// Paywall M4 — Subscription-class Role Revoke + Out-of-order Renewal +
-// processed=false Sweep Scenario Tests (support-paywall)
+// Subscription-class Role Revoke + Out-of-order Renewal + processed=false
+// Sweep Scenario Tests (support-paywall)
 // =============================================================================
 //
 // Proves the "subscriptions canceled/expired/refunded auto-revoke the
 // payment-granted role, eventually-consistent and idempotent" capability
-// (design §4.1/§5.5/§5.5.1/§6.1 M4/§6.3/§7, US-PW-005):
+// (docs/user-stories/billing/support-paywall.md US-PW-005):
 //   1. a subscription cancel webhook revokes the payment-source role
 //      (`source='payment' AND source_id=subscription_id`) mounted at the
 //      `handle_subscription_cancel` ImmediateCancel convergence point.
@@ -15,11 +15,12 @@
 //      doesn't route through `handle_subscription_cancel`) — while points ARE
 //      still revoked (decoupled revocation).
 //   5. an out-of-order renewal (cancel then late `invoice.payment_succeeded`)
-//      re-grants the role (idempotent upsert).
+//      after a terminal cancel is rejected — a subscription the provider
+//      already reported deleted must not come back alive.
 //   6-9. the `PaymentEventRetryJob` sweeps `payment_event WHERE processed=false`,
 //      reprocesses via `WebhookEventProcessor::reprocess_event`, marks
 //      processed on success, and backs off `next_retry_at` on failure
-//      (the kill-criteria prerequisite, design §7 P0).
+//      (a failed event must never be permanently dropped).
 //
 // Mirrors `webhook_compensation_scenarios.rs` (the `MockProcessor` +
 // `WebhookEventProcessor` impl + `build_job` pattern + `insert_payment_event`
@@ -27,15 +28,15 @@
 // `webhook_entitlement_scenarios.rs` / `paywall_w1_m2_grant_scenarios.rs`
 // for the cancel/renewal webhook tests.
 //
-// User Story: US-PW-005 (subscriptions canceled/expired/refunded auto-revoke
-//             the payment-granted role, eventually-consistent and idempotent)
-// Covers: design §4.1 (source isolation; one-time permanent),
-//         §5.5 (convergence-point mount; RevokeRoleOutcome idempotency;
-//         out-of-order renewal upsert; one-time refunds don't route through
-//         handle_subscription_cancel),
-//         §5.5.1 (PaymentEventRetryJob sweep + backoff),
-//         §6.1 M4, §6.3 (source='manual' + one-time refund decoupled regression),
-//         §7 P0 (kill-criteria: never permanently miss a revoke)
+// User Story: US-PW-005 (docs/user-stories/billing/support-paywall.md) —
+//             subscriptions canceled/expired/refunded auto-revoke the
+//             payment-granted role, eventually-consistent and idempotent
+// Covers: payment-source isolation (`source='payment'` vs `'manual'`;
+//         one-time purchases are permanent), the convergence-point mount at
+//         `handle_subscription_cancel` (ImmediateCancel) with idempotent
+//         revoke, out-of-order renewals after a terminal cancel rejected,
+//         and the PaymentEventRetryJob sweep + backoff over unprocessed
+//         payment events (never permanently miss a revoke).
 //
 // =============================================================================
 
@@ -124,7 +125,7 @@ mod tests {
 
     /// Insert a `user_roles` row with `source='manual'` (mirrors
     /// `paywall_w1_m2_grant_scenarios::seed_manual_role_grant`). Used to prove
-    /// manual grants survive the cancel-revoke path (§6.3 regression).
+    /// manual grants survive the cancel-revoke path.
     async fn seed_manual_role_grant(
         ctx: &RevokeSweepTestContext,
         realm_id: &str,
@@ -560,8 +561,8 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (订阅 canceled → 撤 role)
-    /// Covers: design §5.5 (convergence-point mount, ImmediateCancel),
-    ///         §6.1 M4, §6.3 (source isolation)
+    /// Covers: convergence-point mount at `handle_subscription_cancel`
+    ///         (ImmediateCancel) and payment-source isolation
     ///
     /// Scenario: A Creem `subscription.paid` grants the role (1 payment row),
     /// then a Creem `subscription.canceled` (ImmediateCancel,
@@ -654,17 +655,17 @@ mod tests {
     }
 
     // =========================================================================
-    // Test 2: subscription cancel does NOT revoke manual grants (§6.3 regression)
+    // Test 2: subscription cancel does NOT revoke manual grants
     // =========================================================================
 
     /// User Story: US-PW-005 (仅支付来源；手工保留)
-    /// Covers: design §4.1 (source isolation), §4.3.2 (manual untouched),
-    ///         §6.3 (historical source='manual' regression — CRITICAL)
+    /// Covers: source isolation — manual grants untouched by the revoke path
+    ///         (historical source='manual' regression — CRITICAL)
     ///
     /// Scenario: A payment grant + a MANUAL grant of the SAME role coexist.
     /// A cancel webhook revokes the payment grant (count 0) but leaves the
     /// manual grant untouched (count 1). This is the single most important
-    /// §6.3 regression: the revoke path only deletes `source='payment'`,
+    /// regression: the revoke path only deletes `source='payment'`,
     /// never `source='manual'`.
     #[test_context(RevokeSweepTestContext)]
     #[tokio::test]
@@ -744,7 +745,7 @@ mod tests {
         assert_webhook_success(&cancel_response);
 
         // Then: payment grant revoked (count 0), manual grant UNTOUCHED (count 1).
-        // Both exact — this is the §6.3 regression assertion.
+        // Both exact — this is the manual-grant isolation regression assertion.
         assert_eq!(
             count_payment_roles_by_source_id(ctx, user_id, &internal_sub_id).await,
             0,
@@ -753,7 +754,7 @@ mod tests {
         assert_eq!(
             count_manual_roles(ctx, user_id).await,
             1,
-            "manual grants must remain UNTOUCHED by the cancel-revoke path (§6.3)"
+            "manual grants must remain UNTOUCHED by the cancel-revoke path"
         );
     }
 
@@ -762,7 +763,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (幂等)
-    /// Covers: design §5.5 (RevokeRoleOutcome::NotFound idempotent), §6.1 M4
+    /// Covers: RevokeRoleOutcome::NotFound is an idempotent no-op (duplicate cancel)
     ///
     /// Scenario: Grant → cancel (role revoked, count 0) → send the SAME cancel
     /// webhook AGAIN (same event_id dedups at the payment_event layer). The
@@ -1018,7 +1019,7 @@ mod tests {
         // topup ledger (source_id=attempt_id) then matches and is revoked. The
         // permanent role grant (same source_id) is untouched —
         // `revoke_topup_source_proportional` only revokes topup ledgers — so the
-        // §6.3 "one-time refund does not revoke role" invariant still holds.
+        // "one-time refund does not revoke role" invariant still holds.
         sqlx::query(
             "UPDATE payment_attempts
              SET payment_provider = 'creem', provider_reference = $1, updated_at = NOW()
@@ -1069,18 +1070,19 @@ mod tests {
     }
 
     // =========================================================================
-    // Test 5: out-of-order renewal re-grants the role
+    // Test 5: out-of-order renewal after terminal cancel
     // =========================================================================
 
-    /// User Story: US-PW-005 (乱序 webhook: cancel 后迟到 renewal 重新授予)
-    /// Covers: design §5.5 P1 (out-of-order renewal upsert), §6.1 M4, §7 P1 risk
+    /// User Story: US-PW-005 (乱序 webhook: cancel 后迟到 renewal)
+    /// Covers: out-of-order renewal after terminal cancel
     ///
     /// Scenario: Grant (1 row) → ImmediateCancel (0 rows) → a LATE
-    /// `invoice.payment_succeeded` renewal for the SAME subscription. The
-    /// renewal re-grants the role (count back to 1) because
-    /// `grant_role_by_payment` is the "insert if absent for this
-    /// source_id+role" upsert — a row deleted by the prior cancel is simply
-    /// re-inserted. This is the §5.5 P1 risk mitigation.
+    /// `invoice.payment_succeeded` renewal for the SAME subscription. Since
+    /// the webhook status-transition guard landed, `customer.subscription.deleted`
+    /// is terminal (Canceled only decays to Expired): the late renewal's
+    /// canceled→active sync is rejected (400) and the role is NOT re-granted —
+    /// a subscription the provider already reported deleted must not silently
+    /// come back alive via an out-of-order payment event.
     ///
     /// Uses Stripe for both the grant and the renewal (the renewal builder
     /// `build_stripe_invoice_payment_succeeded_renewal` is Stripe-shaped), and
@@ -1185,7 +1187,8 @@ mod tests {
 
         // Send a LATE invoice.payment_succeeded renewal for the SAME
         // subscription (out-of-order delivery: provider still considers the
-        // subscription alive).
+        // subscription alive). Canceled is terminal under the status-transition
+        // guard, so canceled→active is rejected and no re-grant may happen.
         let renewal_event_id = generate_test_event_id();
         let renewal_invoice_id = format!("in_m4_renewal_{}", renewal_event_id);
         let renewal_payload = build_stripe_invoice_payment_succeeded_renewal(
@@ -1202,15 +1205,18 @@ mod tests {
         let renewal_response =
             send_stripe_webhook_with_signature(&app, &realm_id, renewal_payload, webhook_secret)
                 .await;
-        assert_webhook_success(&renewal_response);
+        assert_eq!(
+            renewal_response.status(),
+            axum::http::StatusCode::BAD_REQUEST,
+            "late renewal after terminal cancel must be rejected (canceled cannot re-activate)"
+        );
 
-        // Then: the role is RE-GRANTED (count back to 1). The
-        // `grant_role_by_payment` upsert inserted a new row because the prior
-        // was revoked. Exact — `== 1`.
+        // Then: the role stays revoked — the canceled subscription cannot
+        // re-grant it via an out-of-order payment event.
         assert_eq!(
             count_payment_roles_by_source_id(ctx, user_id, &source_id).await,
-            1,
-            "out-of-order renewal must re-grant the role (idempotent upsert after revoke)"
+            0,
+            "no re-grant after terminal cancel: the canceled subscription must not re-grant the role"
         );
     }
 
@@ -1218,8 +1224,8 @@ mod tests {
     // Test 6: PaymentEventRetryJob marks processed=true on success
     // =========================================================================
 
-    /// User Story: US-PW-005 (processed=false 扫面 — kill-criteria prerequisite)
-    /// Covers: design §5.5.1 (PaymentEventRetryJob), §7 P0 (kill-criteria), §6.1 M4
+    /// User Story: US-PW-005 (processed=false 扫描)
+    /// Covers: the PaymentEventRetryJob must never permanently drop a failed event
     ///
     /// Scenario: A `payment_event` row with `processed=false` and
     /// `next_retry_at=NULL` (eligible for immediate retry). The MockProcessor
@@ -1308,7 +1314,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (扫面只查 processed=false)
-    /// Covers: design §5.5.1 (WHERE processed=false), §6.1 M4
+    /// Covers: the sweep only queries WHERE processed=false
     ///
     /// Scenario: TWO payment_event rows — one `processed=true`, one
     /// `processed=false`. The job reprocesses ONLY the unprocessed one
@@ -1389,8 +1395,8 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (失败退避 next_retry_at；绝不永久漏撤)
-    /// Covers: design §5.5.1 (failure → next_retry_at = NOW + backoff, NOT
-    ///         marked processed), §7 P0 (kill-criteria)
+    /// Covers: failure → next_retry_at = NOW + backoff, NOT
+    ///         marked processed
     ///
     /// Scenario: A `processed=false`, `next_retry_at=NULL` row. The
     /// MockProcessor fails on this event id. `job.run()` succeeds overall (the
@@ -1486,8 +1492,7 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (尊重退避窗口，未到时间不重试)
-    /// Covers: design §5.5.1 (WHERE next_retry_at IS NULL OR next_retry_at <= NOW()),
-    ///         §7 risk note (nullable column)
+    /// Covers: the eligibility clause `next_retry_at IS NULL OR next_retry_at <= NOW()`
     ///
     /// Scenario: A `processed=false` row with `next_retry_at = NOW() + 1 hour`
     /// (backed off, NOT yet eligible). The job skips it (`reprocessed == 0`, 0
@@ -1593,8 +1598,8 @@ mod tests {
     // =========================================================================
 
     /// User Story: US-PW-005 (full cancel→revoke→sweep end-to-end timing)
-    /// Covers: design §5.5.1 + §6.2 (30-min WebhookCompensationJob
-    ///         reconciliation window)
+    /// Covers: the 30-min WebhookCompensationJob
+    ///         reconciliation window
     ///
     /// This scenario is NOT a runnable deterministic test: the full
     /// "webhook missed → 30-min provider-API reconciliation → reprocess → revoke"

@@ -171,7 +171,7 @@ where
         let policies = role_policy_repository
             .get_role_policies_for_user(realm_id, &[role.id])
             .await?;
-        for policy in &policies {
+        for (_, policy) in &policies {
             require_permission(
                 permission_checker,
                 identity,
@@ -1509,25 +1509,18 @@ where
             let role_map: std::collections::HashMap<Uuid, String> =
                 roles.into_iter().map(|r| (r.id, r.name)).collect();
 
-            // Add role-based permissions
-            // Note: Currently get_role_policies_for_user doesn't return which role they came from
-            // We'll mark all as coming from the first role for now
-            // TODO: Enhance get_role_policies_for_user to return role information
-            for policy in role_policies {
-                // For now, assign to first role (this is a limitation of current implementation)
-                let first_role_id = role_ids.first().copied().unwrap_or_default();
+            // Add role-based permissions, attributing each policy to the
+            // role that actually grants it.
+            for (role_id, policy) in role_policies {
                 let role_name = role_map
-                    .get(&first_role_id)
+                    .get(&role_id)
                     .cloned()
                     .unwrap_or_else(|| "unknown".to_string());
 
                 permissions.push(PermissionDetail {
                     resource: policy.resource,
                     action: policy.action,
-                    source: PermissionSource::Role {
-                        role_id: first_role_id,
-                        role_name,
-                    },
+                    source: PermissionSource::Role { role_id, role_name },
                 });
             }
         }
@@ -2381,19 +2374,24 @@ mod tests {
             &self,
             _realm_id: &str,
             role_ids: &[Uuid],
-        ) -> UserAdminResult<Vec<PolicyEntity>> {
+        ) -> UserAdminResult<Vec<(Uuid, PolicyEntity)>> {
             Ok(self
                 .policies
                 .iter()
                 .filter(|(role_id, _, _)| role_ids.contains(role_id))
-                .map(|(role_id, resource, action)| PolicyEntity {
-                    id: *role_id,
-                    realm_id: _realm_id.to_string(),
-                    resource: resource.clone(),
-                    action: action.clone(),
-                    policy_json: None,
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                .map(|(role_id, resource, action)| {
+                    (
+                        *role_id,
+                        PolicyEntity {
+                            id: *role_id,
+                            realm_id: _realm_id.to_string(),
+                            resource: resource.clone(),
+                            action: action.clone(),
+                            policy_json: None,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                        },
+                    )
                 })
                 .collect())
         }

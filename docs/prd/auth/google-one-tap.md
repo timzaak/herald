@@ -87,7 +87,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 - **凭证验证严格性**：Herald 必须在服务端验证 Google ID Token 的签名（使用 Google JWKS 公钥）、issuer、audience（等于该 Realm 配置的 client_id）和 expiry，不得信任前端传来的任何明文用户信息
 - **邮箱验证要求**：Google 返回的凭证中邮箱未验证时，Herald 拒绝创建用户或登录
 - **用户匹配策略**：与现有跳转式 Google 登录完全一致——通过 Google 用户 ID（open_id）匹配 → 邮箱匹配 → 创建新用户
-- **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Google 凭证未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，One Tap 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）。
+- **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Google 凭证未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，One Tap 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。注册政策还包括可选的注册邮箱域白名单（`registration.allowed_domains`）：配置后，Google 邮箱域名不在白名单内时建号同样返回 `409 conflict`。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）。
 - **一次性凭证**：Google ID Token 有有效期（约 1 小时），过期后验证失败
 - **登录同意闸门**：直登模式（无 `downstream_state`）命中登录同意闸门（同意缺失或版本过期，见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」，直登不豁免）时，不签发完整会话；响应改为 `consentRequired: true` + 当前生效协议摘要 + 受限会话（无 token 字段）。Google 凭据一次性、不可携带同意重放，补全路径为受限会话提交 `POST /api/legal/{realmId}/consent` 记录同意后再次发起 One Tap 登录
 - **共存原则**：One Tap 与跳转式 Google 登录按钮共存，互不影响；用户可通过任一方式登录

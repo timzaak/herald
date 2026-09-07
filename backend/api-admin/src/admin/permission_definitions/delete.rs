@@ -39,58 +39,40 @@ pub async fn delete_permission(
         .require_permission(&state, "permissions", "manage")
         .await?;
 
-    // 3. Check if permission is built-in
-    let permission: Option<(bool, String, String)> = sqlx::query_as(
-        "SELECT is_builtin, name, realm_id FROM permissions WHERE id = $1 AND realm_id = $2",
-    )
-    .bind(id)
-    .bind(&realm_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to check permission: {e}");
-        ApiError::internal("Failed to check permission")
-    })?;
-
-    let permission_realm_id = match permission {
-        Some((is_builtin, permission_name, realm_id)) => {
-            if is_builtin {
-                tracing::warn!(
-                    user_id = %admin.user_id_string(),
-                    permission_id = %id,
-                    permission_name = %permission_name,
-                    "Attempted to delete built-in permission"
-                );
-                return Err(ApiError::forbidden("Cannot delete built-in permission"));
-            }
-            realm_id
-        }
-        None => {
-            return Err(ApiError::not_found("Permission not found"));
-        }
+    let Some(permission) = super::fetch_permission_definition(&state, id, &realm_id).await? else {
+        return Err(ApiError::not_found("Permission not found"));
     };
 
-    // Check if permission is assigned to any roles
-    let permission_in_use: Option<(bool,)> =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM role_permissions WHERE permission_id = $1)")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to check permission usage: {e}");
-                ApiError::internal("Failed to check permission usage")
-            })?;
+    if permission.is_builtin {
+        tracing::warn!(
+            user_id = %admin.user_id_string(),
+            permission_id = %id,
+            permission_name = %permission.name,
+            "Attempted to delete built-in permission"
+        );
+        return Err(ApiError::forbidden("Cannot delete built-in permission"));
+    }
 
-    if matches!(permission_in_use, Some((true,))) {
+    // Refuse while any role still references the permission — via a
+    // role_permissions assignment or a role_policies runtime mirror (same
+    // guard as the update path).
+    if super::permission_in_use(
+        &state,
+        id,
+        &realm_id,
+        &permission.resource,
+        &permission.action,
+    )
+    .await?
+    {
         return Err(ApiError::conflict(
             "Cannot delete permission that is assigned to roles",
         ));
     }
 
-    // 4. Execute deletion
     let result = sqlx::query("DELETE FROM permissions WHERE id = $1 AND realm_id = $2")
         .bind(id)
-        .bind(&permission_realm_id)
+        .bind(&realm_id)
         .execute(&state.pool)
         .await
         .map_err(|e| {
@@ -104,7 +86,7 @@ pub async fn delete_permission(
 
     let _ = state
         .permission_checker
-        .invalidate_realm_cache(&permission_realm_id)
+        .invalidate_realm_cache(&realm_id)
         .await;
 
     // Record audit event (mirrors role-definitions delete; permissions.md
@@ -112,7 +94,7 @@ pub async fn delete_permission(
     super::record_permission_audit(
         &state,
         &admin,
-        &permission_realm_id,
+        &realm_id,
         AuditAction::PermissionDelete,
         id.to_string(),
         None,

@@ -7,15 +7,7 @@
 // from the BE-D01 migration (`legal_agreement_version` + `user_agreement_consent`
 // + the seeded platform-default rows); no second DDL is maintained here.
 //
-// Design reference: `.ai/design/legal-consent-account-deletion.md`
-//   - §4.1  revert = snapshot semantics; version token id never rewinds
-//   - §4.3  table structure, `(COALESCE(realm_id,''), agreement_type, version_no)`
-//           unique constraint, monotonic version_no
-//   - §5.1  current_effective / publish_custom / revert_to_default / record_consent
-//           signatures, ConsentSource, StaleVersion gate, per-item audit
-//   - §6.1  domain-layer test items
-//
-// User stories (`.ai/user-stories/core/legal-consent-account-deletion.md`):
+// User stories (docs/user-stories/core/legal-consent-account-deletion.md):
 //   - US-RU-011 / US-RU-015  consent record (idempotent upsert)
 //   - US-RU-012              version change → reconsent gate
 //   - US-RU-013              view current effective agreement
@@ -140,7 +132,7 @@ async fn count_agreement_consent_audit(ctx: &TestContext, realm_id: &str) -> i64
 // =============================================================================
 
 /// User Story: US-RU-013 (view current effective agreement)
-/// Covers: Design §4.1 / §5.1 — effective resolution falls back to the seeded
+/// Covers: effective resolution falls back to the seeded
 /// platform-default template (`realm_id IS NULL`, `source = default`) when the
 /// realm has no custom version.
 ///
@@ -176,7 +168,7 @@ async fn test_current_effective_falls_back_to_default_when_no_custom(ctx: &mut T
 // =============================================================================
 
 /// User Story: US-RA-019 (custom publish overrides default)
-/// Covers: Design §4.1 — once a realm publishes a custom version, effective
+/// Covers: once a realm publishes a custom version, effective
 /// resolution must prefer it over the platform default.
 ///
 /// WHY this matters: the realm's own published text is the legally binding one
@@ -218,7 +210,7 @@ async fn test_current_effective_prefers_custom_over_default(ctx: &mut TestContex
 // =============================================================================
 
 /// User Story: US-RA-019 (each publish is a new effective version)
-/// Covers: Design §4.3 (monotonic version_no) / §4.1 — effective resolution
+/// Covers: effective resolution
 /// selects the row with the greatest `version_no` within the realm's custom
 /// rows.
 ///
@@ -274,8 +266,7 @@ async fn test_current_effective_picks_max_version_no(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RA-019
-/// Covers: Design §5.1 (publish_custom) / §4.3 (unique constraint, monotonic
-/// version_no) — successive publishes must yield strictly increasing
+/// Covers: successive publishes must yield strictly increasing
 /// `version_no`, distinct `id` (uuid v7, never reused), and non-decreasing
 /// `published_at`.
 ///
@@ -325,19 +316,21 @@ async fn test_publish_custom_monotonic_version_no_and_new_id(ctx: &mut TestConte
 }
 
 // =============================================================================
-// Scenario 5: revert_to_default snapshots default body into a NEW custom version
+// Scenario 5: revert_to_default appends a live-default follow marker
 // =============================================================================
 
 /// User Story: US-RA-019 (revert is a version change, not a deletion)
-/// Covers: Design §4.1 (revert = snapshot semantics) — reverting a realm to the
-/// default does NOT delete prior custom rows and does NOT rewind the version
-/// token id. Instead the current default body is copied into a brand-new custom
-/// version (new id, monotonic version_no, source = custom), so the append-only
-/// history stays intact and consent tokens never refer back to a reused id.
+/// Covers: revert is a live-default follow marker — reverting a
+/// realm to the default does NOT delete prior custom rows and does NOT rewind
+/// the version token id. Instead a realm-scoped default-follow marker is
+/// appended (new id, monotonic version_no, source = default, body = current
+/// platform default), so effective resolution follows the live platform
+/// default after the marker instead of a permanently detached snapshot.
 ///
 /// WHY this matters: rewinding the id / deleting rows would let an old consent
-/// row silently match the "reverted" version and bypass reconsent; the snapshot
-/// semantic is what makes revert observable to users as a real version change.
+/// row silently match the "reverted" version and bypass reconsent; the marker
+/// semantic is what makes revert observable to users as a real version change
+/// while keeping later platform-default updates visible to the realm.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revert_to_default_snapshots_into_new_custom_version(ctx: &mut TestContext) {
@@ -378,8 +371,9 @@ async fn test_revert_to_default_snapshots_into_new_custom_version(ctx: &mut Test
         .await
         .expect("revert_to_default must succeed");
 
-    // Snapshot semantics: new id, monotonic version_no, source = custom,
-    // body == default template.
+    // Live-default follow marker: new id, monotonic version_no,
+    // source = default (follows the platform default, not a custom snapshot),
+    // body == current default template.
     assert_eq!(
         reverted.version_no,
         prior_version_no + 1,
@@ -395,12 +389,12 @@ async fn test_revert_to_default_snapshots_into_new_custom_version(ctx: &mut Test
     );
     assert_eq!(
         reverted.source,
-        AgreementSource::Custom,
-        "revert publishes the snapshot as a custom row"
+        AgreementSource::Default,
+        "revert appends a default-follow marker, not a custom snapshot"
     );
     assert_eq!(
         reverted.content, default.content,
-        "revert snapshot body must equal the platform default template"
+        "the marker body must equal the current platform default template"
     );
 
     // Append-only: the prior custom row is still in the table.
@@ -421,7 +415,7 @@ async fn test_revert_to_default_snapshots_into_new_custom_version(ctx: &mut Test
 // =============================================================================
 
 /// User Story: US-RU-011 / US-RU-015 (consent record idempotent upsert)
-/// Covers: Design §5.1 (record_consent) — repeated consent for the same
+/// Covers: record_consent — repeated consent for the same
 /// (user, type) at the current version is an upsert: exactly one row remains,
 /// `consented_version_id` is the latest consent target, and `consented_at` is
 /// refreshed so re-consent is observable.
@@ -490,7 +484,7 @@ async fn test_record_consent_upsert_refreshes_version(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-012 (version change → reconsent) — gate side
-/// Covers: Design §5.1 (StaleVersion → CoreError::Conflict) / §4.2.2 —
+/// Covers: StaleVersion → CoreError::Conflict —
 /// `record_consent` must refuse a `version_id` that is not the current
 /// effective one. Otherwise a user could "consent" to an obsolete version and
 /// bypass the reconsent gate after an admin published a newer one.
@@ -558,7 +552,7 @@ async fn test_record_consent_rejects_stale_version(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-011 (consent is auditable per agreement)
-/// Covers: Design §5.1 (per-item audit) / §4.1 — each consented agreement type
+/// Covers: per-item audit — each consented agreement type
 /// produces its own `agreement.consent` audit row under category `compliance`,
 /// carrying `agreement_type`, `version_id`, and `source` (matching the
 /// ConsentSource) in `details`.
@@ -655,7 +649,7 @@ async fn test_record_consent_writes_per_item_audit(ctx: &mut TestContext) {
 // =============================================================================
 
 /// User Story: US-RU-012 / US-RA-019 (publish triggers user reconsent)
-/// Covers: Design §5.1 (consent_status needsReconsent) — after the user
+/// Covers: consent_status needsReconsent — after the user
 /// consented to the current version, an admin publishing a newer version must
 /// flip `needs_reconsent` to true, with `current_version_id` advanced to the
 /// new version and `consented_version_id` still pointing at the old one.
@@ -724,7 +718,7 @@ async fn test_consent_status_needs_reconsent_after_publish(ctx: &mut TestContext
 // =============================================================================
 
 /// User Story: US-RU-012 (do not re-prompt up-to-date users)
-/// Covers: Design §5.1 (regression) — when the user has consented to the
+/// Covers: regression — when the user has consented to the
 /// current effective version and nothing newer has been published,
 /// `needs_reconsent` must be false.
 ///

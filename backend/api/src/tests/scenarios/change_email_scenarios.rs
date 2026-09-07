@@ -16,10 +16,14 @@ async fn test_scenario_change_email_flow(ctx: &mut TestContext) {
     // Step 1: Create and login user
     let email = "changeme@cas.com";
     let password = "password123";
-    let (_user_id, _token) = create_user_and_login(ctx, email, password).await;
+    let (user_id, _token) = create_user_and_login(ctx, email, password).await;
+
+    // 双轨凭证类：密码登录签 CustomUserUi family（不含 ChangeEmail scope），
+    // 改邮箱需要 FirstParty 会话（生产路径为直登/换客户端入口）。
+    let token = crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, user_id).await;
 
     // Step 2: Request email change (requires a fresh reauth ticket)
-    let reauth_token = obtain_reauth_token(ctx, &_token, "change_email", password).await;
+    let reauth_token = obtain_reauth_token(ctx, &token, "change_email", password).await;
     let request_payload = json!({
         "newEmail": "newemail@cas.com",
         "reauthToken": reauth_token
@@ -29,7 +33,7 @@ async fn test_scenario_change_email_flow(ctx: &mut TestContext) {
         .method("POST")
         .uri(format!("/api/auth/{}/change_email/request", realm_id))
         .header("content-type", "application/json")
-        .header("authorization", format!("Bearer {}", _token))
+        .header("authorization", format!("Bearer {}", token))
         .body(Body::from(request_payload.to_string()))
         .unwrap();
 
@@ -55,10 +59,19 @@ async fn test_scenario_change_email_confirm_requires_same_authenticated_user(
     let app = ctx.create_unified_test_router();
     let realm_id = ctx._realm_id.clone();
 
-    let (_user_a_id, token_a) =
+    let (user_a_id, _pw_token_a) =
         create_user_and_login(ctx, "change-owner@cas.com", "password123").await;
-    let (_user_b_id, token_b) =
+    let (_user_b_id, _pw_token_b) =
         create_user_and_login(ctx, "change-attacker@cas.com", "password123").await;
+
+    // 双轨凭证类：改邮箱的 request/confirm 都要求 FirstParty 会话；
+    // 密码登录的 CustomUserUi family 不含 ChangeEmail scope。
+    let token_a =
+        crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, user_a_id).await;
+    // 攻击者也持 FirstParty 会话：断言的 403 必须来自 confirm 的
+    // same-authenticated-user 校验，而不是 token scope 拒绝。
+    let token_b =
+        crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, _user_b_id).await;
 
     let reauth_token = obtain_reauth_token(ctx, &token_a, "change_email", "password123").await;
     let request_payload = json!({
@@ -114,7 +127,7 @@ async fn test_scenario_change_email_confirm_requires_same_authenticated_user(
     assert_eq!(owner_confirm_resp.status(), StatusCode::OK);
 
     let updated_email: String = sqlx::query_scalar("SELECT email FROM account WHERE id = $1")
-        .bind(_user_a_id)
+        .bind(user_a_id)
         .fetch_one(&ctx._app_state.pool)
         .await
         .unwrap();

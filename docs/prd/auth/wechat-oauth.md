@@ -150,7 +150,8 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 **微信小程序登录**
 - 小程序用户触发微信登录，系统接收小程序发送的授权码
 - 系统验证授权码并获取用户信息，创建或匹配用户
-- 返回访问令牌给小程序用户
+- 返回访问令牌给小程序用户：该令牌为自签 JWT 中间凭据（不可轮换、无 refresh_token），供下游业务服务换取自身会话，不属于 Herald 浏览器 token family，标准认证中间件不接受该令牌
+- 因此小程序登录入口不经过登录同意闸门（与 legal-consent-account-deletion.md 的入口清单一致，属 B 类 OAuth 协议例外）；禁用账户（Forbidden/Deleted）仍被拒绝
 
 **Realm Admin 配置管理**
 - WeChat OAuth Provider 配置项：Client ID（AppID）、Client Secret（AppSecret）、Scope（固定 `snsapi_login`）、Enabled；Redirect URI 无需在 Herald 侧配置存储，回调地址运行时由部署域名/自定义域名派生（租户需在微信开放平台侧登记该回调地址）

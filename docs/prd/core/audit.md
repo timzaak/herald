@@ -161,7 +161,7 @@ Herald 系统需要为所有核心操作提供可追溯的审计能力。当前�
 ### 8.1 已确认决策
 
 - 审计事件采用统一模型，覆盖七类事件（用户管理、RBAC 变更、Realm 管理、认证、计费、OAuth、合规）
-- 计费和发票操作的审计由各自模块独立记录，不纳入统一审计模型
+- 计费和发票的业务操作审计由各自模块独立记录，不纳入统一审计模型；**已被局部修订**：支付 Provider 配置变更、支付 webhook/重放、IAP 凭证与生命周期通知进入统一审计模型（见 §2.2 修订及 `docs/prd/billing/wechat-support.md` §4.1，涵盖 Stripe/WeChat/Creem/IAP 的 `payment_config.*`、`payment.webhook`、`payment.replay`、`iap.*` 动作）
 - 审计日志为只读，不提供修改和删除能力
 
 ---
