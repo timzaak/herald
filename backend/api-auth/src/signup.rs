@@ -5,7 +5,7 @@ use axum::{
 };
 use axum_valid::Valid;
 use herald_api_base::application::http::auth::util::{
-    ClientIp, is_platform_signup_enabled, rate_limit_hit, user_agent_from_headers,
+    ClientIp, is_platform_signup_enabled, normalize_email, rate_limit_hit, user_agent_from_headers,
     verify_turnstile_for_client_app,
 };
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -113,7 +113,11 @@ pub async fn signup(
     }
 
     let user_agent = user_agent_from_headers(&headers);
-    let email = payload.email.trim().to_string();
+    // Same normalization (trim + lowercase) as every other account entrance:
+    // the account email unique index is case-sensitive and login normalizes
+    // its lookup, so a mixed-case signup email would create an admin that can
+    // never sign in again.
+    let email = normalize_email(&payload.email);
 
     // 1. Platform toggle — fail-closed when unset.
     if !is_platform_signup_enabled(&state).await? {
@@ -188,6 +192,17 @@ pub async fn signup(
             tracing::error!(error = %e, "Failed to issue signup session");
             ApiError::internal("Failed to issue session")
         })?;
+
+    // 6. Record consent to the effective ToS + Privacy for the new realm
+    //    admin ("signup = consent"), mirroring the register entrance.
+    crate::consent_gate::record_register_consent(
+        &state,
+        admin_user.id,
+        &realm.id,
+        &email,
+        Some(&ip),
+    )
+    .await;
 
     // Best-effort platform audit record (does not block the response).
     if let Err(e) = state

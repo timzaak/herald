@@ -1,9 +1,20 @@
 ---
 title: Billing Architecture
-description: "Herald's billing system does not keep a local product catalog. Payment providers like Stripe and Creem own Product, Price, Checkout, and the subscription lifecycle; Herald keeps only the minimum data needed for authorization and credit grants."
+description: "Herald's billing system does not keep a local product catalog. Payment providers like Stripe and Creem own Product, Price, Checkout, and the subscription lifecycle; Herald keeps only the minimum data needed for authorization and credit grants — enough to run a paywall that stays in sync with every payment and refund."
 ---
 
 Herald's billing system does not keep a local product catalog. Payment providers like Stripe and Creem own Product, Price, Checkout, and the subscription lifecycle; Herald keeps only the minimum data needed for authorization and credit grants.
+
+## The paywall loop
+
+Everything in this module serves one goal: turning payments into a paywall that stays in sync on its own.
+
+1. The user pays via Stripe, Creem, WeChat Pay, or an in-app purchase.
+2. Herald resolves the purchase to an `entitlement_key` and grants credits into the bound Credit Account.
+3. Your product checks that entitlement — or the credit balance — and lets the request through or blocks it.
+4. Refunds and cancellations revoke the entitlement and claw the credits back automatically.
+
+Free allowances and rolling quota windows ride on the same model, so freemium, subscriptions, and metered pricing all end in the same check.
 
 ## Who this is for
 

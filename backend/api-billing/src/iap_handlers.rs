@@ -55,7 +55,7 @@ use validator::Validate;
 
 use crate::shared_fulfillment::fulfill_provider_event;
 use crate::webhook_subscription_helpers::{
-    SyncSubscriptionInput, resolve_entitlement_mapping, sync_subscription,
+    ResolvedEntitlement, SyncSubscriptionInput, resolve_entitlement_mapping, sync_subscription,
 };
 
 // ============================================================================
@@ -658,7 +658,7 @@ pub async fn submit_iap_receipt(
 
     // Step 7: fulfillment transaction. complete_succeeded marks the attempt
     // Succeeded and fulfils (one_time → TopupCredit, recurring → Subscription).
-    // A failure here rolls the attempt back to non-succeeded. The dead-zone
+    // A failure here rolls the attempt back to Failed. The dead-zone
     // recovery above already consumed the product in its failed prior attempt,
     // so the consume call is skipped there (re-consuming is both unnecessary
     // and rejected by Google).
@@ -715,12 +715,37 @@ pub async fn submit_iap_receipt(
             "succeeded"
         }
         Err(e) => {
+            // The attempt was already marked Succeeded inside
+            // complete_succeeded_payment_attempt: the user has paid (and for a
+            // Google consumable the product was consumed) but holds no
+            // entitlement. Roll it back to Failed so a resubmit meets the
+            // dead-zone recovery precondition (prior Failed attempt) instead
+            // of a permanent 422 already_consumed — the exact paid-but-never-
+            // fulfillable dead zone US-IAP-006 forbids.
+            if let Err(mark_err) = state
+                .payment_attempt_service
+                .mark_failed_for_async_recovery(
+                    &realm_id,
+                    attempt.id,
+                    "fulfillment_failed".to_string(),
+                    Utc::now(),
+                )
+                .await
+            {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    attempt_id = %attempt.id,
+                    provider = %input.provider,
+                    error = %mark_err,
+                    "IAP fulfillment failed AND the Failed rollback failed — resubmit may hit already_consumed"
+                );
+            }
             tracing::warn!(
                 realm_id = %realm_id,
                 attempt_id = %attempt.id,
                 provider = %input.provider,
                 error = %e,
-                "IAP fulfillment failed -- attempt left non-succeeded"
+                "IAP fulfillment failed -- attempt rolled back to Failed"
             );
             "failed"
         }
@@ -2073,6 +2098,26 @@ fn google_replay_event_id(purchase_token: &str, event_type: &str, payload: &Valu
     format!("google:{purchase_token}:{event_type}")
 }
 
+/// Billing-type route for a Google replay. Resolved either from the payload's
+/// `productId` (lifecycle replays) or reverse-looked-up from Herald's own
+/// subscription/attempt state — voided-purchase refunds and 404-expiry replays
+/// carry no productId, and a payload-keyed mapping lookup with an empty product
+/// would NoMapping-fail on every sweep.
+enum GoogleReplayRoute {
+    /// One-time purchase (consumable points pack / buyout): revoke keyed on
+    /// the payment_attempt, no mapping needed.
+    OneTime,
+    /// Non-renewing subscription: expire in place + revoke payment roles,
+    /// keyed on the entitlement_key.
+    NonRenewing { entitlement_key: String },
+    /// Recurring subscription: the sync path needs the mapping; the product
+    /// id is `resolved.mapping.external_product_id` (every constructor
+    /// resolves the mapping keyed on that same product with no metadata
+    /// override, so the pair can never diverge). Boxed to keep the enum's
+    /// variants within a sane size of each other.
+    Recurring { resolved: Box<ResolvedEntitlement> },
+}
+
 /// internal implementation; the signature is frozen here.
 ///
 /// The worker job hands a payload of shape
@@ -2192,50 +2237,110 @@ pub async fn reprocess_google_event(
         .parse::<SubscriptionStatus>()
         .unwrap_or(SubscriptionStatus::Active);
 
-    let product_id = payload
+    let payload_product_id = payload
         .get("productId")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     let expiry_time = payload
         .get("expiryTime")
         .and_then(|v| v.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
-    // Resolve the entitlement mapping so we know the bucket_id / entitlement_key;
-    // the admin must fix the mapping, and the next sweep will retry.
-    let resolved =
-        resolve_entitlement_mapping(&state, &realm_id, "google", product_id, None, None).await?;
-
-    // mapping's billing_type is the fulfillment routing authority. OneTime
+    // The mapping's billing_type is the fulfillment routing authority: OneTime
     // purchases (consumable points packs and buyouts) never create a
-    // subscription row, so they are handled by an attempt-keyed revoke.
-    // NonRenewing creates a subscription row and is expired in place. Recurring
+    // subscription row, so they are handled by an attempt-keyed revoke;
+    // NonRenewing creates a subscription row and is expired in place; Recurring
     // continues to use the subscription sync path (unchanged).
-    let mapping_billing_type = resolved.mapping.billing_type.clone();
-    match mapping_billing_type {
-        Some(BillingType::OneTime) => {
+    //
+    // Voided-purchase refunds and 404-expiry replays carry no productId
+    // (Google's voided list exposes no product and a 404 means the purchase no
+    // longer exists upstream), so the mapping cannot be resolved from the
+    // payload — resolve it by (provider, product, price) for lifecycle replays
+    // that do carry one, and reverse the route from Herald's own state
+    // otherwise: the subscription row snapshotted billing_type +
+    // external_product_id at fulfillment, and a token with no subscription row
+    // routes to the attempt-keyed one-time revoke (which realm-checks and
+    // no-ops when no attempt exists either).
+    let (route, audit_product_id) = match payload_product_id {
+        Some(product_id) => {
+            // Resolve the entitlement mapping so we know the bucket_id /
+            // entitlement_key; the admin must fix the mapping, and the next
+            // sweep will retry.
+            let resolved =
+                resolve_entitlement_mapping(&state, &realm_id, "google", &product_id, None, None)
+                    .await?;
+            let route = match resolved.mapping.billing_type.clone() {
+                Some(BillingType::OneTime) => GoogleReplayRoute::OneTime,
+                Some(BillingType::NonRenewing) => GoogleReplayRoute::NonRenewing {
+                    entitlement_key: resolved.entitlement_key.clone(),
+                },
+                // Recurring (or mapping with no billing_type — falls back to
+                // the recurring subscription sync path for backwards
+                // compatibility).
+                _ => GoogleReplayRoute::Recurring {
+                    resolved: Box::new(resolved),
+                },
+            };
+            (route, Some(product_id))
+        }
+        None => match state
+            .billing_repository
+            .find_by_external_subscription_id(purchase_token, "google")
+            .await?
+        {
+            Some(sub) if sub.realm_id == realm_id => {
+                let audit_product_id = Some(sub.external_product_id.clone());
+                let route = match sub.billing_type {
+                    BillingType::NonRenewing => GoogleReplayRoute::NonRenewing {
+                        entitlement_key: sub.entitlement_key.clone(),
+                    },
+                    _ => {
+                        let resolved = resolve_entitlement_mapping(
+                            &state,
+                            &realm_id,
+                            "google",
+                            &sub.external_product_id,
+                            None,
+                            None,
+                        )
+                        .await?;
+                        GoogleReplayRoute::Recurring {
+                            resolved: Box::new(resolved),
+                        }
+                    }
+                };
+                (route, audit_product_id)
+            }
+            // No subscription row for this token in this realm: a cross-realm
+            // token collision or a subscription-less purchase — the one-time
+            // revoke path is keyed on the payment_attempt and handles both.
+            _ => (GoogleReplayRoute::OneTime, None),
+        },
+    };
+
+    match route {
+        GoogleReplayRoute::OneTime => {
             reprocess_google_one_time_revoke(&state, &realm_id, purchase_token, &event_type)
                 .await?;
         }
-        Some(BillingType::NonRenewing) => {
+        GoogleReplayRoute::NonRenewing { entitlement_key } => {
             reprocess_google_non_renewing_revoke(
                 &state,
                 &realm_id,
                 purchase_token,
                 &event_type,
-                &resolved.entitlement_key,
+                &entitlement_key,
             )
             .await?;
         }
-        _ => {
-            // Recurring (or mapping with no billing_type — falls back to the
-            // recurring subscription sync path for backwards compatibility).
+        GoogleReplayRoute::Recurring { resolved } => {
             reprocess_google_recurring_sync(
                 &state,
                 &realm_id,
                 purchase_token,
-                product_id,
+                &resolved.mapping.external_product_id,
                 &resolved.mapping,
                 &event_type,
                 new_status,
@@ -2270,7 +2375,7 @@ pub async fn reprocess_google_event(
         serde_json::json!({
             "provider": "google",
             "eventType": event_type,
-            "productId": product_id,
+            "productId": audit_product_id,
             "outcome": "reconciled",
         }),
     )

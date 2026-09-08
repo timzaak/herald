@@ -49,6 +49,9 @@ pub struct BucketInUseErrorBody {
     pub code: &'static str,
     pub active_subscriptions: i64,
     pub holders_with_balance: i64,
+    /// Historical wallet/transaction/ledger rows still referencing the bucket.
+    /// A zero-balance bucket with history must be disabled, not deleted.
+    pub history_references: i64,
 }
 
 fn validate_bucket_key(key: &str) -> Result<(), ApiError> {
@@ -86,10 +89,12 @@ fn map_bucket_error(err: CreditBucketError) -> ApiError {
             bucket_id: _,
             active_subscriptions,
             holders_with_balance,
+            history_references,
         } => ApiError::conflict_json(BucketInUseErrorBody {
             code: "bucket_in_use",
             active_subscriptions,
             holders_with_balance,
+            history_references,
         }),
         CreditBucketError::Other(core) => ApiError::from(core),
     }
@@ -417,7 +422,7 @@ fn overview_row_to_response(row: CreditBucketOverviewRow) -> OverviewRowResponse
         (status = 400, description = "Bad request - invalid bucketKey / empty coverage set", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - points.manage required", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
-        (status = 409, description = "bucket_in_use - bucket still referenced by balances/subscriptions", body = BucketInUseErrorBody),
+        (status = 409, description = "bucket_in_use - bucket still referenced by balances/subscriptions/history", body = BucketInUseErrorBody),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     ),
     security(("bearer_auth" = []))
@@ -475,7 +480,7 @@ pub async fn create_credit_bucket_handler(
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - points.manage required", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "Credit bucket not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
-        (status = 409, description = "bucket_in_use - bucket still referenced by balances/subscriptions", body = BucketInUseErrorBody),
+        (status = 409, description = "bucket_in_use - bucket still referenced by balances/subscriptions/history", body = BucketInUseErrorBody),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     ),
     security(("bearer_auth" = []))
@@ -537,7 +542,7 @@ pub async fn update_credit_bucket_handler(
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - points.manage required", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "Credit bucket not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
-        (status = 409, description = "bucket_in_use - in-flight subscriptions or residual balances", body = BucketInUseErrorBody),
+        (status = 409, description = "bucket_in_use - in-flight subscriptions, residual balances, or historical references", body = BucketInUseErrorBody),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     ),
     security(("bearer_auth" = []))

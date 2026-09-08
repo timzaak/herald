@@ -1,9 +1,20 @@
 ---
 title: Herald 计费架构
-description: "Herald 的计费系统不维护本地商品目录。Stripe、Creem 这些支付方管理 Product、Price、Checkout 和订阅生命周期；Herald 只保留做授权和积分发放所需的最小数据。"
+description: "Herald 的计费系统不维护本地商品目录。Stripe、Creem 这些支付方管理 Product、Price、Checkout 和订阅生命周期；Herald 只保留做授权和积分发放所需的最小数据——刚好够支撑一面与每笔支付、退款自动同步的付费墙。"
 ---
 
 Herald 的计费系统不维护本地商品目录。Stripe、Creem 这些支付方管理 Product、Price、Checkout 和订阅生命周期；Herald 只保留做授权和积分发放所需的最小数据。
+
+## 付费墙闭环
+
+这个模块里的一切设计都服务于同一个目标：把支付变成一面自动保持同步的付费墙。
+
+1. 用户通过 Stripe、Creem、WeChat Pay 或应用内购完成付款；
+2. Herald 把这笔购买解析成 `entitlement_key`，并向绑定的积分账户发放积分；
+3. 你的产品据此检查权益或积分余额，放行或拦截这次请求；
+4. 退款和取消订阅会自动收回权益、扣回积分。
+
+免费额度和滚动配额窗口走同一套模型，所以免费增值、订阅制、按量计费最终都收敛为同一次检查。
 
 ## 给谁看
 

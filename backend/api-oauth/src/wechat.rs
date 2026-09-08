@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    callback::issue_callback_token_response,
+    callback::{
+        DownstreamCodeOutcome, issue_callback_token_response, issue_downstream_authorization,
+    },
     helper::{generate_oauth_auth_url, handle_oauth_callback},
 };
 use herald_api_base::application::http::auth::util::{
@@ -154,8 +156,24 @@ pub async fn wechat_callback(
     )
     .await?;
 
-    if let Some(redirect_uri) = callback.downstream_redirect_uri {
-        return Ok(Redirect::temporary(&redirect_uri).into_response());
+    if let Some(downstream_state) = callback.downstream_state {
+        return match issue_downstream_authorization(
+            &state,
+            &realm_id,
+            callback.user_id,
+            &downstream_state,
+            &callback.client_id,
+            "oauth.wechat",
+            user_agent,
+            Some(ip),
+        )
+        .await?
+        {
+            DownstreamCodeOutcome::Redirect(redirect_uri) => {
+                Ok(Redirect::temporary(&redirect_uri).into_response())
+            }
+            DownstreamCodeOutcome::ConsentRequired(response) => Ok(response),
+        };
     }
 
     let user_id = callback.user_id;
@@ -167,6 +185,14 @@ pub async fn wechat_callback(
         "WeChat callback processed successfully"
     );
 
-    issue_callback_token_response(&state, &realm_id, user_id, &client_id, user_agent, Some(ip))
-        .await
+    issue_callback_token_response(
+        &state,
+        &realm_id,
+        user_id,
+        &client_id,
+        "oauth.wechat",
+        user_agent,
+        Some(ip),
+    )
+    .await
 }

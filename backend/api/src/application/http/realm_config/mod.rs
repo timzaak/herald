@@ -33,6 +33,23 @@ fn parse_config_type(value: String) -> Result<ConfigType, ApiError> {
     ConfigType::try_from_str(&value).map_err(ApiError::bad_request)
 }
 
+/// Custom-domain `settings` rows couple to the `custom_domain_mapping`
+/// host→realm table: the dedicated `PUT /api/realms/{realmId}/config/
+/// custom-domain` normalizes the hostname (IDNA), enforces global uniqueness
+/// under a claim lock, and writes both stores atomically. A write through the
+/// generic configs API would desync them (a squatted or non-normalized
+/// hostname in the admin-view row) and a generic DELETE would leave the
+/// request-time host→realm resolution live — so `custom_domain` rows are
+/// rejected at this boundary for every write.
+fn reject_custom_domain_config(config_type: &ConfigType) -> Result<(), ApiError> {
+    if matches!(config_type, ConfigType::CustomDomain) {
+        return Err(ApiError::bad_request(
+            "custom_domain configuration must be managed through the custom-domain endpoint",
+        ));
+    }
+    Ok(())
+}
+
 /// The platform self-service signup switch is an admin-realm-only config row
 /// (realm-create PRD §4.1); the signup flow reads it exclusively from the
 /// admin realm. Other realms must not write rows of this type — they would
@@ -626,6 +643,7 @@ pub async fn upsert_realm_config(
 
     let config_type = parse_config_type(payload.config_type)?;
     reject_non_admin_platform_signup(&realm_id, &config_type)?;
+    reject_custom_domain_config(&config_type)?;
     reject_production_provider_base_url(&state.app_env, &config_type, &payload.config_key)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
@@ -792,6 +810,7 @@ pub async fn batch_upsert_realm_configs(
     for r in payload.configs {
         let config_type = parse_config_type(r.config_type)?;
         reject_non_admin_platform_signup(&realm_id, &config_type)?;
+        reject_custom_domain_config(&config_type)?;
         reject_production_provider_base_url(&state.app_env, &config_type, &r.config_key)?;
         if let Some(provider_type) =
             is_empty_secret_to_preserve(&config_type, &r.config_key, &r.config_value)
@@ -1018,6 +1037,7 @@ pub async fn delete_realm_config(
 
     let parsed_config_type = parse_config_type(config_type.clone())?;
     reject_non_admin_platform_signup(&realm_id, &parsed_config_type)?;
+    reject_custom_domain_config(&parsed_config_type)?;
     ensure_provider_config_deletable(&state, &realm_id, &parsed_config_type).await?;
 
     // Capture the row identity before it is consumed by the delete call, so
@@ -1267,5 +1287,18 @@ mod tests {
             reject_production_provider_base_url("production", &ConfigType::Stripe, "api_key")
                 .is_ok()
         );
+    }
+
+    /// WHY: a `custom_domain` settings row written through the generic configs
+    /// API would skip hostname normalization (IDNA/Punycode) and the global
+    /// claim check, desyncing the admin view from the request-time
+    /// `custom_domain_mapping` table; a generic DELETE would leave the mapping
+    /// row live. Every generic write path must refuse the type outright.
+    #[test]
+    fn custom_domain_rows_are_rejected_on_generic_config_writes() {
+        assert!(reject_custom_domain_config(&ConfigType::CustomDomain).is_err());
+        // Non-custom-domain types keep flowing through the generic path.
+        assert!(reject_custom_domain_config(&ConfigType::Registration).is_ok());
+        assert!(reject_custom_domain_config(&ConfigType::Stripe).is_ok());
     }
 }

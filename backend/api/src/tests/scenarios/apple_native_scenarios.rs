@@ -48,6 +48,7 @@ use crate::tests::helpers::oauth_pkce_helpers::{
     compute_code_challenge, extract_auth_code_from_redirect, generate_code_verifier,
     oauth_token_exchange,
 };
+use crate::tests::helpers::oauth_test_helpers::assert_consent_required_and_recover;
 use crate::tests::response_json;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -420,9 +421,13 @@ async fn apple_native_matches_existing_user_by_email(ctx: &mut TestContext) {
 }
 
 /// downstream / Code+PKCE: `downstreamState` present (valid Redis
-/// `oauth:state:{ds}`) → `AppleNativeCodeResponse` with `redirectUri`
-/// containing `?code=ac_...&state=...`; the issued `ac_*` code then exchanges
-/// via `/token` with the matching PKCE `verifier`.
+/// `oauth:state:{ds}`) → the login consent gate runs at code issuance: a
+/// fresh user with zero consent records gets 200 consentRequired + a
+/// consent-restricted browser family (NO code); after recording consent via
+/// the restricted family, re-triggering the same entrance + downstream_state
+/// issues `AppleNativeCodeResponse` with `redirectUri` containing
+/// `?code=ac_...&state=...`; the issued `ac_*` code then exchanges via
+/// `/token` with the matching PKCE `verifier`.
 ///
 /// Covers: docs/user-stories/auth/support-mobile-apple-login.md US-AL-002
 /// (integration, downstream Code+PKCE mode, scenario 2).
@@ -470,9 +475,30 @@ async fn apple_native_downstream_mode_issues_authorization_code(ctx: &mut TestCo
         "downstream mode with a valid downstreamState must return 200"
     );
     let body: Value = response_json(resp).await;
+
+    // Login consent gate (fresh user, zero consent records) + recovery: the
+    // shared helper asserts the consentRequired shape and records consent via
+    // the restricted family, so the re-trigger below can issue the code.
+    assert_consent_required_and_recover(ctx, &body).await;
+
+    // Re-trigger the same entrance with the same downstream_state.
+    let resp = post_apple_native(
+        ctx,
+        &jwks_url,
+        &id_token,
+        &downstream_oauth_client_id,
+        Some(&downstream_state),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "downstream mode after consent must return 200"
+    );
+    let body: Value = response_json(resp).await;
     let redirect_uri_resp = body["redirectUri"]
         .as_str()
-        .expect("downstream mode must return redirectUri");
+        .expect("downstream mode must return redirectUri after consent");
 
     // Extract the `ac_*` authorization code from the redirect URI.
     let auth_code = extract_auth_code_from_redirect(redirect_uri_resp)

@@ -117,8 +117,13 @@ where
         actor_realm_id: String,
         ctx: AuditContext,
     ) -> Result<Realm, CoreError> {
-        // Extract admin_user before moving request
-        let admin_user = request.admin_user.clone();
+        // Extract admin_user before moving request. The initial admin email is
+        // normalized (trim + lowercase) like every other account-creation
+        // entrance: the account email unique index is case-sensitive and the
+        // login path normalizes its lookup, so a mixed-case initial admin
+        // email would provision an administrator that can never sign in.
+        let mut admin_user = request.admin_user.clone();
+        admin_user.email = admin_user.email.trim().to_ascii_lowercase();
 
         // Call repository to create realm
         let realm = self.realm_repository.create_realm(request).await?;

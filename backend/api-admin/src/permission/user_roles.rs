@@ -207,13 +207,14 @@ pub async fn assign_roles_to_user(
         ));
     }
 
-    // Security: a delegated roles.manage holder must not reach primary-admin
-    // level by assigning a privileged builtin role (e.g. realm-admin) to
-    // themselves. Assigning such a role requires holding every permission it
-    // grants — only satisfied by callers already at that level. The plain
-    // builtin "user" role is exempt (it is the default end-user role).
+    // Security: grantor self-hold (permissions PRD §4.1 rules 2/3) — a
+    // delegated roles.manage holder must not reach beyond their own level by
+    // assigning a privileged builtin role (e.g. realm-admin) or another
+    // administrator's custom role to themselves. Assigning any role other
+    // than the plain builtin "user" role requires holding every permission it
+    // grants — only satisfied by callers already at that level.
     for role in &matching_roles {
-        if !role.is_builtin || role.name == "user" {
+        if role.is_builtin && role.name == "user" {
             continue;
         }
         let role_policies = role_policies::Entity::find()

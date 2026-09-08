@@ -146,12 +146,13 @@ async fn require_roles_in_realm(
     Ok(())
 }
 
-/// Hierarchy guard for role grants: assigning a privileged builtin role
-/// (any builtin role except the plain end-user "user" role) requires the
-/// caller to hold every permission that role grants. Without this, a
-/// delegated admin holding only roles.manage/policies.manage could reach
-/// primary-admin level by assigning e.g. the builtin realm-admin role to
-/// themselves.
+/// Hierarchy guard for role grants: assigning any role other than the plain
+/// end-user "user" builtin — privileged builtin OR custom — requires the
+/// caller to hold every permission that role grants (grantor self-hold,
+/// permissions PRD §4.1 rules 2/3). Without this, a delegated admin holding
+/// only roles.manage/policies.manage could reach beyond their own level by
+/// assigning e.g. the builtin realm-admin, or another administrator's custom
+/// role, to themselves or their own API Key.
 async fn require_role_grant_hierarchy<RP, P>(
     role_policy_repository: &RP,
     permission_checker: &P,
@@ -164,10 +165,31 @@ where
     P: PermissionService,
 {
     let requested_roles = role_policy_repository.get_roles_by_ids(role_ids).await?;
-    for role in requested_roles
-        .iter()
-        .filter(|r| r.is_builtin && r.name != "user")
-    {
+    require_role_grant_hierarchy_for_roles(
+        role_policy_repository,
+        permission_checker,
+        identity,
+        realm_id,
+        &requested_roles,
+    )
+    .await
+}
+
+/// Same grantor self-hold check for roles the caller already loaded and
+/// validated — `replace_api_key_roles` fetches them moments earlier, so
+/// re-fetching by id would be a duplicate round trip.
+async fn require_role_grant_hierarchy_for_roles<RP, P>(
+    role_policy_repository: &RP,
+    permission_checker: &P,
+    identity: &Identity,
+    realm_id: &str,
+    roles: &[RoleEntity],
+) -> UserAdminResult<()>
+where
+    RP: RolePolicyRepository,
+    P: PermissionService,
+{
+    for role in roles.iter().filter(|r| !(r.is_builtin && r.name == "user")) {
         let policies = role_policy_repository
             .get_role_policies_for_user(realm_id, &[role.id])
             .await?;
@@ -314,6 +336,17 @@ where
         )
         .await?;
 
+        self.create_user_with_roles_pre_authorized(identity, ctx, realm_id, request)
+            .await
+    }
+
+    async fn create_user_with_roles_pre_authorized(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        request: CreateUserWithRolesRequest,
+    ) -> UserAdminResult<AdminUser> {
         // Realm boundary check
         if identity.realm_id() != realm_id {
             if let Err(e) = self
@@ -1365,6 +1398,19 @@ where
             if let Some(wrong_realm) = roles.iter().find(|r| r.realm_id != realm_id) {
                 return Err(UserAdminError::RoleNotFound(wrong_realm.id.to_string()));
             }
+
+            // Grantor self-hold (permissions PRD §4.1 rule 3): an API Key
+            // persists its roles as a principal, so assigning a custom role
+            // the caller does not fully hold would let a delegated
+            // roles.manage holder escalate through their own key.
+            require_role_grant_hierarchy_for_roles(
+                &*self.role_policy_repository,
+                &*self.permission_checker,
+                &identity,
+                realm_id,
+                &roles,
+            )
+            .await?;
         }
 
         // Use the built-in API Key client ID

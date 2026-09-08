@@ -106,7 +106,7 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 1. 优先通过 unionid 查找已存在的用户
 2. 如果找不到，通过 openid 查找
 3. 如果还找不到，通过 email 查找（占位邮箱 `{unionid/openid}@wechat.placeholder` 以 `verified=false` 落库；provider 未验证邮箱不得用于关联既有账号，唯一例外是完全匹配由已验签 unionid/openid 确定性生成的占位邮箱——用于恢复"账号已创建但 provider link 未落账"的部分首次登录重试，与 oauth.md 的通用例外一致）
-4. 如果还找不到，创建新用户（自动注册受 Realm 注册政策门控：注册关闭时不自动建号，按登录失败处理并引导）
+4. 如果还找不到，创建新用户（自动注册受 Realm 注册政策门控：注册关闭时不自动建号，按登录失败处理并引导。注册政策还包括可选的注册邮箱域白名单 `registration.allowed_domains`——微信不提供真实邮箱，建号使用的 `{unionid/openid}@wechat.placeholder` 占位邮箱同样接受白名单检查，配置白名单的 Realm 需将 `wechat.placeholder` 纳入白名单，否则首次微信登录无法建号；与 Apple 原生路径的 `apple.placeholder` 占位域 caveat 一致，见 `support-mobile-apple-login.md` §4.1）
 5. OAuth 自动创建用户后触发统一注册后事件，可按 Realm 的积分分发规则发放注册积分
 
 **跨应用匹配**

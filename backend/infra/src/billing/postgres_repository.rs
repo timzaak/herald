@@ -621,7 +621,9 @@ impl PostgresBillingRepository {
     }
 
     /// Delete a Credit Bucket. Refused with `BucketInUse` when in-flight
-    /// subscriptions, spendable balances, distribution rules, or quota entitlements reference it.
+    /// subscriptions, spendable balances, distribution rules, quota
+    /// entitlements, or any historical wallet/transaction/ledger rows
+    /// reference it (history must be preserved via disable, not destroyed).
     pub async fn delete_credit_bucket(
         &self,
         realm_id: &str,
@@ -714,13 +716,33 @@ impl PostgresBillingRepository {
             CoreError::DatabaseError(format!("Failed to check bucket references: {}", e))
         })?;
 
-        if active_subscriptions > 0 || holders_with_balance > 0 || has_rule_or_quota_references {
+        // Historical wallet / transaction / ledger references block the delete
+        // too (credit-bucket PRD §4.1: 未被钱包、交易、规则或商品映射引用的账户才可
+        // 删除 — a zero-balance bucket with history must be DISABLED instead so
+        // historical attribution survives; deleting it here would have
+        // physically destroyed the ledger below).
+        let history_references: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM points_wallets WHERE bucket_id = $1) \
+               + (SELECT COUNT(*) FROM points_transactions WHERE bucket_id = $1) \
+               + (SELECT COUNT(*) FROM points_credit_ledger WHERE bucket_id = $1)",
+        )
+        .bind(bucket_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| CoreError::DatabaseError(format!("Failed to count bucket history: {}", e)))?;
+
+        if active_subscriptions > 0
+            || holders_with_balance > 0
+            || has_rule_or_quota_references
+            || history_references > 0
+        {
             // Roll back before surfacing the structured error.
             let _ = tx.rollback().await;
             return Err(CreditBucketError::BucketInUse {
                 bucket_id,
                 active_subscriptions,
                 holders_with_balance,
+                history_references,
             });
         }
 

@@ -163,7 +163,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - webhook 丢失/重复/乱序导致撤销：补偿框架介入，最终一致，不得永久漏撤（M4 风险核心；WeChat 渠道因无退款信号源除外，见 §4.1 渠道边界）
 - 撤销时用户已无该 role（如管理员已手工删除）：幂等跳过，不报错
 - 撤销时 role 同时有手工与支付两个来源：仅撤支付来源，手工保留
-- 乱序 webhook（cancel 后迟到 renewal）：续费路径须能重新授予 role，保证「订阅仍活则应有 role」
+- 乱序 webhook（cancel 后迟到 renewal）：若本地订阅投影仍为活跃（如周期末取消等待期、取消后重新激活），续费路径须能重新授予 role，保证「订阅仍活则应有 role」；但 `customer.subscription.deleted` 为终态——终态之后迟到的 `invoice.payment_succeeded` 续费事件按非法状态迁移拒绝（400），已撤销的 role 不再恢复，Provider 侧已删除的订阅不得经乱序支付事件复活
 
 ---
 

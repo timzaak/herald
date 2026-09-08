@@ -1,8 +1,13 @@
 // OAuth helper functions for login and callback handlers
 
 use herald_api_base::application::http::auth::error::AuthError;
-use herald_api_base::application::http::auth::util::is_registration_enabled;
+use herald_api_base::application::http::auth::util::{is_registration_enabled, normalize_email};
+use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::audit::{
+    ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
+    NewAuditEvent,
+};
 use herald_core::domain::oauth::{
     entities::ProviderType,
     ports::{OAuthProviderHandler, OAuthRepository},
@@ -11,7 +16,7 @@ use herald_core::domain::oauth::{
 use herald_core::domain::security_constants::{
     DEFAULT_JWT_EXPIRATION_SECONDS, OAUTH_STATE_TTL_SECONDS, OAUTH_STATE_VALIDATION_TIMEOUT_SECONDS,
 };
-use herald_core::domain::user::{UserRepository, UserService};
+use herald_core::domain::user::{User, UserRepository, UserService};
 use herald_core::infrastructure::oauth::providers::{
     apple::AppleOAuthProvider, facebook::FacebookOAuthProvider, github::GitHubOAuthProvider,
     google::GoogleOAuthProvider, wechat::WeChatOAuthProvider,
@@ -47,7 +52,158 @@ struct DownstreamAuthorizationState {
 pub struct OAuthCallbackResult {
     pub user_id: Uuid,
     pub client_id: String,
-    pub downstream_redirect_uri: Option<String>,
+    /// Pending downstream authorization transaction, unconsumed. The callback
+    /// handlers run the login consent gate / disabled check (see
+    /// `callback::issue_downstream_authorization`) BEFORE the one-time state is
+    /// consumed and a downstream code is issued.
+    pub downstream_state: Option<String>,
+}
+
+/// Record `auth.login` for an OAuth-family login that produced a session or a
+/// downstream authorization code. The api-auth credential entrances all record
+/// this event; audit.md §2.1 covers "认证事件：用户登录、登出、登录失败" with
+/// no entrance qualifier, so a social/device login minting the same browser
+/// family must be visible in the audit log too (best-effort — never fails the
+/// login). `method` identifies the entrance, e.g. `oauth.google`.
+pub(crate) async fn audit_oauth_login_success(
+    state: &AppState,
+    realm_id: &str,
+    user: &User,
+    method: &str,
+    client_id: Option<&str>,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+) {
+    if let Err(error) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Auth,
+            action: AuditAction::AuthLogin,
+            actor_id: user.id.to_string(),
+            actor_type: Some(ActorType::User),
+            actor_name: Some(user.email.clone()),
+            target_type: AuditTargetType::User,
+            target_id: user.id.to_string(),
+            target_name: Some(user.email.clone()),
+            result: AuditResult::Success,
+            details: Some(serde_json::json!({
+                "method": method,
+                "client_id": client_id,
+            })),
+            ip_address,
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(%error, "Failed to record OAuth login audit event");
+    }
+}
+
+/// Record `auth.login_failed` for an OAuth-family login rejection.
+/// `actor_id` carries the resolved user id when known, else "unknown".
+pub(crate) async fn audit_oauth_login_failure(
+    state: &AppState,
+    realm_id: &str,
+    actor_id: &str,
+    method: &str,
+    reason: &str,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+) {
+    if let Err(error) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Auth,
+            action: AuditAction::AuthLoginFailed,
+            actor_id: actor_id.to_string(),
+            actor_type: None,
+            actor_name: None,
+            target_type: AuditTargetType::User,
+            target_id: actor_id.to_string(),
+            target_name: None,
+            result: AuditResult::Failure,
+            details: Some(serde_json::json!({
+                "method": method,
+                "reason": reason,
+            })),
+            ip_address,
+            user_agent,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(%error, "Failed to record OAuth login-failed audit event");
+    }
+}
+
+/// Map an id_token verification failure (Apple native / Google One Tap) to
+/// its HTTP error. Signature/issuer/audience/expiry validation failure
+/// (BadRequest) is a real failed login attempt and is audited as
+/// `auth.login_failed`; upstream/JWKS errors are infrastructure failures and
+/// are not. `label` names the entrance in diagnostics (e.g. "Apple identity
+/// token").
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn reject_failed_id_token(
+    state: &AppState,
+    realm_id: &str,
+    provider: &str,
+    method: &str,
+    label: &str,
+    err: herald_core::domain::common::entities::app_errors::CoreError,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+) -> ApiError {
+    use herald_core::domain::common::entities::app_errors::CoreError;
+    match err {
+        CoreError::BadRequest(msg) => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                provider = %provider,
+                failure = "id_token_validation",
+                "{} rejected",
+                label
+            );
+            audit_oauth_login_failure(
+                state,
+                realm_id,
+                "unknown",
+                method,
+                "id_token_validation",
+                ip.map(str::to_string),
+                user_agent.map(str::to_string),
+            )
+            .await;
+            ApiError::unauthorized(msg)
+        }
+        CoreError::InternalServerError(msg) => {
+            tracing::error!(
+                realm_id = %realm_id,
+                provider = %provider,
+                failure = "jwks_unreachable",
+                error = %msg,
+                "{}: JWKS unreachable",
+                label
+            );
+            ApiError::with_error_code(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "upstream_error",
+                "Upstream service unavailable",
+            )
+        }
+        other => {
+            tracing::error!(
+                realm_id = %realm_id,
+                provider = %provider,
+                error = %other,
+                "Unexpected error verifying {}",
+                label
+            );
+            ApiError::internal("Internal server error".to_string())
+        }
+    }
 }
 
 async fn realm_public_origin_for_oauth(
@@ -396,15 +552,23 @@ pub async fn exchange_code_for_user_info(
 /// # Arguments
 /// * `state` - AppState
 /// * `realm_id` - Realm ID
-/// * `user_info` - OAuth user info
+/// * `user_info` - OAuth user info (email is normalized in place before any
+///   matching/creation)
 ///
 /// # Returns
 /// * User ID
 pub async fn find_or_create_user(
     state: &AppState,
     realm_id: &str,
-    user_info: &OAuthUserInfo,
+    mut user_info: OAuthUserInfo,
 ) -> Result<Uuid, AuthError> {
+    // Normalize the provider email (trim + lowercase) before ANY matching or
+    // creation, mirroring login/register/OTP: the account email unique index
+    // is case-sensitive, so a provider-supplied mixed-case address would
+    // otherwise match nothing and mint a shadow account beside the existing
+    // lowercase one.
+    user_info.email = normalize_email(&user_info.email);
+
     // Four-level matching strategy: union_id -> open_id -> email -> create.
     // Google providers set union_id = None, so they effectively traverse
     // open_id -> email -> create.
@@ -420,7 +584,7 @@ pub async fn find_or_create_user(
             Ok(provider) => {
                 tracing::info!("Found user via union_id: {}", union_id);
                 if let Some(user_id) = provider.user_id {
-                    ensure_oauth_provider_linked(state, realm_id, user_id, user_info).await?;
+                    ensure_oauth_provider_linked(state, realm_id, user_id, &user_info).await?;
                     return Ok(user_id);
                 }
             }
@@ -463,8 +627,8 @@ pub async fn find_or_create_user(
     }
 
     // Priority 3: Match by email
-    let user_id = find_or_create_user_by_email(state, realm_id, user_info).await?;
-    ensure_oauth_provider_linked(state, realm_id, user_id, user_info).await?;
+    let user_id = find_or_create_user_by_email(state, realm_id, &user_info).await?;
+    ensure_oauth_provider_linked(state, realm_id, user_id, &user_info).await?;
     Ok(user_id)
 }
 
@@ -673,7 +837,10 @@ fn is_provider_owned_placeholder_email(user_info: &OAuthUserInfo) -> bool {
         _ => return false,
     };
 
-    user_info.email == expected
+    // Both sides normalized via the shared helper: the incoming email was
+    // lowercased by find_or_create_user, and stable ids (e.g. WeChat openids)
+    // are themselves case-sensitive mixed-case strings.
+    normalize_email(&user_info.email) == normalize_email(&expected)
 }
 
 /// Generate JWT session token
@@ -800,20 +967,12 @@ pub async fn handle_oauth_callback(
     let user_info = exchange_code_for_user_info(&provider_type, code, oauth_config).await?;
 
     // Find or create user
-    let user_id = find_or_create_user(state, &realm_id, &user_info).await?;
-
-    let downstream_redirect_uri = match state_data.downstream_state {
-        Some(downstream_state) => Some(
-            issue_downstream_authorization_code(state, &realm_id, user_id, &downstream_state)
-                .await?,
-        ),
-        None => None,
-    };
+    let user_id = find_or_create_user(state, &realm_id, user_info).await?;
 
     Ok(OAuthCallbackResult {
         user_id,
         client_id: state_data.client_id,
-        downstream_redirect_uri,
+        downstream_state: state_data.downstream_state,
     })
 }
 

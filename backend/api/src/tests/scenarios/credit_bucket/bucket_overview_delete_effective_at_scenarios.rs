@@ -2,18 +2,13 @@
 // Scenario Tests: Bucket overview/delete derived availability predicate
 // =============================================================================
 //
-// Covers design `.ai/design/point-time.md`:
-//   - "list_bucket_overview/delete_credit_bucket ... 不得再使用
-//     points_wallets.total_balance ... 改用 compute_bucket_available_balances
-//     的同源谓词。删除保护语义定为'仍存在已生效且未过期的可用余额则不可删除'；
-//     未来未生效预生成行对普通可用余额不可见,但 bucket 删除前仍必须先确认
-//     无 active subscription,并在清理阶段删除该 bucket 下未生效 ledger/schedule
-//     残留".
-//   - "bucket overview/delete 派生口径(P1)": future-effective 行不计入
-//     bucket 可用余额展示,不因 wallet Stored 列误判 bucket 使用中。
-//   - 回归风险点 P1: wallet Stored 列读点遗漏 — bucket overview、bucket
-//     delete guard 若继续读 points_wallets.total_balance 会泄漏未来期积分或
-//     误判 bucket 使用中。
+// Covers the derived availability predicate behind the bucket overview read
+// path and PRD `docs/prd/billing/credit-bucket.md:112` (delete guard). The
+// overview display and the delete guard's holdersWithBalance arm derive from
+// the SAME predicate — a future-effective row is never spendable balance —
+// while the DELETE path answers to the PRD alone: 存在钱包/交易引用时
+// `DELETE` 返回 409 bucket_in_use,改用禁用以保留历史归属 — a
+// not-yet-effective pre-grant row is such a reference.
 //
 // WHY these tests exist (encoded as assertions, per Rule 9):
 //
@@ -26,13 +21,14 @@
 //     the future-effective row would leak into the displayed balance.
 //
 // (b) a bucket with ONLY future-effective rows and NO active subscription is
-//     DELETABLE. The delete guard counts ledger rows matching the SAME derived
-//     availability predicate; future-effective rows do not match (they are not
-//     yet spendable), so they do NOT block delete. `clear_deletable_bucket_
-//     references_tx` then sweeps those residual future-effective ledger rows
-//     (and any schedule rows) as part of the delete. If the guard ever
-//     regressed to counting all active ledger rows (ignoring effective_at), a
-//     future-effective-only bucket would be wrongly refused.
+//     NOT deletable (PRD credit-bucket.md:112). A pre-grant ledger row is a
+//     交易/钱包 history reference even though it is not yet spendable, so the
+//     delete answers 409 bucket_in_use with historyReferences >= 1 while
+//     holdersWithBalance stays 0 — the derived availability predicate remains
+//     the authority for the balance arm and a future-effective row must never
+//     be misreported as spendable balance. Sweeping such rows on delete
+//     would silently destroy a grant that is due to
+//     materialize at effective_at.
 //
 // (c) a bucket with at least one CURRENTLY-available ledger row (effective_at
 //     IS NULL or <= NOW(), expires_at IS NULL or > NOW(), remaining_amount > 0,
@@ -150,9 +146,9 @@ async fn seed_ledger_on_bucket_with_effective_at(
 }
 
 /// Count ledger rows on a specific bucket matching the derived availability
-/// predicate. Mirrors production `delete_credit_bucket` holders_with_balance
-/// count. Used post-delete to assert residual future-effective rows
-/// were swept by `clear_deletable_bucket_references_tx`.
+/// predicate. Mirrors the production `delete_credit_bucket`
+/// holders_with_balance count. Used as a sanity check to prove which guard
+/// arm (balance vs history vs subscription) is the one firing.
 async fn count_available_ledger_rows_on_bucket(pool: &sqlx::PgPool, bucket_id: Uuid) -> i64 {
     let sql = format!(
         "SELECT COUNT(*)::BIGINT FROM points_credit_ledger
@@ -167,8 +163,8 @@ async fn count_available_ledger_rows_on_bucket(pool: &sqlx::PgPool, bucket_id: U
 }
 
 /// Count ALL ledger rows on a specific bucket (any status / any window). Used
-/// post-delete to assert `clear_deletable_bucket_references_tx` swept even the
-/// future-effective rows that the availability predicate excludes.
+/// as a sanity check that a seeded future-effective row physically exists —
+/// the availability predicate excludes it from the available count.
 async fn count_all_ledger_rows_on_bucket(pool: &sqlx::PgPool, bucket_id: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*)::BIGINT FROM points_credit_ledger WHERE bucket_id = $1",
@@ -342,26 +338,25 @@ async fn test_bucket_overview_excludes_future_effective(ctx: &mut TestContext) {
 }
 
 // =============================================================================
-// Scenario 2: delete ALLOWED when only future-effective rows exist (no active
-// subscription) — guard does not block; residual future-effective rows swept
+// Scenario 2: delete REJECTED when only future-effective rows exist (no active
+// subscription) — history reference blocks; balance arm stays 0
 // =============================================================================
 
-/// User Story: US-CB-001 (admin deletes a bucket whose only credits are not
-/// yet spendable).
+/// User Story: US-CB-001 (admin must disable — not delete — a bucket whose
+/// only credits are not yet spendable).
 /// Covers (risk P1):
-///   - `delete_credit_bucket` guards on the SAME derived availability
-///     predicate as overview. A bucket whose ONLY ledger row is future-
-///     effective has ZERO matching rows under that predicate, so the guard
-///     does NOT refuse (holders_with_balance == 0). Combined with
-///     active_subscriptions == 0, the bucket is deletable.
-///   - `clear_deletable_bucket_references_tx` then sweeps the residual
-///     future-effective ledger row (and any schedule rows) as part of the
-///     delete — they do not survive the bucket.
-///   - If the guard regressed to counting all active ledger rows (ignoring
-///     effective_at), this delete would be wrongly refused with 409.
+///   - PRD credit-bucket.md:112: any 钱包/交易 reference blocks the delete.
+///     A future-effective pre-grant row is such a reference — it is history
+///     that will materialize at effective_at — so `delete_credit_bucket`
+///     refuses with 409 `bucket_in_use` + `historyReferences >= 1`.
+///   - `holdersWithBalance` MUST stay 0: the derived availability predicate
+///     (not the raw row count) remains the authority for the balance arm, so
+///     a not-yet-spendable row is never misreported as spendable balance.
+///   - The bucket row and the ledger row both SURVIVE the refused delete —
+///     sweeping history on delete would silently destroy the pending grant.
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_bucket_delete_allowed_when_only_future_effective(ctx: &mut TestContext) {
+async fn test_bucket_delete_rejected_when_only_future_effective(ctx: &mut TestContext) {
     let realm_id = ctx._realm_id.clone();
     let token = setup_billing_admin_session(ctx, "cb_t10_del_future@example.com").await;
     let pool = &ctx.app_state.pool;
@@ -380,8 +375,8 @@ async fn test_bucket_delete_allowed_when_only_future_effective(ctx: &mut TestCon
     attach_bucket_client_app(pool, &realm_id, bucket, client_app).await;
 
     // Only a future-effective ledger row on this bucket. No active
-    // subscription. Under the derived predicate this row does NOT count, so
-    // the bucket must be deletable.
+    // subscription. The row is NOT spendable yet (excluded by the derived
+    // predicate) but IS a history reference that blocks the delete.
     let holder = create_test_user(pool, &realm_id, "cb_t10_del_future_holder@example.com").await;
     let future_effective = Some(Utc::now() + Duration::days(1));
     let wide_expiry = Some(Utc::now() + Duration::days(30));
@@ -399,11 +394,12 @@ async fn test_bucket_delete_allowed_when_only_future_effective(ctx: &mut TestCon
     )
     .await;
 
-    // Sanity: guard inputs.
+    // Sanity: the row does NOT count toward the balance arm — the blocker
+    // must be the history arm, not a miscounted spendable balance.
     assert_eq!(
         count_available_ledger_rows_on_bucket(pool, bucket).await,
         0,
-        "future-effective row must NOT count toward the delete guard"
+        "future-effective row must NOT count toward the balance arm of the delete guard"
     );
 
     let (status, body) = auth_admin_request_via_api(
@@ -417,49 +413,66 @@ async fn test_bucket_delete_allowed_when_only_future_effective(ctx: &mut TestCon
 
     assert_eq!(
         status,
-        StatusCode::NO_CONTENT,
-        "delete of a future-effective-only bucket with no active subscription MUST be \
-         204 (derived guard does not block on effective_at > NOW()); \
-         got {}: {:?}",
+        StatusCode::CONFLICT,
+        "delete of a future-effective-only bucket MUST be 409 bucket_in_use \
+         (the pre-grant row is a history reference per PRD credit-bucket.md:112; \
+         use disable to retire the bucket); got {}: {:?}",
         status,
         body
     );
+    assert_eq!(
+        error_code(&body),
+        Some("bucket_in_use"),
+        "expected bucket_in_use code, got: {:?}",
+        body
+    );
+    assert!(
+        int_field(&body, "historyReferences")
+            .map(|n| n >= 1)
+            .unwrap_or(false),
+        "historyReferences MUST be >= 1 (the future-effective ledger row is counted \
+         as history); got: {:?}",
+        body
+    );
+    assert_eq!(
+        int_field(&body, "holdersWithBalance"),
+        Some(0),
+        "holdersWithBalance MUST stay 0 — the future-effective row is not spendable \
+         and must not leak into the balance arm; got: {:?}",
+        body
+    );
+    assert_eq!(
+        int_field(&body, "activeSubscriptions"),
+        Some(0),
+        "activeSubscriptions MUST be 0 (none seeded); got: {:?}",
+        body
+    );
 
-    // Post-delete: the bucket row is gone.
+    // Post-refusal: the bucket row is still present (delete rolled back).
     let still_exists: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM credit_buckets WHERE id = $1")
             .bind(bucket)
             .fetch_optional(pool)
             .await
-            .expect("check bucket gone after delete");
+            .expect("check bucket present after refused delete");
     assert!(
-        still_exists.is_none(),
-        "credit_buckets row must be deleted after 204"
+        still_exists.is_some(),
+        "credit_buckets row MUST survive a refused delete"
     );
 
-    // Post-delete: the residual future-effective ledger row was swept by
-    // `clear_deletable_bucket_references_tx` (it deletes ALL ledger rows on
-    // the bucket, regardless of effective_at). If the cleanup regressed to
-    // only delete currently-available rows, the future-effective row would be
-    // orphaned under a deleted bucket — a FK violation or a phantom residue.
-    let ledger_gone: Option<Uuid> =
+    // Post-refusal: the future-effective ledger row survives too — no history
+    // sweep may run on a refused delete. Destroying it would silently cancel a
+    // grant that is due to materialize at effective_at.
+    let ledger_still: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM points_credit_ledger WHERE id = $1")
             .bind(ledger_id)
             .fetch_optional(pool)
             .await
-            .expect("check ledger row gone after bucket delete");
+            .expect("check ledger row present after refused delete");
     assert!(
-        ledger_gone.is_none(),
-        "future-effective ledger row MUST be swept by clear_deletable_bucket_references_tx \
-         on bucket delete; it survived — cleanup residue"
-    );
-
-    // Post-delete: all ledger rows on the bucket are gone (belt-and-suspenders
-    // — no phantom rows of any status / window survive).
-    assert_eq!(
-        count_all_ledger_rows_on_bucket(pool, bucket).await,
-        0,
-        "no ledger rows of any status/window may survive bucket delete"
+        ledger_still.is_some(),
+        "future-effective ledger row MUST survive a refused bucket delete — \
+         history is preserved for the disable-instead remedy"
     );
 }
 
@@ -478,8 +491,9 @@ async fn test_bucket_delete_allowed_when_only_future_effective(ctx: &mut TestCon
 ///     expires_at wide, remaining_amount > 0). It MUST count under the guard.
 ///   - This pins the "still spendable ⇒ not deletable" half of the
 ///     delete-protection semantics; paired with scenario 2 (future-
-///     effective-only ⇒ deletable) it locks the predicate as the sole
-///     authority for the holders_with_balance count.
+///     effective-only ⇒ 409 via historyReferences while holdersWithBalance
+///     stays 0) it locks the derived predicate as the sole authority for the
+///     holdersWithBalance count.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_bucket_delete_rejected_when_has_effective_balance(ctx: &mut TestContext) {

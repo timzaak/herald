@@ -8,7 +8,7 @@
 
 **Open-source, self-hosted infrastructure for AI products.**
 
-Start with multi-tenant authentication, billing, payments, credits, and an admin console already connected. Adapt the open codebase with AI-assisted development, then spend your iterations on the product logic customers actually pay for.
+Start with multi-tenant authentication, billing, payments, paywall-ready entitlements, credits, and an admin console already connected. Adapt the open codebase with AI-assisted development, then spend your iterations on the product logic customers actually pay for.
 
 [Website](https://www.fornetcode.com) · [Live Demo](https://auth.fornetcode.com) · [Get Started](https://www.fornetcode.com/en/docs/getting-started) · [Star on GitHub](https://github.com/timzaak/herald)
 
@@ -16,7 +16,7 @@ Start with multi-tenant authentication, billing, payments, credits, and an admin
 
 AI startup teams need to validate and iterate quickly, but every paid product still needs accounts, tenant isolation, permissions, subscriptions, usage credits, and operational tooling. Building those systems from scratch—or stitching together separate providers—takes time away from the experience that makes the product unique.
 
-Herald is more than an auth provider. It connects identity to payments, entitlements, and product usage in one codebase:
+Herald is more than an auth provider. It connects identity to payments, entitlements, and product usage in one codebase — a production-ready paywall out of the box:
 
 - a purchase can grant access and credits;
 - a refund or canceled subscription can revoke them;
@@ -29,12 +29,12 @@ Herald is more than an auth provider. It connects identity to payments, entitlem
 |------|-----------------------|
 | **Multi-tenant identity** | Isolated Realms, email/password, Google, GitHub, Apple, Facebook and WeChat login, passkeys, TOTP 2FA, bot protection |
 | **Authorization & apps** | Realm-level RBAC, Client Apps, API keys, OAuth 2.0, device authorization, cross-app SSO |
-| **Billing & payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, invoices, payment-to-entitlement mapping |
+| **Billing & payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, invoices, payment-to-entitlement mapping — an instant paywall |
 | **Credits & usage** | Prepaid balances, top-ups, refunds, expiry, per-user ledgers, grants, and rolling quota windows |
 | **Admin & operations** | Users, roles, billing, credits, apps, tenant settings, audit trails, and account lifecycle management |
 | **Product customization** | Custom domains, white-label branding, transactional email, versioned legal agreements, API docs and SDKs |
 
-This foundation is especially useful for AI products with free allowances, paid plans, metered usage, or credit-based pricing.
+This foundation is especially useful for AI products with a paywall, free allowances, paid plans, metered usage, or credit-based pricing.
 
 ## Built for AI-Assisted Iteration
 

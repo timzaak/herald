@@ -229,3 +229,73 @@ pub async fn verify_provider_config_in_db(
     assert_eq!(db_scopes, expected_scopes);
     assert_eq!(db_enabled, expected_enabled);
 }
+
+/// Assert the consentRequired shape a gated OAuth login entrance must answer
+/// with (fresh user, zero consent records), then run the recovery loop the
+/// real client would: record explicit consent through the consent-restricted
+/// browser family via the actual POST /api/legal/{realm}/consent endpoint.
+/// After this returns, re-triggering the same entrance yields its normal
+/// response (the downstream_state is deliberately left unconsumed by the
+/// gated path).
+///
+/// `body` is the parsed JSON body of the gated entrance response.
+pub async fn assert_consent_required_and_recover(
+    ctx: &mut SchemaTestContext,
+    body: &serde_json::Value,
+) {
+    // The entrance must withhold the downstream authorization code and answer
+    // consentRequired with a consent-restricted browser family instead —
+    // issuing the code now would hand the downstream app a session over an
+    // un-consented account.
+    assert_eq!(
+        body["consentRequired"].as_bool(),
+        Some(true),
+        "downstream mode must run the login consent gate before code issuance; got {body}"
+    );
+    assert!(
+        body["redirectUri"].as_str().is_none(),
+        "no downstream code may be issued while consent is required; got {body}"
+    );
+    let agreements = body["agreements"]
+        .as_array()
+        .expect("consentRequired response must list current agreement summaries");
+    assert!(
+        agreements.len() >= 2,
+        "seed defaults provide ToS + Privacy; got {agreements:?}"
+    );
+    let restricted_access_token = body["restrictedSession"]["accessToken"]
+        .as_str()
+        .expect("consentRequired response must carry a restricted session")
+        .to_string();
+
+    // The provider credential is stateless (id_token re-verified against
+    // JWKS), so the same entrance replays cleanly after consent.
+    let consent_items: Vec<serde_json::Value> = agreements
+        .iter()
+        .map(|a| {
+            json!({
+                "agreement_type": a["agreement_type"],
+                "version_id": a["version_id"],
+            })
+        })
+        .collect();
+    let consent_req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/legal/{}/consent", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {restricted_access_token}"))
+        .body(Body::from(
+            json!({ "agreements": consent_items }).to_string(),
+        ))
+        .expect("failed to build consent request");
+    let consent_resp = ctx
+        .create_unified_test_router()
+        .oneshot(consent_req)
+        .await
+        .expect("consent request must dispatch");
+    assert_eq!(
+        consent_resp.status(),
+        axum::http::StatusCode::NO_CONTENT,
+        "restricted session must be able to record consent"
+    );
+}

@@ -200,6 +200,30 @@ async fn test_signup_opens_realm_and_issues_session(ctx: &mut TestContext) {
         "new realm must receive the realm-admin role"
     );
 
+    // Signup records consent to the effective ToS + Privacy for the new admin
+    // (mirrors the register entrance): the issued session must not outrun the
+    // user's consent state — otherwise the admin's next console login would be
+    // consent-gated for agreements already accepted at signup.
+    let admin_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&slug)
+            .bind(&email)
+            .fetch_one(&ctx.app_state.pool)
+            .await
+            .unwrap();
+    let consented_types: Vec<String> = sqlx::query_scalar(
+        "SELECT agreement_type FROM user_agreement_consent WHERE user_id = $1 ORDER BY agreement_type",
+    )
+    .bind(admin_id)
+    .fetch_all(&ctx.app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        consented_types,
+        vec!["privacy_policy".to_string(), "terms_of_service".to_string()],
+        "signup must record register-consent for both agreement types"
+    );
+
     cleanup_realm(ctx, &slug).await;
 }
 

@@ -141,15 +141,17 @@ pub enum CreditBucketError {
     #[error("bucket_key_duplicate: bucketKey already exists in realm {realm_id}")]
     BucketKeyDuplicate { realm_id: String },
 
-    /// Delete refused: bucket is in use by in-flight subscriptions or wallets with
-    /// remaining balance. HTTP 409 `bucket_in_use` with structured body.
+    /// Delete refused: bucket is in use by in-flight subscriptions, wallets
+    /// with remaining balance, or any historical wallet/transaction/ledger
+    /// rows. HTTP 409 `bucket_in_use` with structured body.
     #[error(
-        "credit bucket {bucket_id} is in use ({active_subscriptions} active subscriptions, {holders_with_balance} wallets with balance)"
+        "credit bucket {bucket_id} is in use ({active_subscriptions} active subscriptions, {holders_with_balance} wallets with balance, {history_references} historical references)"
     )]
     BucketInUse {
         bucket_id: Uuid,
         active_subscriptions: i64,
         holders_with_balance: i64,
+        history_references: i64,
     },
 
     /// Transparent passthrough for non-structured errors (not-found, DB errors).
@@ -230,6 +232,7 @@ mod tests {
             bucket_id: Uuid::nil(),
             active_subscriptions: 1,
             holders_with_balance: 2,
+            history_references: 0,
         };
         let core: CoreError = in_use.into();
         assert!(matches!(core, CoreError::Conflict(_)));

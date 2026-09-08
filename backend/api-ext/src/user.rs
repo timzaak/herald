@@ -163,11 +163,14 @@ pub async fn create_user(
         status: Some(1),
     };
 
-    // 5. Call domain service
+    // 5. Call domain service. The pre-authorized entry skips the domain
+    // users.manage re-check: this ext face is gated by users:create at the
+    // handler (its own permission tier), so the admin-face requirement must
+    // not double-gate API keys provisioned with only users:create.
     let ctx = AuditContext::admin(&identity, ip, user_agent_from_headers(&headers));
     match state
         .admin_user_service
-        .create_user_with_roles(identity, ctx, &realm_id, create_req)
+        .create_user_with_roles_pre_authorized(identity, ctx, &realm_id, create_req)
         .await
     {
         Ok(admin_user) => {

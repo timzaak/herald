@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::helper::{audit_oauth_login_failure, audit_oauth_login_success};
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::BrowserTokenService;
@@ -268,6 +269,16 @@ pub async fn device_token(
                 ApiError::bad_request("device code user is invalid")
             })?;
         if user.realm_id != realm_id {
+            audit_oauth_login_failure(
+                &state,
+                &realm_id,
+                &user.id.to_string(),
+                "oauth.device",
+                "realm_mismatch",
+                None,
+                None,
+            )
+            .await;
             return Err(ApiError::bad_request_json(DeviceTokenErrorResponse {
                 error: "invalid_request".to_string(),
                 error_description: "Realm mismatch".to_string(),
@@ -305,6 +316,17 @@ pub async fn device_token(
                     ApiError::internal("Internal server error")
                 })?
         };
+
+        audit_oauth_login_success(
+            &state,
+            &realm_id,
+            &user,
+            "oauth.device",
+            Some(client_id),
+            None,
+            None,
+        )
+        .await;
 
         Ok(Json(DeviceTokenResponse {
             access_token: tokens.access_token,

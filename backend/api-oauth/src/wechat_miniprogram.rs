@@ -9,7 +9,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::helper::{exchange_code_for_user_info, find_or_create_user};
+use crate::helper::{
+    audit_oauth_login_failure, audit_oauth_login_success, exchange_code_for_user_info,
+    find_or_create_user,
+};
 use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
@@ -110,19 +113,54 @@ pub async fn wechat_miniprogram_login(
     );
 
     // Find or create user
-    let user_id = find_or_create_user(&state, &realm_id, &user_info).await?;
-    let user = state
-        .user_repository
-        .get_user_by_id(user_id)
-        .await
-        .map_err(|_| ApiError::unauthorized("WeChat user no longer exists"))?;
+    let user_id = find_or_create_user(&state, &realm_id, user_info).await?;
+    let user = match state.user_repository.get_user_by_id(user_id).await {
+        Ok(user) => user,
+        Err(_) => {
+            // Same pre-issuance login-policy audit convention as
+            // load_gated_oauth_user's user_not_found arm: the provider identity
+            // resolved but the account vanished before token issuance.
+            audit_oauth_login_failure(
+                &state,
+                &realm_id,
+                &user_id.to_string(),
+                "oauth.wechat_miniprogram",
+                "user_not_found",
+                Some(ip.clone()),
+                None,
+            )
+            .await;
+            return Err(ApiError::unauthorized("WeChat user no longer exists"));
+        }
+    };
     if user.status.is_disabled() {
+        audit_oauth_login_failure(
+            &state,
+            &realm_id,
+            &user.id.to_string(),
+            "oauth.wechat_miniprogram",
+            "account_disabled",
+            Some(ip.clone()),
+            None,
+        )
+        .await;
         return Err(ApiError::unauthorized("Account is disabled"));
     }
 
     // Generate JWT token
     let jwt_secret = crate::helper::jwt_secret(&state)?;
     let jwt_token = crate::helper::generate_jwt_token(&user_id.to_string(), &realm_id, jwt_secret)?;
+
+    audit_oauth_login_success(
+        &state,
+        &realm_id,
+        &user,
+        "oauth.wechat_miniprogram",
+        None,
+        Some(ip),
+        None,
+    )
+    .await;
 
     // Return JSON response directly (B-class exception: OAuth protocol)
     Ok(Json(WeChatMiniProgramLoginResponse {

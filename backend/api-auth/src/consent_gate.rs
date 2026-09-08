@@ -164,3 +164,71 @@ pub async fn mint_consent_restricted_session(
         .create_consent_restricted_token_family(user, client_app, user_agent, client_ip)
         .await
 }
+
+/// Best-effort "account creation = consent" recording: resolve the current
+/// effective ToS + Privacy versions and record a Register-source consent for
+/// the freshly created account. Failures are logged and never block the
+/// entrance — a missing or stale record simply sends the user through the
+/// login consent gate to re-consent.
+pub async fn record_register_consent(
+    state: &AppState,
+    user_id: Uuid,
+    realm_id: &str,
+    email: &str,
+    ip: Option<&str>,
+) {
+    let mut items = Vec::new();
+    for agreement_type in [AgreementType::TermsOfService, AgreementType::PrivacyPolicy] {
+        match state
+            .legal_service
+            .current_effective(realm_id, agreement_type.clone())
+            .await
+        {
+            Ok(Some(version)) => items.push((agreement_type, version.id)),
+            Ok(None) => tracing::warn!(
+                realm_id = %realm_id,
+                agreement_type = %agreement_type.as_ref(),
+                user_id = %user_id,
+                "No effective agreement version; skipping register-as-consent for this type"
+            ),
+            Err(e) => tracing::warn!(
+                realm_id = %realm_id,
+                agreement_type = %agreement_type.as_ref(),
+                user_id = %user_id,
+                error = %e,
+                "current_effective lookup failed; skipping register-as-consent for this type"
+            ),
+        }
+    }
+
+    if items.is_empty() {
+        return;
+    }
+
+    let actor_meta = AuditContext {
+        actor_id: user_id.to_string(),
+        actor_type: Some(ActorType::User),
+        actor_name: Some(email.to_string()),
+        ip_address: ip.map(str::to_string),
+        user_agent: None,
+        trace_id: None,
+    };
+    if let Err(e) = state
+        .legal_service
+        .record_consent(
+            user_id,
+            realm_id,
+            items,
+            ConsentSource::Register,
+            actor_meta,
+        )
+        .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            user_id = %user_id,
+            error = %e,
+            "record_consent(Register) failed; entrance proceeds (user will re-consent at login)"
+        );
+    }
+}

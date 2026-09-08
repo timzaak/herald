@@ -311,6 +311,20 @@ pub trait AdminUserService: Send + Sync {
         request: CreateUserWithRolesRequest,
     ) -> impl Future<Output = UserAdminResult<AdminUser>> + Send;
 
+    /// Create a new user with roles for a caller whose ENTRANCE permission
+    /// gate already ran (the ext API keys user creation to `users:create`,
+    /// its own permission tier, instead of the admin face's `users.manage`).
+    /// Skips only that domain permission re-check; realm boundary, role
+    /// validation, hierarchy guards, duplicate-email check and audit still
+    /// apply exactly as in [`AdminUserService::create_user_with_roles`].
+    fn create_user_with_roles_pre_authorized(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        request: CreateUserWithRolesRequest,
+    ) -> impl Future<Output = UserAdminResult<AdminUser>> + Send;
+
     /// Update user admin fields
     fn update_user_admin(
         &self,

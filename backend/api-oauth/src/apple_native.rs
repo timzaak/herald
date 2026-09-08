@@ -23,8 +23,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::callback::issue_callback_token_response;
-use crate::helper::{find_or_create_user, issue_downstream_authorization_code};
+use crate::callback::{
+    DownstreamCodeOutcome, issue_callback_token_response, issue_downstream_authorization,
+};
+use crate::helper::{find_or_create_user, reject_failed_id_token};
 use herald_api_base::application::http::auth::util::{
     ClientIp, rate_limit_hit, user_agent_from_headers,
 };
@@ -155,50 +157,29 @@ pub async fn apple_native_login(
     // blame the caller for an upstream outage.
     let http_client = ReqwestHttpClient::from_client(state.http_client.clone());
 
-    let claims = verify_apple_id_token(
+    let claims = match verify_apple_id_token(
         &payload.identity_token,
         &config.client_id,
         &http_client,
         &state.apple_jwks_url,
     )
     .await
-    .map_err(|err| {
-        use herald_core::domain::common::entities::app_errors::CoreError;
-        match err {
-            CoreError::BadRequest(msg) => {
-                tracing::warn!(
-                    realm_id = %realm_id,
-                    provider = "apple",
-                    failure = "id_token_validation",
-                    "Apple identity token rejected"
-                );
-                ApiError::unauthorized(msg)
-            }
-            CoreError::InternalServerError(msg) => {
-                tracing::error!(
-                    realm_id = %realm_id,
-                    provider = "apple",
-                    failure = "jwks_unreachable",
-                    error = %msg,
-                    "Apple JWKS unreachable"
-                );
-                ApiError::with_error_code(
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    "upstream_error",
-                    "Upstream service unavailable",
-                )
-            }
-            other => {
-                tracing::error!(
-                    realm_id = %realm_id,
-                    provider = "apple",
-                    error = %other,
-                    "Unexpected error verifying Apple identity token"
-                );
-                ApiError::internal("Internal server error".to_string())
-            }
+    {
+        Ok(claims) => claims,
+        Err(err) => {
+            return Err(reject_failed_id_token(
+                &state,
+                &realm_id,
+                "apple",
+                "oauth.apple_native",
+                "Apple identity token",
+                err,
+                Some(ip.as_str()),
+                user_agent.as_deref(),
+            )
+            .await);
         }
-    })?;
+    };
 
     // DEC-005: email handling. Apple's relay address
     // (`@privaterelay.appleid.apple.com`) is a real, deliverable mailbox and is
@@ -230,7 +211,7 @@ pub async fn apple_native_login(
         open_id: Some(claims.sub),
     };
 
-    let user_id = find_or_create_user(&state, &realm_id, &user_info).await?;
+    let user_id = find_or_create_user(&state, &realm_id, user_info).await?;
 
     tracing::info!(
         realm_id = %realm_id,
@@ -241,9 +222,23 @@ pub async fn apple_native_login(
 
     match payload.downstream_state {
         Some(ds) => {
-            let redirect_uri =
-                issue_downstream_authorization_code(&state, &realm_id, user_id, &ds).await?;
-            Ok(Json(AppleNativeCodeResponse { redirect_uri }).into_response())
+            match issue_downstream_authorization(
+                &state,
+                &realm_id,
+                user_id,
+                &ds,
+                &payload.client_id,
+                "oauth.apple_native",
+                user_agent,
+                Some(ip),
+            )
+            .await?
+            {
+                DownstreamCodeOutcome::Redirect(redirect_uri) => {
+                    Ok(Json(AppleNativeCodeResponse { redirect_uri }).into_response())
+                }
+                DownstreamCodeOutcome::ConsentRequired(response) => Ok(response),
+            }
         }
         None => {
             issue_callback_token_response(
@@ -251,6 +246,7 @@ pub async fn apple_native_login(
                 &realm_id,
                 user_id,
                 &payload.client_id,
+                "oauth.apple_native",
                 user_agent,
                 Some(ip),
             )

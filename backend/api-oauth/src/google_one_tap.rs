@@ -17,8 +17,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::callback::issue_callback_token_response;
-use crate::helper::{find_or_create_user, issue_downstream_authorization_code};
+use crate::callback::{
+    DownstreamCodeOutcome, issue_callback_token_response, issue_downstream_authorization,
+};
+use crate::helper::{audit_oauth_login_failure, find_or_create_user, reject_failed_id_token};
 use herald_api_base::application::http::auth::util::{
     ClientIp, rate_limit_hit, user_agent_from_headers,
 };
@@ -153,50 +155,29 @@ pub async fn google_one_tap(
     // blame the caller for an upstream outage.
     let http_client = ReqwestHttpClient::from_client(state.http_client.clone());
 
-    let claims = verify_google_id_token(
+    let claims = match verify_google_id_token(
         &payload.credential,
         &config.client_id,
         &http_client,
         &state.google_jwks_url,
     )
     .await
-    .map_err(|err| {
-        use herald_core::domain::common::entities::app_errors::CoreError;
-        match err {
-            CoreError::BadRequest(msg) => {
-                tracing::warn!(
-                    realm_id = %realm_id,
-                    provider = "google",
-                    failure = "id_token_validation",
-                    "Google One Tap ID Token rejected"
-                );
-                ApiError::unauthorized(msg)
-            }
-            CoreError::InternalServerError(msg) => {
-                tracing::error!(
-                    realm_id = %realm_id,
-                    provider = "google",
-                    failure = "jwks_unreachable",
-                    error = %msg,
-                    "Google JWKS unreachable"
-                );
-                ApiError::with_error_code(
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    "upstream_error",
-                    "Upstream service unavailable",
-                )
-            }
-            other => {
-                tracing::error!(
-                    realm_id = %realm_id,
-                    provider = "google",
-                    error = %other,
-                    "Unexpected error verifying Google ID Token"
-                );
-                ApiError::internal("Internal server error".to_string())
-            }
+    {
+        Ok(claims) => claims,
+        Err(err) => {
+            return Err(reject_failed_id_token(
+                &state,
+                &realm_id,
+                "google",
+                "oauth.google_one_tap",
+                "Google One Tap ID Token",
+                err,
+                Some(ip.as_str()),
+                user_agent.as_deref(),
+            )
+            .await);
         }
-    })?;
+    };
 
     // Reject unverified email. `verify_google_id_token` only decodes claims;
     // the "reject unverified" policy lives in the handler. Google may serialize
@@ -215,6 +196,16 @@ pub async fn google_one_tap(
             failure = "email_not_verified",
             "Google One Tap rejected: email not verified"
         );
+        audit_oauth_login_failure(
+            &state,
+            &realm_id,
+            "unknown",
+            "oauth.google_one_tap",
+            "email_not_verified",
+            Some(ip.clone()),
+            user_agent.clone(),
+        )
+        .await;
         return Err(ApiError::unauthorized(
             "Email not verified by Google".to_string(),
         ));
@@ -241,7 +232,7 @@ pub async fn google_one_tap(
         open_id: Some(claims.sub),
     };
 
-    let user_id = find_or_create_user(&state, &realm_id, &user_info).await?;
+    let user_id = find_or_create_user(&state, &realm_id, user_info).await?;
 
     tracing::info!(
         realm_id = %realm_id,
@@ -252,9 +243,23 @@ pub async fn google_one_tap(
 
     match payload.downstream_state {
         Some(ds) => {
-            let redirect_uri =
-                issue_downstream_authorization_code(&state, &realm_id, user_id, &ds).await?;
-            Ok(Json(OneTapCodeResponse { redirect_uri }).into_response())
+            match issue_downstream_authorization(
+                &state,
+                &realm_id,
+                user_id,
+                &ds,
+                &payload.client_id,
+                "oauth.google_one_tap",
+                user_agent,
+                Some(ip),
+            )
+            .await?
+            {
+                DownstreamCodeOutcome::Redirect(redirect_uri) => {
+                    Ok(Json(OneTapCodeResponse { redirect_uri }).into_response())
+                }
+                DownstreamCodeOutcome::ConsentRequired(response) => Ok(response),
+            }
         }
         None => {
             issue_callback_token_response(
@@ -262,6 +267,7 @@ pub async fn google_one_tap(
                 &realm_id,
                 user_id,
                 &payload.client_id,
+                "oauth.google_one_tap",
                 user_agent,
                 Some(ip),
             )
