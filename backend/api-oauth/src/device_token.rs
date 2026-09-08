@@ -14,6 +14,7 @@ use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
+use herald_core::domain::security_constants::DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS;
 use herald_core::domain::user::ports::UserRepository;
 
 // ---------------------------------------------------------------------------
@@ -54,14 +55,16 @@ const DEVICE_TOKEN_FUNCTION_LIBRARY: &str = "herald_device_token";
 /// single FCALL invocation, eliminating race conditions between concurrent
 /// poll requests.
 ///
-/// Operation order (terminal states checked first):
+/// Operation order (realm check first, terminal states next):
 /// 1. Key missing           -> expired_token
-/// 2. status == consumed    -> invalid_request
-/// 3. status == denied      -> access_denied
-/// 4. status == authorized  -> realm check (no consume on mismatch),
-///    then consume + return user data
-/// 5. interval too fast     -> slow_down (interval += 5)
-/// 6. pending / verified    -> authorization_pending
+/// 2. realm mismatch        -> invalid_request (PRD device-code.md §4.2:
+///    every endpoint answers a wrong-realm poll with invalid_request,
+///    whatever the status — pending/verified included)
+/// 3. status == consumed    -> invalid_request
+/// 4. status == denied      -> access_denied
+/// 5. status == authorized  -> consume + return user data
+/// 6. interval too fast     -> slow_down (interval += slow-down increment)
+/// 7. pending / verified    -> authorization_pending
 const DEVICE_TOKEN_FUNCTION_CODE: &str = "#!lua name=herald_device_token\n\
 \n\
 local function device_token_poll(keys, args)\n\
@@ -76,6 +79,14 @@ local function device_token_poll(keys, args)\n\
 \n\
   local state = cjson.decode(data)\n\
 \n\
+  -- Realm check BEFORE any state handling: a wrong-realm poll never learns\n\
+  -- the authorization state and never advances it (no consume, no interval\n\
+  -- bump). Returning invalid_request for every status keeps the error-code\n\
+  -- contract of PRD device-code.md 4.2.\n\
+  if state.realm_id ~= expected_realm then\n\
+    return cjson.encode({ok=false, error='invalid_request'})\n\
+  end\n\
+\n\
   -- Terminal states first\n\
   if state.status == 'consumed' then\n\
     return cjson.encode({ok=false, error='invalid_request'})\n\
@@ -85,12 +96,9 @@ local function device_token_poll(keys, args)\n\
     return cjson.encode({ok=false, error='access_denied'})\n\
   end\n\
 \n\
-  -- Authorized: verify the polling realm matches BEFORE consuming, so a\n\
-  -- wrong-realm poll cannot burn the authorization the user just granted.\n\
+  -- Authorized: consume and return the user data (realm already verified\n\
+  -- above).\n\
   if state.status == 'authorized' then\n\
-    if state.realm_id ~= expected_realm then\n\
-      return cjson.encode({ok=false, error='invalid_request'})\n\
-    end\n\
     state.status = 'consumed'\n\
     state.last_poll_at = now\n\
     redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
@@ -106,7 +114,7 @@ local function device_token_poll(keys, args)\n\
   if state.last_poll_at > 0 then\n\
     local elapsed = now - state.last_poll_at\n\
     if elapsed < state.interval then\n\
-      state.interval = state.interval + 5\n\
+      state.interval = state.interval + {SLOW_DOWN_INCREMENT}\n\
       state.last_poll_at = now\n\
       redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
       return cjson.encode({ok=false, error='slow_down'})\n\
@@ -139,7 +147,15 @@ pub async fn init_device_token_function(state: &AppState) -> Result<(), ApiError
     redis::cmd("FUNCTION")
         .arg("LOAD")
         .arg("REPLACE")
-        .arg(DEVICE_TOKEN_FUNCTION_CODE)
+        .arg(
+            // {SLOW_DOWN_INCREMENT} is a placeholder so the increment stays
+            // defined by DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS rather than a
+            // second, drifting copy inside the Lua source.
+            DEVICE_TOKEN_FUNCTION_CODE.replace(
+                "{SLOW_DOWN_INCREMENT}",
+                &DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS.to_string(),
+            ),
+        )
         .query_async::<String>(&mut conn)
         .await
         .map_err(|e| {

@@ -9,8 +9,8 @@ use crate::points::{
     dtos::{ConsumePointsInput, GrantPointsInput, GrantPointsOutput, RevokePointsOutput},
     entities::{
         ConsumptionAllocationView, CreditSourceType, CreditType, Paginated, PointsBalance,
-        PointsQuotaEntitlement, PointsTransaction, PointsWallet, QuotaWindowView, RechargeType,
-        RevocationType, WalletStatus,
+        PointsQuotaEntitlement, PointsTransaction, PointsWallet, QuotaWindow, QuotaWindowView,
+        RechargeType, RevocationType, WalletStatus,
     },
     errors::PointsErrorExt,
     event_key_for_free_periodic,
@@ -1245,6 +1245,43 @@ pub fn derive_window_key(window_seconds: i64) -> String {
     }
 }
 
+/// Per-key fold state for [`aggregate_quota_windows`]. `window_seconds` is
+/// identical across rows sharing a key (the key is derived from the length),
+/// so the first-seen value is canonical. The effective-range fold spans
+/// ENTITLEMENTS via the enclosing loop, not the inner window loop — one
+/// entitlement contributes its range once per key it touches.
+struct QuotaWindowAccumulator {
+    limit_sum: i64,
+    used_max: i64,
+    window_seconds: i64,
+    effective_from: chrono::DateTime<chrono::Utc>,
+    effective_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl QuotaWindowAccumulator {
+    fn new(ent: &PointsQuotaEntitlement, w: &QuotaWindow, used: i64) -> Self {
+        Self {
+            limit_sum: w.limit,
+            used_max: used,
+            window_seconds: w.window_seconds,
+            effective_from: ent.effective_from,
+            effective_until: ent.effective_until,
+        }
+    }
+
+    fn merge(&mut self, ent: &PointsQuotaEntitlement, limit: i64, used: i64) {
+        self.limit_sum += limit;
+        self.used_max = self.used_max.max(used);
+        self.effective_from = self.effective_from.min(ent.effective_from);
+        // Any ongoing contributor keeps the folded window ongoing; otherwise
+        // take the latest end.
+        self.effective_until = self
+            .effective_until
+            .zip(ent.effective_until)
+            .map(|(a, b)| a.max(b));
+    }
+}
+
 /// Aggregate active entitlements into per-key window views, taking the
 /// minimum remaining across entitlements that share a window key.
 /// `used_lookup(credit_type, window_seconds) -> i64` supplies the consumed
@@ -1278,38 +1315,32 @@ fn aggregate_quota_windows(
 ) -> Vec<QuotaWindowView> {
     use std::collections::HashMap;
 
-    // Per-key accumulator: (limit_sum, used_max, window_seconds).
-    // window_seconds is identical across rows sharing a key (key is derived
-    // from length), so the first-seen value is canonical.
-    let mut by_key: HashMap<String, (i64, i64, i64)> = HashMap::new();
+    let mut by_key: HashMap<String, QuotaWindowAccumulator> = HashMap::new();
     for ent in entitlements {
         for w in &ent.quota_windows {
             let used = used_lookup(ent.credit_type, w.window_seconds).max(0);
             by_key
                 .entry(w.key.clone())
-                .and_modify(|(limit_sum, used_max, _sec)| {
-                    *limit_sum += w.limit;
-                    if used > *used_max {
-                        *used_max = used;
-                    }
-                })
-                .or_insert((w.limit, used, w.window_seconds));
+                .and_modify(|acc| acc.merge(ent, w.limit, used))
+                .or_insert_with(|| QuotaWindowAccumulator::new(ent, w, used));
         }
     }
 
     let mut views: Vec<QuotaWindowView> = by_key
         .into_iter()
-        .map(|(key, (limit, used, window_seconds))| {
-            let remaining = (limit - used).max(0);
+        .map(|(key, acc)| {
+            let remaining = (acc.limit_sum - acc.used_max).max(0);
             QuotaWindowView {
                 key,
-                limit,
-                used,
+                limit: acc.limit_sum,
+                used: acc.used_max,
                 remaining,
-                window_seconds,
-                resets_at: Some(now + chrono::Duration::seconds(window_seconds)),
+                window_seconds: acc.window_seconds,
+                resets_at: Some(now + chrono::Duration::seconds(acc.window_seconds)),
                 is_tightest: false,
                 exhausted: remaining == 0,
+                effective_from: acc.effective_from,
+                effective_until: acc.effective_until,
             }
         })
         .collect();

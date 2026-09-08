@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { getFieldErrorMessage } from '@/lib/form-utils'
-import { getUserStatusOptions, USER_STATUS } from '@/lib/constants/user'
+import { USER_STATUS, getWritableUserStatusOptions } from '@/lib/constants/user'
 import { useQuery } from '@tanstack/react-query'
 import { useRealmId } from '@/stores/auth-store'
 import { adminRolesQueryOptions, queryKeys } from '@/data/query-options'
@@ -35,10 +35,6 @@ interface CreateUserDialogProps {
 }
 
 const DEFAULT_STATUS = USER_STATUS.NORMAL
-
-function getStatusOptions() {
-  return getUserStatusOptions().filter((opt) => opt.value !== 'all')
-}
 
 export function CreateUserDialog({
   open,
@@ -149,7 +145,7 @@ export function CreateUserDialog({
                       <SelectValue placeholder={m['users.form_select_status']()} />
                     </SelectTrigger>
                     <SelectContent>
-                      {getStatusOptions().map((option) => (
+                      {getWritableUserStatusOptions().map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>

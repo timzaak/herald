@@ -10,6 +10,7 @@ use herald_domain::billing::credit_bucket::{
     CreateCreditBucketInput, CreditBucket, CreditBucketDetail, CreditBucketError,
     CreditBucketListItem, CreditBucketOverview, CreditBucketOverviewRow, UpdateCreditBucketInput,
 };
+use herald_domain::billing::entities::ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL;
 use herald_domain::billing::entities::EntitlementMapping;
 use herald_domain::billing::{
     BatchMappingError, BatchUpdateMappingsInput, BatchUpdateResult, BillingRepository,
@@ -29,12 +30,6 @@ use herald_entity::{
 use crate::points::postgres_repository::{
     parse_quota_windows_value, serialize_quota_windows_value,
 };
-
-/// Subscription statuses that keep an entitlement mapping protected from being
-/// disabled. Single-PATCH (`update_mapping_in_tx`) and batch-PATCH must use
-/// the same set or the two disable paths diverge in protection strength.
-const ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL: &str =
-    "'active','trialing','past_due','scheduled_cancel','dispute'";
 
 /// PostgreSQL implementation of billing repository
 pub struct PostgresBillingRepository {

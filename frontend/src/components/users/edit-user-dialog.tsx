@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getFieldErrorMessage } from '@/lib/form-utils'
-import { getUserStatusOptions } from '@/lib/constants/user'
+import { getWritableUserStatusOptions } from '@/lib/constants/user'
 import { useRealmId } from '@/stores/auth-store'
 import type { UserResponse } from '@/lib/api-generated'
 import { queryKeys } from '@/data/query-options'
@@ -33,10 +33,6 @@ interface EditUserDialogProps {
   onOpenChange: (open: boolean) => void
   realmId?: string // Optional for backward compatibility
   user: UserResponse
-}
-
-function getStatusOptions() {
-  return getUserStatusOptions().filter((opt) => opt.value !== 'all')
 }
 
 export function EditUserDialog({
@@ -133,7 +129,7 @@ export function EditUserDialog({
                       <SelectValue placeholder={m['users.form_select_status']()} />
                     </SelectTrigger>
                     <SelectContent>
-                      {getStatusOptions().map((option) => (
+                      {getWritableUserStatusOptions().map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>

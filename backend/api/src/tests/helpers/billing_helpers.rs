@@ -92,7 +92,7 @@ pub async fn setup_test_entitlement_mapping(
 /// mapping's billing_type is not constrained by domain-level validation). Used
 /// to preserve the grant semantics the old mapping-level columns encoded.
 #[allow(clippy::too_many_arguments)]
-async fn seed_mapping_owned_fixed_rule(
+pub async fn seed_mapping_owned_fixed_rule(
     ctx: &mut TestContext,
     realm_id: &str,
     mapping_id: Uuid,

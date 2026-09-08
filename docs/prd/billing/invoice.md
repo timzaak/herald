@@ -131,7 +131,7 @@
 - 行项目管理（添加、编辑、删除、排序）
 - 费用计算（折扣、税费支持固定金额和百分比模式；运费仅支持固定金额模式）
 - 发票状态机（draft → issued → paid / void / overdue）
-- 发票编号自动生成（租户内按年递增，格式 INV-{YEAR}-{SEQ}）
+- 发票编号自动生成（租户内按年递增，格式 INV-{YEAR}-{SEQ:04}，序号 4 位零填充）
 - 买方信息管理（用户申请时填写开票抬头，含税号）
 - 销售方税号（必填，用于发票合规）
 - Regular User 查看自己的发票及申请状态
@@ -208,7 +208,7 @@
 - **发票编辑时双方税号保持必填不变量**：草稿 PATCH 是部分更新，因此 `billing_tax_id` 和 `seller_tax_id` 字段可省略（省略即保留原值）；一旦提供则不得为空字符串，更新后的持久化发票仍须保有双方税号
 - **列表搜索**：发票列表支持通过 `search` 查询参数对 `invoice_number` 和 `billing_name` 进行模糊搜索（ILIKE），不区分大小写
 - **销售方默认付款条款**：销售方配置（`SellerConfigRequest`）包含 `default_payment_terms` 可选字段，用户申请发票时自动填充为发票的 `payment_terms`；管理员手动创建时也可单独指定
-- **发票编号唯一性**：发票编号（invoice_number）在 realm + 年范围内唯一，格式 INV-{YEAR}-{SEQ}
+- **发票编号唯一性**：发票编号（invoice_number）在 realm + 年范围内唯一，格式 INV-{YEAR}-{SEQ:04}（序号 4 位零填充，如 INV-2026-0001）
 - **编辑约束**：仅 draft 状态可编辑行项目、费用和双方信息；编辑后自动重算金额
 - **开具约束**：空发票不可开具；开具时记录开票日期；支持通过 `issue_date` 可选参数覆盖开票日期（默认为当天）；若存在 `due_date`，则 `due_date` 必须大于等于 `issue_date`；开具时 `billing_email` 和 `billing_phone` 至少需填写一个非空值，用于联系开票对象
 - **标记已付约束**：仅 issued / overdue 状态可标记已付；支持通过 `paid_at` 可选时间戳参数覆盖实际付款时间（默认为当前时间）
@@ -236,11 +236,11 @@
 - **Creem MoR 约束**：Creem 交易的发票必须由 Creem 管理；无论 invoice_policy 设置如何，Herald 不得为 Creem 交易创建 manual 发票
 - **Stripe 发票同步触发**：通过 Stripe webhook 被动同步（invoice.created / invoice.finalized / invoice.voided / invoice.paid），Herald 不主动调用 Stripe Invoice API 创建发票
 - **Stripe 一次性购买发票同步触发**：通过 Stripe `checkout.session.completed`（mode=payment）事件 inline 创建外部发票记录；使用 checkout session 上的 Stripe invoice ID（`in_...`，由 Checkout 在启用 invoice_creation 时自动创建）作为 external_invoice_id，payment_intent（`pi_...`）作为 external_order_id；status 直接为 paid
-- **Stripe 一次性购买发票数据来源**：从 checkout session 对象提取 amount_total、currency、customer_email、payment_intent 等字段；account_id 从 metadata.userId 解析
+- **Stripe 一次性购买发票数据来源**：从 checkout session 对象提取 amount_total、currency、payment_intent 等字段；account_id 从 metadata.userId 解析；买方快照（含 customer_email）在该阶段不提取（字段置空），由后续 `invoice.*` 事件携带的 customer_name / customer_email / customer_address 补齐（两阶段写入）
 - **Stripe 发票状态映射**：Stripe `draft` → Herald `draft`，Stripe `open` → Herald `issued`，Stripe `paid` → Herald `paid`，Stripe `void` → Herald `void`，Stripe `uncollectible` → Herald `void`（Stripe 原始状态保留在 `external_status`）
 - **Creem 税务数据同步**：Creem 交易支付成功后同步交易金额、税额、税区等税务信息作为发票记录
 - **Provider 切换兼容**：Realm 从 manual_only 切到 provider_first 时，已有 manual 发票保持 provider='manual' 不变，策略切换只影响新发票的路由决策
-- **发票编号规则**：外部 provider 发票的本地编号由 Herald 合成为 `EXT-{PROVIDER}-{外部发票ID或订单ID}`（不采用 provider 自身分配的编号作为本地编号），自研发票继续使用 INV-{YEAR}-{SEQ} 格式
+- **发票编号规则**：外部 provider 发票的本地编号由 Herald 合成为 `EXT-{PROVIDER}-{外部发票ID或订单ID}`（不采用 provider 自身分配的编号作为本地编号），自研发票继续使用 INV-{YEAR}-{SEQ:04} 格式
 - **Webhook 幂等性**：复用现有 payment_event 表的 external_event_id 唯一约束，重复 webhook 更新而非创建
 - **外部发票不可操作**：provider != 'manual' 的发票禁止通过 Herald API 执行创建、编辑、开具、作废、标记已付操作
 - **权限复用**：管理端继续使用 `billing.view` / `billing.manage` 权限控制，不新增发票细粒度权限
@@ -365,7 +365,7 @@
 - **个人页面**（Regular User）：
   - 入口：当 Realm 已配置销售方信息时，用户个人中心显示 "My Invoices" 菜单；未配置时隐藏
   - 申请发票入口：当 Realm 已配置销售方信息时，在支付记录或订阅详情旁提供 "Apply for Invoice" 按钮；未配置时不展示
-  - 申请表单：选择支付记录、填写开票抬头（名称、地址、邮箱、税号）
+  - 申请表单：选择支付记录、填写开票抬头（名称、地址、邮箱、税号）与到期日（due_date 必填）
   - 列表页：展示属于自己的发票，包含编号、金额、状态、到期日、申请状态、provider 来源标识
   - 详情页：查看发票完整信息；外部发票只读，显示 "View in Provider" 链接
   - 申请发票：Creem 交易的申请入口不可用；Apple（App Store）与 Google（Google Play）同为 Merchant of Record，其交易不进入 Herald 发票体系，不受 invoice_policy 影响，申请入口不可用；其他 provider 交易根据 invoice_policy 决定是否可申请
@@ -385,7 +385,7 @@
 - 主流程为用户申请 + 管理员审核开具，保留管理员手动创建辅助路径
 - 不新增 Invoice 细粒度权限，管理端使用 `billing.view` / `billing.manage` 权限控制，用户端复用登录用户身份判断
 - 发票可关联 Subscription 和 Payment Attempt 但不自动生成
-- 发票编号格式为 INV-{YEAR}-{SEQ}，租户内按年递增
+- 发票编号格式为 INV-{YEAR}-{SEQ:04}（序号 4 位零填充），租户内按年递增
 - 发票来源跟随实际收款 payment_provider，而非跟随产品或 Realm 全局选择
 - 三种发票策略：provider_first / manual_only / none
 - Stripe 发票同步通过 webhook 被动驱动，Herald 不主动调用 Stripe Invoice API 创建发票
@@ -393,7 +393,7 @@
 - Creem MoR 交易的发票不可被 Herald manual 覆盖，无论 invoice_policy 设置
 - 已有 manual 发票在策略切换后保持 provider='manual' 不变
 - 外部发票 PDF 有 URL 时直接重定向，无 URL 时提示由 provider 管理
-- 外部发票本地编号由 Herald 合成为 EXT-{PROVIDER}-{外部发票/订单ID}，不采用 provider 分配编号；自研发票继续 INV-{YEAR}-{SEQ}
+- 外部发票本地编号由 Herald 合成为 EXT-{PROVIDER}-{外部发票/订单ID}，不采用 provider 分配编号；自研发票继续 INV-{YEAR}-{SEQ:04}
 
 ---
 

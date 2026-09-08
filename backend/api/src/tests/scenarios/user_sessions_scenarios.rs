@@ -1180,3 +1180,74 @@ async fn test_update_user_keep_forbidden_retries_revoke(ctx: &mut TestContext) {
         "re-saving Forbidden must revoke a family left alive by an earlier failed attempt"
     );
 }
+
+/// ============================================================================
+/// PRD core/users.md §4.1 状态写入边界 — admin create/update may only write
+/// the enable/disable pair Normal(1)/Forbidden(2). WaitVerified(0) belongs to
+/// the self-service email-verification flow and Deleted(3) to the
+/// anonymizing self-deletion pipeline; a hand-written Deleted would produce a
+/// non-anonymized "Deleted" account, bypassing subscription cancellation and
+/// credential cleanup.
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_admin_user_status_write_restricted_to_enable_disable(ctx: &mut TestContext) {
+    let realm_id = ctx._realm_id.clone();
+    let (admin_token, admin_user_id) =
+        create_admin_session_with_user(ctx, "status-boundary-admin@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+
+    let (user_id, _email) = seed_normal_user_with_password(ctx, &realm_id, "PW-Bnd1!").await;
+
+    // Update path: Deleted(3) and WaitVerified(0) are rejected with 400.
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 3).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "admin update must refuse hand-writing Deleted(3)"
+    );
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 0).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "admin update must refuse hand-writing WaitVerified(0)"
+    );
+
+    // The account row itself must be untouched by the rejected writes.
+    let status: i16 = sqlx::query_scalar("SELECT status FROM account WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, 1, "rejected writes must not change the status");
+
+    // The enable/disable pair keeps flowing through.
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 1).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Create path: same boundary.
+    for bad_status in [0i16, 3i16] {
+        let app = ctx.create_unified_test_router();
+        let payload = json!({
+            "email": format!("status-boundary-create-{bad_status}@test.com"),
+            "password": "Password123!",
+            "status": bad_status,
+            "roleIds": [],
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/users/{}", realm_id))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "admin create must refuse status {bad_status}"
+        );
+    }
+}

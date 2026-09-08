@@ -384,19 +384,7 @@ impl GooglePlayMockServer {
         token: &str,
         obfuscated_account_id: &str,
     ) {
-        Mock::given(method("GET"))
-            .and(path(format!(
-                "/{package_name}/purchases/products/{product_id}/tokens/{token}"
-            )))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "consumptionState": 0,
-                "acknowledgementState": 1,
-                "productId": product_id,
-                "purchaseState": 0,
-                "obfuscatedExternalAccountId": obfuscated_account_id,
-                "purchaseTimeMillis": "1700000000000",
-            })))
-            .mount(&self.server)
+        self.mount_product_get(package_name, product_id, token, obfuscated_account_id, 0)
             .await;
     }
 
@@ -413,6 +401,47 @@ impl GooglePlayMockServer {
             )))
             .respond_with(ResponseTemplate::new(404).set_body_json(json!({
                 "error": { "code": 404, "message": "The purchase token was not found." }
+            })))
+            .mount(&self.server)
+            .await;
+    }
+
+    /// Mount a successful `products.get` reporting `consumptionState: 1`
+    /// (already consumed). Drives the dead-zone guard: with a prior Failed
+    /// Herald attempt on the same provider reference the resubmit recovers;
+    /// without one it must answer 422 already_consumed.
+    pub async fn mount_product_get_already_consumed(
+        &self,
+        package_name: &str,
+        product_id: &str,
+        token: &str,
+        obfuscated_account_id: &str,
+    ) {
+        self.mount_product_get(package_name, product_id, token, obfuscated_account_id, 1)
+            .await;
+    }
+
+    /// Mount a 200 `products.get` response with the given consumption state,
+    /// so the mock body shape exists in one place.
+    async fn mount_product_get(
+        &self,
+        package_name: &str,
+        product_id: &str,
+        token: &str,
+        obfuscated_account_id: &str,
+        consumption_state: i32,
+    ) {
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/{package_name}/purchases/products/{product_id}/tokens/{token}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "consumptionState": consumption_state,
+                "acknowledgementState": 1,
+                "productId": product_id,
+                "purchaseState": 0,
+                "obfuscatedExternalAccountId": obfuscated_account_id,
+                "purchaseTimeMillis": "1700000000000",
             })))
             .mount(&self.server)
             .await;

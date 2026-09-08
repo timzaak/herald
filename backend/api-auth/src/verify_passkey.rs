@@ -175,7 +175,9 @@ struct TempSessionData {
     responses(
         (status = 200, description = "Passkey login challenge created", body = PasskeyOptionsResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
-        (status = 404, description = "Passkey is not enabled for this realm", body = ErrorResponse),
+        // No 404-disabled branch here: the login path does not gate on the
+        // realm's passkey config (registration/management paths do), and
+        // PasskeyError::Disabled has no constructor on this route.
         (status = 429, description = "Too many requests", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     )

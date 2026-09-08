@@ -942,4 +942,225 @@ mod tests {
             "duplicate submission must not create a second payment_event"
         );
     }
+
+    /// Google one_time dead-zone recovery: consume succeeded on a prior
+    /// submission but its fulfillment failed (no payment_event, attempt left
+    /// Failed). The resubmit sees consumptionState=1 and must NOT answer
+    /// already_consumed — the prior Failed Herald attempt proves the consume
+    /// was ours, so the handler skips the (already-done) consume call and
+    /// re-runs fulfillment. Without this recovery the user has paid Google,
+    /// the product is consumed, and the 422 would block fulfillment forever.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_one_time_dead_zone_recovery(ctx: &mut IapReceiptContext) {
+        let realm_id = ctx._realm_id.clone();
+        let (token, user_id_str) =
+            create_admin_session_with_user(ctx, "iap-google-dz@test.com", 1800).await;
+        let user_id: Uuid = user_id_str.parse().expect("user id is a uuid");
+
+        let mapping_id = insert_mapping(
+            ctx,
+            &realm_id,
+            "google",
+            "credits_dz",
+            "one_time",
+            "credits",
+        )
+        .await;
+
+        let bucket_id = crate::tests::helpers::points_helpers::ensure_test_bucket_for_realm(
+            &ctx.app_state.pool,
+            &realm_id,
+        )
+        .await;
+        // Topup rule for the consumable one_time pack: a fixed grant on the
+        // topup trigger, seeded through the shared billing helper.
+        crate::tests::helpers::billing_helpers::seed_mapping_owned_fixed_rule(
+            ctx,
+            &realm_id,
+            mapping_id,
+            bucket_id,
+            &["topup"],
+            100,
+            0,
+            true,
+        )
+        .await;
+
+        // The dead zone: a prior Herald attempt consumed the product but its
+        // fulfillment failed, leaving a Failed attempt bound to the purchase
+        // token and no payment_event.
+        let purchase_token = "gplay-token-deadzone";
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'google', 'entitlement_mapping', $4,
+                 1, 'USD', 'Failed', $5, NOW() + INTERVAL '1 hour', NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .bind(purchase_token)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed failed prior attempt");
+
+        let google_mock = GooglePlayMockServer::start().await;
+        google_mock.mount_token_stub().await;
+        google_mock
+            .mount_product_get_already_consumed(
+                "com.herald.app",
+                "credits_dz",
+                purchase_token,
+                &user_id_str,
+            )
+            .await;
+
+        let rsa_pem = fresh_rsa_pem();
+        let sa_json = build_service_account_json(
+            "svc@herald-test.iam.gserviceaccount.com",
+            std::str::from_utf8(&rsa_pem).unwrap(),
+        );
+        insert_google_realm_config(
+            &ctx.app_state.pool,
+            &realm_id,
+            "com.herald.app",
+            &sa_json,
+            Some(&google_mock.base_url()),
+        )
+        .await;
+
+        let app = ctx.create_unified_test_router();
+        let response = app
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                json!({
+                    "provider": "google",
+                    "receipt": purchase_token,
+                    "productId": "credits_dz",
+                    "targetType": "entitlement_mapping",
+                    "targetId": mapping_id,
+                    "productType": "one_time",
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = body_json(response).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "dead-zone resubmit must recover and fulfill, body={body}"
+        );
+        assert_eq!(body["status"], "succeeded");
+
+        // Recovery must not re-call consume — Google already reports the
+        // product consumed by our failed prior attempt.
+        let requests = google_mock
+            .server
+            .received_requests()
+            .await
+            .unwrap_or_default();
+        let consume_seen = requests
+            .iter()
+            .any(|r| r.method == "POST" && r.url.path().ends_with(":consume"));
+        assert!(
+            !consume_seen,
+            "dead-zone recovery must skip the consume call (already consumed)"
+        );
+
+        // The recovery must record its payment_event so a third submission
+        // short-circuits idempotently instead of re-fulfilling.
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'google' AND external_event_id = $2",
+        )
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "recovered fulfillment records its event");
+    }
+
+    /// Google one_time consumptionState=1 with NO prior Herald attempt: the
+    /// consume happened outside this flow (another app/backend), so the
+    /// handler must keep rejecting with 422 already_consumed instead of
+    /// granting points for a purchase Herald never saw.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_one_time_already_consumed_outside_rejected(
+        ctx: &mut IapReceiptContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let (token, user_id_str) =
+            create_admin_session_with_user(ctx, "iap-google-ac@test.com", 1800).await;
+
+        let mapping_id = insert_mapping(
+            ctx,
+            &realm_id,
+            "google",
+            "credits_ac",
+            "one_time",
+            "credits",
+        )
+        .await;
+
+        let google_mock = GooglePlayMockServer::start().await;
+        google_mock.mount_token_stub().await;
+        let purchase_token = "gplay-token-outside";
+        google_mock
+            .mount_product_get_already_consumed(
+                "com.herald.app",
+                "credits_ac",
+                purchase_token,
+                &user_id_str,
+            )
+            .await;
+
+        let rsa_pem = fresh_rsa_pem();
+        let sa_json = build_service_account_json(
+            "svc@herald-test.iam.gserviceaccount.com",
+            std::str::from_utf8(&rsa_pem).unwrap(),
+        );
+        insert_google_realm_config(
+            &ctx.app_state.pool,
+            &realm_id,
+            "com.herald.app",
+            &sa_json,
+            Some(&google_mock.base_url()),
+        )
+        .await;
+
+        let app = ctx.create_unified_test_router();
+        let response = app
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                json!({
+                    "provider": "google",
+                    "receipt": purchase_token,
+                    "productId": "credits_ac",
+                    "targetType": "entitlement_mapping",
+                    "targetId": mapping_id,
+                    "productType": "one_time",
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = body_json(response).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "outside-Herald consume must stay rejected, body={body}"
+        );
+        assert_eq!(body["error"], "already_consumed");
+    }
 }

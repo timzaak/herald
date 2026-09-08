@@ -21,6 +21,7 @@ use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_h
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::rate_limit::rate_limit_hit_forced;
 use herald_core::domain::authorization::PermissionService;
+use herald_core::domain::billing::ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL;
 use herald_core::domain::realm::ADMIN_REALM_ID;
 use herald_core::domain::realm_config::{
     BatchUpsertRealmConfigRequest, ConfigType, RealmConfig, RealmConfigService,
@@ -201,13 +202,16 @@ async fn ensure_provider_config_deletable(
         return Ok(());
     };
 
-    let active_count: i64 = sqlx::query_scalar(
+    let active_count: i64 = sqlx::query_scalar(&format!(
+        // Same access-granting set the entitlement-mapping disable guards use:
+        // a Dispute subscription still grants access, so its provider config
+        // must not be deletable either.
         "SELECT COUNT(*)
          FROM subscription
          WHERE realm_id = $1
            AND payment_provider = $2
-           AND status IN ('active', 'trialing', 'past_due', 'scheduled_cancel')",
-    )
+           AND status IN ({ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL})",
+    ))
     .bind(realm_id)
     .bind(provider)
     .fetch_one(&state.pool)

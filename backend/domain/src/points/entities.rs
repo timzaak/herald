@@ -838,6 +838,14 @@ pub struct QuotaWindowView {
     pub is_tightest: bool,
     /// True if remaining == 0
     pub exhausted: bool,
+    /// Earliest `effective_from` across the entitlements contributing to this
+    /// window key. Surfaces the quota grant's validity period in wallet views
+    /// (PRD points.md §4.1 管理端区分展示生效区间).
+    pub effective_from: chrono::DateTime<chrono::Utc>,
+    /// Latest `effective_until` across contributing entitlements (`None` ⟺
+    /// at least one is ongoing — the window keeps refreshing until the last
+    /// entitlement ends).
+    pub effective_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[cfg(test)]

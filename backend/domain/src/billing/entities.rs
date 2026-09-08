@@ -59,6 +59,15 @@ pub enum SubscriptionStatus {
     Pending, // Reserved for local extension
 }
 
+/// Subscription statuses that still count as granting entitlements for the
+/// raw SQL protection guards (entitlement-mapping disable guards in
+/// herald-infra, provider-config deletion guard in herald-api), spelled as an
+/// `IN (...)` list. Keep in sync with `SubscriptionStatus` above. Note this
+/// set includes `past_due` and is therefore wider than
+/// `SubscriptionStatus::has_access`, which governs account-level access.
+pub const ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL: &str =
+    "'active','trialing','past_due','scheduled_cancel','dispute'";
+
 impl SubscriptionStatus {
     pub fn as_str(&self) -> &'static str {
         match self {

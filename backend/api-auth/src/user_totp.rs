@@ -62,7 +62,9 @@ pub struct EnableTotpResponse {
 /// Enable TOTP two-factor authentication for the current user
 ///
 /// Initiates TOTP setup by generating a secret key, QR code URL, and backup codes.
-/// The user must verify the TOTP code to complete the setup. Requires password verification.
+/// The user must verify the TOTP code to complete the setup. Requires a single-use
+/// reauth ticket obtained by verifying any one of the user's factors (password,
+/// TOTP, or Passkey) via `POST /api/user/reauth/verify` (see `consume_reauth`).
 #[utoipa::path(
     post,
     path = "/api/user/totp",
@@ -421,7 +423,9 @@ pub struct DisableTotpResponse {
 
 /// Disable TOTP two-factor authentication for the current user
 ///
-/// Disables TOTP and removes the configuration. Requires password verification.
+/// Disables TOTP and removes the configuration. Requires a single-use reauth
+/// ticket obtained by verifying any one of the user's factors (password, TOTP,
+/// or Passkey) via `POST /api/user/reauth/verify` (see `consume_reauth`).
 /// Cannot be disabled if the realm has force-enabled TOTP.
 #[utoipa::path(
     delete,
@@ -431,7 +435,7 @@ pub struct DisableTotpResponse {
     responses(
         (status = 200, description = "TOTP disabled successfully", body = DisableTotpResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
-        (status = 401, description = "Invalid password", body = ErrorResponse),
+        (status = 401, description = "Invalid or expired reauth token", body = ErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -509,7 +513,9 @@ pub struct RegenerateTotpResponse {
 /// Regenerate TOTP secret and backup codes
 ///
 /// Generates a new TOTP secret and backup codes, invalidating the old ones.
-/// The user must verify the new TOTP code to complete the regeneration. Requires password verification.
+/// The user must verify the new TOTP code to complete the regeneration. Requires
+/// a single-use reauth ticket obtained by verifying any one of the user's factors
+/// (password, TOTP, or Passkey) via `POST /api/user/reauth/verify` (see `consume_reauth`).
 #[utoipa::path(
     post,
     path = "/api/user/totp/regenerate",
@@ -518,7 +524,7 @@ pub struct RegenerateTotpResponse {
     responses(
         (status = 200, description = "TOTP secret regenerated", body = RegenerateTotpResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
-        (status = 401, description = "Invalid password", body = ErrorResponse),
+        (status = 401, description = "Invalid or expired reauth token", body = ErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

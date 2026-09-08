@@ -13,8 +13,7 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use crate::application::http::realm::validators::{
-    CreateRealmValidator, InitialAdminUserValidator, ListRealmsPaginatedQuery, ListRealmsQuery,
-    UpdateRealmValidator,
+    CreateRealmValidator, InitialAdminUserValidator, ListRealmsPaginatedQuery, UpdateRealmValidator,
 };
 use crate::application::http::server::api_entities::{ApiError, ApiResult, PageResponse};
 use crate::application::http::state::AppState;
@@ -83,19 +82,14 @@ impl From<InitialAdminUserValidator> for herald_core::domain::realm::InitialAdmi
     get,
     path = "/api/realms",
     tag = "realms",
-    params(
-        ("user_id" = Option<String>, Query, description = "Filter by user ID (admin only)"),
-    ),
     responses(
         (status = 200, description = "List of realms", body = ListRealmsResponse),
         (status = 401, description = "Unauthorized", body = crate::application::http::server::api_entities::ErrorResponse),
-        (status = 403, description = "Forbidden - admin only for user_id filter", body = crate::application::http::server::api_entities::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::application::http::server::api_entities::ErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
 pub async fn list_realms(
-    Query(_query): Query<ListRealmsQuery>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     _headers: HeaderMap,

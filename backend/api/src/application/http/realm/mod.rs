@@ -17,9 +17,7 @@ pub mod white_label_config;
 
 // Re-export commonly used types and handlers for external use
 pub use crud::{AdminUserResponse, ListRealmsResponse, RealmResponse};
-pub use validators::{
-    CreateRealmValidator, ListRealmsPaginatedQuery, ListRealmsQuery, UpdateRealmValidator,
-};
+pub use validators::{CreateRealmValidator, ListRealmsPaginatedQuery, UpdateRealmValidator};
 
 // Re-export for utoipa
 

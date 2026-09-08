@@ -384,6 +384,16 @@ fn validate_optional_non_blank(value: Option<&str>, field_name: &str) -> Result<
     Ok(())
 }
 
+fn validate_non_blank(value: &str, field_name: &str) -> Result<(), ApiError> {
+    if value.trim().is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "{} must not be blank",
+            field_name
+        )));
+    }
+    Ok(())
+}
+
 fn parse_optional_paid_at(
     value: Option<&str>,
 ) -> Result<Option<chrono::DateTime<chrono::Utc>>, ApiError> {
@@ -516,13 +526,10 @@ pub async fn create_invoice(
             CoreError::BadRequest(format!("Validation failed: {}", e))
         })?;
 
-    // Trim and validate address fields are non-empty
-    if request.billing_address.trim().is_empty() {
-        return Err(ApiError::bad_request("billing_address must not be blank"));
-    }
-    if request.seller_address.trim().is_empty() {
-        return Err(ApiError::bad_request("seller_address must not be blank"));
-    }
+    validate_non_blank(&request.billing_name, "billing_name")?;
+    validate_non_blank(&request.seller_name, "seller_name")?;
+    validate_non_blank(&request.billing_address, "billing_address")?;
+    validate_non_blank(&request.seller_address, "seller_address")?;
 
     validate_account_in_realm(&state.pool, request.account_id, &realm_id).await?;
     if let Some(applicant_id) = request.applicant_user_id {
@@ -838,6 +845,8 @@ pub async fn update_invoice(
         .map_err(|e: validator::ValidationErrors| {
             CoreError::BadRequest(format!("Validation failed: {}", e))
         })?;
+    validate_optional_non_blank(request.billing_name.as_deref(), "billing_name")?;
+    validate_optional_non_blank(request.seller_name.as_deref(), "seller_name")?;
     validate_optional_non_blank(request.billing_tax_id.as_deref(), "billing_tax_id")?;
     validate_optional_non_blank(request.seller_tax_id.as_deref(), "seller_tax_id")?;
 
@@ -1272,10 +1281,8 @@ pub async fn apply_invoice(
             CoreError::BadRequest(format!("Validation failed: {}", e))
         })?;
 
-    // Trim and validate billing_address is non-empty
-    if request.billing_address.trim().is_empty() {
-        return Err(ApiError::bad_request("billing_address must not be blank"));
-    }
+    validate_non_blank(&request.billing_name, "billing_name")?;
+    validate_non_blank(&request.billing_address, "billing_address")?;
 
     if request.payment_attempt_id.is_none() && request.subscription_id.is_none() {
         return Err(ApiError::bad_request(

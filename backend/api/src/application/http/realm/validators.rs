@@ -4,12 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
-#[serde(rename_all = "camelCase")]
-pub struct ListRealmsQuery {
-    pub user_id: Option<String>,
-}
-
 /// Paginated query parameters for listing realms
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]

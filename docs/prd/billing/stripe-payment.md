@@ -170,7 +170,8 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 | checkout.session.async_payment_* | ✅ RESOLVED | 延迟支付方式的成功/失败处理；默认 Conservative 策略不会在未结算时履约，Realm 显式配置 Eager 时允许 `completed` 立即履约并承担异步失败后的回收风险 |
 | customer.subscription.paused/resumed | ✅ RESOLVED | 订阅暂停/恢复状态同步 |
 | invoice.payment_action_required | ✅ RESOLVED | 支付需额外操作（3D Secure 等）时记录日志 |
-| Account ID 配置项 | 未实现 | Account ID 未作为独立 config_key 实现，如需要可通过 metadata 扩展 |
+| Account ID 配置项 | 仅存储 | `account_id` 仅在 ConfigType::Stripe 注释中声明为可选键，全仓无读取方（可经通用 realm_config 写入但不被消费） |
+| Webhook Endpoint ID 配置项 | 仅存储 | `webhook_endpoint_id` 可经通用 realm_config 写入，但无任何读取方；验签仅以 `webhook_secret` 为准，不存在「用于校验（verification）」的用途 |
 | Environment 配置项 | 不需要 | Herald 不解析或校验 `sk_test_*` / `sk_live_*` 前缀，密钥原样交给 Stripe；实际环境由 Stripe 密钥本身决定 |
 | Webhook URL 配置项 | 不需要 | 由 `public_base_url` 动态拼接，不作为独立配置项 |
 | Stripe 一次性购买发票同步 | 已实现 | checkout.session.completed（mode=payment）创建外部发票记录，与 Creem inline 同步模式一致 |

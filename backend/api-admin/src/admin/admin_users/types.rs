@@ -17,7 +17,12 @@ pub struct UserCreateRequest {
     pub password: String,
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
-    #[validate(range(min = 0, max = 3))]
+    // Admin writes cover PRD users.md §2.1 "启用/禁用" only. WaitVerified(0)
+    // belongs to the self-service email-verification flow and Deleted(3) is the
+    // anonymizing self-deletion terminal state (users.md §4.2) — neither may be
+    // hand-written here, so a "Deleted" account without the anonymization
+    // pipeline cannot be produced.
+    #[validate(range(min = 1, max = 2))]
     pub status: Option<i16>,
     // PRD users.md §4.1: the create dialog may submit no role assignment; the
     // domain layer accepts an empty role set. A min=1 here would force every
@@ -29,7 +34,8 @@ pub struct UserCreateRequest {
 pub struct UserUpdateRequest {
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
-    #[validate(range(min = 0, max = 3))]
+    // Same enable/disable-only boundary as UserCreateRequest.status above.
+    #[validate(range(min = 1, max = 2))]
     pub status: Option<i16>,
 }
 

@@ -182,7 +182,7 @@
 
 ### 8.3 计划中功能
 
-- **密码策略配置**：最小长度、大小写、数字、特殊字符要求。当前代码中 ConfigType::Registration 无对应 config_key，未来可能新增 `password_min_length`、`password_require_uppercase` 等 key
+- **密码策略配置**：最小长度、大小写、数字、特殊字符要求。`password_min_length`、`require_uppercase`、`require_lowercase`、`require_numbers`、`require_special_chars` 仅在 ConfigType::Registration 的注释中声明为合法键，前后端均无消费方（前端密码强度规则为硬编码常量，不从 Realm Config 读取）；实际被读取的 Registration 键仅为 `enabled`、`require_email_verification`、`allowed_domains`，密码策略仍属计划中功能
 - **新用户默认状态**：`default_user_status`（取值范围 0-3）。当前代码中无此字段，未来可能作为 Registration 类型的 config_key 新增
 - **会话配置**：暂不在 Realm Config 中管理
 

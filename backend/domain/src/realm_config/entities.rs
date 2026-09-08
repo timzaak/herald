@@ -104,15 +104,14 @@ pub enum ConfigType {
 
     /// User registration configuration
     ///
-    /// Valid config_key values:
+    /// Valid config_key values (all read by backend consumers):
     /// - `enabled`: Enable user registration for the realm ("true" or "false")
     /// - `allowed_domains`: Comma-separated list of allowed email domains (e.g., "example.com,test.org")
     /// - `require_email_verification`: Require email verification for new accounts ("true" or "false")
-    /// - `password_min_length`: Minimum password length
-    /// - `require_uppercase`: Require at least one uppercase letter ("true" or "false")
-    /// - `require_lowercase`: Require at least one lowercase letter ("true" or "false")
-    /// - `require_numbers`: Require at least one number ("true" or "false")
-    /// - `require_special_chars`: Require at least one special character ("true" or "false")
+    ///
+    /// Password-policy keys (e.g. `password_min_length`, `require_uppercase`) are
+    /// NOT consumed by any reader; password rules are enforced by the user
+    /// service and are not configurable through this config type.
     ///
     /// Example allowed domains configuration:
     /// ```json
@@ -246,9 +245,11 @@ pub enum ConfigType {
     /// - `api_key`: Stripe API key (secret, mark is_secret=true)
     /// - `webhook_secret`: Stripe webhook signing secret (secret, mark is_secret=true)
     /// - `publishable_key`: Stripe publishable key (non-secret)
-    /// - `account_id`: Stripe account ID (non-secret, optional)
     /// - `timeout`: HTTP request timeout in seconds (non-secret, e.g., "30")
-    /// - `webhook_endpoint_id`: Stripe webhook endpoint ID (non-secret, for verification)
+    /// - `account_id`: Stripe account ID (non-secret, optional). Stored only —
+    ///   currently no consumer reads this key
+    /// - `webhook_endpoint_id`: Stripe webhook endpoint ID (non-secret). Stored
+    ///   only — currently no consumer reads this key
     ///
     /// Example API key configuration:
     /// ```json

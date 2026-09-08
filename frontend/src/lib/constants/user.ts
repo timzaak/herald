@@ -30,6 +30,15 @@ export function getUserStatusOptions() {
   ]
 }
 
+// Admin create/edit writes toggle enable/disable only (Normal/Forbidden):
+// admin-created users skip email verification and the backend rejects
+// WaitVerified writes; use the list filter for read-only status views.
+export function getWritableUserStatusOptions() {
+  return getUserStatusOptions().filter(
+    (opt) => opt.value !== 'all' && opt.value !== String(USER_STATUS.WAIT_VERIFIED)
+  )
+}
+
 export const USER_STATUS_COLORS: Record<number, string> = {
   [USER_STATUS.WAIT_VERIFIED]: 'bg-warning/10 text-warning',
   [USER_STATUS.NORMAL]: 'bg-success/10 text-success',

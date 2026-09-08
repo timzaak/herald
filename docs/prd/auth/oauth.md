@@ -190,7 +190,7 @@
 **Herald OAuth Client SSO 登录:**
 - Herald 作为 OAuth Client 通过 `/api/oauth/{realmId}/{provider}/login` 发起第三方 Provider 授权
 - 回调路径 `/{provider}/callback` 接收 Provider 授权结果，创建或关联 OAuth 用户账户，完成 SSO 登录
-- 支持所有已配置的 Provider 类型（Google、GitHub、Facebook、Apple、WeChat、WeChat Mini Program）
+- 通用跳转式链路实际服务 Google、GitHub、Facebook、Apple；`wechat` 在通用端点白名单中为死条目（同形专属路由 `/wechat/login` 优先匹配，微信网站登录由专属路由承载）；`wechat_miniprogram` 不经通用登录端点：Provider 未配置或已禁用凭据时返回 404，已配置时因不生成授权 URL 返回 400，登录走专用 code2session 端点
 - OAuth 账户通过 open_id 关联用户；未命中 provider 身份时才按 Email 匹配。回调是由一次性 state 约束的未认证入口，不以浏览器中是否另有 Herald 会话作为关联依据；Email 命中既有账号时 Provider 返回的邮箱必须已验证，未验证邮箱不得用于关联既有账号（防止经 Provider 未验证邮箱接管既有密码账号，如 GitHub 非主邮箱）。唯一例外是由已验签 provider subject 确定性生成且完全匹配的内部占位邮箱，用于恢复“账号已创建但 provider link 未落账”的失败重试
 - **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Provider 凭证未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，OAuth 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。注册政策还包括可选的注册邮箱域白名单（`registration.allowed_domains`，见 `docs/prd/core/realm-settings.md`）：配置后，Provider 邮箱域名不在白名单内时建号同样返回 `409 conflict`；白名单为空表示不限。该原则与邮箱验证码登录一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」），对所有 OAuth Provider（Google、GitHub、Facebook、Apple、WeChat 等）统一适用。
 

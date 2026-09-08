@@ -111,6 +111,15 @@ pub fn calculate_line_item_subtotal(quantity: &str, unit_price: i64) -> Result<i
     let qty: f64 = quantity
         .parse()
         .map_err(|_| CoreError::BadRequest(format!("Invalid quantity value: {}", quantity)))?;
+    // Reject non-finite (parse accepts "inf"/"NaN") and non-positive values
+    // here so the request fails 400 at the API layer instead of tripping the
+    // invoice_line_items DB CHECK after the fact (which surfaces as 500).
+    if !qty.is_finite() || qty <= 0.0 {
+        return Err(CoreError::BadRequest(format!(
+            "Quantity must be a positive number: {}",
+            quantity
+        )));
+    }
     let result = qty * unit_price as f64;
     Ok(result.round() as i64)
 }

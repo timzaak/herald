@@ -56,7 +56,8 @@ fn default_response_type() -> String {
 /// * 400 - Invalid parameters (missing client_id, redirect_uri, state, or code_challenge)
 /// * 400 - Invalid response_type (must be "code")
 /// * 400 - Unsupported code_challenge_method (must be "S256")
-/// * 404 - Client not found or disabled
+/// * 404 - Client not found
+/// * 403 - Client app is disabled
 /// * 400 - Redirect URI not in whitelist
 #[utoipa::path(
     get,
@@ -74,6 +75,7 @@ fn default_response_type() -> String {
     responses(
         (status = 302, description = "Redirect to /{realmId}/auth/login with OAuth parameters"),
         (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 403, description = "Client app is disabled", body = ErrorResponse),
         (status = 404, description = "Client not found", body = ErrorResponse)
     )
 )]

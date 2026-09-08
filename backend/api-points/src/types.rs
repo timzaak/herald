@@ -89,6 +89,13 @@ pub struct QuotaWindowViewResponse {
     pub is_tightest: bool,
     /// True if `remaining == 0`.
     pub exhausted: bool,
+    /// Earliest entitlement `effective_from` feeding this window key
+    /// (quota grant validity start; PRD points.md §4.1 生效区间).
+    pub effective_from: chrono::DateTime<chrono::Utc>,
+    /// Latest entitlement `effective_until` feeding this window key;
+    /// `None` ⟺ at least one contributing entitlement is ongoing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl QuotaWindowViewResponse {
@@ -105,6 +112,8 @@ impl QuotaWindowViewResponse {
             resets_at: view.resets_at,
             is_tightest: view.is_tightest,
             exhausted: view.exhausted,
+            effective_from: view.effective_from,
+            effective_until: view.effective_until,
         }
     }
 }

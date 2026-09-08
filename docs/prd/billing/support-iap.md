@@ -133,7 +133,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 同一 provider + 商品 ID 在同一 Realm 内唯一，重复创建被拒绝
 - mapping 必须标注商品类型（订阅 / 消耗型积分包），履约路径由商品类型决定
 - 禁用 mapping 后，匹配该商品的通知仍更新订阅投影，但不触发积分发放或权益授予；重新启用后恢复
-- 同步失败应 fail loud（返回 partial 状态 + 错误列表），不静默降级为默认积分策略
+- Apple / Google 均不提供商户商品目录同步 API（无 Stripe/Creem 等价能力），external_product_id 与积分/权益策略由 Realm Admin 手工配置，不存在「同步失败」路径
 
 **客户端凭证提交规则（履约主路径）**：
 - 移动 App 通过既有 api-billing 浏览器路由（Bearer token + `PurchaseInitiate` scope）提交 Apple `jwsRepresentation` 或 Google `purchaseToken`
@@ -160,7 +160,8 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 复用既有 `payment_event` 表的幂等约束（external_id = IAP 交易标识）
 
 **确认（acknowledge）截止规则**：
-- Google 订阅与一次性商品必须在购买后 3 天内 acknowledge（订阅）/ consume（消耗型），否则 Google 静默退款；ack/consume 必须与权益提交事务绑定，履约成功立即执行
+- Google 订阅与一次性商品必须在购买后 3 天内 acknowledge（订阅）/ consume（消耗型），否则 Google 静默退款；ack/consume 在权益提交事务前执行（ack-first）：若履约成功后才发现 ack 失败，已无重试机会，3 天后 Google 静默退款而用户已获得权益，造成不可挽回的单边损失；反向顺序的 consume 成功而履约失败，可通过下述死区恢复路径补救
+- **consume 后履约失败的死区恢复**：履约失败时不写 `payment_event` 幂等记录；客户端重提交同一 purchase token 时，Google 回查显示 consumptionState=1。若 Herald 存在同一 provider_reference 的 Failed 支付尝试（即「本系统已 consume 但履约失败」），跳过重复 consume 并重跑履约；无先前尝试或先前尝试非 Failed 时返回 `already_consumed`（422），拒绝渠道外消费的重复履约
 - Apple 无对应硬截止，但 StoreKit 2 transaction 应由客户端 finish
 
 **履约分发规则（按商品类型）**：
@@ -202,7 +203,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - **客户端提交与平台通知次序错乱**：幂等约束（以 `originalTransactionId` / `purchaseToken` 为去重键）保证两者各履约一次、最终一致，不重复发放
 - **Apple 通知丢失、延迟或乱序（尤其 sandbox）**：sandbox 通知丢失/乱序是常态；客户端提交为主路径保证购买即时履约，定时拉取（Notification History / getAllSubscriptionStatuses）在下一周期兜底漏发的后续事件
 - **Google 轮询间隔内事件延迟**：无 RTDN，续费/退款/取消最迟在下一个拉取周期反映到本地；间隔须小于平台事件保留窗口
-- **Google 3 天 acknowledge 截止**：订阅未 acknowledge 或消耗型未 consume，Google 静默退款；ack/consume 必须与权益提交事务绑定，履约成功立即执行
+- **Google 3 天 acknowledge 截止**：订阅未 acknowledge 或消耗型未 consume，Google 静默退款；ack/consume 先于履约执行（取舍见 §4.1 确认截止规则），consume 成功而履约失败时经死区恢复路径补救
 - **同一用户跨 App Store / Google Play 各有订阅**：视为两条独立订阅，不合并、不共享
 
 ---
@@ -219,13 +220,13 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 **IAP 商品映射**：
 - 复用 Entitlement 映射管理 UI 与能力，provider 选择 IAP 类型，填入商店商品 ID、entitlement_key、商品类型与积分/权益策略
 - 支持订阅、消耗型积分包两种商品类型
-- 商品 ID 在同一 provider + Realm 内唯一；同步失败 fail loud
+- 商品 ID 在同一 provider + Realm 内唯一；Apple / Google 无商品目录同步能力，映射全量手工配置
 
 **客户端凭证提交与履约（主路径）**：
 - 移动 App 通过既有 api-billing 浏览器路由（Bearer token + `PurchaseInitiate` / `PurchaseStatusRead` scope）提交 Apple `jwsRepresentation` 或 Google `purchaseToken`
 - Apple：Herald 本地 JWS 验签（x5c + ES256 + Apple Root CA 信任锚）；Google：Herald 调 Developer API 回查真实状态
 - 校验通过后按商品类型履约（订阅 / 积分），校验失败拒绝并返回明确原因
-- 履约成功后立即执行 Google acknowledge / consume（3 天硬截止），ack 与权益提交事务绑定
+- Google acknowledge / consume 在履约事务前执行（3 天硬截止；顺序取舍与死区恢复见 §4.1 确认截止规则）
 - 已由平台通知履约的交易不重复发放
 
 **Apple 服务端通知接收与兑付（事件流 + 兜底）**：
@@ -255,7 +256,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - Realm Admin 可建立 IAP 商品到 entitlement 的映射，覆盖订阅、消耗型积分包两种类型
 - 用户在移动 App 完成 IAP 购买后，移动 App 提交 `jwsRepresentation` / `purchaseToken`，Herald 经密码学验签或 Developer API 回查校验后完成履约，订阅 / 积分按商品类型正确授予
 - Apple 服务端通知与 Google 定时轮询分别驱动续费、退款、取消等后续生命周期，且与客户端提交路径幂等一致、不重复发放
-- Google 订阅 acknowledge / 消耗型 consume 在履约成功后立即执行，3 天内完成，不触发 Google 静默退款
+- Google 订阅 acknowledge / 消耗型 consume 在 3 天内完成，不触发 Google 静默退款；consume 成功而履约失败时，重提交经死区恢复完成履约，不产生「已付款但永久无法获得权益」
 - 商品 ID 无映射时 fail loud 并记录诊断，不静默降级
 - 通知签名 / 来源 / 凭证校验失败时拒绝处理，不改变权益或积分
 - IAP 订阅状态、退款、过期经 Apple 通知 / Google 轮询正确投影，与 Stripe / Creem 订阅以统一格式查询返回

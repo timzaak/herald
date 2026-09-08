@@ -271,7 +271,6 @@ pub struct HealthCheckResponse {
             realm_config::EmailStatusResponse,
             realm_config::EmailTestRequest,
             realm_config::EmailTestResponse,
-            realm::ListRealmsQuery,
             realm::ListRealmsResponse,
             realm::ListRealmsPaginatedQuery,
             realm::CreateRealmValidator,

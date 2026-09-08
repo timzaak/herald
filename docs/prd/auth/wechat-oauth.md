@@ -115,7 +115,7 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 
 **与其他 OAuth Provider 的区别**
 
-- WeChat Mini Program 不生成浏览器授权 URL，必须调用专用小程序登录端点；传给通用 `/{provider}/login` 入口会返回 400
+- WeChat Mini Program 不生成浏览器授权 URL，必须调用专用小程序登录端点；传给通用 `/{provider}/login` 入口：Provider 未配置或已禁用凭据时返回 404，已配置时返回 400（不生成授权 URL）
 
 | 特性 | Google/GitHub/Facebook/Apple | WeChat (网站应用) | WeChat Mini Program |
 |------|----------------------------|-------------------|---------------------|

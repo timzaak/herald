@@ -481,6 +481,11 @@ pub async fn submit_iap_receipt(
     } else {
         None
     };
+    // Set when a Google one-time product reports consumptionState=1. Kept as a
+    // flag instead of an immediate 422 so the idempotency + dead-zone guard
+    // below can distinguish "consumed outside Herald" (reject) from "consumed
+    // by a prior Herald submission whose fulfillment then failed" (recover).
+    let mut google_already_consumed = false;
     let external_txn_id = match input.provider.as_str() {
         "apple" => {
             let creds = load_apple_credentials(&state, &realm_id).await;
@@ -572,10 +577,9 @@ pub async fn submit_iap_receipt(
                             user_id,
                         }));
                     }
-                    // consumptionState 1 == already consumed → 422 already_consumed.
-                    if product.consumption_state == Some(1) {
-                        return Err(iap_error_to_api_error(IapError::AlreadyConsumed));
-                    }
+                    // consumptionState 1 == already consumed. Deferred to the
+                    // guard after the idempotency check below.
+                    google_already_consumed = product.consumption_state == Some(1);
                 }
             }
             external_txn_id
@@ -601,6 +605,37 @@ pub async fn submit_iap_receipt(
         ));
     }
 
+    // Google consume dead-zone guard. Ack/consume runs BEFORE fulfillment so a
+    // user granted points can never be auto-refunded by Google for an
+    // unacknowledged purchase. The flip side: consume can succeed while
+    // fulfillment fails, leaving no payment_event (it is only recorded on the
+    // Ok branch), so a plain resubmit used to die on consumptionState=1 with
+    // no recovery. Distinguish the two consumptionState=1 shapes: a prior
+    // Herald attempt bound to this provider reference with Failed status is
+    // our own consume-then-fulfillment-failure — recover by skipping the
+    // (already-done) consume and re-running fulfillment. Anything else (no
+    // prior attempt, or a non-Failed one) keeps the 422 already_consumed
+    // rejection: the consume happened outside this flow and re-fulfilling
+    // would double-grant.
+    if google_already_consumed {
+        let recoverable = state
+            .payment_attempt_service
+            .get_payment_attempt_by_provider_reference(&input.provider, &external_txn_id)
+            .await
+            .map_err(|e| core_error_to_api_error(e, "iap prior attempt lookup"))?
+            .filter(|prior| prior.realm_id == realm_id)
+            .is_some_and(|prior| prior.status == PaymentAttemptStatus::Failed);
+        if !recoverable {
+            return Err(iap_error_to_api_error(IapError::AlreadyConsumed));
+        }
+        tracing::warn!(
+            realm_id = %realm_id,
+            user_id = %user_id,
+            external_txn_id = %external_txn_id,
+            "Google consumable dead-zone recovery: prior attempt failed after consume — re-fulfilling without re-consuming"
+        );
+    }
+
     // Step 6: create the IAP payment attempt (Pending; provider_reference =
     // external_txn_id). Reuses resolve_target + row creation, skips
     let target_type = input
@@ -623,8 +658,13 @@ pub async fn submit_iap_receipt(
 
     // Step 7: fulfillment transaction. complete_succeeded marks the attempt
     // Succeeded and fulfils (one_time → TopupCredit, recurring → Subscription).
-    // A failure here rolls the attempt back to non-succeeded.
-    if let Some((creds, developer, auth)) = google_ready.as_ref() {
+    // A failure here rolls the attempt back to non-succeeded. The dead-zone
+    // recovery above already consumed the product in its failed prior attempt,
+    // so the consume call is skipped there (re-consuming is both unnecessary
+    // and rejected by Google).
+    if let Some((creds, developer, auth)) = google_ready.as_ref()
+        && !google_already_consumed
+    {
         let is_consumable_points_pack = mapping_rule_value(&state, &realm_id, resolved.mapping.id)
             .await
             .map_err(|e| core_error_to_api_error(e, "iap mapping rules"))?

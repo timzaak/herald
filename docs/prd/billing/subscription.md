@@ -50,7 +50,7 @@
 
 ### 2.1 包含功能
 
-- 支持多种支付平台：Creem（模拟支付平台）、Stripe（详见 `docs/prd/billing/stripe-payment.md`）
+- 支持多种支付平台：Creem（模拟支付平台）、Stripe（详见 `docs/prd/billing/stripe-payment.md`）、WeChat Pay（`docs/prd/billing/wechat-support.md`）、Apple / Google 内购（`docs/prd/billing/support-iap.md`）
 - Provider Entitlement 映射管理（查看、配置积分策略、启用/禁用）
 - 支付方商品同步与 provider-sourced cache
 - 前端 Entitlement 映射管理页面
@@ -86,7 +86,7 @@
 - **Realm 系统** — Billing 功能属于 Realm 级别
 - **Client App 系统** — 套餐分配到 Client App
 - **权限管理系统** — Realm Admin 权限检查
-- **支付平台集成** — 当前已集成 Creem（模拟支付平台）、Stripe（`docs/prd/billing/stripe-payment.md`）
+- **支付平台集成** — 当前已集成 Creem（模拟支付平台）、Stripe（`docs/prd/billing/stripe-payment.md`）、WeChat Pay（`docs/prd/billing/wechat-support.md`）与 Apple / Google 内购（`docs/prd/billing/support-iap.md`）
 
 ---
 
@@ -102,11 +102,11 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 ### 3.2 关键特性
 
-- 支持多种支付平台（Creem、Stripe）
+- 支持多种支付平台（Stripe、Creem、WeChat Pay、Apple / Google 内购）
 - Provider entitlement 映射管理
 - 通过 `entitlement_key` 统一表示订阅权益
 - 支付方商品同步与 provider-sourced cache
-- 订阅升级/降级（按比例计费）
+- 订阅升级/降级变更感知（升降级编排与按比例计费由支付平台处理，Herald 经 webhook 更新投影与积分）
 - Webhook 集成和事件处理
 - 完整的订阅变更历史记录
 - 订阅事件与积分系统联动
@@ -145,7 +145,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 定时按 Realm 对已配置支付平台执行对账；Stripe 拉取近期 Events，Creem 通过交易与订阅查询推导缺失事件。
 - 以外部事件 ID 对比 provider 与本地支付事件记录；缺失事件重放与 webhook 相同的领域处理，已处理事件直接跳过。
 - 补偿跳过 HTTP 签名与缓存层检查，复用数据库支付事件记录的幂等约束，不能重复改变订阅或积分。
-- 单个 Realm、事件或 provider API 失败不阻塞其他对象；记录拉取数、缺失数、成功数、失败数及带 Realm/事件上下文的错误。
+- 单个 Realm、事件或 provider API 失败不阻塞其他对象；记录拉取数、成功数、失败数及带 Realm/事件上下文的错误；已处理事件的跳过计入成功数，当前不维护独立的笼统「缺失数」计数
 - 状态不一致但不存在缺失事件时只记录诊断，不自动改写数据；不提供手动触发、管理页面或报警通知。
 - 对账间隔必须小于 provider 的事件保留窗口；Stripe 拉取支持分页和限流控制。
 
@@ -211,7 +211,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 | 操作 | 需要权限 | 说明 |
 |------|---------|------|
 | 查看 Entitlement 映射 | `billing.view` | Realm Admin |
-| 触发 Provider 同步 | `points.manage` | Realm Admin；同步会创建 draft mapping 并绑定 credit bucket，故门控在 points.manage（domain 层另校验 billing.manage） |
+| 触发 Provider 同步 | `points.manage` | Realm Admin；同步会创建未配置的 draft mapping（enabled=false，不绑定 credit bucket，积分分发规则由管理员后续经映射管理端点配置），故门控在 points.manage（domain 层另校验 billing.manage） |
 | 更新/禁用映射（single PATCH） | `billing.manage`（写 credit 字段时附加 `points.manage`） | Realm Admin；batch 更新路径同为 `billing.manage` 无条件 + credit 字段附加 `points.manage` |
 | 批量更新映射（batch PATCH/PUT） | `billing.manage`（+ credit 字段附加 `points.manage`） | Realm Admin；batch 端点仅承载更新（查看走列表/详情 GET，`billing.view`） |
 | 查看订阅投影 | `billing.view` | Realm Admin |
@@ -273,7 +273,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **支付平台配置**：
 - 支持添加、编辑、启用/禁用、删除支付平台配置（API Key、Secret Key、Webhook Secret）
-- 当前支持 Creem（模拟支付平台）、Stripe
+- 当前支持 Creem（模拟支付平台）、Stripe、WeChat Pay 与 Apple / Google 内购
 - 每个 realm 使用独立的 webhook URL，实现多租户隔离
 
 **Entitlement 映射管理**：
@@ -287,7 +287,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 查看同步状态（最后同步时间、来源、结果）
 - 对具备 Price 概念的支付方，按价格粒度建立或更新映射；Stripe 完整支持 Product→多 Price，Creem 以 Product 作为单一价格单元
 - 支付方提供的名称、描述、金额、币种和计费周期覆盖本地展示缓存，但不得覆盖 Herald 管理的 entitlement、积分和 quota 策略
-- 列表以产品名作为主标签，缺失时回退到外部产品 ID；过滤同时支持产品名和外部 ID
+- 列表以产品名作为主标签，缺失时回退到外部产品 ID；列表端点过滤仅支持 provider 与 enabled（含分页），产品名等筛选由前端在已返回数据上执行
 - Stripe 金额按最小货币单位换算，Creem 按 provider 返回的显示值展示，不跨 provider 共用换算规则
 - Stripe Product/Price metadata 随同步写入展示缓存并只读展示；Creem Product 无对应 metadata 时保持为空，不伪造
 - Stripe 计费周期以 `Price.recurring.interval` 为唯一来源且只读；Creem 未提供时显示为空，不人工推断
@@ -303,8 +303,8 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **订阅生命周期管理**：
 - 创建订阅：用户在第三方应用选择套餐 -> 重定向到支付页面 -> 完成支付 -> Webhook 通知 -> 创建订阅记录
-- 升级订阅：按比例计费
-- 降级订阅：下个计费周期生效
+- 升级订阅：升降级编排（含按比例计费）由支付平台处理，Herald 不提供套餐化升降级；webhook 感知升级后立即撤销旧积分发放并执行新映射的升级规则
+- 降级订阅：Herald 仅更新订阅映射，不改变当前周期发放，待下次续费事件按新映射执行
 - 取消订阅：当前计费周期结束生效
 
 **Webhook 事件处理**：

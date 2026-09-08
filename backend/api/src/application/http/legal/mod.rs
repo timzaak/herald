@@ -718,10 +718,11 @@ pub async fn admin_publish_custom(
 /// Revert a realm's agreement to the platform default.
 ///
 /// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
-/// Implemented as **snapshot semantics** in the service: the current default
-/// body is copied into a brand-new custom version (new `version_id`, monotonic
-/// `version_no`), so existing user consent no longer matches and reconsent is
-/// triggered. No prior rows are deleted. The handler is a thin pass-through.
+/// Implemented as **default-follow semantics** in the service: a realm-scoped
+/// marker version is appended with `source = default` (new `version_id`,
+/// monotonic `version_no`), after which effective resolution follows the
+/// latest platform default rather than a frozen copy. History remains
+/// append-only; no prior rows are deleted. The handler is a thin pass-through.
 #[utoipa::path(
     delete,
     path = "/api/legal/admin/{realmId}/agreements/{agreementType}/custom",
@@ -731,7 +732,7 @@ pub async fn admin_publish_custom(
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     responses(
-        (status = 200, description = "Newly snapshotted default version", body = PublishVersionResponse),
+        (status = 200, description = "Newly appended default-follow marker version", body = PublishVersionResponse),
         (status = 400, description = "Unknown agreement type", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden (missing settings.manage or cross-realm)", body = ErrorResponse),

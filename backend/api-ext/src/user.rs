@@ -8,7 +8,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::auth::util::{
+    ClientIp, normalize_email, user_agent_from_headers,
+};
 use herald_api_base::application::http::common::error_codes::ErrorCode;
 use herald_api_base::application::http::common::error_helpers::json_error;
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
@@ -149,9 +151,12 @@ pub async fn create_user(
         "User creation requested via ext API"
     );
 
-    // 4. Build domain request
+    // 4. Build domain request. Email goes through the same trim + lowercase
+    // normalization as signup/admin-create: the account unique index is
+    // case-sensitive, so skipping it here would mint shadow accounts that
+    // differ from a self-registered one only by case.
     let create_req = CreateUserWithRolesRequest {
-        email: req.email,
+        email: normalize_email(&req.email),
         password: req.password,
         nickname: req.nickname,
         role_ids: vec![],
