@@ -92,6 +92,8 @@ export const QUERY_KEYS = {
   AUDIT_EVENTS: 'audit-events',
   AUDIT_EVENT: 'audit-event',
   DASHBOARD_STATS: 'dashboard-stats',
+  PAYMENT_STATS: 'payment-stats',
+  POINTS_CONSUMPTION_STATS: 'points-consumption-stats',
   FEATURE_AVAILABILITY: 'feature-availability',
   USER_FEATURE_AVAILABILITY: 'user-feature-availability',
   USER_POINTS_TRANSACTIONS: 'user-points-transactions',

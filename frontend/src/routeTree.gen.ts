@@ -62,6 +62,7 @@ import { Route as ManagePointsRegistrationRulesRouteImport } from './routes/mana
 import { Route as ManagePointsDefaultConfigRouteImport } from './routes/manage/points/default-config'
 import { Route as ManageClientAppsNewRouteImport } from './routes/manage/client-apps/new'
 import { Route as ManageBillingSubscriptionsRouteImport } from './routes/manage/billing/subscriptions'
+import { Route as ManageBillingStatisticsRouteImport } from './routes/manage/billing/statistics'
 import { Route as ManageBillingPaymentProvidersRouteImport } from './routes/manage/billing/payment-providers'
 import { Route as ManageBillingInvoicesRouteImport } from './routes/manage/billing/invoices'
 import { Route as ManageBillingEntitlementMappingsRouteImport } from './routes/manage/billing/entitlement-mappings'
@@ -121,6 +122,7 @@ import { Route as RealmIdManagePointsRegistrationRulesRouteImport } from './rout
 import { Route as RealmIdManagePointsDefaultConfigRouteImport } from './routes/$realmId/manage/points/default-config'
 import { Route as RealmIdManageClientAppsNewRouteImport } from './routes/$realmId/manage/client-apps/new'
 import { Route as RealmIdManageBillingSubscriptionsRouteImport } from './routes/$realmId/manage/billing/subscriptions'
+import { Route as RealmIdManageBillingStatisticsRouteImport } from './routes/$realmId/manage/billing/statistics'
 import { Route as RealmIdManageBillingPaymentProvidersRouteImport } from './routes/$realmId/manage/billing/payment-providers'
 import { Route as RealmIdManageBillingInvoicesRouteImport } from './routes/$realmId/manage/billing/invoices'
 import { Route as RealmIdManageBillingEntitlementMappingsRouteImport } from './routes/$realmId/manage/billing/entitlement-mappings'
@@ -413,6 +415,11 @@ const ManageBillingSubscriptionsRoute =
     path: '/subscriptions',
     getParentRoute: () => ManageBillingRoute,
   } as any)
+const ManageBillingStatisticsRoute = ManageBillingStatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
+  getParentRoute: () => ManageBillingRoute,
+} as any)
 const ManageBillingPaymentProvidersRoute =
   ManageBillingPaymentProvidersRouteImport.update({
     id: '/payment-providers',
@@ -745,6 +752,12 @@ const RealmIdManageBillingSubscriptionsRoute =
     path: '/subscriptions',
     getParentRoute: () => RealmIdManageBillingRoute,
   } as any)
+const RealmIdManageBillingStatisticsRoute =
+  RealmIdManageBillingStatisticsRouteImport.update({
+    id: '/statistics',
+    path: '/statistics',
+    getParentRoute: () => RealmIdManageBillingRoute,
+  } as any)
 const RealmIdManageBillingPaymentProvidersRoute =
   RealmIdManageBillingPaymentProvidersRouteImport.update({
     id: '/payment-providers',
@@ -949,6 +962,7 @@ export interface FileRoutesByFullPath {
   '/manage/billing/entitlement-mappings': typeof ManageBillingEntitlementMappingsRouteWithChildren
   '/manage/billing/invoices': typeof ManageBillingInvoicesRouteWithChildren
   '/manage/billing/payment-providers': typeof ManageBillingPaymentProvidersRouteWithChildren
+  '/manage/billing/statistics': typeof ManageBillingStatisticsRoute
   '/manage/billing/subscriptions': typeof ManageBillingSubscriptionsRoute
   '/manage/client-apps/new': typeof ManageClientAppsNewRoute
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
@@ -969,6 +983,7 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/billing/entitlement-mappings': typeof RealmIdManageBillingEntitlementMappingsRouteWithChildren
   '/$realmId/manage/billing/invoices': typeof RealmIdManageBillingInvoicesRouteWithChildren
   '/$realmId/manage/billing/payment-providers': typeof RealmIdManageBillingPaymentProvidersRouteWithChildren
+  '/$realmId/manage/billing/statistics': typeof RealmIdManageBillingStatisticsRoute
   '/$realmId/manage/billing/subscriptions': typeof RealmIdManageBillingSubscriptionsRoute
   '/$realmId/manage/client-apps/new': typeof RealmIdManageClientAppsNewRoute
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
@@ -1069,6 +1084,7 @@ export interface FileRoutesByTo {
   '/$realmId/user/subscription-history': typeof RealmIdUserSubscriptionHistoryRoute
   '/manage/api-keys/new': typeof ManageApiKeysNewRoute
   '/manage/api-keys/reveal': typeof ManageApiKeysRevealRoute
+  '/manage/billing/statistics': typeof ManageBillingStatisticsRoute
   '/manage/billing/subscriptions': typeof ManageBillingSubscriptionsRoute
   '/manage/client-apps/new': typeof ManageClientAppsNewRoute
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
@@ -1085,6 +1101,7 @@ export interface FileRoutesByTo {
   '/user/security': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
   '/$realmId/manage/api-keys/reveal': typeof RealmIdManageApiKeysRevealRoute
+  '/$realmId/manage/billing/statistics': typeof RealmIdManageBillingStatisticsRoute
   '/$realmId/manage/billing/subscriptions': typeof RealmIdManageBillingSubscriptionsRoute
   '/$realmId/manage/client-apps/new': typeof RealmIdManageClientAppsNewRoute
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
@@ -1202,6 +1219,7 @@ export interface FileRoutesById {
   '/manage/billing/entitlement-mappings': typeof ManageBillingEntitlementMappingsRouteWithChildren
   '/manage/billing/invoices': typeof ManageBillingInvoicesRouteWithChildren
   '/manage/billing/payment-providers': typeof ManageBillingPaymentProvidersRouteWithChildren
+  '/manage/billing/statistics': typeof ManageBillingStatisticsRoute
   '/manage/billing/subscriptions': typeof ManageBillingSubscriptionsRoute
   '/manage/client-apps/new': typeof ManageClientAppsNewRoute
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
@@ -1222,6 +1240,7 @@ export interface FileRoutesById {
   '/$realmId/manage/billing/entitlement-mappings': typeof RealmIdManageBillingEntitlementMappingsRouteWithChildren
   '/$realmId/manage/billing/invoices': typeof RealmIdManageBillingInvoicesRouteWithChildren
   '/$realmId/manage/billing/payment-providers': typeof RealmIdManageBillingPaymentProvidersRouteWithChildren
+  '/$realmId/manage/billing/statistics': typeof RealmIdManageBillingStatisticsRoute
   '/$realmId/manage/billing/subscriptions': typeof RealmIdManageBillingSubscriptionsRoute
   '/$realmId/manage/client-apps/new': typeof RealmIdManageClientAppsNewRoute
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
@@ -1340,6 +1359,7 @@ export interface FileRouteTypes {
     | '/manage/billing/entitlement-mappings'
     | '/manage/billing/invoices'
     | '/manage/billing/payment-providers'
+    | '/manage/billing/statistics'
     | '/manage/billing/subscriptions'
     | '/manage/client-apps/new'
     | '/manage/points/default-config'
@@ -1360,6 +1380,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/entitlement-mappings'
     | '/$realmId/manage/billing/invoices'
     | '/$realmId/manage/billing/payment-providers'
+    | '/$realmId/manage/billing/statistics'
     | '/$realmId/manage/billing/subscriptions'
     | '/$realmId/manage/client-apps/new'
     | '/$realmId/manage/points/default-config'
@@ -1460,6 +1481,7 @@ export interface FileRouteTypes {
     | '/$realmId/user/subscription-history'
     | '/manage/api-keys/new'
     | '/manage/api-keys/reveal'
+    | '/manage/billing/statistics'
     | '/manage/billing/subscriptions'
     | '/manage/client-apps/new'
     | '/manage/points/default-config'
@@ -1476,6 +1498,7 @@ export interface FileRouteTypes {
     | '/user/security'
     | '/$realmId/manage/api-keys/new'
     | '/$realmId/manage/api-keys/reveal'
+    | '/$realmId/manage/billing/statistics'
     | '/$realmId/manage/billing/subscriptions'
     | '/$realmId/manage/client-apps/new'
     | '/$realmId/manage/points/default-config'
@@ -1592,6 +1615,7 @@ export interface FileRouteTypes {
     | '/manage/billing/entitlement-mappings'
     | '/manage/billing/invoices'
     | '/manage/billing/payment-providers'
+    | '/manage/billing/statistics'
     | '/manage/billing/subscriptions'
     | '/manage/client-apps/new'
     | '/manage/points/default-config'
@@ -1612,6 +1636,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/entitlement-mappings'
     | '/$realmId/manage/billing/invoices'
     | '/$realmId/manage/billing/payment-providers'
+    | '/$realmId/manage/billing/statistics'
     | '/$realmId/manage/billing/subscriptions'
     | '/$realmId/manage/client-apps/new'
     | '/$realmId/manage/points/default-config'
@@ -2040,6 +2065,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManageBillingSubscriptionsRouteImport
       parentRoute: typeof ManageBillingRoute
     }
+    '/manage/billing/statistics': {
+      id: '/manage/billing/statistics'
+      path: '/statistics'
+      fullPath: '/manage/billing/statistics'
+      preLoaderRoute: typeof ManageBillingStatisticsRouteImport
+      parentRoute: typeof ManageBillingRoute
+    }
     '/manage/billing/payment-providers': {
       id: '/manage/billing/payment-providers'
       path: '/payment-providers'
@@ -2453,6 +2485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdManageBillingSubscriptionsRouteImport
       parentRoute: typeof RealmIdManageBillingRoute
     }
+    '/$realmId/manage/billing/statistics': {
+      id: '/$realmId/manage/billing/statistics'
+      path: '/statistics'
+      fullPath: '/$realmId/manage/billing/statistics'
+      preLoaderRoute: typeof RealmIdManageBillingStatisticsRouteImport
+      parentRoute: typeof RealmIdManageBillingRoute
+    }
     '/$realmId/manage/billing/payment-providers': {
       id: '/$realmId/manage/billing/payment-providers'
       path: '/payment-providers'
@@ -2750,6 +2789,7 @@ interface RealmIdManageBillingRouteChildren {
   RealmIdManageBillingEntitlementMappingsRoute: typeof RealmIdManageBillingEntitlementMappingsRouteWithChildren
   RealmIdManageBillingInvoicesRoute: typeof RealmIdManageBillingInvoicesRouteWithChildren
   RealmIdManageBillingPaymentProvidersRoute: typeof RealmIdManageBillingPaymentProvidersRouteWithChildren
+  RealmIdManageBillingStatisticsRoute: typeof RealmIdManageBillingStatisticsRoute
   RealmIdManageBillingSubscriptionsRoute: typeof RealmIdManageBillingSubscriptionsRoute
 }
 
@@ -2762,6 +2802,7 @@ const RealmIdManageBillingRouteChildren: RealmIdManageBillingRouteChildren = {
     RealmIdManageBillingInvoicesRouteWithChildren,
   RealmIdManageBillingPaymentProvidersRoute:
     RealmIdManageBillingPaymentProvidersRouteWithChildren,
+  RealmIdManageBillingStatisticsRoute: RealmIdManageBillingStatisticsRoute,
   RealmIdManageBillingSubscriptionsRoute:
     RealmIdManageBillingSubscriptionsRoute,
 }
@@ -3066,6 +3107,7 @@ interface ManageBillingRouteChildren {
   ManageBillingEntitlementMappingsRoute: typeof ManageBillingEntitlementMappingsRouteWithChildren
   ManageBillingInvoicesRoute: typeof ManageBillingInvoicesRouteWithChildren
   ManageBillingPaymentProvidersRoute: typeof ManageBillingPaymentProvidersRouteWithChildren
+  ManageBillingStatisticsRoute: typeof ManageBillingStatisticsRoute
   ManageBillingSubscriptionsRoute: typeof ManageBillingSubscriptionsRoute
 }
 
@@ -3076,6 +3118,7 @@ const ManageBillingRouteChildren: ManageBillingRouteChildren = {
   ManageBillingInvoicesRoute: ManageBillingInvoicesRouteWithChildren,
   ManageBillingPaymentProvidersRoute:
     ManageBillingPaymentProvidersRouteWithChildren,
+  ManageBillingStatisticsRoute: ManageBillingStatisticsRoute,
   ManageBillingSubscriptionsRoute: ManageBillingSubscriptionsRoute,
 }
 

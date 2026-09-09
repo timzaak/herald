@@ -94,7 +94,8 @@ impl From<PointsConsumptionStats> for PointsConsumptionStatsResponse {
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
-    )
+    ),
+    security(("bearer_auth" = []))
 )]
 pub async fn get_points_consumption_stats(
     State(state): State<AppState>,

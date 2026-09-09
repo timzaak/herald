@@ -47,6 +47,8 @@ import {
   listAuditEvents,
   getAuditEvent,
   getDashboardStats,
+  getPaymentStats,
+  getPointsConsumptionStats,
   emailStatus,
   listApiKeys,
   getApiKey,
@@ -220,6 +222,10 @@ export const queryKeys = {
   auditDetail: (realmId: string, eventId: string) =>
     [QUERY_KEYS.AUDIT_EVENT, realmId, eventId] as const,
   dashboardStats: (realmId: string) => [QUERY_KEYS.DASHBOARD_STATS, realmId] as const,
+  paymentStats: (realmId: string, days: StatisticsWindow) =>
+    [QUERY_KEYS.PAYMENT_STATS, realmId, days] as const,
+  pointsConsumptionStats: (realmId: string, days: StatisticsWindow) =>
+    [QUERY_KEYS.POINTS_CONSUMPTION_STATS, realmId, days] as const,
   featureAvailability: (realmId: string) => [QUERY_KEYS.FEATURE_AVAILABILITY, realmId] as const,
   userFeatureAvailability: () => [QUERY_KEYS.USER_FEATURE_AVAILABILITY] as const,
   apiKeys: (realmId: string, filters: { page?: number; pageSize?: number }) =>
@@ -1166,6 +1172,36 @@ export const dashboardStatsQueryOptions = (realmId: string) =>
     queryKey: queryKeys.dashboardStats(realmId),
     queryFn: async () => {
       const response = await getDashboardStats({ path: { realmId } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+  })
+
+// ==================== Billing Statistics ====================
+
+// The stats endpoints accept only 7 or 30 as the window (days) — anything
+// else answers 400, so the frontend narrows the API's plain number here.
+export type StatisticsWindow = 7 | 30
+
+export const paymentStatsQueryOptions = (realmId: string, days: StatisticsWindow) =>
+  queryOptions({
+    queryKey: queryKeys.paymentStats(realmId, days),
+    queryFn: async () => {
+      const response = await getPaymentStats({ path: { realmId }, query: { days } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+  })
+
+export const pointsConsumptionStatsQueryOptions = (realmId: string, days: StatisticsWindow) =>
+  queryOptions({
+    queryKey: queryKeys.pointsConsumptionStats(realmId, days),
+    queryFn: async () => {
+      const response = await getPointsConsumptionStats({ path: { realmId }, query: { days } })
       if (response.error) throw response.error
       return response.data
     },

@@ -1,7 +1,17 @@
 interface FilterableItem {
-  permission?: string | null
+  permission?: string | string[] | null
   id?: string
   children?: FilterableItem[]
+}
+
+/**
+ * An item passes when the admin holds any one of its required permissions;
+ * a single string behaves exactly like a one-element array.
+ */
+function hasAnyRequiredPermission(item: FilterableItem, permissions: string[]): boolean {
+  if (!item.permission) return true
+  const required = Array.isArray(item.permission) ? item.permission : [item.permission]
+  return required.some((permission) => permissions.includes(permission))
 }
 
 export function filterByPermission<T extends FilterableItem>(
@@ -12,7 +22,7 @@ export function filterByPermission<T extends FilterableItem>(
   return items
     .filter((item) => {
       if (item.id === 'realms' && realmId !== undefined && realmId !== 'admin') return false
-      if (item.permission && !permissions.includes(item.permission)) return false
+      if (!hasAnyRequiredPermission(item, permissions)) return false
       return true
     })
     .map((item) => {

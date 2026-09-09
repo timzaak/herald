@@ -13,6 +13,7 @@ import {
   History,
   FileText,
   ScrollText,
+  BarChart3,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/use-auth'
@@ -32,7 +33,7 @@ interface MenuItem {
   name: string
   path?: string
   icon: LucideIcon
-  permission: string | null
+  permission: string | string[] | null
   visible?: boolean
   children?: MenuItem[]
 }
@@ -121,6 +122,7 @@ export function Sidebar() {
       invoices: m['nav.invoices'],
       'subscription-history': m['nav.subscription_history'],
       'points-wallets': m['nav.points_wallets'],
+      statistics: m['nav.statistics'],
       'audit-log': m['nav.audit_log'],
       settings: m['nav.settings'],
     }
@@ -267,6 +269,13 @@ export function Sidebar() {
             icon: Users,
             permission: PERMISSION.POINTS_VIEW,
             visible: adminFeatures?.pointsVisible ?? true,
+          },
+          {
+            id: 'statistics',
+            name: 'Statistics',
+            path: customDomainPath('/manage/billing/statistics'),
+            icon: BarChart3,
+            permission: [PERMISSION.BILLING_VIEW, PERMISSION.POINTS_VIEW],
           },
         ],
       },
