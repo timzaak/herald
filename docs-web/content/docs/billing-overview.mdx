@@ -72,9 +72,8 @@ Each mapping includes:
 | `entitlement_key` | Internal Herald entitlement identifier (e.g. `pro-plan`) |
 | `bucket_id` | Owning Credit Account. After purchasing this product, credits go into this account's pool |
 | `billing_type` | Billing type: Recurring, OneTime, or Non-renewing |
-| `points_per_period` | Number of credits granted per period |
-| `grant_on_subscribe` | Whether to grant credits on first subscription |
-| `validity_days` | Credit validity in days |
+| `point_rules` | Points distribution rules owned by the mapping. Empty is valid — a role-only mapping or a pure payment record (validity and grant policy live on the rules) |
+| `granted_role_ids` | Roles auto-granted on payment success. Empty = no role grant; see the [paywall configuration guide](/docs/billing-paywall) |
 | `enabled` | Whether it is enabled. When disabled, webhooks still update the subscription projection, but no credits are granted |
 
 The mapping also carries a copy of display info synced from the provider (`provider_product_info`), read-only, used to show the product's original appearance in the admin console, not used for billing:
@@ -208,6 +207,7 @@ Currency rides on the catalog itself: each Stripe Price carries its currency, an
 
 ## Related docs
 
+- [Paywall configuration guide](/docs/billing-paywall) — granted roles on a mapping: payment grants, refunds revoke, and how your application checks the wall
 - [Credit Account user stories](https://github.com/timzaak/herald/blob/main/docs/user-stories/billing/credit-bucket.md) — acceptance scenarios for the Credit Account catalog, coverage sets, purchase-to-pool, cross-pool consumption, and the subscription lifecycle
 - [Stripe integration guide](/docs/billing-stripe-payment) — Stripe provider configuration and webhook handling
 - [Multi-Currency Pricing guide](/docs/billing-multi-currency) — currency preferences, purchase-page grouping, and by-currency price resolution

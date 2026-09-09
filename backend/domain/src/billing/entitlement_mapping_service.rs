@@ -166,20 +166,15 @@ where
                 "billing_period is required for recurring billing_type".to_string(),
             ));
         }
-        // WeChat has no auto-renewal (merchant-initiated deduction is a
-        // separate future feature), so a recurring mapping could never be
-        // fulfilled as configured. PRD models WeChat subscriptions as
-        // non_renewing.
-        if input.payment_provider == "wechat"
-            && matches!(
-                input.billing_type,
-                crate::billing::entities::BillingType::Recurring
-            )
-        {
-            return Err(CoreError::BadRequest(
-                "recurring billing_type is not supported for WeChat; use non_renewing".to_string(),
-            ));
-        }
+        // Channel × billing_type whitelist (PRD pay_model §2.2 — Herald does
+        // not extend the Stripe/Creem product forms; WeChat has no
+        // auto-renewal, PRD models WeChat subscriptions as non_renewing):
+        // non-renewing subscriptions are an IAP product form, and a
+        // Stripe/Creem non_renewing mapping could never be fulfilled as
+        // configured — the next provider product sync would clobber its
+        // billing_type back to recurring while the duration field lingered,
+        // leaving an owned-by-nobody hybrid configuration.
+        validate_provider_billing_type(&input.payment_provider, &input.billing_type)?;
 
         //   - service_duration_days must be present and >= 1 (US-PM-002 scene 2 → 400)
         //   - billing_period must be empty (mutually exclusive billing semantics → 400)
@@ -332,6 +327,47 @@ fn validate_non_renewing(
     Ok(())
 }
 
+/// Channel × billing_type whitelist:
+///   - WeChat has no auto-renewal (merchant-initiated deduction is a separate
+///     future feature), so a recurring mapping could never be fulfilled as
+///     configured — PRD models WeChat subscriptions as non_renewing;
+///   - non-renewing subscriptions are an IAP product form (plus the WeChat
+///     non_renewing modeling). PRD pay_model §2.2 does not extend the
+///     Stripe/Creem product forms, and a non_renewing mapping there would be
+///     clobbered back to recurring by the next provider product sync while
+///     the duration field lingered.
+///
+/// Pure/free function for the same testability reason as
+/// `validate_non_renewing`; `create_mapping` routes through it. The PATCH
+/// path is unaffected — billing_type is immutable on update.
+fn validate_provider_billing_type(
+    payment_provider: &str,
+    billing_type: &crate::billing::entities::BillingType,
+) -> Result<(), CoreError> {
+    if payment_provider == "wechat"
+        && matches!(
+            billing_type,
+            crate::billing::entities::BillingType::Recurring
+        )
+    {
+        return Err(CoreError::BadRequest(
+            "recurring billing_type is not supported for WeChat; use non_renewing".to_string(),
+        ));
+    }
+    if matches!(payment_provider, "stripe" | "creem")
+        && matches!(
+            billing_type,
+            crate::billing::entities::BillingType::NonRenewing
+        )
+    {
+        return Err(CoreError::BadRequest(
+            "non_renewing billing_type is not supported for Stripe/Creem; it is an IAP/WeChat product form"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 ///
 /// WeChat is the only provider whose mapping price is configured by hand
 /// (no hosted catalog to sync from), so the price/currency the caller sends
@@ -432,6 +468,53 @@ mod tests {
         // (Execised via validate_non_renewing with the resolved type.)
         assert!(validate_non_renewing(&BillingType::Recurring, None, None,).is_ok());
         assert!(validate_non_renewing(&BillingType::NonRenewing, None, None,).is_err());
+    }
+
+    #[test]
+    fn provider_billing_type_rejects_stripe_creem_non_renewing() {
+        // PRD pay_model §2.2: Herald does not extend the Stripe/Creem product
+        // forms — non-renewing is an IAP/WeChat form, and a Stripe/Creem
+        // non_renewing row would drift (the product sync writes billing_type
+        // back to recurring while the duration field lingers).
+        for provider in ["stripe", "creem"] {
+            let err =
+                validate_provider_billing_type(provider, &BillingType::NonRenewing).unwrap_err();
+            assert!(
+                matches!(err, CoreError::BadRequest(_)),
+                "{provider} non_renewing accepted"
+            );
+            // The existing forms stay valid on both channels.
+            assert!(validate_provider_billing_type(provider, &BillingType::OneTime).is_ok());
+            assert!(validate_provider_billing_type(provider, &BillingType::Recurring).is_ok());
+        }
+    }
+
+    #[test]
+    fn provider_billing_type_keeps_wechat_recurring_rejection_and_iap_forms() {
+        // WeChat keeps its recurring rejection (no auto-renewal) while its
+        // non_renewing modeling stays valid; IAP channels accept all three
+        // forms.
+        let err = validate_provider_billing_type("wechat", &BillingType::Recurring).unwrap_err();
+        assert!(
+            matches!(err, CoreError::BadRequest(_)),
+            "wechat recurring accepted"
+        );
+        assert!(
+            validate_provider_billing_type("wechat", &BillingType::NonRenewing).is_ok(),
+            "wechat non_renewing is the PRD-modeled subscription form"
+        );
+        for provider in ["apple", "google"] {
+            for billing_type in [
+                BillingType::OneTime,
+                BillingType::NonRenewing,
+                BillingType::Recurring,
+            ] {
+                assert!(
+                    validate_provider_billing_type(provider, &billing_type).is_ok(),
+                    "{provider} {billing_type:?} rejected"
+                );
+            }
+        }
     }
 
     #[test]

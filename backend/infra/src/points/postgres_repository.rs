@@ -1740,10 +1740,12 @@ impl PostgresPointsRepository {
         Ok(select_and_sort_rules_owned(all, trigger))
     }
 
-    /// Load a single rule by id (for `ScheduledRule`). Returns the rule
-    /// regardless of `enabled` state: a scheduled free-periodic period replays
-    /// the schedule-bound rule even if the rule was later disabled, because the
-    /// schedule is the active contract for subsequent periods.
+    /// Load a single rule by id (for `ScheduledRule`). The load itself is
+    /// `enabled`-agnostic: rule disable deactivates the rule's schedules in
+    /// the same transaction (see `upsert_rules_in_tx`), so a due schedule
+    /// implies an enabled rule — except the tiny race where the schedule was
+    /// fetched as due just before the disable, which executes like any event
+    /// already in flight.
     async fn load_single_rule_in_tx(
         tx: &mut Transaction<'_, Postgres>,
         realm_id: &str,

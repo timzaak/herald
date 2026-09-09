@@ -139,7 +139,7 @@
 
 **适用性**: 适用
 
-- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、passkey、white_label、custom_domain、ldap、email_otp、platform_signup、stripe、creem、apple、google、wechat、invoice_policy、turnstile 配置类型（以 ConfigType 枚举为准），以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）
+- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、passkey、white_label、custom_domain、ldap、email_otp、platform_signup、stripe、creem、apple、google、wechat、invoice_policy、turnstile 配置类型（以 ConfigType 枚举为准），以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）。**`custom_domain` 为例外：通用 configs API 对该类型仅放行查询，全部写路径（单个/批量 Upsert、删除）一律 400 拒绝**——该类型的写会绕过专用 custom-domain 端点对 `custom_domain_mapping` 耦合表的同步维护（见 realm-custom-domain.md §2.3），因此 custom_domain 行的写与删必须走专用 custom-domain 端点
 - 访问控制原则：所有接口要求 Realm Admin 权限，操作需通过 Realm 归属校验
 - 数据边界原则：配置数据按 Realm 隔离，不同 Realm 之间不可交叉访问
 - 敏感信息处理：密码、密钥等敏感字段在读取时脱敏返回（is_secret=true 时 config_value 返回 null），仅在写入时接受明文

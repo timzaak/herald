@@ -1,0 +1,116 @@
+---
+title: Paywall configuration (payment-granted roles)
+description: "Configuring granted roles on an Entitlement Mapping is the paywall in Herald: a successful payment grants the roles, refunds and cancellations revoke them, and your application gates access through the existing RBAC runtime."
+---
+
+Configuring granted roles on an Entitlement Mapping is the paywall in Herald: a successful payment grants the roles, refunds and cancellations revoke them, and your application gates access through the existing RBAC runtime.
+
+Herald has no standalone paywall module and does not interpret what a "feature" means. It provides a mapping pipeline: provider product → `entitlement_key` → role → permission. Your application checks permissions as usual; where a permission came from (manual assignment or a payment) is invisible to the checking code.
+
+## Who this is for
+
+Two audiences: the Realm Admin who configures the mappings (requires `billing.manage`), and the developer who gates access in the application. If Credit Accounts, mappings, or subscription projections are new to you, read the [billing architecture](/docs/billing-overview) first.
+
+## Three orthogonal dimensions
+
+Every Entitlement Mapping carries three independent configuration dimensions:
+
+- `billing_type`: the purchase shape (recurring / one_time / non_renewing)
+- points distribution rules: whether credits are granted, how many, and how long they last
+- granted roles: which roles a successful payment unlocks
+
+The dimensions combine freely, and any of them may be empty:
+
+| Combination | Meaning | Repeat purchase | Role revocation |
+|---|---|---|---|
+| recurring + points + role | Membership subscription (credits + unlock) | Renewal re-grants | Canceled, expired, refunded |
+| recurring + no points + role | Pure membership wall (unlock only) | Renewal re-grants | Canceled, expired, refunded |
+| non_renewing + optional points + role | Fixed-term entitlement | Bounded by the active subscription | Expired, canceled, refunded |
+| one_time + points + no role | Points package | Repeatable | Not applicable |
+| one_time + no points + role | Permanent entitlement wall (buyout) | Once per user | Revoked on refund or revocation |
+| one_time + points + role | Buyout bundle | Once per user | Revoked on refund or revocation |
+
+A buyout never expires: `validity_days` constrains only the credits, never the roles. Subscription roles work the same way; `user_roles.expires_at` stores payment-period provenance, permission checks do not filter on it, and revocation is driven by webhook events.
+
+## Configuration walkthrough
+
+### Prerequisites
+
+1. At least one payment provider configured. See the [Stripe](/docs/billing-stripe-payment), [Creem](/docs/billing-creem-payment), [IAP](/docs/billing-iap), and [WeChat Pay](/docs/billing-wechat-payment) integration guides.
+2. The roles to grant, created under role management. The mapping form's role picker lists only non-builtin roles.
+3. Permissions: the sidebar entry needs `billing.view`; creating and editing mappings needs `billing.manage`. Editing the points rules additionally needs `points.manage`.
+
+### Creating the mapping
+
+In the admin console sidebar, Billing → **Entitlement Mappings** → Create, at `/manage/billing/entitlement-mappings/new`. The paywall-relevant fields:
+
+| Field | Description |
+|------|------|
+| `payment_provider` | stripe / creem / apple / google / wechat |
+| `external_product_id` | The provider-side product ID; Stripe also takes `external_price_id` |
+| `entitlement_key` | Internal entitlement identifier, e.g. `pro-plan` |
+| `billing_type` | recurring requires `billing_period`; non_renewing requires `service_duration_days`; WeChat cannot be recurring |
+| `point_rules` | Points distribution rules. Leave empty for a pure entitlement wall; it is not an error |
+| `granted_role_ids` | Role multiselect, several roles allowed. Empty = points-only or payment record only |
+| `price` / `currency` | WeChat only: there is no catalog, so the price (in minor units) is configured on the mapping |
+
+For Stripe and Creem you can also sync the mappings from the provider catalog first and attach the roles on the list page afterwards; the result is the same.
+
+### Editing granted roles
+
+Each product row's editor on the mappings list page has a granted-roles multiselect, saved through the batch update endpoint in a single transaction. Two errors you will meet:
+
+- 400 `role_not_in_realm`: a selected role does not belong to this realm. The picker is realm-scoped; re-select roles from this realm.
+- 409 `mapping_in_use`: the batch tries to disable a row still protected by an active subscription. The whole batch rolled back; deal with the subscription first.
+
+### What the buyer sees
+
+A one_time mapping with granted roles is once per user. The check is two-pronged: the user already holds any of the mapping's granted roles, or a successful payment attempt for the product already exists. When either holds, the purchase page (`/user/purchase-points`) disables the option and marks it "Already owned"; creating a payment attempt directly through the API gets a 409:
+
+```json
+{ "code": "already_owned", "entitlementKey": "pro-plan" }
+```
+
+Concurrent double-buys are caught at the database layer: a partial unique index on `payment_attempts (user_id, target_id) WHERE status='Succeeded' AND is_one_time_role=TRUE` allows at most one to succeed.
+
+Points packages (one_time without roles) are not restricted and stay repeatable; subscription renewals are not restricted either.
+
+## Revocation rules
+
+Role revocation only removes assignments with the payment-granted source. `user_roles.source` distinguishes payment grants from manual ones; a role an administrator assigned by hand survives revocation.
+
+| Scenario | Behavior |
+|------|------|
+| Subscription canceled, expired, refunded | Payment-source roles revoked; minutes-level eventual consistency (webhooks plus the compensation framework) |
+| Subscription renewal | Roles re-granted |
+| non_renewing expired, canceled, refunded | Payment-source roles revoked |
+| Buyout refunded or revoked | That payment's roles revoked |
+| Buyout normally canceled or expired | Roles untouched (one-time = permanent unlock) |
+
+Two edge cases:
+
+- `customer.subscription.deleted` is terminal. A late `invoice.payment_succeeded` renewal after it is rejected as an illegal state transition (400), and revoked roles do not come back.
+- **The WeChat channel has no refund signal.** A merchant-side refund produces no event inside Herald, so a refunded buyout's roles cannot be revoked automatically. To refund, manually remove the user's payment-source roles in Herald first, then run the merchant refund flow.
+
+## Checking the wall in your application
+
+Your application calls no new endpoint and does not need to know whether a role came from a payment or a manual assignment. The recommended setup: attach permission points to the granted role (say `pro:read`), then use the existing RBAC checks:
+
+- Server side: wire the Herald auth middleware from the [third-party integration](/docs/third-party-integration) guide, map request paths to resource/action pairs, and the middleware checks the user's token. Herald has a built-in action hierarchy: `manage` covers `view`, `view` matches only itself.
+- Browser side: [herald-auth-web](/docs/ui-custom) exposes the session snapshot through `client.getStatus()`, which includes the `permissions` array; check it directly.
+- When you need the role list itself, query `GET /api/user/roles` for the current user's roles.
+
+The resource/action vocabulary is defined entirely by your application; Herald neither stores nor interprets feature semantics.
+
+## Pre-launch checklist
+
+1. Buy once: after the payment completes at the provider, the mapping's roles appear on the user (the roles dialog on the admin console Users page, or `GET /api/user/roles`).
+2. Refund once (Stripe / Creem / IAP): the payment-source roles are revoked and a manually assigned role with the same name survives.
+3. Buy the same buyout a second time: the purchase page shows "Already owned", and the API returns 409 `already_owned`.
+4. WeChat channel: confirm the merchant refund runbook includes "manually remove the payment-source roles first", otherwise refunded users keep the roles forever.
+
+## Related docs
+
+- [Billing architecture](/docs/billing-overview) — the overall model of Credit Accounts, Entitlement Mappings, and subscription projections
+- [Third-party integration](/docs/third-party-integration) — the full Herald auth middleware and resource/action permission check wiring
+- [Stripe integration guide](/docs/billing-stripe-payment), [Creem integration guide](/docs/billing-creem-payment), [IAP integration guide](/docs/billing-iap), [WeChat Pay integration guide](/docs/billing-wechat-payment) — provider configuration and webhook handling

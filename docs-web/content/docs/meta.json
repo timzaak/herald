@@ -6,6 +6,7 @@
     "configuration",
     "deployment",
     "billing-overview",
+    "billing-paywall",
     "billing-stripe-payment",
     "billing-multi-currency",
     "billing-creem-payment",

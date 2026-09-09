@@ -285,6 +285,39 @@ pub async fn device_token(
             }));
         }
 
+        // Login consent gate, defense in depth (legal-consent PRD §4.1): the
+        // confirm endpoint already refuses to authorize for a stale-consent
+        // user, but the issuance point itself must never mint a full family
+        // for one either — e.g. an agreement published in the confirm→poll
+        // window. Fail closed: the poll consumes the device code and answers
+        // 403; the user re-consents and restarts the device flow.
+        if herald_api_auth::consent_gate::evaluate_login_consent_gate(
+            &state, &user, &realm_id, None, None, None,
+        )
+        .await
+        .is_some()
+        {
+            audit_oauth_login_failure(
+                &state,
+                &realm_id,
+                &user.id.to_string(),
+                "oauth.device",
+                "consent_required",
+                None,
+                None,
+            )
+            .await;
+            return Err(ApiError::with_json(
+                axum::http::StatusCode::FORBIDDEN,
+                DeviceTokenErrorResponse {
+                    error: "consent_required".to_string(),
+                    error_description:
+                        "The user must accept the current agreements before this device can be authorized"
+                            .to_string(),
+                },
+            ));
+        }
+
         let client_app = state
             .service
             .client_service()

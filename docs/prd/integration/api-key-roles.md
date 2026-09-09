@@ -86,11 +86,12 @@
 ### 4.1 业务规则
 
 - API Key 角色管理需 `roles.manage` 权限（与用户角色分配一致）
+- 授予人权限层级守卫（防提权，与用户角色分配同一约束）：经管理端为 API Key 分配/替换角色时，授予人必须持有目标角色的全部权限（逐条 role policy 校验），否则 403 拒绝（"Cannot assign a role granting a permission you do not hold"）——持有 `roles.manage` 但不持目标角色权限的调用方无法借 API Key 角色替换提权
 - API Key 角色查看需 `api_keys.view` 权限
 - API Key 不允许绑定内置角色（`is_builtin=true`），仅可绑定自定义角色
 - API Key 必须绑定到本 Realm 下存在的 Client App；未显式选择时绑定内置 `admin-api-client`
 - 绑定 `admin-api-client` 的 API Key 保持 Realm 级 ext API 访问范围
-- 绑定普通 Client App 的 API Key 只能访问该 Client App 的订阅、套餐分配、积分消费和权限检查上下文
+- 绑定普通 Client App 的 API Key 只能访问该 Client App 的订阅、套餐分配、积分消费和权限检查上下文；该绑定同样收窄 ext API 的 Client App 列表可见性——绑定普通 Client App 的 Key 即便持有 `clients:view`，`GET /api/ext/realms/{realmId}/client-apps` 也只返回其绑定的 App（未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表）
 - 禁用单个 API Key 只更新该 Key 自身的 `enabled` 状态，不影响内置 Client App
 - 角色替换采用 last-write-wins 语义（与用户角色分配一致）
 - 并发策略不使用乐观锁，前端通过 invalidate 缓存保证 UI 最终一致

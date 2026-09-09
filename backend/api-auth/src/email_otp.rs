@@ -411,15 +411,12 @@ pub async fn send(
         })?;
     }
 
-    // 7. Send the email (inline body; no template-engine change).
-    let brand = realm_brand_name(&state, &realm_id).await;
-    let subject = format!("{brand} 登录验证码");
-    let text = format!("您的 {brand} 验证码：{code}");
-    let html = format!("<p>您的 <strong>{brand}</strong> 验证码：<strong>{code}</strong></p>");
-    // Best-effort: send failure is observable but must not leak code state — the
-    // code is already stored in Redis. We surface the error as 500 so it is
-    // not silently lost.
-    EmailService::send_email(&state.pool, &realm_id, &email, &subject, &text, &html)
+    // 7. Send the email through the template system (default English, like
+    // every other backend mail; per-locale stored templates resolve via
+    // `login_otp:{locale}`). Best-effort: send failure is observable but must
+    // not leak code state — the code is already stored in Redis. We surface
+    // the error as 500 so it is not silently lost.
+    EmailService::send_login_otp_email(&state.pool, &realm_id, &email, &code, None)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -1150,15 +1147,6 @@ async fn record_login_failure(
     {
         tracing::warn!(error = %audit_err, "Failed to record OTP login-failed audit event");
     }
-}
-
-/// Resolve the realm brand name for the OTP email body via the shared helper
-/// in `core::third::email`. Failures degrade to the default rather than
-/// failing the request.
-async fn realm_brand_name(state: &AppState, realm_id: &str) -> String {
-    herald_core::third::email::resolve_realm_brand(&state.pool, realm_id)
-        .await
-        .unwrap_or_else(|_| "Herald".to_string())
 }
 
 #[cfg(test)]

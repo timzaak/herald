@@ -128,7 +128,7 @@
 
 ### 4.1 业务规则
 
-- **凭证类区分**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类，互不混用。`FirstParty` 只能由内置保留 Client App 经 Authorization Code + PKCE 换取；`CustomUserUi` 由 `/login` 直接签发。
+- **凭证类区分**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类，互不混用。`FirstParty` 只能由内置保留 Client App 经 Authorization Code + PKCE 换取；`CustomUserUi` 由 `/login` 直接签发。**例外（switch-client 直签发）**：`POST /api/auth/browser-token/switch-client` 在满足全部前置条件时直接签发 FirstParty family，不走 PKCE——调用方当前须已持 FirstParty 凭据（CustomUserUi 会话不可直跳）、目标限定两个内置 client（admin-web-console / user-account-center）且须与当前 client 不同、切往管理台还须持至少一项管理权限（RBAC 资格校验）；签发后吊销源 family 并记录审计。普通 Client App 即便完成 PKCE 也不升级为 FirstParty。
 - **用户绑定**：两类浏览器 token 都必须绑定单一登录用户，不可为 realm/client 级凭证。
 - **权限控制**：`CustomUserUi` token 的权限上限为明确归类的用户自服务能力（资料/改密码/TOTP/Passkey/注销账号/登出/积分/交易/购买/发票/订阅/订阅取消）；管理员能力和未知能力默认拒绝。`FirstParty` token 执行完整 RBAC，不受该上限约束。该规则由授权层执行，不依赖路由名称。
 - **数据边界**：浏览器 token 只能访问当前登录用户自己的数据；跨用户访问拒绝。
@@ -210,7 +210,7 @@
 - 不同 Client App origin 的 Passkey 相互隔离，既有 Herald RP credential 不被扩展到其他 RP。
 - 找回密码/邮箱验证只引导到对应 Client App 预登记页面，任意回跳 URL 被拒绝。
 - 禁用 Client App 后，其新身份流程和既有浏览器 token 立即失败，其他 Client App 不受影响。
-- `FirstParty` token 只能由内置保留 Client App 经 PKCE 换取，普通 Client App 即便完成 PKCE 也不升级为 FirstParty。
+- `FirstParty` token 只能由内置保留 Client App 经 PKCE 换得，或经满足 §4.1 前置条件的 switch-client 端点直签发（须已持 FirstParty 凭据 + RBAC 资格 + 目标仅限两个内置 client）；普通 Client App 即便完成 PKCE 也不升级为 FirstParty。
 
 ---
 

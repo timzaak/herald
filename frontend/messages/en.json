@@ -336,7 +336,11 @@
     "authorization_successful": "Authorization successful.",
     "return_to_device": "Please return to your device.",
     "authorization_denied": "Authorization denied.",
-    "verify_button": "Verify"
+    "verify_button": "Verify",
+    "consent_title": "Agree to Continue",
+    "consent_description": "Before authorizing this device, you must review and accept the current agreements.",
+    "agree_and_continue": "Agree and Continue",
+    "consent_cancel": "Cancel"
   },
   "permissions": {
     "name_required": "Permission name is required",
@@ -420,7 +424,15 @@
     "permissions_removed_count": "{count} permission(s) removed",
     "permissions_save_failed": "Failed to save permissions: {message}",
     "no_permissions_available": "No permissions available",
-    "builtin_permission_alert": "Built-in permissions cannot be removed from built-in roles. You can still add custom permissions."
+    "builtin_permission_alert": "Built-in permissions cannot be removed from built-in roles. You can still add custom permissions.",
+    "permissions_available": "Available",
+    "permissions_selected": "Selected",
+    "permissions_search_placeholder": "Search permissions...",
+    "permissions_no_match": "No matching permissions",
+    "permissions_selected_empty": "No permissions selected yet",
+    "permissions_move_right": "Add selected ({count})",
+    "permissions_move_left": "Remove selected ({count})",
+    "permissions_select_all": "Select all"
   },
   "profile": {
     "passwords_dont_match": "Passwords don't match",
@@ -706,7 +718,7 @@
     "form_clear": "Clear",
     "form_roles_label": "Roles (Optional)",
     "form_roles_placeholder": "Select roles to assign after creation",
-    "form_roles_help": "Selected roles will be assigned to the API key after creation.",
+    "form_roles_help": "Only custom roles can be assigned to an API key; builtin roles (e.g. realm-admin, user) are not allowed. Selected roles will be bound after creation. If no roles are listed, create a custom role under Roles first.",
     "form_cancel": "Cancel",
     "form_creating": "Creating...",
     "form_saving": "Saving...",
@@ -727,7 +739,7 @@
     "roles_dialog_loading": "Loading roles...",
     "roles_dialog_assign_label": "Assign Roles",
     "roles_dialog_placeholder": "Select roles to assign",
-    "roles_dialog_help": "Select one or more roles to assign to this API key",
+    "roles_dialog_help": "Only custom roles can be assigned to an API key; builtin roles are not allowed. Changes take effect immediately.",
     "roles_dialog_close": "Close",
     "roles_update_failed": "Failed to update API key roles",
     "name_required": "Name is required",
@@ -1899,7 +1911,6 @@
     "mapping_update_success": "Mapping updated",
     "mapping_update_failed": "Failed to update mapping",
     "statistics_title": "Statistics",
-    "statistics_subtitle": "Payment and points consumption overview for your realm",
     "statistics_window_7": "Last 7 days",
     "statistics_window_30": "Last 30 days",
     "statistics_window_days": "Last {days} days",

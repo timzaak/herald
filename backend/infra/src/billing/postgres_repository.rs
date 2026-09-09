@@ -1290,6 +1290,33 @@ impl PostgresBillingRepository {
                     .execute(&mut **tx)
                     .await
                     .map_err(|e| CoreError::DatabaseError(format!("Failed to update rule: {}", e)))?;
+                    // PRD multi-wallet-grant-rules §4.5/§5.2: a disabled rule
+                    // must not execute for subsequent business events, and
+                    // every scheduled free-periodic period IS a subsequent
+                    // event — deactivate the rule's bound schedules in the
+                    // same transaction so the scheduler stops granting.
+                    // Deliberately one-way: schedules are also deactivated by
+                    // the free→paid transition and by completion (max_periods),
+                    // which a re-enable must not resurrect; re-enabling only
+                    // affects future first executions (each new user's initial
+                    // grant creates its own schedule).
+                    if !resolved.enabled {
+                        sqlx::query(
+                            "UPDATE points_grant_schedules \
+                             SET active = FALSE, updated_at = NOW() \
+                             WHERE realm_id = $1 AND distribution_rule_id = $2 AND active = TRUE",
+                        )
+                        .bind(realm_id)
+                        .bind(rule_id)
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|e| {
+                            CoreError::DatabaseError(format!(
+                                "Failed to deactivate schedules for disabled rule: {}",
+                                e
+                            ))
+                        })?;
+                    }
                 }
                 // None (or nil) → create a new rule under the owner.
                 _ => {

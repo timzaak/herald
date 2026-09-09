@@ -690,3 +690,122 @@ fn test_multi_wallet_grant_rule_openapi_removes_singular_contract_fields() {
         "bucketId remains legal at rule level"
     );
 }
+
+// PRD multi-wallet-grant-rules §4.5/§5.2: a disabled rule must not execute for
+// subsequent business events — and every scheduled free-periodic period IS a
+// subsequent event. Disabling the rule through the admin registration-rules
+// upsert must therefore deactivate the rule's bound schedules, or the
+// scheduler (and the read-path realization backstop) keeps granting periods
+// from a rule the admin believes is stopped.
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_multi_wallet_disabling_rule_deactivates_bound_free_periodic_schedules(
+    ctx: &mut SchemaTestContext,
+) {
+    use crate::tests::helpers::billing_helpers::setup_billing_admin_session;
+    use crate::tests::helpers::points_helpers::{
+        create_free_grant_schedule, create_test_third_party_identity,
+    };
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
+    };
+    use chrono::Duration;
+    use tower::ServiceExt;
+
+    let realm_id = ctx._realm_id.clone();
+    let user_id = seed_account(ctx).await;
+
+    // A due monthly free-periodic schedule bound to its (enabled) rule.
+    let schedule_id = create_free_grant_schedule(
+        ctx,
+        user_id,
+        &realm_id,
+        "monthly",
+        100,
+        30,
+        Utc::now() - Duration::hours(1),
+        0,
+        "",
+    )
+    .await;
+    let (rule_id, bucket_id): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT r.id, r.bucket_id FROM points_grant_schedules s \
+         JOIN points_distribution_rules r ON r.id = s.distribution_rule_id \
+         WHERE s.id = $1",
+    )
+    .bind(schedule_id)
+    .fetch_one(&ctx.app_state.pool)
+    .await
+    .expect("schedule must resolve to its bound rule");
+
+    // Admin disables the rule through the real registration-rules upsert.
+    let token = setup_billing_admin_session(ctx, "multi-wallet-disable-rule@example.com").await;
+    let app = ctx.create_unified_test_router();
+    let body = serde_json::json!({"rules": [{
+        "id": rule_id,
+        "bucketId": bucket_id,
+        "triggerSources": ["free_periodic_grant"],
+        "grantMode": "fixed",
+        "pointsAmount": 100,
+        "validityDays": 30,
+        "grantPeriodType": "monthly",
+        "enabled": false,
+        "displayOrder": 0
+    }]});
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/points/{}/registration-rules", realm_id))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "rule disable must succeed"
+    );
+    let _ = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+    // The bound schedule is deactivated in the same transaction: the scheduler
+    // never fetches it again and the read-path realization skips it too.
+    let schedule_active: bool =
+        sqlx::query_scalar("SELECT active FROM points_grant_schedules WHERE id = $1")
+            .bind(schedule_id)
+            .fetch_one(&ctx.app_state.pool)
+            .await
+            .unwrap();
+    assert!(
+        !schedule_active,
+        "disabling the rule must deactivate its bound free-periodic schedule"
+    );
+
+    // End-to-end proof: the due period stays unrealized through the read-path
+    // backstop (get_balance triggers inline realization for active schedules).
+    let identity = create_test_third_party_identity(&realm_id);
+    let balance = ctx
+        .app_state
+        .points_service
+        .get_balance(identity, &realm_id, user_id)
+        .await
+        .expect("get_balance must succeed");
+    assert_eq!(
+        balance.free_periodic_balance, 0,
+        "a disabled rule's schedule must not grant, even via read-path realization"
+    );
+    let grant_records: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM points_grant_records WHERE schedule_id = $1")
+            .bind(schedule_id)
+            .fetch_one(&ctx.app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        grant_records, 0,
+        "no period may be granted after the disable"
+    );
+}

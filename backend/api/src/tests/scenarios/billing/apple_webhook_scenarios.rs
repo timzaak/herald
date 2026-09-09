@@ -920,4 +920,169 @@ mod tests {
         .unwrap();
         assert_eq!(event_count, 1, "retry keyed on the billing_retry outcome");
     }
+
+    /// User Story: US-IAP-004 / PRD support-iap §4.1 (recurring REFUND must
+    /// update the subscription state and claw back subscription-sourced
+    /// entitlements).
+    ///
+    /// A verified REFUND for a `recurring` mapping must move the active
+    /// subscription to `canceled`, revoke the subscription's payment-source
+    /// role (source_id = subscription.id, the source `handle_subscription_paid`
+    /// grants under) while preserving manual grants, and record its own
+    /// idempotency event — a replay of the same notification must dedupe to a
+    /// no-op. This pins the symmetry with the EXPIRED path (and with Google
+    /// voided / Stripe charge.refunded); the pre-fix behavior logged the
+    /// notification and recorded the event without any revoke, permanently
+    /// deduping the reconciliation replay.
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_refund_cancels_recurring_subscription_and_revokes_source_roles(
+        ctx: &mut AppleWebhookContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let mapping_id =
+            insert_apple_mapping(ctx, &realm_id, "prod.recur", "recurring", None).await;
+        let user_id =
+            seed_apple_owner_and_subscription(ctx, &realm_id, "orig-refund-1", "prod.recur").await;
+        let subscription_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM subscription
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_subscription_id = 'orig-refund-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("seeded subscription must resolve");
+
+        // The recurring refund path first resolves the originating
+        // payment_attempt by provider_reference = originalTransactionId.
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference, provider_status,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'apple', 'entitlement_mapping', $4,
+                     999, 'usd', 'Succeeded', 'orig-refund-1', 'succeeded',
+                     NOW() + INTERVAL '1 hour', NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed recurring purchase attempt");
+
+        // Payment-source role granted under the subscription (as
+        // handle_subscription_paid grants it) + a manual role for contrast.
+        let role_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO roles (id, name, realm_id, client_id, is_builtin)
+             VALUES ($1, $2, $3, $4, false)",
+        )
+        .bind(role_id)
+        .bind("apple-recurring-refund-role")
+        .bind(&realm_id)
+        .bind(&ctx._client_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("create role");
+        for (source, source_id) in [
+            ("payment", Some(subscription_id.to_string())),
+            ("manual", None),
+        ] {
+            sqlx::query(
+                "INSERT INTO user_roles
+                    (id, user_id, role_id, realm_id, client_id, principal_type, principal_id,
+                     source, source_id, expires_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $2::text, $7, $8, NULL)",
+            )
+            .bind(Uuid::now_v7())
+            .bind(user_id)
+            .bind(role_id)
+            .bind(&realm_id)
+            .bind(&ctx._client_id)
+            .bind(principal_types::USER)
+            .bind(source)
+            .bind(source_id)
+            .execute(&ctx.app_state.pool)
+            .await
+            .expect("seed role grant");
+        }
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"REFUND","notificationUUID":"uuid-refund-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-refund-1","productId":"prod.recur"}"#,
+        );
+
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("recurring REFUND must process");
+
+        let (status, _) = subscription_row(ctx, &realm_id, "orig-refund-1").await;
+        assert_eq!(
+            status, "canceled",
+            "recurring REFUND must flip active → canceled (PRD support-iap §4.1)"
+        );
+
+        let payment_roles: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM user_roles
+             WHERE user_id = $1 AND source = 'payment' AND source_id = $2",
+        )
+        .bind(user_id)
+        .bind(subscription_id.to_string())
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            payment_roles, 0,
+            "the subscription's payment-source role must be revoked by the refund"
+        );
+        let manual_roles: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM user_roles
+             WHERE user_id = $1 AND source = 'manual'",
+        )
+        .bind(user_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(manual_roles, 1, "manual grants survive the refund revoke");
+
+        // Same quoted-variant key format as the EXPIRED test.
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'apple:orig-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "refund records its own idempotency event");
+
+        // Apple redelivers: the replay must dedupe (single event row, no error).
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("replayed recurring REFUND must still succeed (deduped)");
+        let (status, _) = subscription_row(ctx, &realm_id, "orig-refund-1").await;
+        assert_eq!(
+            status, "canceled",
+            "replay must not resurrect the subscription"
+        );
+    }
 }

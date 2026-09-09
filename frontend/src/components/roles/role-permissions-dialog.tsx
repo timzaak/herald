@@ -12,7 +12,7 @@ import { Shield, Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { assignPermissionToRole, removePermissionFromRole } from '@/lib/api-generated'
-import { PermissionCheckboxList } from './permission-checkbox-list'
+import { PermissionTransfer } from './permission-transfer'
 import { useRealmId } from '@/stores/auth-store'
 import type { RoleResponse, PermissionResponse } from '@/lib/api-generated'
 import { queryKeys } from '@/data/query-options'
@@ -103,7 +103,7 @@ export function RolePermissionsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col"
+        className="sm:max-w-5xl max-h-[80vh] overflow-hidden flex flex-col"
         data-testid="role-permissions-dialog"
       >
         <DialogHeader className="flex-shrink-0">
@@ -131,15 +131,14 @@ export function RolePermissionsDialog({
             )}
           </div>
 
-          {/* Permission list */}
-          <PermissionCheckboxList
+          {/* Permission transfer */}
+          <PermissionTransfer
             permissions={allPermissions}
             assignedPermissionIds={localAssignedIds}
             onTogglePermission={handleTogglePermission}
             isBuiltinRole={role.isBuiltin}
             disabled={saveMutation.isPending}
-            className="space-y-6"
-            data-testid="role-permissions-checkbox-list"
+            dataTestId="role-permissions-transfer"
           />
         </div>
 

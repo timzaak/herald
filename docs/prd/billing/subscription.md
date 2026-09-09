@@ -170,8 +170,9 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 管理员可查看同步状态（最后同步时间、同步来源、同步结果）
 
 **购买对象统一**：
-- 购买目标统一为 entitlement_mapping，通过 mapping 的 billing_type 决定履约
+- 购买目标统一为 entitlement_mapping，通过 mapping 的 billing_type 决定履约（三分模型口径见 pay_model.md §2.2/§4）
 - billing_type=one_time → 发放 topup_credit，不创建 subscription
+- billing_type=non_renewing → 创建固定服务期的订阅记录，到期不自动续费（履约细节以 pay_model.md 为准）
 - billing_type=recurring → 创建/更新 subscription，积分由后续 webhook 事件触发
 
 **One-time vs Recurring Webhook 分发规则**：
@@ -407,7 +408,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - **退款边界**：支付平台处理金额退款，Herald 处理积分回收。退款不作为独立订阅状态，`refund.created`/`charge.refunded` 事件仅记录审计日志并触发积分回收，不改变订阅状态
 - **订阅过期降级**：订阅过期后状态变为 expired/canceled；具体权限降级由第三方应用根据 `entitlement_key` 和订阅状态处理
 - **One-time 购买不创建 subscription**：one-time 购买发放 topup_credit，不创建 subscription 记录
-- **billing_type 决定履约路径**：entitlement_mapping 的 billing_type 区分 one-time 和 recurring 购买
+- **billing_type 决定履约路径**：entitlement_mapping 的 billing_type 按 pay_model.md 的三分模型区分履约——one_time（发放 topup_credit，不建订阅）、non_renewing（创建固定服务期订阅，见 pay_model.md）、recurring（创建/更新自动续期订阅）
 - **促销策略委托支付平台**：Herald 不在本地实现促销逻辑，由支付平台优惠券/折扣码管理
 - **购买历史数据源**：基于支付尝试记录和积分交易记录查询，不依赖本地产品目录
 

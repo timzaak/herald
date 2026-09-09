@@ -1504,3 +1504,109 @@ async fn test_api_key_roles_use_realm_api_key_client_id(ctx: &mut TestContext) {
         "user_roles.user_id must be NULL for API key principal"
     );
 }
+
+// =============================================================================
+// Scenario 13: PUT rejects a role whose permissions the grantor does not hold
+// (grantor self-hold guard — permissions PRD §4.1 rule 3, mirrored on the
+// API-key role replacement path)
+// =============================================================================
+
+// WHY this matters: `roles.manage` alone must not become an escalation
+// primitive. A caller holding only roles.manage must not be able to arm an
+// API key with a role granting permissions they do not hold themselves —
+// the API key would then act with powers beyond its grantor. The guard is
+// the same require_role_grant_hierarchy rule the user-role assignment path
+// enforces.
+//
+// Given a caller holding roles.manage but NOT users.manage,
+// And a custom role carrying users.manage,
+// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with that role,
+// Then response is 403 Forbidden and no roles are assigned;
+// After the caller is granted users.manage, the same PUT succeeds.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_replace_api_key_roles_grantor_must_hold_target_role_permissions(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+
+    // Given: a caller with roles.manage only (no users.manage; api_keys.view
+    // so the GET verification below is authorized).
+    let (token, admin_id) =
+        create_admin_session_with_user(ctx, "apikey-roles-selfhold@test.com", 1800).await;
+    grant_single_permission(ctx, &admin_id, "roles", "manage").await;
+    grant_single_permission(ctx, &admin_id, "api_keys", "view").await;
+
+    // Given: a custom role carrying users.manage that the caller does not hold.
+    let role_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles (id, name, description, realm_id, client_id, is_builtin)
+         VALUES ($1, $2, $3, $4, $5, false)",
+    )
+    .bind(role_id)
+    .bind("apikey-selfhold-role")
+    .bind("Role carrying users.manage for the self-hold guard test")
+    .bind(&ctx._realm_id)
+    .bind(&ctx._client_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("Failed to seed target role");
+    sqlx::query(
+        "INSERT INTO role_policies (id, role_id, realm_id, resource, action)
+         VALUES ($1, $2, $3, 'users', 'manage')",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(role_id)
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("Failed to seed target role policy");
+
+    let key_id = seed_api_key(ctx).await;
+
+    // When: the under-privileged grantor assigns the role.
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "grantor without the target role's permissions must be refused (self-hold guard)"
+    );
+
+    // And: nothing was assigned.
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp_json: serde_json::Value = response_json(resp).await;
+    assert!(
+        resp_json["roles"].as_array().is_some_and(|r| r.is_empty()),
+        "no roles may be assigned after the guard refusal"
+    );
+
+    // When: the caller is granted users.manage, the same PUT succeeds.
+    grant_single_permission(ctx, &admin_id, "users", "manage").await;
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "grantor holding every target role permission must be allowed"
+    );
+}

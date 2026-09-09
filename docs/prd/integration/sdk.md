@@ -88,7 +88,8 @@
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限，普通 Realm 的 API Key 不可创建 Realm（RBAC 初始化仅对 admin realm 注册 `realm:manage` 权限）
 - 严格的目标资源等值边界：用户、Client App 等带目标 Realm 的操作要求 Principal 所属 Realm 与目标 Realm 严格相等；唯一的平台视图例外是 Admin Realm Principal 持 `realm.view` 调用 Realm 列表时返回全平台列表，普通 Realm Principal 只返回自身 Realm
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
-- 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
+- Client App 绑定的列表可见性收窄：绑定普通 Client App 的 Key 调用 ext API 的 Client App 列表（`clients.view`）时只返回其绑定的 App；未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md) §4.1）
+- 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色；分配/替换同样受授予人权限层级守卫约束（授予人须持目标角色全部权限）
 
 ### 4.2 关键状态与异常
 
@@ -139,7 +140,8 @@
 - Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限
 - Realm 等值边界：目标资源操作对所有 Principal 一律要求所属 Realm 与目标 Realm 严格相等；Admin Realm `realm.view` 只对 Realm 列表提供平台视图，不授权跨 Realm 修改用户或 Client App
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
-- 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色
+- Client App 绑定的列表可见性收窄：绑定普通 Client App 的 Key 调用 ext API 的 Client App 列表（`clients.view`）时只返回其绑定的 App；未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md) §4.1）
+- 角色分配：API Key 的角色通过管理后台由 Realm Admin 分配（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md)），API Key 不允许绑定内置角色；分配/替换同样受授予人权限层级守卫约束（授予人须持目标角色全部权限）
 
 ### 输入验证规则
 

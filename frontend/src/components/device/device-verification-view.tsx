@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { deviceVerify, deviceConfirm } from '@/lib/api-generated'
-import type { DeviceVerifyResponse } from '@/lib/api-generated'
+import { deviceVerify, deviceConfirm, recordConsent } from '@/lib/api-generated'
+import type { DeviceVerifyResponse, LegalAgreementSummary } from '@/lib/api-generated'
 import { AuthPageWrapper } from '@/components/auth/auth-page-wrapper'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CodeInput } from '@/components/device/code-input'
 import { AuthorizeConfirm } from '@/components/device/authorize-confirm'
+import { ConsentAgreementsPanel } from '@/components/legal/ConsentAgreementsPanel'
 import { getErrorMessage } from '@/lib/error-utils'
 import { filterAndFormat, toBackendCode } from './device-code-utils'
 import { m } from '@/paraglide/messages'
@@ -25,6 +26,9 @@ export function DeviceVerificationView({ realmId, initialCode }: DeviceVerificat
   const [verifyResponse, setVerifyResponse] = useState<DeviceVerifyResponse | null>(null)
   const [resultCode, setResultCode] = useState<'approved' | 'denied' | null>(null)
   const [userCode, setUserCode] = useState(initialCode ?? '')
+  // Set when the backend consent gate blocks an approval: the device stays
+  // verified, so recording consent and re-confirming completes the flow.
+  const [consentAgreements, setConsentAgreements] = useState<LegalAgreementSummary[] | null>(null)
 
   const verifyMutation = useMutation({
     mutationFn: async (code: string) => {
@@ -57,8 +61,35 @@ export function DeviceVerificationView({ realmId, initialCode }: DeviceVerificat
     },
     onSuccess: (data) => {
       setError(null)
+      if (data.consent_required && data.agreements && data.agreements.length > 0) {
+        setConsentAgreements(data.agreements)
+        return
+      }
+      setConsentAgreements(null)
       setResultCode(data.status === 'authorized' ? 'approved' : 'denied')
       setPageState('result')
+    },
+    onError: (err: unknown) => {
+      setError(getErrorMessage(err))
+    },
+  })
+
+  const consentMutation = useMutation({
+    mutationFn: async (agreements: LegalAgreementSummary[]) => {
+      const response = await recordConsent({
+        body: {
+          agreements: agreements.map((a) => ({
+            agreement_type: a.agreement_type,
+            version_id: a.version_id,
+          })),
+        },
+        path: { realmId },
+      })
+      if (response.error) throw response.error
+    },
+    onSuccess: () => {
+      setConsentAgreements(null)
+      confirmMutation.mutate(true)
     },
     onError: (err: unknown) => {
       setError(getErrorMessage(err))
@@ -84,6 +115,11 @@ export function DeviceVerificationView({ realmId, initialCode }: DeviceVerificat
 
   function handleConfirm(approved: boolean) {
     confirmMutation.mutate(approved)
+  }
+
+  function handleConsentDecline() {
+    setConsentAgreements(null)
+    setError(null)
   }
 
   return (
@@ -117,12 +153,27 @@ export function DeviceVerificationView({ realmId, initialCode }: DeviceVerificat
             </div>
           )}
 
-          {pageState === 'confirmed' && verifyResponse && (
+          {pageState === 'confirmed' && verifyResponse && !consentAgreements && (
             <AuthorizeConfirm
               clientAppName={verifyResponse.client_app_name}
               clientAppIconUrl={verifyResponse.client_app_icon_url}
               onConfirm={handleConfirm}
               isLoading={confirmMutation.isPending}
+            />
+          )}
+
+          {pageState === 'confirmed' && consentAgreements && (
+            <ConsentAgreementsPanel
+              realmId={realmId}
+              agreements={consentAgreements}
+              isPending={consentMutation.isPending}
+              title={m['device.consent_title']()}
+              description={m['device.consent_description']()}
+              agreeLabel={m['device.agree_and_continue']()}
+              declineLabel={m['device.consent_cancel']()}
+              onAgree={() => consentMutation.mutate(consentAgreements)}
+              onDecline={handleConsentDecline}
+              testIdPrefix="device"
             />
           )}
 

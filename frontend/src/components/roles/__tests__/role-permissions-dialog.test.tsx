@@ -177,7 +177,7 @@ describe('RolePermissionsDialog', () => {
     expect(saveButton).toBeDisabled()
   })
 
-  it('GIVEN user toggles a permission WHEN toggled THEN Save button should be enabled', async () => {
+  it('GIVEN user checks an available permission and moves it right WHEN moved THEN Save button should be enabled', async () => {
     const customRole = { ...mockRole, isBuiltin: false }
     render(
       <RolePermissionsDialog
@@ -191,15 +191,16 @@ describe('RolePermissionsDialog', () => {
       { wrapper }
     )
 
-    // permission 2 is not assigned, click to assign
-    const checkbox = screen.getByTestId('permission-checkbox-2')
-    await userEvent.click(checkbox)
-
+    // permission 2 is not assigned, check it on the left pane and move it right
+    await userEvent.click(screen.getByTestId('permission-checkbox-2'))
     const saveButton = screen.getByTestId('role-permissions-save-button')
+    expect(saveButton).toBeDisabled()
+    await userEvent.click(screen.getByTestId('permission-move-right'))
+
     expect(saveButton).toBeEnabled()
   })
 
-  it('GIVEN user toggles permissions and saves WHEN Save clicked THEN should fire batch API calls', async () => {
+  it('GIVEN user moves permissions between panes and saves WHEN Save clicked THEN should fire batch API calls', async () => {
     const customRole = { ...mockRole, isBuiltin: false }
     render(
       <RolePermissionsDialog
@@ -213,10 +214,12 @@ describe('RolePermissionsDialog', () => {
       { wrapper }
     )
 
-    // Assign permission 2
+    // Assign permission 2: check on the left pane, move right
     await userEvent.click(screen.getByTestId('permission-checkbox-2'))
-    // Remove permission 1
+    await userEvent.click(screen.getByTestId('permission-move-right'))
+    // Remove permission 1: it lives on the right pane, check it and move left
     await userEvent.click(screen.getByTestId('permission-checkbox-1'))
+    await userEvent.click(screen.getByTestId('permission-move-left'))
 
     const saveButton = screen.getByTestId('role-permissions-save-button')
     await userEvent.click(saveButton)

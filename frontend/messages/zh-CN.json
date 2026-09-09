@@ -336,7 +336,11 @@
     "authorization_successful": "授权成功。",
     "return_to_device": "请返回您的设备。",
     "authorization_denied": "授权已拒绝。",
-    "verify_button": "验证"
+    "verify_button": "验证",
+    "consent_title": "同意后继续",
+    "consent_description": "授权该设备前，需查看并同意当前生效的协议。",
+    "agree_and_continue": "同意并继续",
+    "consent_cancel": "取消"
   },
   "permissions": {
     "name_required": "权限名称为必填项",
@@ -420,7 +424,15 @@
     "permissions_removed_count": "已移除 {count} 个权限",
     "permissions_save_failed": "保存权限失败：{message}",
     "no_permissions_available": "暂无可用权限",
-    "builtin_permission_alert": "内置权限不能从内置角色中移除，但您可以添加自定义权限。"
+    "builtin_permission_alert": "内置权限不能从内置角色中移除，但您可以添加自定义权限。",
+    "permissions_available": "可分配",
+    "permissions_selected": "已选",
+    "permissions_search_placeholder": "搜索权限...",
+    "permissions_no_match": "没有匹配的权限",
+    "permissions_selected_empty": "尚未选择任何权限",
+    "permissions_move_right": "移入所选（{count} 项）",
+    "permissions_move_left": "移出所选（{count} 项）",
+    "permissions_select_all": "全选"
   },
   "profile": {
     "passwords_dont_match": "两次输入的密码不一致",
@@ -706,7 +718,7 @@
     "form_clear": "清除",
     "form_roles_label": "角色（可选）",
     "form_roles_placeholder": "选择创建后要分配的角色",
-    "form_roles_help": "选定的角色将在创建后分配给此 API 密钥。",
+    "form_roles_help": "API 密钥仅可绑定自定义角色，内置角色（如 realm-admin、user）不允许绑定。选定的角色将在创建后分配；若列表为空，请先在「角色」页面创建自定义角色。",
     "form_cancel": "取消",
     "form_creating": "创建中...",
     "form_saving": "保存中...",
@@ -727,7 +739,7 @@
     "roles_dialog_loading": "加载角色中...",
     "roles_dialog_assign_label": "分配角色",
     "roles_dialog_placeholder": "选择要分配的角色",
-    "roles_dialog_help": "选择一个或多个角色分配给此 API 密钥",
+    "roles_dialog_help": "API 密钥仅可绑定自定义角色，内置角色不允许绑定。更改将立即生效。",
     "roles_dialog_close": "关闭",
     "roles_update_failed": "更新 API 密钥角色失败",
     "name_required": "名称为必填项",
@@ -1896,7 +1908,6 @@
     "mapping_update_success": "映射已更新",
     "mapping_update_failed": "更新映射失败",
     "statistics_title": "统计",
-    "statistics_subtitle": "本 Realm 的支付与积分消耗总览",
     "statistics_window_7": "最近 7 天",
     "statistics_window_30": "最近 30 天",
     "statistics_window_days": "最近 {days} 天",

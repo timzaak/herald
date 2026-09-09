@@ -1200,7 +1200,9 @@ pub async fn process_apple_notification_decoded(
 /// `OneTime` revokes permanent payment roles (source_id = attempt.id) plus any
 /// topup credits granted from that attempt. `NonRenewing` sets the subscription
 /// to Expired and revokes its payment roles (source_id = subscription.id).
-/// `Recurring` is a no-op — recurring refund/cancel flows through the existing
+/// `Recurring` cancels the subscription and routes the immediate-cancel
+/// revocation (subscription-sourced points + payment roles) the EXPIRED path
+/// uses.
 ///
 /// Idempotency: a dedicated payment_event keyed on
 /// `{originalTransactionId}:{notificationType}` so a replay does not re-revoke
@@ -1371,14 +1373,24 @@ async fn process_apple_refund_or_revoke(
             }
         }
         BillingType::Recurring => {
-            // "Recurring => 维持现有行为"). Recurring refund/cancel flows through
-            // the existing subscription sync path. Log and treat as processed.
-            tracing::info!(
-                realm_id = %realm_id,
-                original_transaction_id = %original_transaction_id,
-                notification_type = %notification_type_str,
-                "apple REFUND/REVOKE for recurring billing_type — recurring flows through existing sync path"
-            );
+            // PRD support-iap §4.1: a recurring REFUND/REVOKE must update the
+            // subscription state and claw back subscription-sourced points and
+            // roles. We route through the same immediate-cancel the EXPIRED
+            // path applies (and Google voided / Stripe charge.refunded use),
+            // so a refunded buyer loses the entitlement on every provider
+            // symmetrically. Without this the recorded idempotency event below
+            // would also permanently dedupe the reconciliation job's targeted
+            // replay, stranding the drift at the diagnostic layer.
+            apple_terminal_cancel_and_revoke(
+                state,
+                realm_id,
+                original_transaction_id,
+                &synthetic_event_id,
+                &notification_type_str,
+                product_id,
+                AppleTerminalKind::Refund,
+            )
+            .await?;
         }
     }
 
@@ -1658,6 +1670,109 @@ async fn process_apple_renewal(
     Ok(())
 }
 
+/// Which terminal Apple notification is being applied — drives the status
+/// flip and revoke semantics in `apple_terminal_cancel_and_revoke`.
+#[derive(Clone, Copy)]
+enum AppleTerminalKind {
+    /// REFUND/REVOKE on a recurring product: the plan is canceled at the
+    /// refund moment (`cancel_at`) and the already-paid period's end is
+    /// forwarded to the revoke.
+    Refund,
+    /// EXPIRED / GRACE_PERIOD_EXPIRED: natural end of the plan, no cancel
+    /// timestamp and no period end to forward.
+    Expiry,
+}
+
+/// Terminal Apple lifecycle handling shared by the recurring REFUND/REVOKE
+/// branch and `process_apple_expiration`: load the subscription, flip it to
+/// the kind's terminal status (best-effort persist), then revoke through the
+/// same immediate-cancel every provider's terminal notification applies.
+async fn apple_terminal_cancel_and_revoke(
+    state: &AppState,
+    realm_id: &str,
+    original_transaction_id: &str,
+    synthetic_event_id: &str,
+    notification_type_str: &str,
+    product_id: &str,
+    kind: AppleTerminalKind,
+) -> Result<(), CoreError> {
+    let Some(mut subscription) = apple_subscription_for_lifecycle(
+        state,
+        realm_id,
+        original_transaction_id,
+        synthetic_event_id,
+        notification_type_str,
+        product_id,
+        "no_subscription",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let user_id = subscription.user_id;
+    let subscription_id = subscription.id;
+    let entitlement_key = subscription.entitlement_key.clone();
+    let period_end = match kind {
+        AppleTerminalKind::Refund => subscription.current_period_end,
+        AppleTerminalKind::Expiry => None,
+    };
+
+    if subscription.status != kind.terminal_status() {
+        subscription.status = kind.terminal_status();
+        if matches!(kind, AppleTerminalKind::Refund) {
+            subscription.cancel_at = Some(Utc::now());
+        }
+        subscription.synced_at = Some(Utc::now());
+        subscription.updated_at = Utc::now();
+        if let Err(e) = state
+            .billing_repository
+            .update_subscription(subscription)
+            .await
+        {
+            tracing::warn!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                error = %e,
+                "{}",
+                kind.update_failure_label()
+            );
+        }
+    }
+
+    state
+        .subscription_service
+        .handle_subscription_cancel(
+            user_id,
+            realm_id,
+            subscription_id,
+            herald_core::domain::points::subscription_service::CancelMode::ImmediateCancel,
+            period_end,
+            Some(&entitlement_key),
+        )
+        .await?;
+    Ok(())
+}
+
+impl AppleTerminalKind {
+    fn terminal_status(self) -> SubscriptionStatus {
+        match self {
+            Self::Refund => SubscriptionStatus::Canceled,
+            Self::Expiry => SubscriptionStatus::Expired,
+        }
+    }
+
+    fn update_failure_label(self) -> &'static str {
+        match self {
+            Self::Refund => {
+                "apple REFUND/REVOKE: failed to set recurring subscription Canceled \
+                 (best-effort; revoke continues)"
+            }
+            Self::Expiry => "apple expiration: failed to mark subscription Expired",
+        }
+    }
+}
+
 /// EXPIRED / GRACE_PERIOD_EXPIRED — the subscription no longer grants
 /// access. Marks the subscription Expired and routes the same
 /// immediate-cancel revocation the Stripe customer.subscription.deleted
@@ -1675,53 +1790,16 @@ async fn process_apple_expiration(
         return Ok(());
     }
 
-    let Some(mut subscription) = apple_subscription_for_lifecycle(
+    apple_terminal_cancel_and_revoke(
         state,
         realm_id,
         original_transaction_id,
         &synthetic_event_id,
         &notification_type_str,
         product_id,
-        "no_subscription",
+        AppleTerminalKind::Expiry,
     )
-    .await?
-    else {
-        return Ok(());
-    };
-
-    let user_id = subscription.user_id;
-    let subscription_id = subscription.id;
-    let entitlement_key = subscription.entitlement_key.clone();
-
-    if subscription.status != SubscriptionStatus::Expired {
-        subscription.status = SubscriptionStatus::Expired;
-        subscription.synced_at = Some(Utc::now());
-        subscription.updated_at = Utc::now();
-        if let Err(e) = state
-            .billing_repository
-            .update_subscription(subscription)
-            .await
-        {
-            tracing::warn!(
-                realm_id = %realm_id,
-                original_transaction_id = %original_transaction_id,
-                error = %e,
-                "apple expiration: failed to mark subscription Expired"
-            );
-        }
-    }
-
-    state
-        .subscription_service
-        .handle_subscription_cancel(
-            user_id,
-            realm_id,
-            subscription_id,
-            herald_core::domain::points::subscription_service::CancelMode::ImmediateCancel,
-            None,
-            Some(&entitlement_key),
-        )
-        .await?;
+    .await?;
 
     record_idempotent_payment_event(
         state,

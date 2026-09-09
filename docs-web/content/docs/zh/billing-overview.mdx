@@ -72,9 +72,8 @@ Entitlement Mapping 是一张映射表，把支付方的外部商品 ID 映射�
 | `entitlement_key` | Herald 内部的权益标识（如 `pro-plan`） |
 | `bucket_id` | 归属的积分账户。购买该商品后积分进入这个积分账户的池 |
 | `billing_type` | 计费类型：Recurring、OneTime 或 Non-renewing |
-| `points_per_period` | 每个周期发放的积分数 |
-| `grant_on_subscribe` | 首次订阅是否发放积分 |
-| `validity_days` | 积分有效期（天） |
+| `point_rules` | 映射拥有的积分分发规则。留空是合法的——纯权益映射或纯支付记录（有效期、发放策略都配在规则上） |
+| `granted_role_ids` | 支付成功后自动授予的角色。空 = 不授予角色；配置步骤见[支付墙配置指南](/docs/zh/billing-paywall) |
 | `enabled` | 是否启用。禁用后 webhook 仍更新订阅投影，但不触发积分发放 |
 
 映射里还带一份从支付方同步过来的展示信息（`provider_product_info`），只读，用来在管理后台展示商品原貌，不参与计费：
@@ -208,6 +207,7 @@ Stripe、Creem、WeChat Pay 是发起式平台，通过 PaymentAttempt 统一管
 
 ## 相关文档
 
+- [支付墙配置指南](/docs/zh/billing-paywall) — 在映射上配置授予角色：支付授予、退款回收、应用侧检查
 - [积分账户用户故事](https://github.com/timzaak/herald/blob/main/docs/user-stories/billing/credit-bucket.md) — 积分账户目录、覆盖集、购买入池、跨池消费、订阅生命周期的验收场景
 - [Stripe 对接指南](/docs/billing-stripe-payment) — Stripe 支付方配置和 Webhook 处理
 - [多货币定价指南](/docs/zh/billing-multi-currency) — 货币偏好、购买页分组与按货币解析价格

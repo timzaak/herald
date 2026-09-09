@@ -13,16 +13,30 @@ mod tests {
         create_client_app_with_device_code_grant, delete_device_code_redis, device_authorize,
         device_confirm, device_token_poll, device_verify, set_device_code_status_redis,
     };
+    use crate::tests::helpers::test_setup_helpers::record_test_user_consent;
     use crate::tests::response_json;
     use crate::tests::schema_test_context::SchemaTestContext;
     use serde_json::{Value, json};
     use test_context::test_context;
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     /// Helper: set up admin session and return the token.
     async fn setup_admin_session(ctx: &mut SchemaTestContext, email: &str) -> String {
         let (admin_token, user_id) = create_admin_session_with_user(ctx, email, 1800).await;
         grant_realm_admin_role(ctx, &user_id).await;
+        // The helper-created admin never passes a signup flow, so record its
+        // consent to the current effective agreements here — the fixture
+        // equivalent of the register-as-consent real realm admins get. The
+        // device confirm/token consent gates would otherwise (correctly)
+        // block every device authorization by this user.
+        let realm_id = ctx._realm_id.clone();
+        record_test_user_consent(
+            &ctx._app_state.pool,
+            Uuid::parse_str(&user_id).expect("valid user id"),
+            &realm_id,
+        )
+        .await;
         admin_token
     }
 
@@ -358,8 +372,16 @@ mod tests {
         let device_code = auth_json["device_code"].as_str().unwrap();
 
         // Simulate user authorization: set Redis status to "authorized" with a
-        // real account id (the token family is user-bound).
+        // real account id (the token family is user-bound). The user's
+        // consent is seeded too — the poll-time consent gate would otherwise
+        // (correctly) refuse to mint the family.
         let device_user = seed_device_user(ctx, &realm_id).await;
+        record_test_user_consent(
+            &ctx._app_state.pool,
+            Uuid::parse_str(&device_user).expect("valid user id"),
+            &realm_id,
+        )
+        .await;
         set_device_code_status_redis(ctx, device_code, "authorized", Some(&device_user)).await;
 
         // Poll for token
@@ -434,8 +456,15 @@ mod tests {
         let device_code = auth_json["device_code"].as_str().unwrap();
 
         // Simulate authorization then consume (first poll succeeds); the
-        // user must be a real account (the token family is user-bound).
+        // user must be a real account (the token family is user-bound), and
+        // consenting — the poll-time consent gate would otherwise refuse.
         let device_user = seed_device_user(ctx, &realm_id).await;
+        record_test_user_consent(
+            &ctx._app_state.pool,
+            Uuid::parse_str(&device_user).expect("valid user id"),
+            &realm_id,
+        )
+        .await;
         set_device_code_status_redis(ctx, device_code, "authorized", Some(&device_user)).await;
         let first_poll = device_token_poll(ctx, &realm_id, device_code).await;
         assert_eq!(first_poll.status(), 200, "First token poll should succeed");
@@ -1303,6 +1332,202 @@ mod tests {
             Some("invalid_request"),
             "error should be 'invalid_request', got: {:?}",
             json["error"]
+        );
+    }
+
+    // Login consent gate on the device confirm approve transition
+    // (core/legal-consent-account-deletion.md §4.1「登录即同意」覆盖设备授权码流).
+    //
+    // WHY: the poll endpoint mints a FULL browser token family for the CLI, so
+    // a stale-consent session (including a consent-restricted family) must not
+    // be able to push a device to authorized — otherwise the device flow is a
+    // login entrance that bypasses the consent gate every credential entrance
+    // enforces.
+
+    /// Publish a new custom ToS version as admin, making every existing
+    /// user's ToS consent stale (including the admin's own).
+    async fn publish_new_tos_version(ctx: &SchemaTestContext, realm_id: &str, admin_token: &str) {
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/api/legal/admin/{realm_id}/agreements/terms_of_service"
+            ))
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {admin_token}"))
+            .body(axum::body::Body::from(
+                json!({ "content": { "en": "device consent gate ToS body" } }).to_string(),
+            ))
+            .unwrap();
+        let response = ctx
+            .create_unified_test_router()
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            200,
+            "admin must be able to publish a new ToS version"
+        );
+    }
+
+    /// Record consent to the current effective agreement versions on behalf of
+    /// the session token (the documented recovery path).
+    async fn consent_to_current_effective(
+        ctx: &SchemaTestContext,
+        realm_id: &str,
+        session_token: &str,
+    ) {
+        let agreements_response = ctx
+            .create_unified_test_router()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/legal/{realm_id}/agreements"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(agreements_response.status(), 200);
+        let body: Value = response_json(agreements_response).await;
+        let agreements: Vec<Value> = body["agreements"]
+            .as_array()
+            .expect("agreements list")
+            .iter()
+            .map(|a| {
+                json!({
+                    "agreement_type": a["agreement_type"],
+                    "version_id": a["version_id"],
+                })
+            })
+            .collect();
+        assert!(!agreements.is_empty(), "published ToS must be listed");
+
+        let response = ctx
+            .create_unified_test_router()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/legal/{realm_id}/consent"))
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {session_token}"))
+                    .body(axum::body::Body::from(
+                        json!({ "agreements": agreements }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 204, "consent recording must return 204");
+    }
+
+    /// Read the raw status of a device code straight from Redis.
+    async fn device_code_status(ctx: &SchemaTestContext, device_code: &str) -> String {
+        let mut conn = ctx._app_state.redis_manager.get().await.unwrap();
+        let raw: Option<String> =
+            redis::AsyncCommands::get(&mut conn, format!("device:{}", device_code))
+                .await
+                .unwrap();
+        let raw = raw.expect("device code key must exist");
+        serde_json::from_str::<Value>(&raw)
+            .expect("device state JSON")
+            .get("status")
+            .and_then(|v| v.as_str())
+            .expect("status field")
+            .to_string()
+    }
+
+    /// Test: stale-consent confirm is blocked, device stays verified, consent
+    /// recovery completes the flow without restarting it.
+    ///
+    /// Given: admin verified a device code; a newer ToS version was published
+    /// When: confirm(approved=true)
+    /// Then: 200 + status=consent_required (device NOT authorized);
+    ///       after recording consent, a re-confirm authorizes and the poll
+    ///       mints the full family.
+    #[test_context(SchemaTestContext)]
+    #[tokio::test]
+    async fn test_scenario_device_confirm_blocked_by_consent_gate_until_reconsent(
+        ctx: &mut SchemaTestContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let admin_token = setup_admin_session(ctx, "dc-consent-gate@test.com").await;
+
+        let create_response = create_client_app_with_device_code_grant(
+            ctx,
+            &realm_id,
+            &admin_token,
+            "dc-consent-gate-app",
+            "DC Consent Gate App",
+            true,
+            true,
+        )
+        .await;
+        assert_eq!(create_response.status(), 201);
+
+        let auth_response = device_authorize(ctx, &realm_id, "dc-consent-gate-app").await;
+        assert_eq!(auth_response.status(), 200);
+        let auth_json: Value = response_json(auth_response).await;
+        let device_code = auth_json["device_code"].as_str().unwrap().to_string();
+        let user_code = auth_json["user_code"].as_str().unwrap().to_string();
+
+        let verify_response = device_verify(ctx, &realm_id, &user_code, &admin_token).await;
+        assert_eq!(verify_response.status(), 200, "verify precedes the gate");
+
+        // Publish a newer ToS → the confirming admin's consent is stale.
+        publish_new_tos_version(ctx, &realm_id, &admin_token).await;
+
+        let confirm_response = device_confirm(ctx, &realm_id, &user_code, true, &admin_token).await;
+        assert_eq!(
+            confirm_response.status(),
+            200,
+            "gated confirm is a 200 consentRequired shape, not a 4xx"
+        );
+        let confirm_json: Value = response_json(confirm_response).await;
+        assert_eq!(
+            confirm_json["status"].as_str(),
+            Some("consent_required"),
+            "gated approve must not authorize, got: {:?}",
+            confirm_json["status"]
+        );
+        assert_eq!(
+            confirm_json["consent_required"].as_bool(),
+            Some(true),
+            "consent_required flag must be set"
+        );
+        assert!(
+            confirm_json["agreements"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty()),
+            "current agreement summaries must accompany the gate"
+        );
+        assert_eq!(
+            device_code_status(ctx, &device_code).await,
+            "verified",
+            "device must stay verified so a post-consent re-confirm completes the flow"
+        );
+
+        // Recovery: record consent, then re-confirm the SAME user_code.
+        consent_to_current_effective(ctx, &realm_id, &admin_token).await;
+        let reconfirm_response =
+            device_confirm(ctx, &realm_id, &user_code, true, &admin_token).await;
+        assert_eq!(reconfirm_response.status(), 200);
+        let reconfirm_json: Value = response_json(reconfirm_response).await;
+        assert_eq!(
+            reconfirm_json["status"].as_str(),
+            Some("authorized"),
+            "post-consent re-confirm must authorize, got: {:?}",
+            reconfirm_json["status"]
+        );
+
+        let token_response = device_token_poll(ctx, &realm_id, &device_code).await;
+        assert_eq!(token_response.status(), 200);
+        let token_json: Value = response_json(token_response).await;
+        assert!(
+            token_json["access_token"]
+                .as_str()
+                .is_some_and(|t| !t.is_empty()),
+            "poll must mint the full token family after consent recovery"
         );
     }
 }

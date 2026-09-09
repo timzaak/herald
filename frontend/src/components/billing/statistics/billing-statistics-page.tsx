@@ -21,11 +21,7 @@ export function BillingStatisticsPage({ realmId }: BillingStatisticsPageProps) {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <PageHeader
-        title={m['billing.statistics_title']()}
-        subtitle={m['billing.statistics_subtitle']()}
-        headingTestId="statistics-heading"
-      />
+      <PageHeader title={m['billing.statistics_title']()} headingTestId="statistics-heading" />
 
       {!hasPayment && !hasPoints ? (
         <div data-testid="statistics-no-permission">

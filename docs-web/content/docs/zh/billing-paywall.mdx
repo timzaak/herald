@@ -1,0 +1,116 @@
+---
+title: 支付墙配置（支付授予角色）
+description: "在 Entitlement Mapping 上配置「授予角色」就是 Herald 的支付墙：支付成功自动授角色，退款和取消自动回收，你的应用用现有 RBAC 判断放行。"
+---
+
+在 Entitlement Mapping 上配置「授予角色」就是 Herald 的支付墙：支付成功自动授角色，退款和取消自动回收，你的应用用现有 RBAC 判断放行。
+
+Herald 没有独立的 paywall 模块，也不解释「功能」的语义。它提供一条映射管道：支付方商品 → `entitlement_key` → 角色 → 权限。你的应用照常查权限，权限从哪来（手工授予还是支付授予）对检查代码不可见。
+
+## 给谁看
+
+两类人。配置映射的 Realm Admin（需要 `billing.manage`），以及在应用里做权限判断的开发者。如果你还不知道积分账户、映射、订阅投影这些概念，先读[计费架构](/docs/zh/billing-overview)。
+
+## 三个正交维度
+
+每条 Entitlement Mapping 上有三个互不影响的配置维度：
+
+- `billing_type`：购买形态（recurring / one_time / non_renewing）
+- 积分分发规则：发不发积分、发多少、有效期多长
+- 授予角色：支付成功后解锁哪些角色
+
+三个维度可以任意组合，任一为空都合法：
+
+| 组合 | 含义 | 重复购买 | 角色撤销 |
+|---|---|---|---|
+| recurring + 积分 + 角色 | 会员订阅（发积分 + 解锁） | 续费续授 | 取消、过期、退款撤 |
+| recurring + 无积分 + 角色 | 纯会员墙（只解锁） | 续费续授 | 取消、过期、退款撤 |
+| non_renewing + 可选积分 + 角色 | 固定期限权益 | 受活跃订阅约束 | 到期、取消、退款撤 |
+| one_time + 积分 + 无角色 | 积分包 | 可重复买 | 不适用 |
+| one_time + 无积分 + 角色 | 纯永久权益墙（买断） | 一人一次 | 退款、撤销时回收 |
+| one_time + 积分 + 角色 | 买断礼包 | 一人一次 | 退款、撤销时回收 |
+
+买断不设过期：`validity_days` 只约束积分有效期，不约束角色。订阅角色同理，`user_roles.expires_at` 只保存支付周期信息，权限检查不按它过滤，回收靠 webhook 事件驱动。
+
+## 配置步骤
+
+### 前置条件
+
+1. 至少一家支付方已配置。见 [Stripe](/docs/zh/billing-stripe-payment)、[Creem](/docs/zh/billing-creem-payment)、[IAP](/docs/zh/billing-iap)、[WeChat Pay](/docs/zh/billing-wechat-payment) 对接指南。
+2. 在角色管理里创建要授予的自定义角色。映射表单的角色多选只列非内置角色。
+3. 权限：侧边栏入口需要 `billing.view`，创建和修改映射需要 `billing.manage`。如果同时改积分规则，还需要 `points.manage`。
+
+### 创建映射
+
+管理后台侧边栏 Billing → **Entitlement Mappings** → Create，路径 `/manage/billing/entitlement-mappings/new`。和支付墙相关的字段：
+
+| 字段 | 说明 |
+|------|------|
+| `payment_provider` | stripe / creem / apple / google / wechat |
+| `external_product_id` | 支付方侧的商品 ID；Stripe 价格另填 `external_price_id` |
+| `entitlement_key` | 内部权益标识，如 `pro-plan` |
+| `billing_type` | recurring 需配 `billing_period`；non_renewing 需配 `service_duration_days`；WeChat 不支持 recurring |
+| `point_rules` | 积分分发规则。纯权益墙留空即可，不会报错 |
+| `granted_role_ids` | 授予角色多选，可绑多个。留空 = 纯积分或纯支付记录 |
+| `price` / `currency` | 仅 WeChat：没有商品目录，价格（分为单位）直接配在映射上 |
+
+Stripe 和 Creem 也可以先从支付方目录同步生成映射，再在列表页补配角色，效果一样。
+
+### 修改授予角色
+
+映射列表页每个商品行的编辑器里有「授予角色」多选，保存走批量更新端点，整批一个事务。两个常见报错：
+
+- 400 `role_not_in_realm`：选了不属于本 Realm 的角色。角色选择是 Realm 作用域的，重新选本 Realm 的角色即可。
+- 409 `mapping_in_use`：批量里有仍被活跃订阅保护的行要做禁用。整批已回滚，处理完订阅再改。
+
+### 购买侧的表现
+
+one_time + 授予角色的商品强制一人一次。判断依据两条：用户已拥有该映射配置的任一角色，或已存在该商品的成功支付尝试。命中任意一条，用户购买页（`/user/purchase-points`）会禁用该选项并标记「已拥有」；绕过前端直接创建支付尝试，后端返回 409：
+
+```json
+{ "code": "already_owned", "entitlementKey": "pro-plan" }
+```
+
+并发双购由数据库兜底：`payment_attempts` 上 `(user_id, target_id)` 且 `status='Succeeded' AND is_one_time_role=TRUE` 的部分唯一索引保证至多一单成功。
+
+积分包（one_time 无角色）不受限，可以重复购买；订阅续费也不受限。
+
+## 撤销规则
+
+角色回收只动「支付授予」来源的关联。`user_roles.source` 区分支付授予与手工授予，管理员手工给用户挂的同名角色在回收时保留。
+
+| 场景 | 行为 |
+|------|------|
+| 订阅取消、过期、退款 | 回收支付来源角色，容忍窗口分钟级（webhook + 补偿框架，最终一致） |
+| 订阅续费 | 续授角色 |
+| non_renewing 到期、取消、退款 | 回收支付来源角色 |
+| 买断退款或撤销 | 回收该笔支付来源角色 |
+| 买断正常取消、到期 | 不触碰角色（一次性 = 永久解锁） |
+
+两个边界情况：
+
+- `customer.subscription.deleted` 是终态。终态之后迟到的 `invoice.payment_succeeded` 续费事件按非法状态迁移拒绝（400），已回收的角色不会复活。
+- **WeChat 渠道没有退款信号源**。商户侧退款在 Herald 内不产生任何事件，买断退款后角色无法自动回收。要退款，先在 Herald 手工移除该用户的支付来源角色，再走商户退款流程。
+
+## 应用侧怎么判断
+
+你的应用不接新接口，也不需要知道角色是支付授予的还是手工授予的。推荐做法是给授予的角色挂上权限点（比如 `pro:read`），然后走现有 RBAC 检查：
+
+- 服务端：按[第三方应用集成](/docs/zh/third-party-integration)的 Herald 认证中间件接入，把请求路径映射成 resource/action 对，中间件拿着用户 token 查权限。Herald 内置动作层级：`manage` 覆盖 `view`，`view` 只匹配自己。
+- 浏览器端：[herald-auth-web](/docs/zh/ui-custom) 的 `client.getStatus()` 返回会话快照，里面带 `permissions` 数组，直接判断。
+- 需要角色列表本身时，用 `GET /api/user/roles` 查当前用户的角色。
+
+权限点的 resource/action 完全由你的应用定义，Herald 不存储也不解释功能语义。
+
+## 上线前自查
+
+1. 买一单：用户在支付方完成付款后，检查用户角色里出现了映射配置的角色（管理后台用户页的角色对话框，或 `GET /api/user/roles`）。
+2. 退一单（Stripe / Creem / IAP 渠道）：支付来源角色被回收，手工授予的同名角色还在。
+3. 同一买断商品买第二次：购买页显示「已拥有」，直接调 API 得到 409 `already_owned`。
+4. WeChat 渠道：确认商户退款流程里包含「先手工移除支付来源角色」这一步，否则退款用户永久保留角色。
+
+## 相关文档
+
+- [计费架构](/docs/zh/billing-overview) — 积分账户、Entitlement Mapping、订阅投影的整体模型
+- [第三方应用集成](/docs/zh/third-party-integration) — Herald 认证中间件与 resource/action 权限检查的完整接入
+- [Stripe 对接指南](/docs/zh/billing-stripe-payment)、[Creem 对接指南](/docs/zh/billing-creem-payment)、[IAP 对接指南](/docs/zh/billing-iap)、[WeChat Pay 对接指南](/docs/zh/billing-wechat-payment) — 各支付方的配置与 webhook 处理

@@ -21,11 +21,14 @@ pub trait EmailProvider: Send + Sync {
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmailTemplateKind {
     VerifyEmail,
     ResetPassword,
     ChangeEmail,
+    /// Login verification code (email-OTP login). The only kind whose
+    /// template variable is `{{code}}` instead of `{{action_url}}`.
+    LoginOtp,
 }
 
 impl EmailTemplateKind {
@@ -34,7 +37,15 @@ impl EmailTemplateKind {
             Self::VerifyEmail => "verify_email",
             Self::ResetPassword => "reset_password",
             Self::ChangeEmail => "change_email",
+            Self::LoginOtp => "login_otp",
         }
+    }
+
+    /// Whether `{{code}}` is a legal variable for this kind. Only the OTP
+    /// login email carries a code; an action-URL template referencing
+    /// `{{code}}` must fail validation instead of silently rendering empty.
+    fn allows_code(self) -> bool {
+        matches!(self, Self::LoginOtp)
     }
 }
 
@@ -331,8 +342,52 @@ impl EmailService {
         action_url: &str,
         locale: Option<&str>,
     ) -> anyhow::Result<()> {
-        let message =
-            Self::render_email(pool, realm_id, kind, action_url, locale.unwrap_or("en")).await?;
+        Self::send_rendered_email(pool, realm_id, to, kind, action_url, locale, None).await
+    }
+
+    /// Send the email-OTP login code through the template system: carries
+    /// `{{code}}` instead of an action URL; the default template is English,
+    /// matching the rest of the template family (per-locale stored templates
+    /// resolve via `login_otp:{locale}`).
+    pub async fn send_login_otp_email(
+        pool: &PgPool,
+        realm_id: &str,
+        to: &str,
+        code: &str,
+        locale: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Self::send_rendered_email(
+            pool,
+            realm_id,
+            to,
+            EmailTemplateKind::LoginOtp,
+            "",
+            locale,
+            Some(code),
+        )
+        .await
+    }
+
+    /// Render a template of `kind` (action-URL or code variable) and dispatch
+    /// it — the pipeline every templated sender shares.
+    async fn send_rendered_email(
+        pool: &PgPool,
+        realm_id: &str,
+        to: &str,
+        kind: EmailTemplateKind,
+        action_url: &str,
+        locale: Option<&str>,
+        code: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let message = Self::render_email(
+            pool,
+            realm_id,
+            kind,
+            action_url,
+            locale.unwrap_or("en"),
+            code,
+        )
+        .await?;
         Self::send_email(
             pool,
             realm_id,
@@ -350,6 +405,7 @@ impl EmailService {
         kind: EmailTemplateKind,
         action_url: &str,
         locale: &str,
+        code: Option<&str>,
     ) -> anyhow::Result<RenderedEmail> {
         let brand_name = resolve_realm_brand(pool, realm_id).await?;
 
@@ -376,17 +432,19 @@ impl EmailService {
             }
             None => default_email_template(kind),
         };
-        validate_template_variables(&template.subject)?;
-        validate_template_variables(&template.text)?;
-        validate_template_variables(&template.html)?;
+        let code = code.unwrap_or("");
+        validate_template_variables(&template.subject, kind)?;
+        validate_template_variables(&template.text, kind)?;
+        validate_template_variables(&template.html, kind)?;
 
         let subject_brand = brand_name.replace(['\r', '\n'], " ");
-        let subject = render_template(&template.subject, &subject_brand, action_url);
-        let text = render_template(&template.text, &brand_name, action_url);
+        let subject = render_template(&template.subject, &subject_brand, action_url, code);
+        let text = render_template(&template.text, &brand_name, action_url, code);
         let html = render_template(
             &template.html,
             &escape_html(&brand_name),
             &escape_html(action_url),
+            &escape_html(code),
         );
         Ok(RenderedEmail {
             subject,
@@ -555,16 +613,32 @@ impl EmailService {
 }
 
 fn default_email_template(kind: EmailTemplateKind) -> StoredEmailTemplate {
-    let (subject, action) = match kind {
-        EmailTemplateKind::VerifyEmail => ("Verify your email for {{brand_name}}", "Verify email"),
-        EmailTemplateKind::ResetPassword => {
-            ("Reset your {{brand_name}} password", "Reset password")
-        }
-        EmailTemplateKind::ChangeEmail => (
+    // Each branch is self-contained: the OTP login mail carries the code
+    // instead of an action URL, so it does not ride the action-URL builder.
+    match kind {
+        EmailTemplateKind::LoginOtp => StoredEmailTemplate {
+            subject: "{{brand_name}} login verification code".to_string(),
+            text: "{{brand_name}}\n\nYour login verification code: {{code}}".to_string(),
+            html: "<p>{{brand_name}}</p><p>Your login verification code: <strong>{{code}}</strong></p>".to_string(),
+        },
+        EmailTemplateKind::VerifyEmail => action_url_default(
+            "Verify your email for {{brand_name}}",
+            "Verify email",
+        ),
+        EmailTemplateKind::ResetPassword => action_url_default(
+            "Reset your {{brand_name}} password",
+            "Reset password",
+        ),
+        EmailTemplateKind::ChangeEmail => action_url_default(
             "Confirm your email change for {{brand_name}}",
             "Confirm email change",
         ),
-    };
+    }
+}
+
+/// Default template for the action-URL family: brand line plus one action
+/// line linking the URL, same shape for every kind.
+fn action_url_default(subject: &str, action: &str) -> StoredEmailTemplate {
     StoredEmailTemplate {
         subject: subject.to_string(),
         text: format!("{{{{brand_name}}}}\n\n{action}: {{{{action_url}}}}"),
@@ -574,7 +648,7 @@ fn default_email_template(kind: EmailTemplateKind) -> StoredEmailTemplate {
     }
 }
 
-fn validate_template_variables(template: &str) -> anyhow::Result<()> {
+fn validate_template_variables(template: &str, kind: EmailTemplateKind) -> anyhow::Result<()> {
     let mut remainder = template;
     while let Some(start) = remainder.find("{{") {
         let after = &remainder[start + 2..];
@@ -582,7 +656,12 @@ fn validate_template_variables(template: &str) -> anyhow::Result<()> {
             .find("}}")
             .ok_or_else(|| anyhow::anyhow!("unclosed email template variable"))?;
         let variable = after[..end].trim();
-        if !matches!(variable, "brand_name" | "action_url") {
+        let legal = match variable {
+            "brand_name" | "action_url" => true,
+            "code" => kind.allows_code(),
+            _ => false,
+        };
+        if !legal {
             anyhow::bail!("unsupported email template variable: {variable}");
         }
         remainder = &after[end + 2..];
@@ -622,7 +701,7 @@ pub async fn resolve_realm_brand(pool: &PgPool, realm_id: &str) -> anyhow::Resul
     Ok(brand_name)
 }
 
-fn render_template(template: &str, brand_name: &str, action_url: &str) -> String {
+fn render_template(template: &str, brand_name: &str, action_url: &str, code: &str) -> String {
     let mut output = String::with_capacity(template.len());
     let mut remainder = template;
     while let Some(start) = remainder.find("{{") {
@@ -635,6 +714,7 @@ fn render_template(template: &str, brand_name: &str, action_url: &str) -> String
         output.push_str(match after[..end].trim() {
             "brand_name" => brand_name,
             "action_url" => action_url,
+            "code" => code,
             _ => "",
         });
         remainder = &after[end + 2..];
@@ -662,14 +742,29 @@ mod template_tests {
             "{{  brand_name }}: {{ action_url }}",
             "Acme",
             "https://example.test/action",
+            "",
         );
         assert_eq!(rendered, "Acme: https://example.test/action");
     }
 
     #[test]
     fn validate_template_rejects_unknown_and_unclosed_variables() {
-        assert!(validate_template_variables("{{user_email}}").is_err());
-        assert!(validate_template_variables("{{brand_name").is_err());
+        assert!(
+            validate_template_variables("{{user_email}}", EmailTemplateKind::VerifyEmail).is_err()
+        );
+        assert!(
+            validate_template_variables("{{brand_name", EmailTemplateKind::VerifyEmail).is_err()
+        );
+        // {{code}} is legal only for the OTP login kind; an action-URL
+        // template referencing it must fail loud instead of rendering empty.
+        assert!(
+            validate_template_variables("{{code}}", EmailTemplateKind::LoginOtp).is_ok(),
+            "login_otp templates may use the code variable"
+        );
+        assert!(
+            validate_template_variables("{{code}}", EmailTemplateKind::VerifyEmail).is_err(),
+            "action-URL templates must not use the code variable"
+        );
     }
 
     #[test]
@@ -679,6 +774,7 @@ mod template_tests {
             &template.html,
             &escape_html("<Acme & Co>"),
             &escape_html("https://example.test/?a=1&b=2"),
+            "",
         );
         assert!(rendered.contains("&lt;Acme &amp; Co&gt;"));
         assert!(rendered.contains("a=1&amp;b=2"));
@@ -698,10 +794,32 @@ mod template_tests {
             assert!(template.text.contains("{{action_url}}"));
             assert!(template.html.contains("{{brand_name}}"));
             assert!(template.html.contains("{{action_url}}"));
-            validate_template_variables(&template.subject).unwrap();
-            validate_template_variables(&template.text).unwrap();
-            validate_template_variables(&template.html).unwrap();
+            validate_template_variables(&template.subject, kind).unwrap();
+            validate_template_variables(&template.text, kind).unwrap();
+            validate_template_variables(&template.html, kind).unwrap();
         }
+    }
+
+    #[test]
+    fn login_otp_default_template_is_english_and_code_variable_only() {
+        // The OTP login email rides the template system like every other
+        // backend mail: default English, brand + code variables, no
+        // hardcoded locale (the pre-fix sender shipped fixed Chinese text).
+        let template = default_email_template(EmailTemplateKind::LoginOtp);
+        assert!(template.subject.contains("{{brand_name}}"));
+        assert!(template.text.contains("{{code}}"));
+        assert!(template.html.contains("{{code}}"));
+        assert!(!template.text.contains("{{action_url}}"));
+        validate_template_variables(&template.subject, EmailTemplateKind::LoginOtp).unwrap();
+        validate_template_variables(&template.text, EmailTemplateKind::LoginOtp).unwrap();
+        validate_template_variables(&template.html, EmailTemplateKind::LoginOtp).unwrap();
+        let rendered = render_template(
+            &template.html,
+            &escape_html("Acme"),
+            "",
+            &escape_html("654321"),
+        );
+        assert!(rendered.contains("654321"));
     }
 
     #[tokio::test]
@@ -758,6 +876,7 @@ mod template_tests {
             EmailTemplateKind::VerifyEmail,
             "https://example.test/a?x=1&y=2",
             "zh-CN",
+            None,
         )
         .await
         .unwrap();
@@ -771,6 +890,7 @@ mod template_tests {
             EmailTemplateKind::VerifyEmail,
             "https://example.test/b",
             "zh-CN",
+            None,
         )
         .await
         .unwrap();

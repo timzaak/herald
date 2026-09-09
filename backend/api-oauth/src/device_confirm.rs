@@ -12,10 +12,13 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use herald_api_auth::consent_gate::evaluate_login_consent_gate;
 use herald_api_base::application::http::rate_limit::rate_limit_hit;
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
+use herald_core::domain::legal::LegalAgreementSummary;
+use herald_core::domain::user::ports::UserRepository;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -36,6 +39,13 @@ pub struct DeviceConfirmRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DeviceConfirmResponse {
     pub status: String,
+    /// Present when the login consent gate blocked an approval: the device was
+    /// NOT authorized. The browser session must record consent (POST
+    /// /api/legal/{realmId}/consent) for the listed agreements and re-confirm;
+    /// the device state stays "verified" so the retry completes without
+    /// restarting the device flow.
+    pub consent_required: Option<bool>,
+    pub agreements: Option<Vec<LegalAgreementSummary>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +184,38 @@ pub async fn device_confirm(
         }));
     }
 
+    // Login consent gate (legal-consent PRD §4.1 — the rule covers every login
+    // entrance, device code included): approving a device authorization is a
+    // business function whose poll endpoint mints a full token family for the
+    // CLI, so a stale-consent session (including a consent-restricted family)
+    // must not pass it. The device state deliberately stays "verified" — the
+    // user records consent via POST /api/legal/{realmId}/consent and simply
+    // re-confirms. Denials are not gated: they issue nothing.
+    if payload.approved {
+        let confirm_user_id = uuid::Uuid::parse_str(&identity.user_id())
+            .map_err(|_| ApiError::unauthorized("Invalid session identity"))?;
+        let user = state
+            .user_repository
+            .get_user_by_id(confirm_user_id)
+            .await
+            .map_err(|_| ApiError::unauthorized("Session user no longer exists"))?;
+        if let Some(summaries) =
+            evaluate_login_consent_gate(&state, &user, &realm_id, None, None, None).await
+        {
+            tracing::info!(
+                realm_id = %realm_id,
+                user_id = %confirm_user_id,
+                user_code = %user_code,
+                "device confirm blocked at consent gate; device stays verified"
+            );
+            return Ok(Json(DeviceConfirmResponse {
+                status: "consent_required".to_string(),
+                consent_required: Some(true),
+                agreements: Some(summaries),
+            }));
+        }
+    }
+
     // Transition to authorized or denied
     let new_status = if payload.approved {
         "authorized"
@@ -201,5 +243,7 @@ pub async fn device_confirm(
 
     Ok(Json(DeviceConfirmResponse {
         status: new_status.to_string(),
+        consent_required: None,
+        agreements: None,
     }))
 }

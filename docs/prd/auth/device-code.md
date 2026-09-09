@@ -111,6 +111,10 @@
 - verify 与 confirm 各自按用户限制为每 300 秒 20 次。
 - 授权请求入口按来源 IP 限制为每 60 秒 10 次；当前不维护“单 Client App 同时处于 pending 的设备码数量”这一额外状态
 
+**登录同意闸门（归属：core/legal-consent-account-deletion.md §4.1「登录即同意」）**
+- confirm 端点的 approve（授权）转换在登录同意闸门之后执行：确认人同意缺失或版本过期时，不转入 `authorized`（设备状态停留在 `verified`），confirm 返回 200 + `consent_required: true` + 当前生效协议摘要；补全路径为提交 `POST /api/legal/{realmId}/consent` 记录同意后重新 confirm，无需重启设备流。deny（拒绝授权）不经闸门——不签发任何凭据。
+- token 轮询端点在签发点二次执行同一闸门（兜底 confirm 与 poll 之间协议版本变更的窗口），命中时返回 403 `consent_required`，不签发完整 token family（该次 device_code 已被消费，用户补全同意后需重新发起设备授权）。
+
 ### 4.2 关键状态与异常
 
 **device_code 生命周期**
@@ -142,6 +146,7 @@
 - `expired_token`：device_code 已过期（Redis key 不存在），需重新发起授权请求
 - `access_denied`：用户拒绝授权（状态为 denied）
 - `invalid_request`：device_code 已被消费（状态为 consumed），不可重复领取 token
+- `consent_required`（403）：签发点登录同意闸门命中——确认人同意缺失或版本过期，本设备流终止；用户补全同意后需重新发起设备授权
 
 ---
 

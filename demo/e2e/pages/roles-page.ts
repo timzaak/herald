@@ -503,14 +503,25 @@ export class RolesPage extends BasePage {
         if (matchesGet(response, rolePermissionsPath)) loadedRolePermissions = response
       }
 
-      await expect(dialog.locator('[data-testid="permission-checkbox-list"]')).toBeVisible()
+      // The dialog mounts before the permissions queries resolve; both panes
+      // render only once the catalog loads, so they are the readiness signal.
+      await expect(
+        dialog.locator('[data-testid="permission-available-pane"]')
+      ).toBeVisible()
+      await expect(
+        dialog.locator('[data-testid="permission-selected-pane"]')
+      ).toBeVisible()
       if (loadedRolePermissions) {
         const body = await loadedRolePermissions.json()
         const raw = Array.isArray(body) ? body : body.data ?? body.items ?? []
         const assigned: { id?: string }[] = Array.isArray(raw) ? raw : []
         for (const permission of assigned) {
           if (permission.id) {
-            await expect(this.getPermissionCheckboxById(permission.id)).toBeChecked()
+            // Assignment state is pane residence: assigned permissions live in
+            // the selected pane (row checkboxes are move-marks, not state).
+            await expect(
+              this.getPermissionItemById(permission.id, 'selected')
+            ).toBeVisible()
           }
         }
       }
@@ -520,18 +531,46 @@ export class RolesPage extends BasePage {
   }
 
   /**
-   * Get permission checkbox locator by permission ID
+   * Get a transfer pane locator
+   *
+   * @param pane 'available' (unassigned permissions) or 'selected' (assigned)
+   */
+  getPermissionPane(pane: 'available' | 'selected'): Locator {
+    return this.page.locator(`[data-testid="permission-${pane}-pane"]`)
+  }
+
+  /**
+   * Get a permission item row by permission ID within a pane
    * Note: Frontend uses permission.id, not permission.name
    *
    * @param permissionId Permission ID (UUID)
+   * @param pane Pane the item is expected in ('available' | 'selected')
    */
-  getPermissionCheckboxById(permissionId: string): Locator {
-    return this.page.locator(`[data-testid="permission-checkbox-${permissionId}"]`)
+  getPermissionItemById(permissionId: string, pane: 'available' | 'selected'): Locator {
+    return this.getPermissionPane(pane).locator(
+      `[data-testid="permission-item-${permissionId}"]`
+    )
+  }
+
+  /**
+   * Get a permission item row by permission name within a pane
+   * Substring match, so `.first()` picks the first candidate row
+   *
+   * @param permissionName Permission name
+   * @param pane Pane the item is expected in ('available' | 'selected')
+   */
+  getPermissionItemByName(permissionName: string, pane: 'available' | 'selected'): Locator {
+    return this.getPermissionPane(pane)
+      .locator('[data-testid^="permission-item-"]')
+      .filter({ hasText: permissionName })
+      .first()
   }
 
   /**
    * Get permission checkbox locator by permission name
    * Searches for the checkbox within a permission item containing the name
+   * Note: in the transfer dialog the row checkbox is a move-mark (selects the
+   * item for the → / ← buttons), not the assignment state itself
    *
    * @param permissionName Permission name
    */
@@ -541,18 +580,48 @@ export class RolesPage extends BasePage {
   }
 
   /**
-   * Check/uncheck a permission for a role
+   * Assign/unassign a permission for a role via the transfer dialog.
+   *
+   * The dialog is a classic transfer (shuttle): checking a row checkbox only
+   * marks the item; the → / ← buttons perform the actual move between the
+   * Available and Selected panes. An item already in the target pane is an
+   * idempotent no-op (roles persist across demo runs in shared realms).
    *
    * @param permissionName Permission name
-   * @param checked Whether to check (true) or uncheck (false)
+   * @param checked true = move into Selected (assign), false = move back to Available (unassign)
    */
   async setPermission(permissionName: string, checked: boolean): Promise<void> {
-    const checkbox = this.getPermissionCheckboxByName(permissionName)
-    await this.setCheckbox(checkbox, checked)
+    const target: 'available' | 'selected' = checked ? 'selected' : 'available'
+    const opposite: 'available' | 'selected' = checked ? 'available' : 'selected'
+    const itemInSourcePane = this.getPermissionItemByName(permissionName, opposite)
+
+    if ((await itemInSourcePane.count()) === 0) {
+      // Not in the source pane: either already in the target pane (prior-run
+      // persistence — nothing to move) or genuinely absent (fail loud)
+      if ((await this.getPermissionItemByName(permissionName, target).count()) > 0) return
+      throw new Error(`Permission "${permissionName}" not found in either transfer pane`)
+    }
+
+    // Scope the checkbox to the already-resolved source-pane row so a name
+    // that is a substring of another permission's name cannot match the
+    // wrong pane's row
+    const checkbox = itemInSourcePane.locator('[data-testid^="permission-checkbox-"]')
+    await this.setCheckbox(checkbox, true)
+    const moveButton = this.page.locator(
+      checked
+        ? '[data-testid="permission-move-right"]'
+        : '[data-testid="permission-move-left"]'
+    )
+    await this.smartClick(moveButton)
+
+    // The moved item must land in the target pane — pane residence is the
+    // assignment state the dialog's Save persists
+    await expect(this.getPermissionItemByName(permissionName, target)).toBeVisible()
   }
 
   /**
-   * Check if a permission checkbox is disabled (for built-in permissions)
+   * Check if a permission's checkbox is disabled (built-in permission locked
+   * on a built-in role, or the whole dialog disabled while saving)
    *
    * @param permissionName Permission name
    */
@@ -567,14 +636,15 @@ export class RolesPage extends BasePage {
   }
 
   /**
-   * Check if a permission is checked
+   * Check if a permission is assigned to the role.
+   * Assignment state is pane residence: an assigned permission's item row
+   * lives in the Selected pane.
    *
    * @param permissionName Permission name
    */
   async isPermissionChecked(permissionName: string): Promise<boolean> {
-    const checkbox = this.getPermissionCheckboxByName(permissionName)
-    await expect(checkbox).toBeVisible({ timeout: 10000 })
-    return await checkbox.isChecked()
+    // isVisible() is false for a zero-match locator, so no count() guard needed
+    return await this.getPermissionItemByName(permissionName, 'selected').isVisible()
   }
 
   async savePermissions(): Promise<void> {
