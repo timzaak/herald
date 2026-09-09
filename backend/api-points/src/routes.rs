@@ -9,6 +9,7 @@ use super::{
     grant::grant_points,
     internal_quota::{grant_quota_entitlement, revoke_quota_entitlement},
     registration_rules::{get_registration_rules, upsert_registration_rules},
+    stats::get_points_consumption_stats,
     transactions::{list_transactions, list_user_transactions},
     wallets::{get_wallet, list_user_wallets, list_wallets, update_wallet_status},
 };
@@ -46,6 +47,10 @@ pub fn points_router() -> Router<AppState> {
             routing::get(get_registration_rules).put(upsert_registration_rules),
         )
         .route("/grant", routing::post(grant_points))
+        .route(
+            "/stats/consumption",
+            routing::get(get_points_consumption_stats),
+        )
 }
 
 pub fn user_points_router() -> Router<AppState> {

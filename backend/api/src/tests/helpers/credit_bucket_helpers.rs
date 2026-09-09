@@ -910,7 +910,9 @@ pub async fn auth_user_get_via_api(
 }
 
 /// Seed a `points_transactions` row in a specific `(user, bucket)` pool directly
-/// at the DB layer. Returns the new transaction id.
+/// at the DB layer with an explicit `created_at` (window-boundary scenarios
+/// backdate rows; pass `Utc::now()` for current-day rows). Returns the new
+/// transaction id.
 ///
 /// Used by the bucketId filter scenario to deterministically place transactions
 /// in known buckets without driving the full grant/consume paths. The row
@@ -924,6 +926,7 @@ pub async fn seed_transaction_on_bucket(
     bucket_id: Uuid,
     txn_type: &str,
     amount: i64,
+    created_at: chrono::DateTime<chrono::Utc>,
 ) -> Uuid {
     use sqlx::Row;
 
@@ -978,7 +981,7 @@ pub async fn seed_transaction_on_bucket(
         r#"INSERT INTO points_transactions
              (id, realm_id, user_id, wallet_id, bucket_id, type, amount,
               balance_after, description, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'seed txn', NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'seed txn', $9)
            RETURNING id"#,
     )
     .bind(txn_id)
@@ -989,6 +992,7 @@ pub async fn seed_transaction_on_bucket(
     .bind(txn_type)
     .bind(amount)
     .bind(amount.max(0))
+    .bind(created_at)
     .fetch_one(pool)
     .await
     .expect("insert seed points_transactions row");

@@ -14,6 +14,7 @@ pub mod audit;
 pub mod authentication;
 pub mod authorization;
 pub mod billing;
+pub mod billing_statistics;
 pub mod client;
 pub mod client_api_keys;
 pub mod client_app;

@@ -6,6 +6,7 @@ pub mod grant;
 pub mod internal_quota;
 pub mod registration_rules;
 pub mod routes;
+pub mod stats;
 pub mod transactions;
 pub mod types;
 pub mod wallets;
@@ -25,6 +26,7 @@ pub mod wallets;
         crate::grant::grant_points,
         crate::internal_quota::grant_quota_entitlement,
         crate::internal_quota::revoke_quota_entitlement,
+        crate::stats::get_points_consumption_stats,
     ),
     components(schemas(
         crate::types::ConsumePointsRequest,
@@ -50,6 +52,9 @@ pub mod wallets;
         crate::internal_quota::RevokeQuotaEntitlementRequest,
         crate::internal_quota::RevokeQuotaEntitlementResponse,
         crate::internal_quota::InternalQuotaWindowInput,
+        crate::stats::PointsConsumptionStatsResponse,
+        crate::stats::BucketConsumptionResponse,
+        crate::stats::ConsumptionTrendPointResponse,
     ))
 )]
 pub struct ApiDoc;

@@ -481,8 +481,26 @@ async fn user_transactions_filtered_by_bucket_id(ctx: &mut TestContext) {
 
     // Seed one transaction in each bucket directly so the filter has
     // deterministic rows that differ ONLY by bucket_id.
-    seed_transaction_on_bucket(&pool, &realm_id, user_id, bucket_keep, "grant", 30).await;
-    seed_transaction_on_bucket(&pool, &realm_id, user_id, bucket_drop, "grant", 40).await;
+    seed_transaction_on_bucket(
+        &pool,
+        &realm_id,
+        user_id,
+        bucket_keep,
+        "grant",
+        30,
+        chrono::Utc::now(),
+    )
+    .await;
+    seed_transaction_on_bucket(
+        &pool,
+        &realm_id,
+        user_id,
+        bucket_drop,
+        "grant",
+        40,
+        chrono::Utc::now(),
+    )
+    .await;
 
     let query = format!("userId={}&bucketId={}", user_id, bucket_keep);
     let (status, body) = auth_user_get_via_api(

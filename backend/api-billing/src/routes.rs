@@ -34,6 +34,7 @@ use crate::purchase_handlers::{
     cancel_payment_attempt, create_payment_attempt, fulfill_payment, get_payment_attempt_status,
     get_purchase_history, get_realm_purchase_history,
 };
+use crate::stats_handlers::get_payment_stats;
 use crate::stripe_webhook_handlers::handle_stripe_webhook;
 use crate::webhook_handlers::handle_creem_webhook;
 use crate::wechat_webhook_handlers::handle_wechat_webhook;
@@ -76,6 +77,7 @@ pub fn billing_routes() -> Router<AppState> {
             "/api/bill/{realmId}/purchase/history",
             get(get_realm_purchase_history),
         )
+        .route("/api/bill/{realmId}/stats/payments", get(get_payment_stats))
         // ===== Feature Availability =====
         .route(
             "/api/realms/{realmId}/feature-availability",

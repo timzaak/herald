@@ -106,6 +106,11 @@ pub async fn create_admin_session_with_user(
 /// 双轨凭证类：密码登录签发的是 CustomUserUi family（scope 上限不含
 /// ChangeEmail）。自助改邮箱等 FirstParty-only 端点在测试里通过该 helper
 /// 取得 FirstParty 会话（生产路径是各直登/换客户端入口）。
+///
+/// client_app 按用户自己的 realm 解析（而非 ctx._realm_id）：token family
+/// 必须由用户所属 realm 的 first-party client 签发，调用方可能为非默认
+/// realm 的用户铸 token（ctx._client_id 恒为共享的 'admin-web-console'，
+/// 目标 realm 需已存在该 client_app 行）。
 pub async fn mint_first_party_session(ctx: &TestContext, user_id: uuid::Uuid) -> String {
     let user = ctx
         ._app_state
@@ -117,7 +122,7 @@ pub async fn mint_first_party_session(ctx: &TestContext, user_id: uuid::Uuid) ->
         ._app_state
         .service
         .client_service()
-        .get_client_app_by_client_id(&ctx._realm_id, &ctx._client_id)
+        .get_client_app_by_client_id(&user.realm_id, &ctx._client_id)
         .await
         .unwrap();
     RedisBrowserTokenService::new(ctx._app_state.redis_manager.clone())

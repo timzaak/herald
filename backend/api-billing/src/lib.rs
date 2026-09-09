@@ -18,6 +18,7 @@ pub mod provider_handlers;
 pub mod purchase_handlers;
 pub mod routes;
 pub mod shared_fulfillment;
+pub mod stats_handlers;
 pub mod stripe_webhook_handlers;
 pub mod types;
 pub mod types_history;
@@ -62,6 +63,7 @@ pub mod wechat_webhook_handlers;
         crate::purchase_handlers::fulfill_payment,
         crate::purchase_handlers::get_purchase_history,
         crate::purchase_handlers::get_realm_purchase_history,
+        crate::stats_handlers::get_payment_stats,
         crate::invoice_handlers::get_seller_config,
         crate::invoice_handlers::upsert_seller_config,
         crate::invoice_handlers::create_invoice,
@@ -148,6 +150,10 @@ pub mod wechat_webhook_handlers;
         crate::purchase_handlers::PurchaseHistoryResponse,
         crate::purchase_handlers::PurchaseHistoryItem,
         crate::purchase_handlers::FulfillPaymentRequest,
+        crate::stats_handlers::PaymentStatsResponse,
+        crate::stats_handlers::CurrencyAmountResponse,
+        crate::stats_handlers::ProviderPaymentStatsResponse,
+        crate::stats_handlers::PaymentTrendPointResponse,
         crate::invoice_types::SellerConfigRequest,
         crate::invoice_types::SellerConfigResponse,
         crate::invoice_types::LineItemRequest,
