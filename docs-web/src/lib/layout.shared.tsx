@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
+import { Mail } from "lucide-react";
 import { i18n } from "./i18n";
-import { appName, gitConfig } from "./shared";
+import { appName, contactEmail, gitConfig } from "./shared";
 
 export function baseOptions(lang: string = "en"): BaseLayoutProps {
   return {
@@ -32,6 +33,12 @@ export function baseOptions(lang: string = "en"): BaseLayoutProps {
         ),
         url: "https://x.com/timzaak",
       },
+      {
+        type: "icon",
+        text: "Email",
+        icon: <Mail className="size-4" aria-label="Email" />,
+        url: `mailto:${contactEmail}`,
+      },
     ],
   };
 }
@@ -40,14 +47,26 @@ export interface FooterLabels {
   copyright: string;
   privacy: string;
   terms: string;
+  // Optional because privacy/terms pages keep their own footer literals
+  contact?: string;
 }
 
 // Single source for the footer's license/links copy so new pages don't
 // re-inline the en/zh literals (and drift from the existing pages).
 export function footerLabels(lang: string): FooterLabels {
   return lang === "zh"
-    ? { copyright: "Apache 2.0", privacy: "隐私政策", terms: "服务条款" }
-    : { copyright: "Apache 2.0", privacy: "Privacy", terms: "Terms" };
+    ? {
+        copyright: "Apache 2.0",
+        contact: "联系我们",
+        privacy: "隐私政策",
+        terms: "服务条款",
+      }
+    : {
+        copyright: "Apache 2.0",
+        contact: "Contact",
+        privacy: "Privacy",
+        terms: "Terms",
+      };
 }
 
 export function SiteFooter({
@@ -78,6 +97,14 @@ export function SiteFooter({
           >
             Blog
           </Link>
+          {labels.contact ? (
+            <a
+              href={`mailto:${contactEmail}`}
+              className="hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+            >
+              {labels.contact}
+            </a>
+          ) : null}
           <Link
             to="/$lang/privacy"
             params={{ lang }}

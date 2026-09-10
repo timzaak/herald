@@ -1,0 +1,67 @@
+---
+title: Custom Domain
+description: "A Realm Admin can register a branded login domain (like login.acme.com) for their Realm, get CNAME guidance, and watch the CNAME/TLS status go live. The domain is globally unique and saving applies immediately — no separate publish step. Herald only authorizes the reverse proxy to issue TLS certificates for domains a Realm Admin has registered."
+---
+
+A Realm Admin can register a branded login domain (like `login.acme.com`) for their Realm, get CNAME guidance, and watch the CNAME/TLS status go live. The domain is globally unique, and saving applies immediately — there is no separate publish step. Herald only authorizes the reverse proxy to issue TLS certificates for domains a Realm Admin has registered; unregistered domains are refused. That is the certificate-abuse gate.
+
+This is a "bring your own domain" setup with no separate DNS-TXT ownership step. CNAME'ing the domain to the Herald-owned hostname proves DNS control, and the ACME challenge the reverse proxy runs proves the DNS actually points at Herald — together they are the ownership verification. Wildcard domains (`*.acme.com`) and Herald-owned `*.herald.com` subdomains are not supported; exact hostnames only.
+
+## Who this is for
+
+Realm Admins who want to point their own branded domain at Herald's hosted login, and operators who run the reverse proxy (Caddy) in front of Herald and need to wire up on-demand TLS. End users never see the configuration surface.
+
+The custom-domain management endpoints live under `/api/realms/{realmId}/config/custom-domain`. For endpoint and schema details, see the OpenAPI reference.
+
+## Step 1: Set the server-side config
+
+Two settings under `[custom_domain]` in the config file must be set before the feature works. See [Configuration → custom-domain](/docs/configuration#custom-domain) for the full table and a sample.
+
+| Field | Purpose |
+|-------|---------|
+| `ask_key` | Shared secret for the authorize endpoint (`X-Herald-Ask-Key`). **Must be non-empty or the server will not boot.** Generate with `openssl rand -hex 32`. |
+| `cname_target` | The Herald-owned hostname shown to Realm Admins as the CNAME destination (e.g. `custom.herald.com`). |
+
+If you are not using custom domains yet, set `ask_key` to any non-empty placeholder to satisfy the boot guard; the authorization endpoint will still refuse unregistered hosts.
+
+## Step 2: Register the domain
+
+1. In the Herald admin console, open *Settings → Custom Domain*.
+2. Type an exact hostname (e.g. `login.acme.com`) and save.
+
+The hostname is normalized server-side: lowercased, trailing dot stripped, and any value carrying a scheme, port, path, or wildcard is rejected. The domain is globally unique across Realms — two Realms can't register the same hostname.
+
+Saving applies immediately. There is no draft or publish step:
+
+- **Save.** Validates the hostname, checks global uniqueness, writes it into the domain-registration mapping, and persists the config — all in one step. The domain is live the moment the save succeeds.
+- **Switch domain.** Saving a different hostname overwrites the previous one; the mapping is updated to the new hostname and the old one is removed.
+- **Clear domain.** Saving an empty hostname removes the Realm's mapping rows entirely.
+
+## Step 3: Point the DNS (CNAME)
+
+The form shows the `cname_target` — the Herald-owned hostname you must point your domain at. Create a CNAME record in your DNS provider:
+
+```
+login.acme.com  CNAME  custom.herald.com
+```
+
+CNAME'ing the domain to `cname_target` proves DNS control. The status panel in the admin console reflects whether the CNAME is correct.
+
+## Step 4: Watch the CNAME/TLS status go live
+
+The admin console shows a status panel that tracks:
+
+- **CNAME status** — whether the DNS record resolves to the expected `cname_target`.
+- **TLS status** — whether a certificate has been issued.
+
+These update as the reverse proxy runs the ACME challenge. Allow time for DNS propagation after you create the CNAME record.
+
+## Routing today
+
+Realm routing is still driven by the `{realmId}` path segment, exactly as before. The custom-domain configuration and the certificate-authorization gate are the foundation for host-based routing; follow later releases for serving the full auth flow directly on the custom domain.
+
+## Related docs
+
+- [White-label](/docs/customization/branding) — brands the page; custom domain brands the URL. White-label uses a draft/publish lifecycle; custom domain is a single save.
+- [Configuration](/docs/configuration#custom-domain) — the `[custom_domain]` config section
+- [Deployment](/docs/deployment) — reverse-proxy / on-demand TLS setup

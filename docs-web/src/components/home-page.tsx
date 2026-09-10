@@ -14,7 +14,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import type { HomeTexts } from "@/lib/home-texts";
 import { baseOptions, SiteFooter } from "@/lib/layout.shared";
-import { gitConfig } from "@/lib/shared";
+import { contactEmail, gitConfig } from "@/lib/shared";
 
 const GITHUB_URL = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
 const DEMO_URL = "https://auth.fornetcode.com";
@@ -334,6 +334,16 @@ export function HomePage({
               {texts.getStarted}
             </Link>
           </div>
+
+          <p className="mt-8 text-sm text-stone-500 dark:text-stone-400">
+            {texts.ctaContactHint}{" "}
+            <a
+              href={`mailto:${contactEmail}`}
+              className="font-medium text-amber-700 dark:text-amber-400 hover:underline"
+            >
+              {contactEmail}
+            </a>
+          </p>
         </section>
 
         <SiteFooter lang={docsLink.params.lang} labels={texts.footer} />

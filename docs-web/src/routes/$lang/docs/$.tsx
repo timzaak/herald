@@ -21,7 +21,11 @@ import { Suspense } from "react";
 import { ClientAPIPage } from "@/components/api-page";
 import { useMDXComponents } from "@/components/mdx";
 import { i18n } from "@/lib/i18n";
-import { baseOptions, SiteFooter } from "@/lib/layout.shared";
+import {
+  baseOptions,
+  footerLabels,
+  SiteFooter,
+} from "@/lib/layout.shared";
 import { gitConfig } from "@/lib/shared";
 import { slugsToMarkdownPath, source } from "@/lib/source";
 
@@ -139,16 +143,11 @@ function Page() {
     });
   }
 
-  const footerLabels =
-    data.locale === "zh"
-      ? { copyright: "Apache 2.0", privacy: "隐私政策", terms: "服务条款" }
-      : { copyright: "Apache 2.0", privacy: "Privacy", terms: "Terms" };
-
   return (
     <DocsLayout {...baseOptions(data.locale)} tree={data.pageTree}>
       {data.type === "docs" && <Link to={data.markdownUrl} hidden />}
       <Suspense>{content}</Suspense>
-      <SiteFooter lang={data.locale} labels={footerLabels} />
+      <SiteFooter lang={data.locale} labels={footerLabels(data.locale)} />
     </DocsLayout>
   );
 }

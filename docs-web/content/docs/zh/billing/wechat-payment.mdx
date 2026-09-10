@@ -1,0 +1,180 @@
+---
+title: WeChat Pay 对接
+description: "面向 Realm Admin 的 WeChat Pay 对接指南。配置商户凭据、创建按订单定价的映射，通过 PC 扫码（Native）或微信内唤起（JSAPI）收款。"
+---
+
+面向 Realm admin 的 WeChat Pay 对接指南。配置商户凭据、创建按订单定价的映射，通过 PC 扫码（Native）或微信内唤起（JSAPI）收款。
+
+## 适合谁看
+
+管理 Herald 计费配置的 Realm Admin，以及负责把购买流程接进前端的开发。WeChat Pay v3 面向微信生态内的付款用户：PC 浏览器扫二维码（Native），微信内打开的页面直接唤起收银台（JSAPI）。它与 Stripe、Creem、IAP 并列——履约走同一条统一链路，但没有共享的收银台页面。
+
+## 前置条件
+
+- Herald 管理后台可访问，你有带 `billing.manage` 权限的管理员账号
+- 已创建至少一个 Realm 和一个 Client App
+- 微信支付商户号已开通 API v3，并在微信支付平台完成验证。个体工商户商户号无法使用委托代扣类能力；本指南只用统一下单，各类型商户号都支持
+- 买家登录所用微信应用（公众号、小程序或开放平台应用）的 `appId`
+- Herald 部署地址可从公网以 HTTPS 访问——微信会直接调用你的回调地址
+
+## 核心概念
+
+WeChat Pay v3 没有托管商品目录。价格在下单时决定：发起购买时，Herald 从 Entitlement Mapping 读取价格，把金额传给微信统一下单 API。WeChat 没有产品同步按钮，也不需要——一条带价格的映射就是全部目录。
+
+支付尝试与其他 provider 用的是同一个 `PaymentAttempt`，差别在收款界面：
+
+- **Native（PC）**：Herald 创建订单后拿到 `code_url`，前端渲染成二维码并轮询支付尝试状态。二维码有效期与支付尝试一致（最长 2 小时），过期后用户重新获取。
+- **JSAPI（微信内）**：页面随订单传买家的 `openid`，Herald 返回预支付参数，前端通过 `WeixinJSBridge` 唤起微信收银台。不扫码、不跳转。
+
+履约靠 webhook 驱动，和 Stripe、Creem 一样。支付成功后微信调用你的回调地址；Herald 用缓存的平台证书验签、用 APIv3 Key 解密、比对支付尝试金额，然后按计费类型履约。重复回调按事件 ID 去重，微信的重发不会造成重复发放。
+
+订阅值得单独说明，因为语义和 Stripe 不同：微信统一下单不能自动续费。WeChat 的"订阅"是一条 `non_renewing` 映射——单次付款、固定服务期（如 30 天）、生成用户可查询的真实订阅记录、到期自然失效。到期不扣款，用户重新购买来续期。自动续费（委托代扣）是另一套微信 API，不在本对接范围内。
+
+---
+
+## 第 1 步：配置 WeChat Pay 连接
+
+1. 在 Herald 管理后台左侧菜单打开 **Payment Providers**
+2. 找到 **WeChat Pay**，点击 **Configure**
+3. 填写表单：
+   - **App ID**（必填）：买家登录用的 `appId`
+   - **Merchant ID**（必填）：微信支付商户号
+   - **Merchant Private Key**（必填）：申请商户 API 证书时下载的 PEM 私钥，粘贴完整的 `-----BEGIN PRIVATE KEY-----` 块
+   - **Certificate Serial No**（必填）：商户证书序列号，在微信支付商户平台的 API 安全页查看
+   - **APIv3 Key**（必填）：开通 API v3 时设置的 32 位密钥
+   - **Notify URL**（必填）：微信推送支付结果的公网地址：
+
+     `https://your-herald-domain/api/third/pay/{realmId}/wechat/webhooks`
+
+     把 `{realmId}` 换成你的 realm ID。微信 v3 的回调地址随订单传入、不在商户平台配置，这个配置项就是它的来源
+   - **Platform Public Key**（可选）：回调验签的手工覆盖。正常运营留空——Herald 会自动下载并刷新微信平台证书
+4. 点击 **Save**
+
+商户私钥和 APIv3 Key 按密文存储，展示时脱敏。编辑时留空即保留旧值。存在活跃 WeChat 订阅时删除配置会被拒绝，与其他 provider 的保护一致。
+
+还有一个测试用的配置键：`base_url`（经 realm config API 设置，不在表单里）。它把 v3 客户端指向其他端点——E2E 运行时的本地 mock，或微信沙箱代理。生产环境不要设置。
+
+## 第 2 步：创建 Entitlement Mapping
+
+WeChat 映射手工创建，和 IAP 一样，因为没有可同步的目录。
+
+1. 在 Herald 管理后台左侧菜单打开 **Entitlement Mappings**
+2. 点击 **Create Mapping**
+3. 填写弹窗：
+   - **Provider**：`WeChat Pay`
+   - **External Product ID**：自定字符串，如 `membership-30d`。它会作为商品描述锚点进入微信订单；同一 Realm 内同一 ID 只能映射一次
+   - **Entitlement Key**：便于识别的键，如 `membership`。用于 SDK 查询和积分策略
+   - **Credit Account**：购买积分落入的池
+   - **Billing Type**：积分包和买断选 `OneTime`，固定期会员选 `Non-renewing`
+   - **Price / Currency**（WeChat 必填）：订单金额，主单位填写（`19.9` 收 ¥19.90），以及 3 位 ISO 4217 货币码（`CNY`）
+   - **Service Duration Days**（仅 non-renewing）：固定服务期，必填，如 `30`
+   - **Points Per Period / Grant On Purchase**：积分策略；纯会员可不配
+4. 提交
+
+WeChat 没有托管目录，订单金额来自映射而不是 provider 的 Price——**Price** 和 **Currency** 两个字段就是干这个的。WeChat 是唯一接受手工价格的 provider：在其他 provider 的映射上填价格会被 API 拒绝。它也是单一价格渠道——无论用户货币偏好是什么，购买页都只展示一个价格、没有货币切换器（见[多货币定价指南](/docs/zh/billing/multi-currency)）。
+
+早于价格字段出现前创建（或直接写库）的映射可能没有价格；这类映射仍能卖——订单会带 1 分的哨兵金额以满足支付尝试的约束。测试订单显示 0.01 元，就是这个原因。
+
+## 第 3 步：购买流程
+
+两种场景都从其他 provider 共用的端点发起：
+
+```
+POST /api/bill/{realmId}/purchase/payment-attempts
+Authorization: Bearer <browser token with PurchaseInitiate scope>
+```
+
+```json
+{
+  "targetType": "entitlement_mapping",
+  "targetId": "<mapping id>",
+  "paymentProvider": "wechat",
+  "paymentScene": "native"
+}
+```
+
+`paymentScene` 仅对 WeChat 有效：`native`（默认）或 `jsapi`。`jsapi` 需附带买家的微信 `openid`，缺失时请求以 400 拒绝。其他 provider 忽略该字段。
+
+### Native（PC）
+
+响应的 `paymentContext.wechatCodeUrl` 是二维码内容。渲染出来（官方购买页用 canvas 二维码组件，任意二维码库都行）、启动倒计时，然后用既有的支付尝试查询接口（`PurchaseStatusRead` scope）轮询状态，直到进入终态。过期后停止轮询并提供"重新获取二维码"；用户取消时保持尝试打开并提供"重新支付"。回调到达之前不发放任何东西。
+
+### JSAPI（微信内）
+
+传 `"paymentScene": "jsapi"` 和 `openid`。响应的 `paymentContext.wechatJsapiParams` 包含 `{appId, timeStamp, nonceStr, package, signType, paySign}`，用它唤起收银台：
+
+```js
+WeixinJSBridge.invoke('getBrandWCPayRequest', wechatJsapiParams, (res) => {
+  // res.err_msg === 'get_brand_wcpay_request:ok' → 收银台成功关闭
+})
+```
+
+把这个回调当 UI 提示，不要当成支付凭证。履约的权威触发仍是 webhook；和 Native 一样继续轮询支付尝试。
+
+`openid` 从哪来？你的侧。官方前端的现行契约：微信内置浏览器内，页面读取 URL 的 `wechatOpenid` 查询参数并作为 `openid` 发送；微信外的环境回退到 Native。微信内缺这个参数时，购买页拒绝下单并提示先完成微信登录。自建前端的话，openid 怎么到达由你决定（登录链路、服务端注入），但必须以 `openid` 进到下单请求里。
+
+## 第 4 步：Webhook 与生命周期
+
+支付完成后，微信向你的 Notify URL 发 POST，带 `Wechatpay-Timestamp`、`Wechatpay-Nonce`、`Wechatpay-Signature`、`Wechatpay-Serial` 头。Herald 依次：
+
+1. 用与 `Wechatpay-Serial` 匹配的平台证书做 RSA-SHA256 验签（自动下载缓存、临期自动刷新）
+2. 用 APIv3 Key 解密回调密文（AES-256-GCM）
+3. 按微信事件 ID 去重
+4. 通过商户订单号定位支付尝试，比对实付金额与尝试金额
+5. `trade_state = SUCCESS` 时把尝试标记为成功并按计费类型履约——积分入映射的 Credit Account，或为 non-renewing 映射生成订阅记录
+
+验签失败、解密失败、金额不符、订单未知，任何一环出错都直接拒绝，不碰支付尝试。Herald 自己不重试失败的处理；微信会按自己的节奏重发失败的回调，运维侧另有人工重放入口（与 Stripe、Creem 的 webhook 补偿同路径）。
+
+non-renewing 会员自然到期：订阅记录到固定终点，权益失效。没有续费 webhook 可等，也没有扣款。用户重新购买续期，新购买生成新的订阅记录。
+
+WeChat 交易不进入 Herald 发票体系。微信支付没有面向第三方的发票 API，所以不像 Stripe 和 Creem 那样有外部发票可同步——见[发票管理](/docs/zh/billing/invoice)。
+
+---
+
+## 验证结果
+
+1. 在 **Payment Providers** 确认 WeChat Pay 显示为已配置
+2. 在 **Entitlement Mappings** 确认映射行存在，计费类型正确、价格与币种已填、（会员类）服务天数已设置
+3. 在 PC 打开购买页，选择 WeChat Pay 商品，确认二维码带倒计时渲染出来
+4. 用绑定商户沙箱的微信扫码支付，确认页面翻转为成功、积分或订阅出现
+5. 再付一次，然后重发同一回调（或等重发）：第二次不得发放任何东西
+6. 会员类确认 **Subscriptions** 里支付方为 `wechat`、计费类型 `non_renewing`、截止日期正好是 `service_duration_days` 天后
+
+## 故障排查
+
+### 订单创建成功但显示 0.01 元
+
+映射没有配置价格。Herald 发送 1 分哨兵金额让支付尝试行通过 `amount > 0` 约束。在第 2 步补上价格后重新下单——旧尝试保持原金额。
+
+### 回调被拒、验签失败
+
+要么平台证书缓存过期（Herald 会自动刷新；更早设置过的 `platform_public_key` 手工覆盖已过时），要么回调根本不是微信发的。测试期设过平台公钥的话，清掉它让自动下载接管。
+
+### 回调被拒、金额不符
+
+下单后、支付前映射价格被改过。支付尝试记住的是下单时的金额，微信扣的是当前价格。被拒的回调正是这层保护在起作用——先人工对账，再重新发起订单。
+
+### JSAPI 下单返回 400 "openid is required"
+
+`paymentScene` 是 `jsapi` 但请求里没有 `openid`。官方前端意味着微信内浏览器缺 `wechatOpenid` URL 参数；自建前端则检查 openid 的转发逻辑。
+
+### 二维码很快就过期
+
+支付尝试有效期上限 2 小时（微信单订单限制）。立刻过期通常说明同一目标还有未关闭的旧尝试——关掉或等它失效，再重新获取二维码。
+
+### 回调一直不到
+
+Notify URL 必须是带正确 `{realmId}` 的公网 HTTPS 地址，微信服务器可达。反方向的同类症状是 `base_url` 覆盖还指着本地 mock：订单在 mock 上成功，但真实用户付不了。
+
+---
+
+## 检查清单
+
+- [ ] Payment Providers 页已配置 WeChat Pay（App ID、商户号、私钥、证书序列号、APIv3 Key、Notify URL）
+- [ ] Notify URL 为带正确 `{realmId}` 的公网 HTTPS，生产环境未设置 `base_url` 覆盖
+- [ ] 每个商品都已创建 Entitlement Mapping（provider、商品 ID、entitlement key、计费类型、积分账户）
+- [ ] 创建弹窗已填写价格与币种（用测试订单金额验证）
+- [ ] non-renewing 映射已设置 Service Duration Days
+- [ ] 一笔 Native 购买端到端走通：二维码渲染、支付完成、尝试成功、积分或订阅可见
+- [ ] 观察过一次重复回调，确认未重复发放
+- [ ] JSAPI 路径用有效 openid 走通一次，再用缺 openid 验证一次拒单

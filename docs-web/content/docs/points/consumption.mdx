@@ -1,0 +1,95 @@
+---
+title: Points Consumption
+description: "Your backend spends credits with one atomic API call: POST /api/ext/points/{realmId}/consume. Herald routes the spend to the Points Accounts covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction."
+---
+
+Your backend spends credits with one atomic API call: `POST /api/ext/points/{realmId}/consume`. Herald routes the spend to the [Points Accounts](/docs/points/account) covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction.
+
+## Who this is for
+
+Developers wiring credit-metered features into their backend (the ext API requires a Client API Key whose principal holds `points.manage`), and admins tracing where points went.
+
+## The spend call
+
+```json
+POST /api/ext/points/{realmId}/consume
+{
+  "userId": "...",
+  "clientAppId": "...",
+  "amount": 100,
+  "description": "one chat completion",
+  "idempotencyKey": "req-042"
+}
+```
+
+- `amount` is 1 to 1,000,000 per call.
+- `idempotencyKey` is optional; replays with the same key return the original result instead of double-spending.
+- Rate limits: 100 requests/minute per Realm, 20 per user.
+
+A successful response carries one `correlationId` tying the whole call together, the transactions written, and the per-ledger allocations:
+
+```json
+{
+  "userId": "...",
+  "amount": 100,
+  "correlationId": "...",
+  "transactions": [
+    { "transactionId": "...", "bucketId": "...", "walletId": "...", "amount": -100, "balanceAfter": 900 }
+  ],
+  "allocations": [
+    { "bucketId": "...", "walletId": "...", "ledgerId": "...", "creditType": "topup_credit", "allocatedAmount": 60 }
+  ]
+}
+```
+
+## Routing: which accounts get debited
+
+Your app passes only `clientAppId` and the amount — it knows nothing about accounts. Herald finds every account whose coverage set contains this Client App and debits across them in a stable order. An account that does not cover the app is never debited. If no account covers the app, the call fails with 409 `no_covered_pool`.
+
+## Deduction order and atomicity
+
+Inside one transaction, per account, wallets and their ledger rows are locked in a fixed order (deadlock-free), then:
+
+1. **Quota windows first.** For `subscription` and `free_periodic` credits under a rolling [quota](/docs/points/quota), the window remainder is deducted first — subscription windows before free-periodic ones. Window usage is recorded as consume transactions; it does not touch the ledger, because window usage is aggregated from the transaction log itself.
+2. **Overflow to pools.** Whatever the windows cannot cover spills over to the pool ledgers (top-up, registration, granted, and the non-quota remainder), debiting ledger rows nearest-expiry-first, so credits about to expire are always spent before fresh ones.
+3. **All or nothing.** If quota remainder plus pool balance cannot cover the amount, everything rolls back and the call returns 409 `insufficient_points` with `have` / `need` — no partial deduction ever lands.
+
+A wallet that is `frozen` or `closed` rejects the whole call with 400 `wallet_frozen_or_closed`.
+
+## The transaction record
+
+Every leg of a consume is a row in `points_transactions` with a negative `amount`, a credit type, the bucket and wallet, and the shared `correlationId`. Grant-side writes use the grant-family types, so a user's full points history reads from one table:
+
+| Type | Meaning |
+|---|---|
+| `consume` | A spend (negative amount) |
+| `recharge` / `grant` | Top-up pack fulfillment / manual or SDK grant |
+| `subscription_grant` / `subscription_renewal` / `subscription_upgrade` / `subscription_downgrade` | Subscription-driven grants |
+| `registration_grant` / `free_periodic_grant` | Sign-up and free-periodic grants |
+| `refund_revoke` / `expire_revoke` / `cancel_revoke` | Clawback on refund, expiry, and cancellation |
+
+## Querying balances and history
+
+- Your backend (ext API, Client API Key): `GET /api/ext/points/{realmId}/balance?userId=...` returns balances aggregated over the accounts covering the key's Client App; `GET /api/ext/points/{realmId}/transactions/{transactionId}` and `.../transactions/by-external-ref/{externalRefId}?userId=...` fetch specific records.
+- End users: `GET /api/user/wallets` returns per-account balances by credit type plus the quota-window view (remaining / limit / used / recovery time per window, `spendableFromQuota` and `spendableFromPool` separated), and `GET /api/user/transactions` their history. The user-facing page is `/{realmId}/user/points`.
+- Admins: `GET /api/points/{realmId}/wallets` (per-account grouping with a cross-account total), `GET /api/points/{realmId}/wallets/{userId}`, and `GET /api/points/{realmId}/transactions` with filters (user, type, client app, subscription, external ref, bucket, time range). Console pages live under `/{realmId}/manage/points`.
+
+## Clawback: refunds, cancellations, expiry
+
+- **Top-up refund**: clawback is proportional and anchored to the originating payment — the ledgers granted by that specific payment are reduced by `refund amount / original payment amount`, capped at what remains. Unrelated credits are never touched.
+- **Subscription refund or immediate cancellation**: grants made by that subscription are revoked (remaining ledger amounts), and its quota entitlements are revoked. Already-consumed usage is not retro-adjusted — window usage rolls off naturally as the window slides.
+- **Subscription cancel at period end**: no clawback; the user keeps what the last period granted.
+- **Upgrade**: the old mapping's grants are revoked and the new mapping's rules execute in the same transaction. **Downgrade**: nothing is revoked; the next renewal grants by the new rules.
+- **Expiry**: a background sweep marks expired ledger rows; the balance stops counting them the moment they expire.
+
+## Consumption statistics
+
+`GET /api/points/{realmId}/stats/consumption?days=7|30` (permission `points.view`) measures `consume` transactions only — refunds and revocations never offset the figures. It returns the total consumed, distinct consuming users, a per-account breakdown, and a zero-filled daily trend. The admin console renders it under `/{realmId}/manage/billing/statistics` (Points panel).
+
+## Related docs
+
+- [Points Accounts](/docs/points/account) — the account model, credit types, and the ledger behind these balances
+- [Points Quotas](/docs/points/quota) — configuring the rolling windows deducted first
+- [Paywall configuration](/docs/points/paywall) — payment-granted roles and points rules
+- [Third-party backend integration](/docs/integration/third-party-backend) — Client API Keys and the ext API surface
+- [Billing Architecture](/docs/billing/overview) — the payment side that fills these accounts

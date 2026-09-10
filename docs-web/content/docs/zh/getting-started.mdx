@@ -64,6 +64,6 @@ curl http://localhost:8080/health
 
 ## 下一步
 
-服务跑起来后，打开 http://localhost:3000 进入前端界面。创建 realm 时指定的管理员用户具有超级管理员权限，可以邀请用户、配置权限。具体操作见[架构](/docs/architecture)了解各模块的职责。
+服务跑起来后，打开 http://localhost:3000 进入前端界面。创建 realm 时指定的管理员用户具有超级管理员权限，可以邀请用户、配置权限。具体操作见[架构](/docs/zh/architecture)了解各模块的职责。
 
 Realm 通常由 Admin Realm 管理员在管理控制台创建。admin realm 还可以开启公共自助开通入口：在 admin realm 的 *Settings → 平台 → 允许公开自助开通* 里切换开关。开启后访客打开 `/admin/auth/signup` 填表即可当场开通一个新 realm，并成为其 admin。该入口默认关闭（配置缺失即视为关闭）；公开端点由同 IP 24 小时限额（2 个 realm）和 Cloudflare Turnstile（绑定 admin-web-console 这个 Client App）防护。

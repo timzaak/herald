@@ -1,0 +1,292 @@
+---
+title: Stripe 支付对接
+description: "面向 Realm Admin 的 Stripe 对接操作指南。跟着做完，你的用户就能通过 Stripe 完成订阅支付和积分包购买。"
+---
+
+面向 Realm Admin 的 Stripe 对接操作指南。跟着做完，你的用户就能通过 Stripe 完成订阅支付和积分包购买。
+
+## 给谁看
+
+负责管理 Herald 计费配置的 Realm Admin。全程在管理后台操作，不需要写代码。
+
+## 前置条件
+
+- Herald 管理后台可以正常访问，你有管理员账号
+- 已创建至少一个 Realm 和一个 Client App
+- 已有 Stripe 账号。没有的话去 [Stripe 官网](https://stripe.com) 注册
+
+## 核心概念
+
+Herald 不维护本地商品目录。你在 Stripe Dashboard 里创建 Product 和 Price，然后在 Herald 里配置一条 Entitlement Mapping，告诉系统"Stripe 的 `prod_xxxx` 对应 Herald 的 `pro-plan`"。用户付款后，Stripe 通过 Webhook 通知 Herald，Herald 用 metadata 里的 `herald_entitlement_key` 找到对应的映射，创建订阅投影、发放积分。
+
+数据流向：Stripe Product → Herald Entitlement Mapping → 用户 Checkout → Stripe Webhook（带 herald_* metadata）→ Herald 订阅投影 + 积分发放
+
+---
+
+## Step 1: 配置 Stripe 连接
+
+在 Herald 管理后台填入 Stripe 凭证。
+
+1. 在左侧菜单找到 **Payment Providers**，点击进入
+2. 找到 **Stripe**，点击 **Configure**
+3. 填写配置表单：
+   - **Publishable Key**（必填）：以 `pk_` 开头。在 Stripe Dashboard → Developers → API Keys 中获取。测试环境用 `pk_test_` 开头的 key
+   - **Secret Key**（必填）：以 `sk_` 开头。测试环境用 `sk_test_` 开头的 key
+   - **Webhook Secret**（必填）：以 `whsec_` 开头。下一步获取
+4. 点击 **Save**
+
+保存有效凭证后 Stripe 即启用，没有单独的启用开关。Herald 通过 API Key 前缀自动判断环境：`sk_test_` 走测试环境，`sk_live_` 走生产环境。
+
+## Step 2: 配置 Stripe Webhook
+
+Stripe 通过 Webhook 把支付结果推送给 Herald。这是整个对接中最关键的一步。
+
+### 创建 Webhook 端点
+
+1. 打开 [Stripe Dashboard → Developers → Webhooks](https://dashboard.stripe.com/webhooks)
+2. 确认处于测试模式（右上角 toggle），开发阶段先配测试环境
+3. 点击 **Add endpoint**
+4. 填写：
+   - **Endpoint URL**：`https://你的Herald域名/api/third/pay/{realmId}/stripe/webhooks`
+     - 把 `{realmId}` 替换成你的 realm ID，比如 `admin`
+     - 本地开发用 ngrok 等工具暴露 Herald 服务
+   - **Listen to**：选择 **Events**（不是 Account events）
+
+### 选择 Webhook 事件
+
+点击 **Select events**，勾选以下事件。缺任何一个会导致对应的支付流程断裂。
+
+### 结账事件
+
+| 事件 | Stripe 中的路径 | Herald 处理逻辑 |
+|------|----------------|----------------|
+| `checkout.session.completed` | Checkout → checkout.session.completed | 完成结账，创建订阅或完成一次性支付 |
+| `checkout.session.expired` | Checkout → checkout.session.expired | 结账会话过期，标记支付尝试失败 |
+| `checkout.session.async_payment_succeeded` | Checkout → checkout.session.async_payment_succeeded | 异步支付（如银行转账）成功，完成支付尝试 |
+| `checkout.session.async_payment_failed` | Checkout → checkout.session.async_payment_failed | 异步支付失败，标记支付尝试失败 |
+
+### 订阅事件
+
+| 事件 | Stripe 中的路径 | Herald 处理逻辑 |
+|------|----------------|----------------|
+| `customer.subscription.created` | Customers → customer.subscription.created | 新订阅创建，同步订阅投影并发放积分 |
+| `customer.subscription.updated` | Customers → customer.subscription.updated | 订阅升降级处理 |
+| `customer.subscription.paused` | Customers → customer.subscription.paused | 订阅暂停，同步状态 |
+| `customer.subscription.resumed` | Customers → customer.subscription.resumed | 订阅恢复，同步状态 |
+| `customer.subscription.deleted` | Customers → customer.subscription.deleted | 订阅取消，回收积分 |
+
+### 支付与退款事件
+
+| 事件 | Stripe 中的路径 | Herald 处理逻辑 |
+|------|----------------|----------------|
+| `payment_intent.succeeded` | Payments → payment_intent.succeeded | 一次性支付（积分包购买）成功 |
+| `payment_intent.payment_failed` | Payments → payment_intent.payment_failed | 支付失败，标记支付尝试 |
+| `charge.refunded` | Payments → charge.refunded | 退款，按比例回收积分 |
+| `charge.dispute.created` | Payments → charge.dispute.created | 争议发起，标记订阅为争议状态 |
+| `charge.dispute.closed` | Payments → charge.dispute.closed | 争议结案：败诉则取消订阅，胜诉则恢复 |
+
+### 账单与发票事件
+
+| 事件 | Stripe 中的路径 | Herald 处理逻辑 |
+|------|----------------|----------------|
+| `invoice.payment_succeeded` | Billing → invoice.payment_succeeded | 续费成功，发放续费积分并同步订阅状态 |
+| `invoice.payment_failed` | Billing → invoice.payment_failed | 账单支付失败，标记支付尝试 |
+| `invoice.payment_action_required` | Billing → invoice.payment_action_required | 需要客户操作（如 3D Secure），记录日志 |
+| `invoice.created` | Billing → invoice.created | 同步 Stripe 发票到 Herald 外部发票 |
+| `invoice.finalized` | Billing → invoice.finalized | 同步 Stripe 发票到 Herald 外部发票 |
+| `invoice.paid` | Billing → invoice.paid | 同步 Stripe 发票到 Herald 外部发票 |
+| `invoice.voided` | Billing → invoice.voided | 同步 Stripe 发票到 Herald 外部发票 |
+
+以上 20 个事件必须全部勾选。Herald 收到不在列表中的事件会记录日志并返回 200，安全忽略。
+
+### 获取 Webhook Secret
+
+1. 端点创建完成后，在端点详情页找到 **Signing secret**
+2. 点击 **Reveal**，复制以 `whsec_` 开头的值
+3. 回到 Herald 管理后台 → Payment Providers → Stripe 配置，填入 **Webhook Secret**
+
+### 生产环境
+
+上线前，切换 Stripe Dashboard 到生产模式，重复以上步骤创建生产环境的 Webhook 端点。生产环境的 API Key 和 Webhook Secret 与测试环境完全独立。
+
+## Step 3: 在 Stripe 创建商品
+
+在 [Stripe Dashboard → Products](https://dashboard.stripe.com/products) 中创建你的产品。
+
+### 订阅商品
+
+1. 点击 **Add product**
+2. 填写产品名称（比如 "AI Writing Assistant Pro"）
+3. 价格设为 **Recurring**，选择月付或年付
+4. 创建完成后记下 **Product ID**（形如 `prod_xxxxxxxxxxxx`）和 **Price ID**（形如 `price_xxxxxxxxxxxx`）
+
+Herald 使用 Stripe 的 inline pricing 创建 Checkout Session，不需要在 Stripe 中预创建 Price。但 Product ID 是映射的必要字段。
+
+### 积分包商品（一次性购买）
+
+1. 同样在 Products 页面创建
+2. 价格设为 **One time**
+3. 记下 Product ID
+
+### 多货币价格（可选）
+
+一个产品可以挂多个货币的 Price——在 Stripe Dashboard 为每个货币加一个 Price（比如 $9.99/月 和 €9.99/月），重新同步后每个 Price 各成一行映射。购买页会按货币分组，由用户显式选择货币。api-ext 按货币解析接口见[多货币定价指南](/docs/zh/billing/multi-currency)。
+
+## Step 4: 同步 Stripe 商品到 Herald
+
+在 Herald 中把 Stripe 的商品同步为 Entitlement Mapping。
+
+1. 在 Herald 管理后台左侧菜单点击 **Entitlement Mappings**
+2. 点击 **Sync Provider Products** 按钮
+3. 选择支付方 **Stripe**
+4. 等待同步完成
+
+同步完成后，你会看到从 Stripe 拉取的商品列表。每条记录包含：
+- External Product ID（如 `prod_xxxx`）
+- External Price ID（如 `price_xxxx`）
+- 自动生成的 Entitlement Key（格式为 `stripe-{normalized_product_id}`）
+- 归属的积分账户（必填；新同步的映射需要管理员绑定到一个积分账户，之后可改挂）
+- 积分策略状态
+
+列表的主标签是 Stripe 商品的产品名（Product name）。产品名缺失时回退到 External Product ID，再不行给占位，不会出现空标签。产品过滤器按产品名匹配，外部 ID 命中也算。
+
+价格展示按 Stripe 单位换算。Stripe 同步的价格是最小货币单位整数（例如 999 表示 9.99），列表和详情会换算成主货币单位（9.99）。这条换算分支只对 Stripe 生效，Creem 不会走到这里。
+
+同步会把 Stripe `Product.metadata` 和 `Price.metadata`（你在 Stripe 后台填的商户自定义键值对）一起拉过来，写进 mapping 详情的展示信息里，只读。重新同步以 Stripe 当前值为准覆盖。Herald 不回写 Stripe metadata，权威源是 Stripe 后台。
+
+计费周期（订阅周期）取自 Stripe `Price.recurring.interval`（day/week/month/year），前端只读，不接受人工输入。保存 / 更新时即使提交了周期值，后端也不会用它覆盖同步值。
+
+自动生成的 Entitlement Key 通常不是你想要的。下一步来调整。
+
+## Step 5: 配置 Entitlement Mapping
+
+每条映射告诉 Herald："Stripe 的这个商品 = Herald 的这个权益"。
+
+1. 在 **Entitlement Mappings** 列表中，找到要配置的映射
+2. 点击编辑，修改以下字段：
+   - **Entitlement Key**（必填）：改成你能识别的名字，比如 `pro-monthly`。这个 key 在 SDK 查询、积分策略、Webhook 处理中都会用到，创建后尽量不改
+   - **Billing Type**：Recurring（订阅）或 OneTime（一次性购买）
+   - **Points Per Period**：每个计费周期发放多少积分
+   - **Grant On Subscribe**：首次订阅时是否发放积分
+   - **Validity Days**：积分有效期（天），0 或不填表示永不过期
+   - **Enabled**：是否启用。禁用后 Webhook 仍更新订阅投影，但不触发积分发放
+3. 点击保存
+
+### 归属积分账户
+
+每条映射必须显式挂在某个积分账户上（必填）。同步进来的映射如果在创建时没有指定账户，需由管理员补绑；如果这个套餐属于某条独立业务线，去 **积分账户** 页面把它挂到对应的积分账户。积分账户决定用户购买后积分进哪个池、哪些 Client App 能消费这些积分。
+
+积分账户决定了两件事：用户购买后积分进哪个池、哪些 Client App 能消费这些积分。积分账户的概念见[计费架构](/docs/zh/billing/overview#积分账户)。
+
+### Stripe Metadata 导入（可选）
+
+Stripe Product 和 Price 支持 metadata。如果在 Stripe Dashboard 中给 Product 或 Price 加了 `herald_entitlement_key`，同步时 Herald 会自动读取。但这只是导入来源，不是 source of truth。 Herald 本地配置优先。
+
+## Step 6: 用户支付流程
+
+配置完成后，用户侧的流程如下。
+
+### 订阅支付（Checkout Session）
+
+1. 用户在你的应用中选择套餐
+2. 你的应用调用 Herald 的 Checkout API（传入 `entitlement_key`、`payment_provider=stripe`）
+3. Herald 查 Entitlement Mapping 找到 Stripe 商品 ID
+4. Herald 调 Stripe API 创建 Checkout Session，metadata 写入 `herald_entitlement_key`、`herald_user_id`、`herald_client_app_id`、`herald_realm_id`、`herald_billing_kind`
+5. 返回 Stripe 支付页面 URL
+6. 用户在 Stripe 页面完成付款
+7. Stripe 发 `checkout.session.completed` 和 `customer.subscription.created` Webhook
+8. Herald 从 metadata 解析 entitlement_key，创建订阅投影、发放积分
+9. 后续每个计费周期，Stripe 自动扣款并发 `invoice.payment_succeeded`，Herald 发放续费积分
+
+产品带多个货币的 Price 时，Herald 购买页按货币分组，没有预选的默认货币。用户先选货币，再在组内选计费周期，支付尝试指向选中的那一行——扣款货币始终与展示一致。
+
+### 一次性支付（积分包 / Payment Intent）
+
+1. 用户选择积分包
+2. 你的应用调用 Herald Payment Attempt API
+3. Herald 创建 PaymentAttempt，调用 Stripe Payment Intent API
+4. 返回 `client_secret`
+5. 前端用 Stripe.js 展示支付表单
+6. 用户完成支付，Stripe 发 `payment_intent.succeeded` Webhook
+7. Herald 完成支付、发放 topup_credit
+
+### 退款
+
+用户在 Stripe Dashboard 中发起退款时：
+- Stripe 发 `charge.refunded` Webhook
+- Herald 根据退款类型回收积分（充值退款按比例回收，订阅退款回收未使用积分）
+
+## Step 7: 确认结果
+
+### 查看 Entitlement Mapping 状态
+
+1. 在 **Entitlement Mappings** 页面，确认映射的 Enabled 状态和积分策略配置
+
+### 查看订阅状态
+
+1. 在左侧菜单点击 **Subscriptions**，查看订阅投影列表
+2. 确认 `entitlement_key`、`status`、`payment_provider` 字段正确
+
+### 查看变更历史
+
+1. 点击 **Subscription History**，查看订阅的完整变更时间线
+2. 每条变更记录包含事件类型、entitlement 变更、时间戳
+
+Webhook 正常回调的话，状态会在几秒内更新。迟迟没变化，看下面的常见问题。
+
+---
+
+## 常见问题
+
+### Webhook 没收到
+
+1. 确认 Herald 部署的公网地址可以从 Stripe 服务器访问（本地开发用 ngrok）
+2. 确认 Webhook 端点 URL 中的 realm ID 正确
+3. 在 Stripe Dashboard → Webhooks → 你的端点，查看 **Attempts** 日志
+4. 确认 Step 1 中的 Webhook Secret 和端点的 Signing secret 一致
+
+### Webhook 签名验证失败
+
+- Webhook Secret 填错了（必须以 `whsec_` 开头）
+- Herald 前面有反向代理修改了请求体（Nginx 的 `proxy_request_buffering` 关闭时可能出现）
+- 签名时间戳超过 15 分钟（时钟不同步）
+
+### 支付成功但订阅未激活
+
+大概率是 Webhook 没到达 Herald。检查 Herald 日志里有没有收到 `POST /api/third/pay/{realmId}/stripe/webhooks` 请求。
+
+常见原因：
+- Stripe Dashboard 里的 Webhook URL 配错了
+- 服务器防火墙拦截了 Stripe 的回调请求
+- SSL 证书有问题
+
+### Entitlement Mapping 里看不到 Stripe 商品
+
+确认三点：
+1. Stripe 的 API Key 配置正确（Payment Providers 页面）
+2. 已执行过 **Sync Provider Products**
+3. Stripe Dashboard 中确实有 Product
+
+### 测试卡号
+
+Stripe 测试环境使用以下卡号：
+
+- 成功支付：`4242 4242 4242 4242`
+- 需要验证：`4000 0025 0000 3155`
+- 被拒绝：`4000 0000 0000 0002`
+
+过期日期填任何未来日期，CVC 填任何 3 位数字。
+
+---
+
+## 操作清单
+
+- [ ] Payment Providers 页面配置了 Stripe（Publishable Key、Secret Key、Webhook Secret 已填入并启用）
+- [ ] Stripe Dashboard 创建了 Webhook 端点，20 个事件全部勾选
+- [ ] Webhook Secret 和 Stripe 端点的 Signing secret 一致
+- [ ] 在 Stripe 创建了 Product，记下了 Product ID
+- [ ] 在 Herald Entitlement Mappings 页面执行了 Sync Provider Products
+- [ ] 检查并调整了 Entitlement Key 和积分策略配置
+- [ ] 映射状态为 Enabled
+- [ ] 用测试 Key 和测试卡号跑通了一次支付流程
+- [ ] 如需托管页支持 Apple Pay / Google Pay，在 Stripe 账户侧启用钱包（见[钱包支付指南](/docs/zh/billing/wallet-payments)）

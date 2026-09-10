@@ -1,0 +1,9 @@
+{
+  "title": "Integration",
+  "defaultOpen": true,
+  "pages": [
+    "third-party-backend",
+    "custom-user-ui",
+    "mcp"
+  ]
+}

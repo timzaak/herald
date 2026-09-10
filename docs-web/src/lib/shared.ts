@@ -7,3 +7,5 @@ export const gitConfig = {
   repo: "herald",
   branch: "main",
 };
+
+export const contactEmail = "zsy.evan@gmail.com";

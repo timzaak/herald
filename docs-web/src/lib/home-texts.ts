@@ -49,9 +49,11 @@ export interface HomeTexts {
   }[];
   ctaTitle: string;
   ctaDesc: string;
+  ctaContactHint: string;
   starGithub: string;
   footer: {
     copyright: string;
+    contact: string;
     privacy: string;
     terms: string;
   };
@@ -253,13 +255,20 @@ export const en: HomeTexts = {
       answer:
         "Yes. Herald is released under the Apache-2.0 license. You can use, modify, and distribute it freely, including for commercial projects. There are no usage limits and no per-user fees.",
     },
+    {
+      question: "Can I get help evaluating or deploying Herald?",
+      answer:
+        "Yes. Email zsy.evan@gmail.com and tell us about your product — we can help with deployment, payment-provider setup, and architecture questions. Bugs and feature requests can go to the GitHub issue tracker.",
+    },
   ],
   ctaTitle: "Build the AI product users pay for",
   ctaDesc:
     "Start with the open infrastructure around your product. Use AI to customize it, then focus every iteration on what makes your product unique.",
+  ctaContactHint: "Questions, or building something with Herald? Email us:",
   starGithub: "Star on GitHub",
   footer: {
     copyright: "Herald · Apache 2.0",
+    contact: "Contact",
     privacy: "Privacy",
     terms: "Terms",
   },
@@ -440,13 +449,20 @@ export const zh: HomeTexts = {
       answer:
         "是的。Herald 采用 Apache-2.0 许可证发布。你可以自由使用、修改和分发，包括商业项目。没有使用限制，也不按用户收费。",
     },
+    {
+      question: "评估或部署 Herald 时可以获得帮助吗？",
+      answer:
+        "可以。发邮件到 zsy.evan@gmail.com 告诉我们你的产品场景，我们可以协助部署、支付提供商接入和架构问题。Bug 与功能需求也可以提交 GitHub Issue。",
+    },
   ],
   ctaTitle: "构建用户愿意付费的 AI 产品",
   ctaDesc:
     "从开源产品基础设施开始，用 AI 持续定制，把每一次迭代都用在真正让产品与众不同的地方。",
+  ctaContactHint: "有疑问，或正在基于 Herald 构建产品？欢迎邮件联系：",
   starGithub: "Star on GitHub",
   footer: {
     copyright: "Herald · Apache 2.0",
+    contact: "联系我们",
     privacy: "隐私政策",
     terms: "服务条款",
   },

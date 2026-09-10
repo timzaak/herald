@@ -1,0 +1,118 @@
+---
+title: 积分配额（滚动窗口）
+description: "为订阅积分和免费周期积分配置滚动窗口配额。一个 entitlement 可以带多个窗口，如 {5h: 500, week: 5000, month: 20000}；任意时刻的可用配额是所有窗口剩余量的最小值。"
+---
+
+为订阅积分和免费周期积分配置滚动窗口配额。一个 entitlement 可以带多个窗口，例如 `{5h: 500, week: 5000, month: 20000}`。任意时刻的可用配额是所有窗口「limit − 窗口内已用」的最小值。如果 5 小时窗口用完了，即使周/月窗口还有余量，当前可用配额也是 0。
+
+这适用于 `subscription_credit`（随订阅发放的积分）和 `free_periodic_credit`（按周期发放的免费积分）。充值、注册、管理员发放的积分是池余额——不受窗口配额影响。
+
+## 给谁看
+
+配置订阅配额和新用户免费配额的 Realm 管理员。配置在管理后台或通过 API 完成。
+
+## 核心概念
+
+一个配额窗口有两个字段：以秒为单位的长度和一个上限。窗口是滚动的——从当前时刻往回看 `windowSeconds`，对这段时间内的消费求和。至少一个窗口，最多八个。用户可用配额是所有已配置窗口剩余量的最小值，所以最紧的窗口是真正起约束作用的那个。
+
+## 配置订阅配额
+
+订阅配额挂在 Entitlement Mapping 上。在 **Entitlement Mappings** 页面配置，或通过 `PUT /api/bill/{realmId}/entitlement-mappings/batch`。
+
+### 管理后台
+
+1. 以 Realm 管理员登录，进入 `/{realmId}/manage/billing/entitlement-mappings`
+2. 从左侧产品列表选目标产品
+3. 在价格行的高级配置里找到多窗口配额编辑器
+4. 添加窗口行并保存
+
+### API 请求示例
+
+```json
+PUT /api/bill/{realmId}/entitlement-mappings/batch
+{
+  "paymentProvider": "stripe",
+  "externalProductId": "prod_xxx",
+  "updates": [
+    {
+      "mappingId": "550e8400-e29b-41d4-a716-446655440000",
+      "entitlementKey": "pro-plan",
+      "billingType": "recurring",
+      "billingPeriod": "month",
+      "pointsPerPeriod": 1000,
+      "grantPeriodType": "monthly",
+      "validityDays": 30,
+      "grantOnSubscribe": true,
+      "maxPeriods": 10,
+      "enabled": true,
+      "quotaWindows": [
+        { "windowSeconds": 18000, "limit": 500 },
+        { "windowSeconds": 604800, "limit": 5000 },
+        { "windowSeconds": 2592000, "limit": 20000 }
+      ]
+    }
+  ]
+}
+```
+
+字段约束：
+
+| 字段 | 约束 | 说明 |
+|---|---|---|
+| `windowSeconds` | 大于 0 | 滑动窗口长度，单位秒 |
+| `limit` | 大于等于 0 | 该窗口的配额上限 |
+| `quotaWindows` | 最多 8 行 | 超过返回 400 |
+
+配置只影响之后发放的配额 entitlement；已激活的 entitlement 保留发放时写入的 `quota_windows` 快照不变。
+
+### 活跃订阅保护
+
+如果批量更新要把一个仍有活跃订阅的 mapping 从 `enabled=true` 改成 `enabled=false`，后端会回滚整个事务并返回 409，响应体里带受影响的活跃订阅数量。前端会弹确认对话框提示。
+
+## 配置 Realm 默认免费配额
+
+免费用户注册时拿到的周期配额由 Realm 默认配置控制，位于 `/{realmId}/manage/points/default-config`，对应 `GET/PUT /api/points/{realmId}/default-config`。
+
+### 管理后台
+
+1. 以 Realm 管理员登录，进入 `/{realmId}/manage/points/default-config`
+2. 找到免费周期多窗口配额编辑器
+3. 添加窗口行并保存
+
+### API 请求示例
+
+```json
+PUT /api/points/{realmId}/default-config
+{
+  "registrationBonusPoints": 1000,
+  "freePeriodicPointsAmount": 50,
+  "freePeriodicGrantPeriodType": "daily",
+  "freePeriodicValidityDays": 1,
+  "freePeriodicQuotaWindows": [
+    { "windowSeconds": 86400, "limit": 50 },
+    { "windowSeconds": 604800, "limit": 200 }
+  ]
+}
+```
+
+`freePeriodicQuotaWindows` 语义：
+
+- `null`：保持存储值不变（PUT 是部分更新）
+- `[]`：清空窗口配置
+- `[{windowSeconds, limit}]`：替换为新的窗口定义
+
+校验规则与 Entitlement Mapping 一致：`windowSeconds` 大于 0，`limit` 大于等于 0，最多 8 行。
+
+### 注册赠送积分
+
+`registrationBonusPoints` 控制新用户注册时一次性获得的 `registration_credit`，永久有效。这个字段和免费配额在同一配置页的独立区域。
+
+## 验证配置生效
+
+1. 新用户注册或新订阅支付后，访问 `/{realmId}/user/points`
+2. 页面上的用量面板会按窗口行展示剩余 / 上限 / 已用 / 恢复时间
+3. 如果没有出现窗口行，检查对应 mapping 或 Realm 默认配置是否配了 `quotaWindows`，以及该用户是否确实已获得配额 entitlement
+
+## 消费如何与池余额配合
+
+消费时先在同一事务里扣窗口配额；溢出部分从充值 / 注册 / 发放池里扣。如果两者合计不足，整笔消费回滚并拒绝——不会部分扣减。积分账户和池模型见 [计费架构](/docs/zh/billing/overview)。

@@ -1,0 +1,211 @@
+---
+title: Creem Integration
+description: "A hands-on Creem integration guide for Realm Admins. Follow it end to end and your users will be able to complete subscription payments through Creem."
+---
+
+A hands-on Creem integration guide for Realm Admins. Follow it end to end and your users will be able to complete subscription payments through Creem.
+
+## Who this is for
+
+Realm Admins who manage Herald's billing configuration. No code required — the whole flow happens in the admin console.
+
+## Prerequisites
+
+- The Herald admin console is accessible and you have an admin account
+- You have created at least one Realm and one Client App
+- You have registered at [Creem](https://creem.io) and obtained an API Key (use a `ck_test_` key for the test environment)
+
+## How Creem differs from Stripe
+
+Creem has no metadata feature like Stripe's Product/Price. That means Herald cannot auto-import the entitlement_key from provider products the way it can with Stripe. Creem product info must be configured manually in Herald — both the entitlement and the points policy.
+
+Everything else (Checkout, Webhook, subscription projection) is essentially the same as Stripe.
+
+## Core concepts
+
+Herald does not maintain a local product catalog. You create a Product in the Creem Dashboard, get its Product ID, then configure an Entitlement Mapping in Herald. After the user pays, Creem notifies Herald through a Webhook; Herald uses the `herald_entitlement_key` in the metadata (written into the Checkout request and returned verbatim by Creem in the Webhook) to find the mapping, creates a subscription projection, and grants credits.
+
+Data flow: Creem Product → Herald Entitlement Mapping (manually configured) → user Checkout → Creem Webhook (returns `herald_*` metadata) → Herald subscription projection + credit grant
+
+---
+
+## Step 1: Configure the Creem API Key and Webhook
+
+Configure Creem's connection info in the Herald admin console.
+
+1. Find **Payment Providers** in the left menu and click in
+2. Find **Creem**, click **Configure**
+3. Fill the form:
+   - **API Key** (required): the API Key from the Creem console; use a `ck_test_` key for the test environment
+   - **Timeout** (optional): request timeout in seconds
+   - **Webhook Secret** (required): the webhook signing secret; obtained after creating the Webhook, see below
+4. Click **Save**
+
+Saving valid credentials enables Creem — there is no separate enable toggle.
+
+### Create the Creem Webhook
+
+1. Open the Webhooks page in the Creem Dashboard
+2. Click **Create Webhook**
+3. Fill in:
+   - **Name**: Herald Webhook (any name)
+   - **URL**: `https://your-herald-domain/api/third/pay/{realmId}/creem/webhooks`
+     - Replace `{realmId}` with your realm ID, e.g. `admin`
+
+4. Select events — you must check all 12 below; missing any one breaks the corresponding payment flow:
+
+### Checkout events
+
+| Event | Herald handling |
+|------|----------------|
+| `checkout.completed` | Validate checkout metadata and record audit state. Subscription creation is deferred to the `subscription.paid` event |
+
+### Subscription events
+
+| Event | Herald handling |
+|------|----------------|
+| `subscription.paid` | Subscription first payment or renewal succeeded; create the subscription projection and grant credits |
+| `subscription.update` | Handle upgrade/downgrade; adjust credits |
+| `subscription.canceled` | Subscription canceled (immediate or end-of-term); claw back unused credits |
+| `subscription.active` | Subscription activated; sync state |
+| `subscription.trialing` | Subscription in trial; sync state |
+| `subscription.paused` | Subscription paused; sync state |
+| `subscription.past_due` | Subscription past due; sync state |
+| `subscription.scheduled_cancel` | Subscription scheduled to cancel; sync state and set the expiry time |
+| `subscription.expired` | Subscription expired; cancel the subscription and claw back credits |
+
+### Refund and dispute events
+
+| Event | Herald handling |
+|------|----------------|
+| `refund.created` | Refund; claw back credits by refund type |
+| `dispute.created` | Dispute opened; mark the subscription as disputed |
+
+5. After creation, copy the **Signing secret**, go back to Herald Payment Providers → Creem config, and paste it into **Webhook Secret**
+
+### Test and production environments
+
+The Creem API Key prefix decides where requests go:
+
+- `ck_test_` prefix: automatically uses the Creem test environment `test-api.creem.io`; no real charges
+- Other prefixes: use the Creem production environment `api.creem.io`; real charges
+
+Use the test key during development, switch to the production key before going live.
+
+## Step 2: Create products in Creem
+
+Create your Product in the Creem Dashboard and note the **Product ID** (like `prod_xxxxxxxx`). Product price and other info are managed in the Creem console.
+
+Herald does not automatically know what products you created in Creem. The next step syncs them.
+
+## Step 3: Sync Creem products into Herald
+
+1. In the Herald admin console left menu, click **Entitlement Mappings**
+2. Click **Sync Provider Products**
+3. Select provider **Creem**
+4. Wait for sync to finish
+
+After sync you will see the list of products pulled from Creem. Each record contains the External Product ID, an auto-generated Entitlement Key (format `creem-{normalized_product_id}`), and its owning Credit Account (each mapping must be explicitly bound to a Credit Account). The list's primary label is the product name; when missing it falls back to the External Product ID.
+
+Creem prices are shown as-is. The price Creem returns is already a display value (a string like `"9.99"`); it is used directly, with no Stripe-style smallest-currency-unit (cents) divide-by-100 conversion. Currency follows the Creem return value. The two conversion branches (Stripe and Creem) are separate and never pollute each other.
+
+Because Creem has no Product metadata, sync can only pull the product ID and basic info. The entitlement_key and points policy must be configured manually. The Creem Product object has no native `metadata` field in the `/v1/products/search` response (Creem's `metadata` is at the checkout-session level, not the Product level), so Herald does not sync metadata for Creem; the metadata section of the mapping detail is treated as empty, never fabricated. If the Creem response carries a `billing_period` (e.g. `every-month`), the frontend maps it to display copy; when missing, it shows "—".
+
+## Step 4: Configure the Entitlement Mapping
+
+This step is the main difference between Creem and Stripe integration. Stripe can import the entitlement_key from metadata; Creem cannot, so you must configure it manually in Herald.
+
+1. In the **Entitlement Mappings** list, find the Creem mapping to configure
+2. Click edit and fill these fields:
+   - **Entitlement Key** (required): change it to something you recognize, e.g. `pro-monthly`. This key is used in SDK queries, points policy, and webhook handling
+   - **Billing Type**: Recurring (subscription) or OneTime (one-time purchase)
+   - **Points Per Period**: how many credits to grant per billing period
+   - **Grant On Subscribe**: whether to grant credits on first subscription
+   - **Validity Days**: credit validity in days; 0 or empty means never expires
+   - **Enabled**: whether it is enabled. When disabled, webhooks still update the subscription projection, but no credits are granted
+3. Click save
+
+### Anchor to a Credit Account
+
+Each mapping must be explicitly attached to a Credit Account (required). If a synced mapping was created without an account, the admin must bind one; if this plan belongs to a separate business line, go to the **Credit Accounts** page and attach it to the right account.
+
+The Credit Account decides two things: which pool the user's credits land in after purchase, and which Client Apps can spend those credits. See [Billing Architecture](/docs/billing/overview) for the Credit Account concept.
+
+## Step 5: User payment flow
+
+After configuration, the user-side flow is as follows.
+
+1. The user picks a plan in your app
+2. Your app calls Herald's Checkout API (passing `entitlement_key`, `payment_provider=creem`)
+3. Herald looks up the Entitlement Mapping to find the Creem product ID
+4. Herald calls the Creem API to create a checkout session, writing `herald_entitlement_key`, `herald_user_id`, `herald_client_app_id`, `herald_realm_id`, `herald_billing_kind` into metadata
+5. Returns a Creem payment-page URL
+6. The user completes payment on the Creem page
+7. Creem fires Webhooks (`checkout.completed` → `subscription.paid`)
+8. Herald parses the entitlement_key from metadata, creates the subscription projection, and grants credits
+9. Subsequent renewals are handled automatically by Creem, which fires `subscription.paid`; Herald grants renewal credits
+
+Creem's Webhook returns the metadata written into the Checkout request. Herald relies on this to identify the user and entitlement.
+
+## Step 6: Verify the result
+
+### Check Entitlement Mapping status
+
+1. On the **Entitlement Mappings** page, confirm the mapping's Enabled status and points policy
+
+### Check subscription status
+
+1. Click **Subscriptions** in the left menu to see the subscription projection list
+2. Confirm the `entitlement_key`, `status`, and `payment_provider` fields are correct
+
+### Check change history
+
+1. Click **Subscription History** to see the full change timeline for a subscription
+
+If webhooks are firing normally, the state updates within a few seconds. If it is stuck, see the troubleshooting below.
+
+---
+
+## Troubleshooting
+
+### Webhook not received
+
+Make sure the Herald deployment's public address is reachable from Creem's servers. The Webhook endpoint URL format is: `https://your-domain/api/third/pay/{realmId}/creem/webhooks`
+
+Check the URL in the Creem Dashboard's Webhook configuration.
+
+### Plan not visible in the app
+
+1. Is the Entitlement Mapping's **Enabled** status on?
+2. Is the Creem API Key configured and enabled?
+3. Have you run **Sync Provider Products**?
+
+### Payment succeeded but the subscription is not active
+
+Check the Herald logs for a `POST /api/third/pay/{realmId}/creem/webhooks` request.
+
+Common causes:
+- The Webhook URL in the Creem Dashboard is wrong
+- A Herald server firewall is blocking Creem's callback
+- An SSL certificate problem
+
+### "Creem not configured for realm" error
+
+The Step 1 API Key is not set up. Check the Creem config on the Payment Providers page.
+
+### Sync failure
+
+If the Creem API is unavailable and sync fails, the existing mapping data is unaffected and still usable. Retry sync once the API recovers.
+
+---
+
+## Checklist
+
+- [ ] Creem configured on the Payment Providers page (API Key and Webhook Secret filled in and enabled)
+- [ ] Webhook endpoint created in the Creem Dashboard, all 12 events checked
+- [ ] Webhook Secret matches the Creem endpoint's Signing secret
+- [ ] Product created in Creem, Product ID noted
+- [ ] **Sync Provider Products** run on the Herald Entitlement Mappings page
+- [ ] Entitlement Key and points policy configured manually (Creem cannot auto-import)
+- [ ] Mapping status is Enabled
+- [ ] One full payment flow completed with the test key

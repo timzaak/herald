@@ -1,0 +1,85 @@
+---
+title: 积分账户（Credit Account）
+description: "积分账户是 Realm 内积分的隔离单元：每个账户持有独立余额、覆盖一组 Client App，只有被覆盖的应用才能消费。积分按来源分五种类型入账，可用余额由逐笔发放的账本派生——你看到的余额永远就是你能花的余额。"
+---
+
+积分账户是 Realm 内积分的隔离单元：每个账户持有独立余额、覆盖一组 Client App，只有被覆盖的应用才能消费。积分按来源分五种类型（充值、会员、注册、免费周期、主动发放）入账，可用余额由逐笔发放的账本派生——你看到的余额永远就是你能花的余额。
+
+它解决的问题是：一个 Realm 下可能同时跑多条业务线，比如一个 AI 对话应用和一个图片生成应用，它们的积分要分开结算、分开消费，不能串。
+
+## 给谁看
+
+创建和管理积分账户的 Realm Admin，以及在建消费对接前想搞清楚"应用的积分到底放在哪"的开发者。消费侧的完整行为见[积分消耗](/docs/zh/points/consumption)。
+
+## 账户模型
+
+| 字段 | 说明 |
+|------|------|
+| `bucket_key` | 标识，匹配 `^[a-z0-9-]{1,64}$`，Realm 内唯一 |
+| `name` | 展示名 |
+| `description` | 可选描述 |
+| `display_order` | 展示顺序 |
+| `enabled` | 是否启用。禁用后对新用户不可见、不可购；已持有该账户的用户仍能消费剩余积分 |
+| 覆盖集 | 该账户覆盖的 Client App 列表。不能为空；只有被覆盖的应用才能消费这个池 |
+
+Herald 没有"默认账户"的概念：每一个账户都是管理员显式建出来的，每一笔发放都由显式规则路由。一个 Client App 可以同时被多个账户覆盖——此时消费会跨这些账户扣减（见[积分消耗](/docs/zh/points/consumption)）。
+
+几个会直接报错而不是静默处理的约束：
+
+- 覆盖集不能为空。创建和更新都校验，空集返回 400。
+- 从一个积分账户移除已挂载的 Entitlement Mapping 会被拒绝，返回 `bucket_orphan_mapping`。要移动映射，先把它挂到目标积分账户。
+- 改覆盖集只影响未来的路由，不回收已经发出去的余额。
+
+## 五种积分类型
+
+账户里的积分按来源分别记账。余额、后台概览、流水都沿这五个 key 展开：
+
+| key | 含义 |
+|------|------|
+| `topup` | 充值积分（用户主动购买） |
+| `subscription` | 会员积分（订阅套餐赠送） |
+| `registration` | 注册积分（注册时一次性赠送，永久有效） |
+| `free_periodic` | 免费周期积分（按周期自动发放） |
+| `granted` | 主动发放积分（管理员或 SDK 发放） |
+
+## 余额：钱包与积分账本
+
+每个（用户, 账户）对对应一个钱包。钱包只保留终身累计数（按来源累计发放 / 累计消费）和一个状态（`active` / `frozen` / `closed`——冻结或关闭的钱包会拒绝消费），它并不是余额本身。
+
+可用余额由积分账本（credit ledger）派生：每笔发放写一条账本行，带 `granted / used / revoked / remaining` 四个金额、积分类型、可选的 `expires_at`（过期时间）与 `effective_at`（未来生效时间），以及状态（`active` / `revoked` / `expired` / `fully_used`）。可用余额 = 所有"生效中、未过期、状态 active"的行的 `remaining` 之和——这个判定谓词与消费时选取账本行的谓词完全一致，所以你看到的余额就是你能花的余额。
+
+带 `expires_at` 的行过期后由后台任务扫出：行的状态翻成 `expired`，不再计入余额，并写一条回收记录。一笔发放是否过期，由发放规则的有效期策略决定。
+
+## 管理积分账户
+
+管理台：`/{realmId}/manage/billing/credit-buckets` 是账户目录，旁边有余额矩阵概览页。
+
+API（全部需要 Realm Admin 的 `points.manage` 权限）：
+
+| 方法与路径 | 说明 |
+|---|---|
+| `GET /api/realms/{realmId}/billing/credit-buckets` | 账户列表，带覆盖应用数和规则引用数 |
+| `POST /api/realms/{realmId}/billing/credit-buckets` | 创建，返回 201 |
+| `GET /api/realms/{realmId}/billing/credit-buckets/overview` | 余额矩阵：每个账户 × 每种积分类型，外加跨账户合计 |
+| `GET /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | 详情，含覆盖集 |
+| `PUT /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | 更新（覆盖集整体替换，不是合并） |
+| `DELETE /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | 删除，返回 204 |
+
+两个常遇到的报错：
+
+- 400 `bucket_key_duplicate`：key 在这个 Realm 内已存在。
+- 409 `bucket_in_use`：账户还有活跃订阅、有余额的持有者，或存在历史引用（任意钱包 / 流水 / 账本行）。响应会分列 `activeSubscriptions`、`holdersWithBalance`、`historyReferences`。有历史的账户应当禁用而不是删除——删除只留给从未使用过的账户。
+
+## 积分怎么进入账户
+
+- **支付入账**：Entitlement Mapping 的积分发放规则在购买和续费时向映射绑定的账户发放。见[付费墙配置](/docs/zh/points/paywall)和[计费架构](/docs/zh/billing/overview)。
+- **注册与免费周期积分**：由 Realm 的发放规则路由（`GET/PUT /api/points/{realmId}/registration-rules`）。零到多条规则，每条独立指定一个目标账户；一次事件可同时扇出到多个账户。没有启用规则就不发——不存在隐式的兜底账户。
+- **主动发放**：管理台走 `POST /api/points/{realmId}/grant`（`granted` 类型）；你的后端可通过 Client API Key 走 `POST /api/ext/points/{realmId}/grant`（同为 `granted` 类型，SDK 来源）。
+
+## 相关文档
+
+- [积分消耗](/docs/zh/points/consumption)——消费调用、扣减顺序与流水记录
+- [积分配额](/docs/zh/points/quota)——会员与免费周期积分的滚动窗口配额
+- [付费墙配置](/docs/zh/points/paywall)——映射上的支付授予角色与积分规则
+- [计费架构](/docs/zh/billing/overview)——支付侧：映射、订阅、回调
+- [积分账户用户故事](https://github.com/timzaak/herald/blob/main/docs/user-stories/billing/credit-bucket.md)——账户目录、覆盖集与订阅生命周期的验收场景

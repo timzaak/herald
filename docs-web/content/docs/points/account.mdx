@@ -1,0 +1,85 @@
+---
+title: Points Accounts (Credit Accounts)
+description: "A Points Account is the unit of isolation for credits in a Realm: each account holds an independent balance, covers a set of Client Apps, and only covered apps can spend from it. Credits arrive typed (top-up, subscription, registration, free-periodic, granted) and the spendable balance is derived from a per-grant ledger — the balance you see is always the balance you can spend."
+---
+
+A Points Account is the unit of isolation for credits in a Realm: each account holds an independent balance, covers a set of Client Apps, and only covered apps can spend from it. Credits arrive typed (top-up, subscription, registration, free-periodic, granted) and the spendable balance is derived from a per-grant ledger — the balance you see is always the balance you can spend.
+
+It solves this problem: a single Realm may run several business lines at once — say, an AI chatbot app and an image-generation app — and their credits must be settled and consumed separately, never mixed.
+
+## Who this is for
+
+Realm Admins who create and manage accounts, and developers who need to understand where an app's credits live before wiring up consumption. The spend side is covered in [Points Consumption](/docs/points/consumption).
+
+## Account model
+
+| Field | Description |
+|------|------|
+| `bucket_key` | Identifier, matches `^[a-z0-9-]{1,64}$`, unique within the Realm |
+| `name` | Display name |
+| `description` | Optional description |
+| `display_order` | Display order |
+| `enabled` | When disabled, the account is hidden from new users and cannot be purchased; users who already hold credits can still spend the remainder |
+| Coverage set | The Client Apps this account covers. Must be non-empty; only covered apps can spend from this pool |
+
+There is no "default account": every account is created explicitly by an admin, and every grant is routed by an explicit rule. A Client App may be covered by several accounts at once — consumption then debits across all of them (see [Points Consumption](/docs/points/consumption)).
+
+A few constraints that fail loudly rather than fail silently:
+
+- The coverage set cannot be empty. Both create and update validate this; an empty set returns 400.
+- Removing a mounted Entitlement Mapping from an account is rejected with `bucket_orphan_mapping`. To move a mapping, attach it to the target account first.
+- Changing the coverage set only affects future routing; it does not reclaim already-granted balances.
+
+## The five credit types
+
+Credits in an account are booked separately by source. Balances, the admin overview, and transactions all break down along these keys:
+
+| Key | Meaning |
+|------|------|
+| `topup` | Top-up credits (user purchased voluntarily) |
+| `subscription` | Subscription credits (granted with a subscription plan) |
+| `registration` | Registration credits (one-time grant at sign-up, permanent) |
+| `free_periodic` | Free periodic credits (auto-granted per period) |
+| `granted` | Granted credits (admin or SDK grant) |
+
+## Balances: wallets and the credit ledger
+
+Each (user, account) pair has a wallet. The wallet carries lifetime counters (total granted / consumed per source) and a status (`active` / `frozen` / `closed` — a frozen or closed wallet rejects consumption), but it is not the balance.
+
+The spendable balance is derived from the credit ledger: every grant writes a ledger row with `granted / used / revoked / remaining` amounts, a credit type, an optional `expires_at` and a future `effective_at`, and a status (`active` / `revoked` / `expired` / `fully_used`). The available balance is the sum of `remaining` over rows that are active, effective, and not expired — deliberately the same predicate consumption selects with, so the balance you see is the balance you can spend.
+
+Rows with an `expires_at` are swept by a background job when they pass it: the row flips to `expired`, stops counting toward the balance, and a revocation record is written. Whether a grant expires at all is decided by the granting rule's validity policy.
+
+## Managing accounts
+
+Admin console: `/{realmId}/manage/billing/credit-buckets` for the catalog, with a balance-matrix overview page next to it.
+
+API (all require the Realm Admin's `points.manage` permission):
+
+| Method & path | Description |
+|---|---|
+| `GET /api/realms/{realmId}/billing/credit-buckets` | List accounts with covered-app and rule-reference counts |
+| `POST /api/realms/{realmId}/billing/credit-buckets` | Create, returns 201 |
+| `GET /api/realms/{realmId}/billing/credit-buckets/overview` | Balance matrix: per account × per credit type, plus a cross-account total |
+| `GET /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | Detail, including the coverage set |
+| `PUT /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | Update (coverage set is replaced wholesale, not merged) |
+| `DELETE /api/realms/{realmId}/billing/credit-buckets/{bucketId}` | Delete, returns 204 |
+
+Two errors you will meet:
+
+- 400 `bucket_key_duplicate`: the key already exists in this Realm.
+- 409 `bucket_in_use`: the account still has active subscriptions, holders with a balance, or history references (any wallet / transaction / ledger row). The response itemizes `activeSubscriptions`, `holdersWithBalance`, and `historyReferences`. An account with history should be disabled, not deleted — deleting is reserved for accounts that were never used.
+
+## How credits get into an account
+
+- **Payments**: an Entitlement Mapping's points distribution rules grant into the mapping's bound account on purchase and renewal. See [Paywall configuration](/docs/points/paywall) and [Billing Architecture](/docs/billing/overview).
+- **Registration and free periodic credits**: routed by the Realm's distribution rules (`GET/PUT /api/points/{realmId}/registration-rules`). Zero or more rules, each targeting one account; a single event can fan out to several accounts. With no enabled rules, nothing is granted — there is no implicit fallback account.
+- **Manual grants**: `POST /api/points/{realmId}/grant` from the admin console (`granted` type), or `POST /api/ext/points/{realmId}/grant` from your backend via a Client API Key (also `granted` type, SDK source).
+
+## Related docs
+
+- [Points Consumption](/docs/points/consumption) — the spend call, deduction order, and transaction records
+- [Points Quotas](/docs/points/quota) — rolling-window quotas on subscription and free-periodic credits
+- [Paywall configuration](/docs/points/paywall) — payment-granted roles and points rules on a mapping
+- [Billing Architecture](/docs/billing/overview) — the payment side: mappings, subscriptions, webhooks
+- [Credit Account user stories](https://github.com/timzaak/herald/blob/main/docs/user-stories/billing/credit-bucket.md) — acceptance scenarios for the account catalog, coverage sets, and the subscription lifecycle

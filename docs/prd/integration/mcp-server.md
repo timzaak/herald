@@ -189,6 +189,6 @@ Herald 的目标用户（用 AI agent 搭建产品的独立开发者与 AI 产�
 - 决策账本：`.ai/decision-log/mcp-server.md`
 - 技术预研：`.ai/tech-research/mcp-server.md`
 - 技术设计：`.ai/design/mcp-server.md`
-- 官方 MCP 集成指南：https://www.fornetcode.com/en/docs/mcp-integration （中文：https://www.fornetcode.com/zh/docs/mcp-integration ）
+- 官方 MCP 集成指南：https://www.fornetcode.com/en/docs/integration/mcp （中文：https://www.fornetcode.com/zh/docs/integration/mcp ）
 - 相关已发布 PRD：`docs/prd/integration/api-key-roles.md`（API Key 角色绑定）、`docs/prd/integration/sdk.md`（SDK 接入面）、`docs/prd/core/audit.md`（审计日志）、`docs/prd/billing/points.md`（积分系统）
 - MCP 授权规范（2026-07-28）：https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization

@@ -61,6 +61,8 @@ uv run scripts/demo-start.py
 
 手动安装和后续配置请参阅[快速开始文档](https://www.fornetcode.com/zh/docs/getting-started)。
 
+部署遇到问题，或正在评估 Herald？欢迎发邮件到 [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com)，很乐意帮忙。
+
 ## 体验在线演示
 
 打开 [auth.fornetcode.com](https://auth.fornetcode.com)，使用以下账号登录：
@@ -78,7 +80,7 @@ Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/cont
 
 - **完整文档索引（LLM）：** https://www.fornetcode.com/llms.txt
 - **完整文档全文（LLM）：** https://www.fornetcode.com/llms-full.txt
-- **单页 Markdown：** 在任意文档 URL 后加 `.md`，例如 https://www.fornetcode.com/zh/docs/auth-passkey.md
+- **单页 Markdown：** 在任意文档 URL 后加 `.md`，例如 https://www.fornetcode.com/zh/docs/auth/passkey.md
 - **API 参考（OpenAPI）：** [`docs-web/openapi.json`](docs-web/openapi.json)
 - **MCP 服务：** 用 Client API Key 直连，通过五个只读工具查询你的租户：
 
@@ -87,7 +89,14 @@ Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/cont
     --header "X-API-Key: sk-your-api-key"
   ```
 
-  连接后用零入参的 `get_realm_config_status` 工具做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/mcp-integration)。
+  连接后用零入参的 `get_realm_config_status` 工具做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/integration/mcp)。
+
+## 联系我们
+
+正在基于 Herald 构建产品？欢迎告诉我们你在做什么。
+
+- 🐛 提交 [GitHub Issue](https://github.com/timzaak/herald/issues) 反馈 bug 与功能需求
+- ✉️ [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com) 部署咨询、产品反馈，或聊聊你正在构建的产品
 
 ## 许可证
 

@@ -1,0 +1,15 @@
+{
+  "title": "Billing",
+  "defaultOpen": true,
+  "pages": [
+    "overview",
+    "stripe-payment",
+    "creem-payment",
+    "wechat-payment",
+    "iap",
+    "wallet-payments",
+    "multi-currency",
+    "invoice",
+    "credit-note"
+  ]
+}

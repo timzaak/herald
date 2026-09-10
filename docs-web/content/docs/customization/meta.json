@@ -1,0 +1,8 @@
+{
+  "title": "Customization",
+  "defaultOpen": true,
+  "pages": [
+    "branding",
+    "custom-domain"
+  ]
+}

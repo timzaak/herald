@@ -1,0 +1,10 @@
+{
+  "title": "Authentication",
+  "defaultOpen": true,
+  "pages": [
+    "passkey",
+    "email-otp",
+    "apple-native",
+    "ldap"
+  ]
+}

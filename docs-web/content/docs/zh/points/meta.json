@@ -1,0 +1,10 @@
+{
+  "title": "积分",
+  "defaultOpen": true,
+  "pages": [
+    "account",
+    "consumption",
+    "quota",
+    "paywall"
+  ]
+}

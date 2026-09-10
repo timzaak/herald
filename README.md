@@ -61,6 +61,8 @@ Once running:
 
 See the [Getting Started guide](https://www.fornetcode.com/en/docs/getting-started) for manual setup and next steps.
 
+Stuck on setup, or evaluating Herald for your product? Email [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com) — happy to help.
+
 ## Try the Live Demo
 
 Open [auth.fornetcode.com](https://auth.fornetcode.com) and sign in with:
@@ -78,7 +80,7 @@ Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-
 
 - **Full doc index (for LLMs):** https://www.fornetcode.com/llms.txt
 - **Full doc text (for LLMs):** https://www.fornetcode.com/llms-full.txt
-- **Single page as Markdown:** append `.md` to any doc URL, e.g. https://www.fornetcode.com/en/docs/auth-passkey.md
+- **Single page as Markdown:** append `.md` to any doc URL, e.g. https://www.fornetcode.com/en/docs/auth/passkey.md
 - **API reference (OpenAPI):** [`docs-web/openapi.json`](docs-web/openapi.json)
 - **MCP server:** connect directly with a Client API Key and query your realm through five read-only tools:
 
@@ -87,7 +89,14 @@ Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-
     --header "X-API-Key: sk-your-api-key"
   ```
 
-  Then self-check with the zero-argument `get_realm_config_status` tool. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/mcp-integration).
+  Then self-check with the zero-argument `get_realm_config_status` tool. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp).
+
+## Talk to Us
+
+Building a product on Herald? We'd love to hear what you're making.
+
+- 🐛 [Open an issue](https://github.com/timzaak/herald/issues) for bugs and feature requests
+- ✉️ [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com) for deployment help, feedback, or just to tell us what you're building
 
 ## License
 

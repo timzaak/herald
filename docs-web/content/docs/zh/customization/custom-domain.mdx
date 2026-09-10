@@ -1,0 +1,67 @@
+---
+title: 自定义域名
+description: "Realm 管理员可以为本 Realm 注册一个品牌登录域名（如 login.acme.com），获取 CNAME 指引，并查看 CNAME/TLS 生效状态。域名全局唯一，保存即生效——没有单独的发布步骤。Herald 只授权反代层为已由 Realm 管理员注册的域名签发 TLS 证书。"
+---
+
+Realm 管理员可以为本 Realm 注册一个品牌登录域名（如 `login.acme.com`），获取 CNAME 指引，并查看 CNAME/TLS 生效状态。域名全局唯一，保存即生效——没有单独的发布步骤。Herald 只授权反代层为已注册的域名签发 TLS 证书，未注册域名会被拒绝，这就是证书滥用防护门控。
+
+这是「自带域名」的简化方案，没有单独的 DNS TXT 所有权验证步骤。把域名 CNAME 到 Herald 指定的 hostname 就证明了 DNS 控制权，加上反代层跑的 ACME 挑战证明 DNS 实际指向 Herald——两者组合就是所有权验证。不支持通配域名（`*.acme.com`），也没有 Herald 自有的 `*.herald.com` 子域，只支持精确 hostname。
+
+## 给谁看
+
+想让自家品牌域名指向 Herald 托管登录页的 Realm 管理员，以及在 Herald 前面跑反代（Caddy）、需要接 on-demand TLS 的运维人员。终端用户永远看不到配置入口。
+
+自定义域名的管理端点在 `/api/realms/{realmId}/config/custom-domain` 下。端点和 schema 细节见 OpenAPI 参考。
+
+## 第 1 步：配置服务端参数
+
+功能可用前，配置文件里 `[custom_domain]` 下两项必须设置。完整表格和示例见 [Configuration → custom-domain](/docs/zh/configuration#custom-domain)。
+
+| 字段 | 用途 |
+|------|------|
+| `ask_key` | 授权端点的共享密钥（`X-Herald-Ask-Key`）。**必须非空，否则服务器拒绝启动。** 用 `openssl rand -hex 32` 生成。 |
+| `cname_target` | 展示给 Realm 管理员的 CNAME 目标，Herald 拥有的 hostname（如 `custom.herald.com`）。 |
+
+如果暂时不用自定义域名，把 `ask_key` 设为任意非空占位串即可通过启动校验；授权端点仍会拒绝未注册的 host。
+
+## 第 2 步：注册域名
+
+1. 在 Herald 管理后台打开 *Settings → Custom Domain*。
+2. 输入精确 hostname（如 `login.acme.com`）并保存。
+
+hostname 会在服务端被规范化：转小写、去尾点，带 scheme、端口、路径或通配符的值被拒绝。域名跨 Realm 全局唯一——两个 Realm 不能注册同一个 hostname。
+
+保存即生效，没有草稿或发布步骤：
+
+- **保存。** 校验 hostname、检查全局唯一、写入域名注册映射、持久化配置——一步完成。保存成功的那一刻域名就上线了。
+- **换域名。** 保存不同的 hostname 会覆盖前一个；映射更新为新 hostname，旧的被移除。
+- **清空域名。** 保存空 hostname 会删除该 Realm 的映射行。
+
+## 第 3 步：配置 DNS（CNAME）
+
+表单会显示 `cname_target`——你必须把域名指向的 Herald-owned hostname。在 DNS 服务商处创建 CNAME 记录：
+
+```
+login.acme.com  CNAME  custom.herald.com
+```
+
+把域名 CNAME 到 `cname_target` 就证明了 DNS 控制权。管理后台的状态面板会反映 CNAME 是否正确。
+
+## 第 4 步：查看 CNAME/TLS 生效状态
+
+管理后台的状态面板跟踪：
+
+- **CNAME 状态**——DNS 记录是否解析到预期的 `cname_target`。
+- **TLS 状态**——证书是否已签发。
+
+这些会随反代层跑 ACME 挑战而更新。创建 CNAME 记录后给 DNS 传播留点时间。
+
+## 当前路由方式
+
+Realm 路由目前仍由 `{realmId}` 路径段决定，和以前一样。自定义域名配置和证书授权门控是 host 路由的基础；直接在自定义域名上承载完整 auth 流的能力见后续版本。
+
+## 相关文档
+
+- [White-label](/docs/zh/customization/branding) — 品牌化页面；自定义域名品牌化 URL。White-label 用草稿/发布生命周期；自定义域名是单次保存。
+- [Configuration](/docs/zh/configuration#custom-domain) — `[custom_domain]` 配置段
+- [部署](/docs/zh/deployment) — 反代 / on-demand TLS 接法

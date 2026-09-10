@@ -1,0 +1,10 @@
+{
+  "title": "Points",
+  "defaultOpen": true,
+  "pages": [
+    "account",
+    "consumption",
+    "quota",
+    "paywall"
+  ]
+}

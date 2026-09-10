@@ -1,0 +1,95 @@
+---
+title: 积分消耗
+description: "你的后端用一个原子调用花积分：POST /api/ext/points/{realmId}/consume。Herald 把这次消费路由到覆盖该 Client App 的积分账户，先扣滚动配额窗口、再按最近过期优先扣池余额，要么全部入账、要么整体回滚——永远不存在部分扣减。"
+---
+
+你的后端用一个原子调用花积分：`POST /api/ext/points/{realmId}/consume`。Herald 把这次消费路由到覆盖该 Client App 的[积分账户](/docs/zh/points/account)，先扣滚动配额窗口、再按最近过期优先扣池余额，要么全部入账、要么整体回滚——永远不存在部分扣减。
+
+## 给谁看
+
+在后端接入按积分计费功能的开发者（ext API 需要一个持有 `points.manage` 权限的 Client API Key），以及需要追溯积分去向的管理员。
+
+## 消费调用
+
+```json
+POST /api/ext/points/{realmId}/consume
+{
+  "userId": "...",
+  "clientAppId": "...",
+  "amount": 100,
+  "description": "一次对话补全",
+  "idempotencyKey": "req-042"
+}
+```
+
+- `amount` 每次调用限 1 到 1,000,000。
+- `idempotencyKey` 可选；同一 key 重放会返回首次的结果，不会重复扣费。
+- 限流：每 Realm 100 次/分钟，每用户 20 次/分钟。
+
+成功响应带一个把整次调用串起来的 `correlationId`、写入的流水和逐账本的分配明细：
+
+```json
+{
+  "userId": "...",
+  "amount": 100,
+  "correlationId": "...",
+  "transactions": [
+    { "transactionId": "...", "bucketId": "...", "walletId": "...", "amount": -100, "balanceAfter": 900 }
+  ],
+  "allocations": [
+    { "bucketId": "...", "walletId": "...", "ledgerId": "...", "creditType": "topup_credit", "allocatedAmount": 60 }
+  ]
+}
+```
+
+## 路由：扣哪些账户
+
+你的应用只传 `clientAppId` 和金额——它不需要知道积分账户的存在。Herald 找到覆盖集包含该 Client App 的所有账户，按稳定顺序跨账户扣减。不覆盖该应用的账户永远不会被扣。没有任何账户覆盖时，调用以 409 `no_covered_pool` 失败。
+
+## 扣减顺序与原子性
+
+在一个事务里，逐账户按固定顺序（防死锁）锁定钱包和账本行，然后：
+
+1. **先扣配额窗口。** 带滚动[配额](/docs/zh/points/quota)的 `subscription` 和 `free_periodic` 积分先扣窗口余量——subscription 窗口先于 free_periodic。窗口用量记录为 consume 流水，不动账本，因为窗口用量本身就是从流水聚合出来的。
+2. **溢出进池子。** 窗口盖不住的部分溢到池余额（充值、注册、主动发放，以及不设配额的剩余额度），按最近过期优先逐条扣账本行——快过期的积分永远先于新积分被花掉。
+3. **要么全有要么全无。** 若配额余量加池余额不够覆盖金额，整体回滚，返回 409 `insufficient_points` 并附 `have` / `need`——任何部分扣减都不会落账。
+
+钱包处于 `frozen` 或 `closed` 状态时，整个调用以 400 `wallet_frozen_or_closed` 拒绝。
+
+## 流水记录
+
+消费的每一腿都是 `points_transactions` 里的一行：负数 `amount`、积分类型、所属账户与钱包、共享的 `correlationId`。发放侧使用发放族类型，用户的完整积分历史在一张表里可读：
+
+| 类型 | 含义 |
+|---|---|
+| `consume` | 消费（负数金额） |
+| `recharge` / `grant` | 充值包履约 / 管理员或 SDK 发放 |
+| `subscription_grant` / `subscription_renewal` / `subscription_upgrade` / `subscription_downgrade` | 订阅驱动的发放 |
+| `registration_grant` / `free_periodic_grant` | 注册与免费周期发放 |
+| `refund_revoke` / `expire_revoke` / `cancel_revoke` | 退款、过期、取消的回冲 |
+
+## 查余额与历史
+
+- 你的后端（ext API，Client API Key）：`GET /api/ext/points/{realmId}/balance?userId=...` 返回该 key 的 Client App 所覆盖账户聚合出的余额；`GET /api/ext/points/{realmId}/transactions/{transactionId}` 与 `.../transactions/by-external-ref/{externalRefId}?userId=...` 查具体流水。
+- 终端用户：`GET /api/user/wallets` 返回按账户分组的分类余额和配额窗口视图（每窗口的剩余 / 上限 / 已用 / 恢复时间，`spendableFromQuota` 与 `spendableFromPool` 分开），`GET /api/user/transactions` 查历史。用户页面在 `/{realmId}/user/points`。
+- 管理员：`GET /api/points/{realmId}/wallets`（按账户分组、跨账户合计）、`GET /api/points/{realmId}/wallets/{userId}`、`GET /api/points/{realmId}/transactions`（支持按用户、类型、Client App、订阅、外部引用、账户、时间段筛选）。管理台页面在 `/{realmId}/manage/points` 下。
+
+## 回冲：退款、取消与过期
+
+- **充值退款**：按比例、锚定原支付回冲——只削减那笔支付发放出的账本行，按 `退款金额 / 原支付金额` 比例、以剩余额度封顶，绝不波及无关积分。
+- **订阅退款或立即取消**：该订阅发放的积分被收回（账本剩余额度），其配额权益同时撤销。已消费的用量不做反向调整——窗口用量随窗口滚动自然释放。
+- **订阅到期取消**：不回冲，用户保留最后一个周期已发放的积分。
+- **升级**：同一事务内撤销旧映射的发放并执行新映射的规则。**降级**：不回冲，下个续费周期按新规则发放。
+- **过期**：后台任务扫描过期账本行；行一过期就不再计入余额。
+
+## 消耗统计
+
+`GET /api/points/{realmId}/stats/consumption?days=7|30`（`points.view` 权限）只统计 `consume` 流水——退款和回冲不冲减数字。返回总消耗、去重消费用户数、按账户的分组和按天零填充的趋势。管理台渲染在 `/{realmId}/manage/billing/statistics`（积分面板）。
+
+## 相关文档
+
+- [积分账户](/docs/zh/points/account)——账户模型、积分类型与余额背后的账本
+- [积分配额](/docs/zh/points/quota)——配置被优先扣减的滚动窗口
+- [付费墙配置](/docs/zh/points/paywall)——支付授予角色与积分规则
+- [第三方后端集成](/docs/zh/integration/third-party-backend)——Client API Key 与 ext API 全貌
+- [计费架构](/docs/zh/billing/overview)——给这些账户注入积分的支付侧

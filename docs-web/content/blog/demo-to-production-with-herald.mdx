@@ -1,0 +1,99 @@
+---
+title: "From Demo to Production: Why Herald Is the Foundation for Your AI Product"
+description: An AI demo and a product people pay for differ by a layer of infrastructure you did not write. Herald ships that layer as an open-source foundation, with three integration surfaces for AI, and ends in a three-container docker compose deployment.
+date: "2026-09-10"
+author: timzaak
+---
+
+An AI demo comes together fast: a backend calling a model API, a frontend with a chat box, the API key in `.env`, two days over a weekend. Nobody asks where sign-up lives during the demo, because the demo runs on your own account.
+
+Charging money changes the question list. Users need to register, log in, and recover passwords. Different customers' data needs isolation. Admins and regular users need different permissions. You need to sell subscriptions and credit packs. A token-metered product needs to know how much allowance each user has left, what was consumed, and how a refund claws back. None of this differentiates the product, but miss one item and you cannot charge for it. The code is boring to write, slow to test, and the failures cost money directly.
+
+## Why Herald as the foundation
+
+Three routes exist. Write everything from scratch: auth, billing, and an admin console cost a competent backend engineer months, and none of that code differentiates anything. Stitch SaaS providers together: auth from one vendor, payments from another, the credit ledger written by hand. The problem is that identity and the ledger live in different systems, so "who bought what, can therefore use what, and has how much left" has no single answer, and every mapping and every webhook reconciliation stays your code. The third route is an open-source, self-hosted foundation. That is Herald.
+
+Herald is an Apache-2.0 Rust + React project that puts multi-tenant auth, payments, points, and an admin console in one codebase. There is no standalone "paywall module". Payments and entitlements form one pipeline: a provider product maps to an entitlement_key, the entitlement maps to a role, the role carries permissions. A successful purchase grants roles and points automatically; a refund or canceled subscription revokes them. Revocation only touches grants with a payment source, so a role an admin assigned by hand survives. Application code asks the usual question ("can this user do `ai:read`?") and never learns whether the permission was bought or configured.
+
+Multi-tenancy is built on realms. Each realm has its own users, roles, client apps, branding, and billing setup, invisible to the others: an API key from realm A asking about realm B gets `not_found`, not data. The payment side covers Stripe, Creem, WeChat Pay, and App Store / Google Play in-app purchase reconciliation, with multi-currency invoices. The points side is multi-pool balances: top-ups, refunds, expiry, per-user ledgers, with consumption debited across pools, nearest expiry first.
+
+How Herald itself is built backs the positioning: the project uses a hybrid AI-assisted workflow of Claude Code, GLM, and Codex. "Built for AI-assisted iteration" is not the marketing line, it is the development method.
+
+## Three integration surfaces for AI
+
+Coding tools, runtime agents, and your own backend each get their own lane.
+
+### Docs and API specs
+
+Coding tools want structured material, not scraped HTML. The site serves a full documentation index at [llms.txt](https://www.fornetcode.com/llms.txt) and the complete text at llms-full.txt; appending `.md` to any documentation URL returns the Markdown source, for example https://www.fornetcode.com/en/docs/integration/mcp.md. The OpenAPI spec sits in the repo at `docs-web/openapi.json` and regenerates from the backend with one command. When AI writes integration code, the field names it uses are real.
+
+### The MCP server
+
+Runtime agents connect directly to Herald's MCP endpoint at `/mcp`, Streamable HTTP transport, same domain as the REST API, no separate deployment. One command:
+
+```bash
+claude mcp add --transport http herald https://your-herald-host/mcp \
+  --header "X-API-Key: sk-your-api-key"
+```
+
+Five read-only tools come with it: `query_users`, `get_points_balance`, `list_points_transactions`, `list_audit_logs`, and `get_realm_config_status`. Each tool is permission-gated individually: a key without `users.view` calling `query_users` gets `permission_denied` and zero data. The realm always comes from the credential, so an agent cannot wander across tenants. The rate limit is 60 requests per 60 seconds per key.
+
+Errors are designed to be agent-readable: `permission_denied`, `not_found`, `invalid_argument`, `internal_error`, and no partial data alongside a failure. Outputs are deliberately minimized, because agents may carry results into third-party models: audit tools never return IP addresses, user agents, or event details; the config status tool reports which entries exist and whether they are enabled, never the values.
+
+After connecting, ask the agent to call the zero-argument `get_realm_config_status`. If it returns the realm id and the config entry list, the whole chain works: connection, key, RBAC, data access.
+
+### SDKs
+
+Your backend integrates through an SDK. Rust gets the `herald-sdk` crate, Node gets an npm package of the same name with the same methods, and direct-browser scenarios get `herald-auth-web`, which has zero runtime dependencies.
+
+The typical shape is a BFF: the frontend talks only to your backend. Login goes through OAuth 2.1 Authorization Code + PKCE, the `code_verifier` stays on your server, and the token set reaches the frontend as JSON. From then on the frontend sends `Authorization: Bearer` on every call, and your middleware maps request paths to `resource:action` permission points that Herald adjudicates. The access token is short-lived and lives in frontend memory; refresh tokens rotate on every refresh, and replaying an already-rotated refresh token revokes the whole family, forcing a re-login.
+
+The Node side of the business calls looks like this:
+
+```ts
+import { HeraldClient } from 'herald-sdk'
+
+const client = new HeraldClient('http://127.0.0.1:13000', 'sk-your-api-key', 300)
+
+const permission = await client.checkPermission({
+  accessToken: browserToken,
+  clientId: 'my-client-app',
+  rules: [{ resource: 'ai', action: 'read' }],
+})
+if (!permission.allowed) throw new ForbiddenError()
+
+const result = await client.consumePoints(
+  'my-realm', userId, 'my-client-app',
+  100, 'AI API call', 'unique-request-id',
+)
+```
+
+`consumePoints` requires an idempotency key: on a network-timeout retry, the same key guarantees no double charge. Which pool gets debited is decided by the `client_app_id`: Herald finds every pool covering that app and debits nearest-expiry-first, so your code never manages pools. Subscription status is one `getSubscription` call: payment happens between Herald and the provider, and your backend only queries. The full walkthrough, including admin-console prerequisites and frontend token handling, is in the [third-party backend guide](/docs/integration/third-party-backend).
+
+## The path from demo to production
+
+Step one, run it locally:
+
+```bash
+git clone https://github.com/timzaak/herald.git
+cd herald
+uv run scripts/demo-start.py
+```
+
+The frontend is at http://localhost:3000 and the backend API at http://localhost:8080.
+
+Step two, six chores in the admin console: create a realm; create a client app; generate an API key; define permission points in `resource:action` form (`ai:read`, `ai:run`); create roles and attach permissions; create an admin user. Actions have hierarchy: `manage` covers `view` and `create`, so one `ai:manage` beats configuring all three.
+
+Step three, configure the paywall. In the console under Billing → Entitlement Mappings, each mapping combines three independent dimensions: billing_type (recurring / one_time / non_renewing), points distribution rules, and payment-granted roles. Recurring plus points plus roles is a membership subscription: renewals re-grant, and cancellation, expiry, and refund all revoke. One_time with points only is a credit pack, repeatable. One_time with roles is a buyout unlock, once per user; concurrent double-buys are caught at the database layer by a partial unique index, and a direct payment-attempt creation gets a 409 `already_owned`.
+
+Step four, deploy. docker compose with three containers: herald, PostgreSQL, Redis. The backend binary serves both the API and the frontend static files, so the frontend is not deployed separately; add a Caddy in front when you need HTTPS or a custom domain. A single 2GB machine runs it.
+
+One category of work you never write: the production details you would otherwise squeeze into the two weeks before launch are already handled. Authorization codes are single-use, so a replayed exchange fails. Refresh tokens rotate with reuse detection. When auth is unavailable, your backend returns 503 instead of letting requests through. Payment webhooks are idempotent. Admin operations land in audit logs. Each of those deserves its own post, but the point is that they are already there, not on your launch checklist.
+
+## A reference implementation, and where not to use it
+
+[herald-app-example](https://github.com/timzaak/herald-app-example) is a complete Flutter app with Herald authentication, developed entirely by AI. It shows what fully AI-driven development looks like on this foundation, and it is a starting point to copy from.
+
+For internal tools, single-tenant products, or anything that never charges, Herald is overkill; Next.js plus an auth library ships faster. The value rests on three premises: multiple tenants, charging money, metered usage. AI products tend to hit all three.
+
+The live demo runs at [auth.fornetcode.com](https://auth.fornetcode.com) with the credentials `admin@fornetcode.com` / `Herald@2026Admin`; the admin console is right there to click through. Documentation starts at [getting started](/docs/getting-started), with dedicated guides for [MCP integration](/docs/integration/mcp), [paywall configuration](/docs/points/paywall), and [deployment](/docs/deployment).
