@@ -91,7 +91,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 - **凭据存储**：凭据以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - **密钥脱敏**：Secret Key 查看时显示脱敏信息
 - **编辑时密钥保留**：更新配置时，敏感字段（Secret Key、Webhook Secret）为可选，留空则保留旧值；非敏感字段正常更新
-- **权限控制**：只有 Realm Admin 可以查看和更新 Stripe 配置
+- **权限控制**：配置写入需 `settings.manage`，查看需 `settings.view`（Stripe 凭据走通用 realm_config 管理通道，与 WeChat/IAP 等现有 provider 共用统一的 Realm 配置权限面；`billing.*` 权限用于账单与产品管理面，不控制 provider 凭据配置）
 - **删除保护**：删除前存在活跃订阅则拒绝删除；无活跃订阅时才可删除配置
 - **数据隔离**：不同 Realm 的支付数据完全隔离；用户只能查看自己的支付历史；Realm Admin 只能查看所属 Realm 的支付数据
 
@@ -117,7 +117,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 5.2 验收目标
 
-- Realm Admin 可以创建、查看、更新、删除 Stripe 配置
+- 持 `settings.manage` 的管理员可以创建、更新、删除 Stripe 配置；持 `settings.view` 可查看（默认角色下由 Realm Admin 承担）
 - 一次性支付和订阅支付流程正常工作
 - Webhook 事件正确处理并更新本地状态
 - 支付历史可以正确查询、按时间和支付提供商筛选并分页
@@ -140,10 +140,10 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 **适用性**: 适用
 
-- **管理入口**：支付平台配置管理页面，Realm Admin 可管理 Stripe 配置
+- **管理入口**：支付平台配置管理页面，持 `settings.view` / `settings.manage` 的管理员可管理 Stripe 配置
 - **关键操作路径**：配置创建表单、配置编辑（密钥轮换）、配置删除、支付历史查看
 - **状态反馈**：敏感信息脱敏显示、配置状态展示、操作成功/失败反馈
-- **权限可见性**：仅 Realm Admin 可访问配置管理页面
+- **权限可见性**：配置管理页面按 `settings.view` / `settings.manage` 权限控制访问
 - **金额/积分变化**：支付场景必须突出金额变化、变更影响范围、不可逆风险提示和回调同步中的状态说明
 
 ---

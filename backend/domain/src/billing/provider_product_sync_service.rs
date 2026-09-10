@@ -202,10 +202,20 @@ where
                     external_product_id: product.external_product_id.clone(),
                     external_price_id: price.external_price_id.clone(),
                     entitlement_key,
+                    // Provider word form → domain BillingType. When the provider
+                    // reports no recognizable billing_type (NULL_PRICE rows, an
+                    // unknown word form), PRESERVE the mapping's existing value
+                    // on re-sync — billing_type on an operator-configured
+                    // mapping is Herald-managed config (PRD subscription §4.1:
+                    // sync must not override Herald-managed entitlement/points/
+                    // quota policy), mirroring the service_duration_days
+                    // preserve-on-resync policy below. Clearing it would leave
+                    // purchases failing with "has no billing_type set".
                     billing_type: price
                         .billing_type
                         .as_deref()
-                        .and_then(|s: &str| s.parse().ok()),
+                        .and_then(|s: &str| s.parse().ok())
+                        .or_else(|| existing.as_ref().and_then(|m| m.billing_type.clone())),
                     billing_period: price.billing_period.clone(),
                     // Provider product sync never carries a service-period
                     // length (non_renewing duration is an admin-configured

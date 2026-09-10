@@ -273,6 +273,20 @@ impl std::str::FromStr for BillingType {
     }
 }
 
+/// Map a Creem-native billing-type word form onto the domain `BillingType`:
+/// Creem reports `"onetime"` for one-time products and `"subscription"` for
+/// recurring ones, while Herald's canonical forms are `"one_time"` /
+/// `"recurring"`. Returns `None` for unrecognized forms so each caller applies
+/// its own fallback — the webhook checkout path defaults to recurring, the
+/// product sync preserves the mapping's existing value.
+pub fn normalize_creem_billing_type_word_form(raw: &str) -> Option<BillingType> {
+    match raw.to_ascii_lowercase().as_str() {
+        "onetime" | "one_time" => Some(BillingType::OneTime),
+        "recurring" | "subscription" => Some(BillingType::Recurring),
+        _ => None,
+    }
+}
+
 /// Aggregated feature availability facts for a realm.
 /// Used to determine which billing UI features should be shown.
 #[derive(Debug, Clone)]
@@ -320,6 +334,32 @@ mod billing_type_tests {
     fn unknown_billing_type_is_rejected_as_bad_request() {
         let err = "lifetime".parse::<BillingType>().unwrap_err();
         assert!(matches!(err, CoreError::BadRequest(_)), "got {err:?}");
+    }
+
+    // Creem reports native word forms the strict `FromStr` rejects; an unknown
+    // form must stay `None` (the product sync relies on that to preserve the
+    // mapping's existing billing_type instead of clobbering it).
+    #[test]
+    fn creem_word_form_normalization_maps_onto_billing_type() {
+        assert_eq!(
+            normalize_creem_billing_type_word_form("onetime"),
+            Some(BillingType::OneTime)
+        );
+        assert_eq!(
+            normalize_creem_billing_type_word_form("subscription"),
+            Some(BillingType::Recurring)
+        );
+        // Canonical forms and case-insensitivity pass through unchanged in
+        // meaning; unknown forms yield None.
+        assert_eq!(
+            normalize_creem_billing_type_word_form("OneTime"),
+            Some(BillingType::OneTime)
+        );
+        assert_eq!(
+            normalize_creem_billing_type_word_form("recurring"),
+            Some(BillingType::Recurring)
+        );
+        assert_eq!(normalize_creem_billing_type_word_form("lifetime"), None);
     }
 
     #[test]

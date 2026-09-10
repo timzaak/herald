@@ -222,7 +222,16 @@ impl ConfiguredProviderProductApi {
 
                 let price = product["price"].as_i64();
                 let currency = product["currency"].as_str().map(str::to_string);
-                let billing_type = product["billing_type"].as_str().map(str::to_string);
+                // Creem reports native word forms ("onetime"/"subscription");
+                // map them onto the canonical BillingType wire strings so the
+                // domain parse in the sync loop succeeds. An unrecognized form
+                // passes through verbatim — the sync loop then preserves the
+                // mapping's existing billing_type instead of storing NULL.
+                let billing_type = product["billing_type"].as_str().map(|raw| {
+                    herald_domain::billing::normalize_creem_billing_type_word_form(raw)
+                        .map(|billing_type| billing_type.as_str().to_string())
+                        .unwrap_or_else(|| raw.to_string())
+                });
                 let billing_period = product["billing_period"].as_str().map(str::to_string);
 
                 // Only emit a real ProviderPrice when at least one of the four

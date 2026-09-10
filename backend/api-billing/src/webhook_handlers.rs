@@ -408,14 +408,12 @@ fn parse_checkout_completed_payload(
 
 /// Normalize Creem billing type strings to domain BillingType.
 ///
-/// Creem uses "onetime" for one-time products. The domain uses "one_time".
-/// Also handles "subscription" as an alias for "recurring".
+/// Delegates to the shared word-form mapping (the same one the product sync
+/// fetch uses) and defaults to recurring for unrecognized forms — checkout
+/// fulfillment must never stall on an unknown provider word form.
 fn normalize_creem_billing_type(raw: &str) -> BillingType {
-    match raw.to_ascii_lowercase().as_str() {
-        "onetime" | "one_time" => BillingType::OneTime,
-        "recurring" | "subscription" => BillingType::Recurring,
-        _ => BillingType::Recurring,
-    }
+    herald_core::domain::billing::normalize_creem_billing_type_word_form(raw)
+        .unwrap_or(BillingType::Recurring)
 }
 
 fn parse_subscription_paid_payload(

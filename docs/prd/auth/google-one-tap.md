@@ -111,7 +111,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 
 1. **Herald 后端新增 Google ID Token 验证能力**：使用 Google JWKS 公钥验证 ID Token 签名，校验 issuer（`accounts.google.com` / `https://accounts.google.com`）、audience（等于 Realm 的 Google client_id）、expiry，提取用户信息（sub、email、email_verified、name、picture）
 
-2. **Herald 后端新增 One Tap 认证端点**：接收第三方前端传来的 Google 凭证 + 可选的下游授权交易标识（`downstream_state`），验证通过后执行用户匹配/创建，并根据是否存在该标识选择直接建立 session 或签发授权码
+2. **Herald 后端新增 One Tap 认证端点**：接收第三方前端传来的 Google 凭证 + 发起方 Herald Client App 的 `client_id`（必填）+ 可选的下游授权交易标识（`downstream_state`），验证通过后执行用户匹配/创建，并根据是否存在该标识选择直接建立 session 或签发授权码
 
 3. **公开配置暴露 client_id**：Herald 公共配置接口（public-config）向已启用 Google Provider 的 Realm 暴露 Google client_id，使第三方前端可初始化 GIS SDK
 
@@ -134,7 +134,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 
 **适用性**: 适用
 
-- **能力边界**：新增一个认证端点 `POST /api/oauth/{realmId}/google/one-tap`，接收 Google ID Token 凭证，返回会话信息或下游授权码重定向
+- **能力边界**：新增一个认证端点 `POST /api/oauth/{realmId}/google/one-tap`，接收 Google ID Token 凭证，返回会话信息或下游授权码重定向；请求必须携带发起方 Herald Client App 的 `client_id`（必填，非空——直登模式签发的浏览器 token family 绑定到该 Client App，与 Apple 原生登录端点的约束一致）
 - **访问控制**：该端点为公开端点（无需已认证身份），但必须验证 Google 凭证的有效性作为访问前提
 - **Realm 数据边界**：端点路径包含 realmId，Google 凭证的 audience 必须与该 Realm 配置的 client_id 一致；用户匹配和创建限定在当前 Realm 内
 - **兼容性**：与现有 OAuth Code+PKCE 流程（US-TP-001/015/016）兼容，下游授权交易标识机制复用现有实现；与跳转式 Google 登录（US-RU-003）共存

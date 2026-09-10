@@ -181,7 +181,7 @@
 - API Key 可绑定到特定 Client App（Client App Scope），绑定后只能访问该 Client App 所属资源
 - Admin API Client（`admin-api-client`）的 API Key 不受 Client App Scope 限制，可跨 App 访问
 - 未绑定 Client App 的 API Key 也不受 Client App Scope 限制
-- API Key 支持轮换（Rotate），调用 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 生成新密钥，旧密钥立即失效（旧缓存条目通过 TTL 自然过期）
+- API Key 支持轮换（Rotate），调用 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 生成新密钥，旧密钥立即失效（轮换主动驱逐旧密钥的认证缓存条目——更新前后各一次以防竞态回填；驱逐失败时认证侧因 Redis 不可用本就 fail closed，缓存 TTL 仅作兜底）
 - API Key 有启用/禁用和过期时间控制
 - 记录 API Key 最后使用时间（节流更新：每分钟最多一次写库）
 - 无效或缺失 API Key 返回 401；过期或禁用 API Key 返回 401
@@ -198,6 +198,7 @@
 - 当第三方 Client App 已在 Herald `/authorize` 发起自身的 Authorization Code + PKCE 授权事务时，可在跳转 `/api/oauth/{realmId}/{provider}/login` 时携带 `downstream_state` 参数，将该事务标识传递给 Herald
 - `downstream_state` 必须指向一个已存在、未消费、与当前 realm/client_id/redirect_uri/code_challenge 完整绑定的下游授权事务；校验失败拒绝发起 Provider 授权
 - Provider 回调 `/{provider}/callback` 时，若上下文携带有效的 `downstream_state`，Herald 不为该用户创建 Herald 自身会话，而是消费该下游 state（一次性，GETDEL 语义）并签发一个一次性 `authorization_code`，重定向回下游 Client App 的 `redirect_uri`（携带 `code` 与 `state`）
+- 下游授权分支同样执行登录同意闸门（与第一方直登分支同规则，见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」）：签发前先评估同意状态，同意缺失或版本过期时不签发授权码、**不消费** `downstream_state`（保持未消费，用户经受限会话记录同意后重新走 Provider 登录即可完成下游授权），响应改为 `consentRequired: true` + 当前生效协议摘要
 - 下游 Client App 随后通过既有 `/token` 端点 + PKCE 校验换取令牌，与普通 Authorization Code + PKCE 流程一致
 - 该流程使 Herald 在充当 OAuth Client（对接 Google 等 IdP）的同时充当下游 Client App 的身份 Broker，把 IdP 认证结果转换为下游可用的授权码
 

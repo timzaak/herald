@@ -161,7 +161,7 @@
 ### 接口能力边界
 
 - Realm：创建、列表、详情（需对应权限；创建还需 admin realm `realm:manage` 权限）
-- User：创建、列表、详情（需对应权限，限本 Realm，无跨 Realm 例外）
+- User：创建、列表、详情（限本 Realm，无跨 Realm 例外）。权限点与管理端分属两个调用面：创建检查 `users:create`，列表/详情检查 `users:view`（见 `docs/prd/core/users.md` §4.1；`users.manage` 经 action 层级同样覆盖两者，但仅为 API Key 角色授予 `users:create` 是最小授权）
 - Client App：创建、列表、详情（需对应权限，限本 Realm，无跨 Realm 例外）
 - 积分交易查询单笔（`get_transaction_ext`）：端点挂载于 `/api/ext/points/{realmId}/transactions/{transactionId}`，并已注册到 OpenAPI 文档
 

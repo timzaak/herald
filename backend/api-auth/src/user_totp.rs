@@ -74,7 +74,7 @@ pub struct EnableTotpResponse {
         (status = 200, description = "TOTP setup initiated", body = EnableTotpResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 403, description = "TOTP already enabled", body = ErrorResponse),
+        (status = 409, description = "TOTP already enabled", body = ErrorResponse),
         (status = 404, description = "TOTP is not enabled for this realm", body = ErrorResponse),
     ),
     security(("bearer_auth" = []))
@@ -434,8 +434,9 @@ pub struct DisableTotpResponse {
     request_body = DisableTotpRequest,
     responses(
         (status = 200, description = "TOTP disabled successfully", body = DisableTotpResponse),
-        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 400, description = "Bad request (including TOTP not enabled)", body = ErrorResponse),
         (status = 401, description = "Invalid or expired reauth token", body = ErrorResponse),
+        (status = 403, description = "TOTP is enforced by the realm (force-enabled)", body = ErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]
@@ -512,8 +513,10 @@ pub struct RegenerateTotpResponse {
 
 /// Regenerate TOTP secret and backup codes
 ///
-/// Generates a new TOTP secret and backup codes, invalidating the old ones.
-/// The user must verify the new TOTP code to complete the regeneration. Requires
+/// Generates a new TOTP secret and backup codes, staged for swap: the old
+/// secret and backup codes remain valid until the user verifies a code from
+/// the new secret; abandoning the flow (or a failed verification) leaves them
+/// intact, so 2FA is never silently disabled. Requires
 /// a single-use reauth ticket obtained by verifying any one of the user's factors
 /// (password, TOTP, or Passkey) via `POST /api/user/reauth/verify` (see `consume_reauth`).
 #[utoipa::path(

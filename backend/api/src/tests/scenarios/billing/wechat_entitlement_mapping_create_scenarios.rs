@@ -201,6 +201,116 @@ mod tests {
         );
     }
 
+    /// Same channel×billing_type whitelist, batch path: the bulk
+    /// PUT /entitlement-mappings/batch writes `billing_type` directly (COALESCE
+    /// per row), so it must run the same `validate_provider_billing_type`
+    /// check the create path enforces — otherwise a valid WeChat
+    /// non_renewing mapping could be flipped to recurring via batch, producing
+    /// a subscription mapping with no renewal event source.
+    #[test_context(WechatMappingContext)]
+    #[tokio::test]
+    async fn test_wechat_mapping_batch_recurring_returns_400(ctx: &mut WechatMappingContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wechat-map-batch-recurring@test.com").await;
+
+        let app = ctx.create_unified_test_router();
+        let created = app
+            .clone()
+            .oneshot(auth_request(
+                "POST",
+                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                &token,
+                Some(Body::from(
+                    wechat_create_body("wx_product_batch_recurring").to_string(),
+                )),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let mapping_id = body_json(created).await["id"].clone();
+
+        let batch = json!({
+            "paymentProvider": "wechat",
+            "externalProductId": "wx_product_batch_recurring",
+            "updates": [{
+                "mappingId": mapping_id,
+                "billingType": "recurring",
+            }]
+        });
+        let response = app
+            .clone()
+            .oneshot(auth_request(
+                "PUT",
+                format!("/api/bill/{realm_id}/entitlement-mappings/batch"),
+                &token,
+                Some(Body::from(batch.to_string())),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "batch must not bypass the channel×billing_type whitelist"
+        );
+
+        // The stored billing_type is untouched by the rejected batch.
+        let stored: Option<String> = sqlx::query_scalar(
+            "SELECT billing_type FROM provider_entitlement_mappings WHERE id = $1",
+        )
+        .bind(mapping_id.as_str().unwrap().parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            stored.as_deref(),
+            Some("non_renewing"),
+            "rejected batch must leave the original billing_type in place"
+        );
+    }
+
+    /// Mirror of the create-side non_renewing rejection for Stripe/Creem:
+    /// non-renewing is an IAP/WeChat product form, and a Stripe/Creem
+    /// non_renewing row would be clobbered back by the next product sync.
+    #[test_context(WechatMappingContext)]
+    #[tokio::test]
+    async fn test_stripe_mapping_batch_non_renewing_returns_400(ctx: &mut WechatMappingContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "stripe-map-batch-nonrenewing@test.com").await;
+
+        let mapping_id = setup_test_entitlement_mapping(
+            ctx,
+            &realm_id,
+            "stripe",
+            "prod_stripe_batch_nonrenewing",
+            "stripe-batch-plan",
+        )
+        .await;
+
+        let app = ctx.create_unified_test_router();
+        let batch = json!({
+            "paymentProvider": "stripe",
+            "externalProductId": "prod_stripe_batch_nonrenewing",
+            "updates": [{
+                "mappingId": mapping_id.to_string(),
+                "billingType": "non_renewing",
+            }]
+        });
+        let response = app
+            .oneshot(auth_request(
+                "PUT",
+                format!("/api/bill/{realm_id}/entitlement-mappings/batch"),
+                &token,
+                Some(Body::from(batch.to_string())),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "batch must reject a Stripe non_renewing billing_type like create does"
+        );
+    }
+
     /// Price truth for every other provider lives in its catalog (synced), so
     /// a manual price would create a second, unsynced source of truth.
     #[test_context(WechatMappingContext)]

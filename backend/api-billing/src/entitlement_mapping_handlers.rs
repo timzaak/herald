@@ -26,6 +26,7 @@ use herald_core::domain::billing::CreateEntitlementMappingInput;
 use herald_core::domain::billing::entities::EntitlementMapping;
 use herald_core::domain::billing::{
     BatchMappingError, BillingRepository, SyncStatus, validate_granted_role_ids,
+    validate_provider_billing_type,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::points::derive_window_key;
@@ -1030,6 +1031,25 @@ pub async fn batch_update_entitlement_mappings(
             })
             .collect::<Result<Vec<_>, ApiError>>()?,
     };
+
+    // 3. billing_type parse + channel whitelist (mirrors create): a batch row
+    // may only write a billing_type the create path would accept for the same
+    // provider — without this the bulk UPDATE is a bypass around
+    // `validate_provider_billing_type` (e.g. WeChat → recurring would produce
+    // a subscription mapping with no renewal event source).
+    for u in &input.updates {
+        if let Some(raw) = u.billing_type.as_deref() {
+            let billing_type = raw
+                .parse::<herald_core::domain::billing::entities::BillingType>()
+                .map_err(|e| ApiError::bad_request(format!("invalid billing_type: {e}")))?;
+            validate_provider_billing_type(&input.payment_provider, &billing_type).map_err(|e| {
+                herald_api_base::application::http::common::error_helpers::core_error_to_api_error(
+                    e,
+                    "batch update entitlement mappings",
+                )
+            })?;
+        }
+    }
 
     // any row carrying a non-empty `granted_role_ids` must reference roles that
     // all belong to this realm. Collect the union of provided role IDs across

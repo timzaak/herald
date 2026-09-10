@@ -338,9 +338,11 @@ fn validate_non_renewing(
 ///     the duration field lingered.
 ///
 /// Pure/free function for the same testability reason as
-/// `validate_non_renewing`; `create_mapping` routes through it. The PATCH
-/// path is unaffected — billing_type is immutable on update.
-fn validate_provider_billing_type(
+/// `validate_non_renewing`; `create_mapping` routes through it, and the batch
+/// update handler reuses it for every row that writes a `billing_type` (the
+/// bulk UPDATE must not become a bypass around the create-path whitelist).
+/// The single-PATCH path is unaffected — billing_type is immutable on update.
+pub fn validate_provider_billing_type(
     payment_provider: &str,
     billing_type: &crate::billing::entities::BillingType,
 ) -> Result<(), CoreError> {

@@ -179,7 +179,11 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - Stripe：checkout.session.completed 按 mode 分发
   - mode=payment（one-time）：完成支付尝试，发放 topup_credit
   - mode=subscription（recurring）：走现有 subscription 创建/同步逻辑
-- Creem：checkout.completed 按 metadata 或 mapping 的 billing type 分发
+- Creem：checkout.completed 按以下优先级解析 billing type 分发（Creem 原生词形如 `onetime`/`subscription` 先规范化为 `one_time`/`recurring`）
+  1. 事件 metadata 中的 `herald_billing_kind`
+  2. 事件 `object.product.billing_type`（Provider 商品目录报告的词形）
+  3. 按 provider product ID 查找本地 mapping 的 billing_type（仅当前两者均缺失时）
+  4. 均缺失时默认按 recurring 处理
   - one-time：完成支付尝试，发放 topup_credit
   - recurring：等待 subscription.paid 事件
 

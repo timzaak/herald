@@ -100,7 +100,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 |---|---|---|---|
 | recurring + 积分 + role | 会员订阅（发积分+解锁） | 续费 webhook 续授 | 订阅过期/取消/退款撤 |
 | recurring + 无积分 + role | 纯会员墙（只解锁） | 续费 | 订阅过期/取消/退款撤 |
-| non_renewing + 可选积分 + role | 固定期限权益（不自动续费） | 受活跃订阅购买约束 | 到期/取消/退款撤销支付来源角色 |
+| non_renewing + 可选积分 + role | 固定期限权益（不自动续费） | 受活跃订阅购买约束 | 到期/取消/退款撤销支付来源角色（WeChat 到期例外见下方渠道边界） |
 | one_time + 积分 + 无 role | 积分包（现状） | 可重复买 | 不适用 |
 | one_time + 无积分 + role | 纯永久权益墙（买断解锁） | 一人一次 | 退款/撤销时回收支付来源角色 |
 | one_time + 积分 + role | 买断礼包（发积分+永久解锁） | 一人一次 | 退款/撤销时回收支付来源角色 |
@@ -128,6 +128,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 **role 撤销规则**：
 - 订阅的取消、过期或退款触发支付来源 role 撤销；一次性购买仅在退款或撤销时触发回收
 - **渠道边界（WeChat 例外）**：退款/撤销回收依赖支付渠道的退款信号（webhook 回调或对账）。Stripe/Creem/Apple/Google 均有退款信号源；WeChat 渠道本期不实现退款回调与争议状态（见 `wechat-support.md` §2.2），商户侧退款在 Herald 内无任何事件可扫。因此 WeChat 渠道的 one_time + role 映射退款后 role 无法自动回收，属于本 PRD 撤销承诺的已知渠道级例外——WeChat 商户如需退款，须先在 Herald 手工移除支付来源 role 再行退款
+- **渠道边界（WeChat non_renewing 到期缺口）**：non_renewing 行的"到期撤销"同样依赖渠道到期信号源。Apple/Google 由商店终端事件与对账承载；WeChat 渠道无任何到期事件源（webhook 仅覆盖支付成功结果，Herald 也不为 WeChat 运行订阅到期扫描），因此 WeChat non_renewing 映射到期后订阅保持 active、支付来源 role 不会自动撤销。这与 Apple 非续期订阅的到期缺口同为已接受的渠道级限制（见 `pay_model.md` §4.2"已接受的平台限制"）：SDK/第三方可凭订阅的 `current_period_end` 自行判断到期；需要硬撤销的场景应由商户到期后手工移除支付来源 role，或改用具备到期信号源的渠道
 - 撤销仅移除「支付授予」来源的 role 关联；Realm Admin 手工授予部分不受影响
 - 撤销操作必须幂等（复用既有 webhook 幂等键）
 - 一次性永久权益不会因正常取消或到期事件撤销；退款或撤销必须回收支付来源 role

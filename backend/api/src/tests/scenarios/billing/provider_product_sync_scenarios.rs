@@ -683,6 +683,106 @@ mod tests {
         );
     }
 
+    /// User Story: US-BL-SYNC-003
+    /// Covers: re-sync preserves the mapping's billing_type when the provider
+    /// reports no recognizable one
+    ///
+    /// PRD subscription §4.1 pins mapping config as Herald-managed ("sync must
+    /// not override Herald-managed entitlement/points/quota policy"), so a
+    /// full re-sync must not clobber a stored `billing_type` to NULL — a
+    /// NULLed billing_type makes every later purchase fail with "has no
+    /// billing_type set". Two preserve paths are pinned: (a) the product stops
+    /// reporting price fields entirely (→ the NULL_PRICE fallback row), and
+    /// (b) the provider reports a word form the domain cannot parse.
+    #[test_context(SyncTestContext)]
+    #[tokio::test]
+    async fn test_sync_creem_resync_preserves_configured_billing_type(ctx: &mut SyncTestContext) {
+        let realm_id = ctx._realm_id.clone();
+        // Seed the realm's registration-pool credit bucket so the sync service
+        // can bind newly-created draft mappings (idempotent).
+        crate::tests::helpers::points_helpers::ensure_test_bucket_for_realm(
+            &ctx.app_state.pool,
+            &realm_id,
+        )
+        .await;
+
+        let (_token, user_id) =
+            crate::tests::helpers::billing_helpers::setup_billing_admin_session_with_user(
+                ctx,
+                "sync-creem-bt-preserve@test.com",
+            )
+            .await;
+
+        // First sync: both products carry parseable price fields, so each
+        // mapping lands with billing_type = "recurring".
+        let make_product = |id: &str| ProviderProduct {
+            external_product_id: id.to_string(),
+            name: format!("Creem {id}"),
+            description: None,
+            product_metadata: None,
+            prices: vec![ProviderPrice {
+                external_price_id: None,
+                price: Some(1999),
+                currency: Some("usd".to_string()),
+                billing_type: Some("recurring".to_string()),
+                billing_period: Some("every-month".to_string()),
+                price_metadata: None,
+            }],
+        };
+        let service = build_sync_service(
+            ctx,
+            vec![
+                make_product("creem_prod_bt_nullprice"),
+                make_product("creem_prod_bt_unknown"),
+            ],
+        )
+        .await;
+        let identity: Identity = create_test_identity(user_id, &realm_id);
+        service
+            .sync_provider_products(identity, &realm_id, "creem")
+            .await
+            .expect("first sync must complete");
+        for pid in ["creem_prod_bt_nullprice", "creem_prod_bt_unknown"] {
+            let (_, billing_type, _) = fetch_mapping_columns(ctx, &realm_id, pid, None).await;
+            assert_eq!(
+                billing_type.as_deref(),
+                Some("recurring"),
+                "{pid}: first sync must land billing_type = recurring"
+            );
+        }
+
+        // Re-sync: (a) stops reporting price fields entirely (→ NULL_PRICE
+        // fallback row); (b) reports an unparseable word form. Both must
+        // PRESERVE the stored billing_type instead of writing NULL.
+        let mut null_price = make_product("creem_prod_bt_nullprice");
+        null_price.prices.clear();
+        let mut unknown_form = make_product("creem_prod_bt_unknown");
+        unknown_form.prices[0].billing_type = Some("lifetime".to_string());
+        unknown_form.prices[0].billing_period = None;
+        let service_v2 = build_sync_service(ctx, vec![null_price, unknown_form]).await;
+        let identity2: Identity = create_test_identity(user_id, &realm_id);
+        let result = service_v2
+            .sync_provider_products(identity2, &realm_id, "creem")
+            .await
+            .expect("re-sync must complete");
+        assert_eq!(result.sync_status, SyncStatus::Completed);
+
+        let (_, bt_nullprice, _) =
+            fetch_mapping_columns(ctx, &realm_id, "creem_prod_bt_nullprice", None).await;
+        assert_eq!(
+            bt_nullprice.as_deref(),
+            Some("recurring"),
+            "a NULL_PRICE re-sync must preserve the stored billing_type"
+        );
+        let (_, bt_unknown, _) =
+            fetch_mapping_columns(ctx, &realm_id, "creem_prod_bt_unknown", None).await;
+        assert_eq!(
+            bt_unknown.as_deref(),
+            Some("recurring"),
+            "an unparseable provider word form must preserve the stored billing_type"
+        );
+    }
+
     // =========================================================================
     // Batch-update preserves synced billing_period (BE-T03 / US-BL-SYNC-004)
     // =========================================================================

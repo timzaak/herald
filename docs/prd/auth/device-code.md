@@ -172,7 +172,7 @@
 **适用性**: 适用
 
 - 设备授权请求需验证 `client_id` 有效且 Client App 已启用 Device Code Grant
-- 令牌轮询需正确实现 RFC 8628 §3.5 规定的全部错误响应
+- 令牌轮询需实现 RFC 8628 §3.5 规定的全部错误码（`authorization_pending` / `slow_down` / `expired_token` / `access_denied`），错误响应体携带 `error` 与 `error_description` 字段；状态码存在一处与 RFC 的有意偏差：`authorization_pending`、`slow_down`、`expired_token` 均按 RFC 返回 400，而 `access_denied`（用户明确拒绝授权）返回 **403 Forbidden**（错误码名与 RFC 一致；拒绝属授权终态，语义上更贴近 403，且已有测试锁定该行为）
 - 轮询端点需对 `slow_down` 错误正确累加间隔（每次 +5 秒）
 - 验证页面 API 需要求用户已登录（session 认证）
 - 所有端点遵守 realm 隔离原则
