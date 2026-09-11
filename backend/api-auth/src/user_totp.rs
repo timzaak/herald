@@ -528,6 +528,7 @@ pub struct RegenerateTotpResponse {
         (status = 200, description = "TOTP secret regenerated", body = RegenerateTotpResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Invalid or expired reauth token", body = ErrorResponse),
+        (status = 404, description = "TOTP not configured", body = ErrorResponse),
     ),
     security(("bearer_auth" = []))
 )]

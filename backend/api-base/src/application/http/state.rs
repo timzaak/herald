@@ -7,8 +7,7 @@ use herald_core::domain::legal::LegalService;
 use herald_core::domain::payment_attempt::PaymentAttemptService;
 use herald_core::domain::user::services::SelfDeleteService;
 use herald_core::domain::user::services::admin::{
-    AdminUserServiceImpl, PermissionManagementServiceImpl, RoleAssignmentServiceImpl,
-    UserPermissionServiceImpl,
+    AdminUserServiceImpl, RoleAssignmentServiceImpl, UserPermissionServiceImpl,
 };
 use herald_core::infrastructure::PostgresCustomDomainMappingRepository;
 use herald_core::infrastructure::audit::PostgresAuditEventRepository;
@@ -190,16 +189,6 @@ pub struct AppState {
             PostgresUserRoleRepository,
             PostgresRolePolicyRepository,
             RedisPermissionChecker,
-        >,
-    >,
-
-    /// Permission management service
-    pub permission_management_service: Arc<
-        PermissionManagementServiceImpl<
-            PostgresUserRoleRepository,
-            PostgresRolePolicyRepository,
-            RedisPermissionChecker,
-            herald_core::infrastructure::audit::PostgresAuditEventRepository,
         >,
     >,
 

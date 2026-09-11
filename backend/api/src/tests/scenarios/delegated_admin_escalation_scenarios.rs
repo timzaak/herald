@@ -6,7 +6,7 @@
 ///   只能附加自己持有的权限
 /// - PUT /api/roles/{realmId}/define/{roleId}/permissions
 ///   （assign_permission_to_role）只能附加自己持有的权限
-/// - POST /api/permission/{realmId}/permissions（RoleWrap 角色分配）
+/// - POST /api/permission/users/{userId}/roles（assign_roles_to_user）
 ///   不能授予自己未持有其全部权限的 builtin 角色
 ///
 /// 正向对照：realm-admin（持有全部权限）的相同操作必须成功。
@@ -243,17 +243,21 @@ mod tests {
         );
     }
 
-    /// **Given**: 次管理员只持有 policies.manage（不持有 realm-admin 角色的任何权限）
-    /// **When**: 通过 RoleWrap（POST /api/permission/{realmId}/permissions）
+    /// **Given**: 次管理员只持有 roles.manage（不持有 realm-admin 角色的任何权限）
+    /// **When**: 通过 POST /api/permission/users/{userId}/roles
     /// 把 builtin realm-admin 角色分配给自己
     /// **Then**: HTTP 403 Forbidden，且 user_roles 无新行
+    /// **And**: realm-admin 执行相同分配返回 201（守卫不阻断合法操作）
     #[test_context(DelegatedAdminTestContext)]
     #[tokio::test]
-    async fn test_scenario_create_permission_role_wrap_blocks_builtin_self_escalation(
+    async fn test_scenario_assign_roles_to_user_blocks_builtin_self_escalation(
         ctx: &mut DelegatedAdminTestContext,
     ) {
         let (sub_token, sub_user_id) =
-            create_sub_admin_session(ctx, "sub-wrap@test.com", &[("policies", "manage")]).await;
+            create_sub_admin_session(ctx, "sub-wrap@test.com", &[("roles", "manage")]).await;
+        let (admin_token, admin_user_id) =
+            create_admin_session_with_user(ctx, "esc-admin-3@test.com", 1800).await;
+        grant_realm_admin_role(ctx, &admin_user_id).await;
 
         let app = ctx.create_unified_test_router();
 
@@ -268,22 +272,18 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(format!("/api/permission/{}/permissions", ctx._realm_id))
+            .uri(format!("/api/permission/users/{}/roles", sub_user_id))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", sub_token))
             .body(Body::from(
-                json!({
-                    "clientId": ctx._client_id,
-                    "permission": {"p_type": "g", "userId": sub_user_id, "role": realm_admin_role}
-                })
-                .to_string(),
+                json!({"roleIds": [realm_admin_role]}).to_string(),
             ))
             .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
         assert_eq!(
             resp.status(),
             StatusCode::FORBIDDEN,
-            "a policies.manage holder must not self-assign the builtin realm-admin role"
+            "a roles.manage holder must not self-assign the builtin realm-admin role"
         );
 
         let count: i64 = sqlx::query_scalar(
@@ -297,6 +297,23 @@ mod tests {
         assert_eq!(
             count, 0,
             "no user_roles row may be written for a denied grant"
+        );
+
+        // 正向对照：realm-admin（持有全部权限）分配同一 builtin 角色成功
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/permission/users/{}/roles", sub_user_id))
+            .header("content-type", "application/json")
+            .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
+            .body(Body::from(
+                json!({"roleIds": [realm_admin_role]}).to_string(),
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::CREATED,
+            "a caller holding every permission of the role must still be able to assign it"
         );
     }
 }

@@ -433,10 +433,11 @@ where
         // `billing_type=one_time` + non-empty `granted_role_ids` combo is
         // one-per-user. Points packages and subscriptions remain
         // repeatable/renewable. A user who already owns it — holds any of the
-        // granted roles from a `payment` source, OR has a succeeded attempt for
-        // this target — is blocked at purchase creation with a distinguishable
-        // `already_owned:<entitlement_key>` conflict (parsed by the API handler
-        // into a structured 409 body).
+        // granted roles from ANY source (payment grant or manual admin grant;
+        // the lookup does not filter by source), OR has a succeeded attempt
+        // for this target — is blocked at purchase creation with a
+        // distinguishable `already_owned:<entitlement_key>` conflict (parsed
+        // by the API handler into a structured 409 body).
         if mapping.billing_type == Some(BillingType::OneTime)
             && !mapping.granted_role_ids.is_empty()
         {

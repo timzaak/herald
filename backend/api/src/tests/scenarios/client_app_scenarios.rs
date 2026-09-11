@@ -7,6 +7,7 @@ mod tests {
     use crate::tests::response_json;
     use crate::tests::schema_test_context::SchemaTestContext;
     use axum::{body::Body, http::Request};
+    use herald_core::domain::client_api_keys::ADMIN_API_CLIENT_ID;
     use serde_json::json;
     use sqlx::Row;
     use test_context::test_context;
@@ -393,5 +394,44 @@ mod tests {
 
         // 应该返回 400 Bad Request
         assert_eq!(response.status(), 400);
+    }
+
+    /// 测试：内置 API Key Client App（admin-api-client）不允许被删除
+    ///
+    /// 该 App 仅在 Realm 创建时播种、无自动重建路径；删除后该 Realm 将
+    /// 永久无法创建默认绑定 API Key（client-app PRD §4.1 / api-key-roles PRD §5）。
+    #[test_context(ClientAppTestContext)]
+    #[tokio::test]
+    async fn test_cannot_delete_builtin_api_key_client_app(ctx: &mut ClientAppTestContext) {
+        let app = ctx.create_unified_test_router();
+
+        let admin_token = setup_admin_session(ctx, "test-delete-api-client@test.com").await;
+
+        // 幂等确保内置 API Key Client App 存在（Realm 初始化通常已播种）
+        let builtin_id = seed_realm_api_key_client(ctx).await;
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/client/{}/{}", ctx._realm_id, builtin_id))
+            .header("authorization", format!("Bearer {}", admin_token))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            400,
+            "deleting the builtin API Key client app must be rejected"
+        );
+
+        // 行必须仍然存在——默认 API Key 创建路径依赖它
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM client_app WHERE id = $1 AND client_id = $2")
+                .bind(builtin_id)
+                .bind(ADMIN_API_CLIENT_ID)
+                .fetch_one(&ctx.app_state.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 1, "the builtin API Key client app must survive");
     }
 }

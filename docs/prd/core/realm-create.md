@@ -106,7 +106,7 @@ Herald 当前支持已登录的 Admin Realm 管理员在管理后台手动创建
 
 - **自助注册**：无需任何平台权限，公开端点在开关开启时可访问；后端不根据请求是否同时携带既有会话改变该端点行为，前端只向访客展示入口。
 - **访问新 realm**：注册者开通后仅可访问其新 realm，访问其他 realm 资源被拒绝（沿用 `docs/prd/core/realm.md` 的 realm 隔离原则）。
-- **平台开关控制**：需要 Admin Realm 管理员对本 Realm 的设置管理权限（`settings.manage`）。平台开关作为 admin realm 的 `realm_config` 行承载，开关的查询与更新复用既有 Realm Settings 配置管理端点（见 `.ai/design/realm-create.md` §4.2.1/§4.5）；该端点按 `settings.manage` 授权。仅 admin realm 持有该开关配置行，因此实际可操作者仍限于 Admin Realm 管理员。
+- **平台开关控制**：需要 Admin Realm 管理员对本 Realm 的设置管理权限（`settings.manage`）。平台开关作为 admin realm 的 `realm_config` 行承载，开关的查询与更新复用既有 Realm Settings 配置管理端点（见 `.ai/design/realm-create.md` §4.2.1/§4.5）；该端点按 `settings.manage` 授权。仅 admin realm 持有该开关配置行，因此实际可操作者仍限于 Admin Realm 管理员。非 admin realm 写入 `platform_signup` 类型配置行的请求被显式 400 拒绝（该开关仅由 signup 流程从 admin realm 读取，其他 realm 的同类型配置行只会是无效脏数据，因此在 API 边界拒绝）。
 
 **平台开关**
 

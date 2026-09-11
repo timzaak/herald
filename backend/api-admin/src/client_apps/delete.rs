@@ -14,7 +14,8 @@ use herald_core::domain::client::ports::ClientService;
 /// Delete a client app
 ///
 /// Deletes an OAuth client application and its associated roles.
-/// The built-in admin console client cannot be deleted.
+/// Built-in client apps (admin console, user account center, and the realm's
+/// built-in API Key client app) cannot be deleted.
 #[utoipa::path(
     delete,
     path = "/api/client/{realmId}/{clientAppId}",
@@ -25,7 +26,7 @@ use herald_core::domain::client::ports::ClientService;
     ),
     responses(
         (status = 204, description = "Client App deleted"),
-        (status = 400, description = "Cannot delete built-in admin console", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 400, description = "Cannot delete a built-in client app (admin console, user account center, or the built-in API Key client app)", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "Client App not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 409, description = "Client App is bound to an API Key", body = herald_api_base::application::http::server::api_entities::ErrorResponse),

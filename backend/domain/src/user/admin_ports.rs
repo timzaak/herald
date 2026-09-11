@@ -204,13 +204,6 @@ pub trait UserRoleRepository: Send + Sync {
         role_ids: &[Uuid],
     ) -> impl Future<Output = UserAdminResult<bool>> + Send;
 
-    /// List all user roles in a realm/client
-    fn list_user_roles_by_realm_client(
-        &self,
-        realm_id: &str,
-        client_id: &str,
-    ) -> impl Future<Output = UserAdminResult<Vec<(Uuid, Uuid)>>> + Send;
-
     /// Replace all roles for an API key principal (transactional)
     fn replace_api_key_roles(
         &self,
@@ -288,12 +281,6 @@ pub trait RolePolicyRepository: Send + Sync {
         resource: &str,
         action: &str,
     ) -> impl Future<Output = UserAdminResult<bool>> + Send;
-
-    /// List all role policies in a realm
-    fn list_role_policies_by_realm(
-        &self,
-        realm_id: &str,
-    ) -> impl Future<Output = UserAdminResult<Vec<(Uuid, String, String)>>> + Send;
 }
 
 // ============================================================================
@@ -434,56 +421,4 @@ pub trait UserPermissionService: Send + Sync {
         user_id: Uuid,
         policy_id: Uuid,
     ) -> impl Future<Output = UserAdminResult<()>> + Send;
-}
-
-/// Service for permission and role policy management
-///
-/// This service handles low-level permission operations including:
-/// - Creating/deleting role policies
-/// - Adding/removing user role assignments
-/// - Listing permissions and roles
-pub trait PermissionManagementService: Send + Sync {
-    /// Create a permission (role policy or user role)
-    fn create_permission(
-        &self,
-        identity: Identity,
-        ctx: AuditContext,
-        realm_id: &str,
-        client_id: &str,
-        role_id: Option<Uuid>,    // For role policies
-        user_id: Option<Uuid>,    // For user roles
-        role: Option<Uuid>,       // For user roles
-        resource: Option<String>, // For role policies
-        action: Option<String>,   // For role policies
-    ) -> impl Future<Output = UserAdminResult<()>> + Send;
-
-    /// Delete a permission (role policy or user role)
-    fn delete_permission(
-        &self,
-        identity: Identity,
-        ctx: AuditContext,
-        realm_id: &str,
-        client_id: &str,
-        role_id: Option<Uuid>,    // For role policies
-        user_id: Option<Uuid>,    // For user roles
-        role: Option<Uuid>,       // For user roles
-        resource: Option<String>, // For role policies
-        action: Option<String>,   // For role policies
-    ) -> impl Future<Output = UserAdminResult<()>> + Send;
-
-    /// List all permissions in a realm/client
-    fn list_permissions(
-        &self,
-        realm_id: &str,
-        client_id: &str,
-    ) -> impl Future<Output = UserAdminResult<PermissionListData>> + Send;
-}
-
-/// Data structure for permission list response
-#[derive(Debug, Clone)]
-pub struct PermissionListData {
-    /// Role policies: (role_id, resource, action)
-    pub role_policies: Vec<(Uuid, String, String)>,
-    /// User roles: (user_id, role_id)
-    pub user_roles: Vec<(Uuid, Uuid)>,
 }

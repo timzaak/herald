@@ -832,6 +832,70 @@ mod tests {
         );
     }
 
+    /// User Story: US-PA-003
+    ///
+    /// Given checkout.completed whose product.billing_type carries an
+    /// UNRECOGNIZED word form (and no herald_billing_kind metadata), the
+    /// unknown form must not silently force the recurring default and
+    /// short-circuit the mapping lookup — the operator-configured mapping's
+    /// billing_type (one_time) wins and drives one-time fulfillment.
+    #[test_context(CreemOneTimeTestContext)]
+    #[tokio::test]
+    async fn test_creem_checkout_completed_unknown_word_form_falls_back_to_mapping(
+        ctx: &mut CreemOneTimeTestContext,
+    ) {
+        let app = ctx.create_unified_test_router();
+        let webhook_secret = "test_creem_wh_secret_unknown_word";
+        let realm_id = ctx._realm_id.clone();
+        let event_id = generate_test_event_id();
+        let client_app_id = Uuid::parse_str(&ctx._client_app_id).unwrap();
+        let entitlement_key = "unknown-word";
+        let external_product_id = format!("prod_unknownword_{}", entitlement_key);
+        let points_amount = 600;
+
+        set_webhook_secret(ctx, webhook_secret).await;
+
+        let user_id = create_test_user(ctx, "creem-unknown-word@test.com").await;
+        create_points_wallet(ctx, user_id, &realm_id).await;
+
+        // Mapping carries the operator-configured billing_type=one_time
+        let mapping_id = create_one_time_mapping(
+            ctx,
+            &realm_id,
+            &external_product_id,
+            entitlement_key,
+            points_amount,
+            true,
+        )
+        .await;
+
+        let attempt_id =
+            create_pending_payment_attempt(ctx, &realm_id, user_id, mapping_id, 999).await;
+
+        // product.billing_type is present but NOT a recognized Creem word form
+        let payload = build_checkout_completed_no_metadata_billing_kind(
+            &event_id,
+            entitlement_key,
+            &realm_id,
+            user_id,
+            client_app_id,
+            &external_product_id,
+            "usage_based_pricing",
+            Some(attempt_id),
+        );
+
+        let response = send_webhook_with_signature(&app, &realm_id, payload, webhook_secret).await;
+        assert_webhook_success(&response);
+
+        let status = get_payment_attempt_status(ctx, attempt_id)
+            .await
+            .expect("Payment attempt should exist");
+        assert_eq!(
+            status, "Succeeded",
+            "an unrecognized provider word form must defer to the mapping's billing_type=one_time, not force the recurring default"
+        );
+    }
+
     // =========================================================================
     // Test 7: No attemptId -- audit only
     // =========================================================================

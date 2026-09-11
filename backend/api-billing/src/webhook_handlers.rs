@@ -1,5 +1,5 @@
 // Handles subscription lifecycle events (paid, update, canceled) and refund events.
-// All handlers return 202 Accepted immediately and process events asynchronously.
+// All handlers process events synchronously and return 200 OK.
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -406,16 +406,6 @@ fn parse_checkout_completed_payload(
     })
 }
 
-/// Normalize Creem billing type strings to domain BillingType.
-///
-/// Delegates to the shared word-form mapping (the same one the product sync
-/// fetch uses) and defaults to recurring for unrecognized forms — checkout
-/// fulfillment must never stall on an unknown provider word form.
-fn normalize_creem_billing_type(raw: &str) -> BillingType {
-    herald_core::domain::billing::normalize_creem_billing_type_word_form(raw)
-        .unwrap_or(BillingType::Recurring)
-}
-
 fn parse_subscription_paid_payload(
     event: &Value,
 ) -> Result<CreemSubscriptionPaidPayload, CoreError> {
@@ -774,15 +764,19 @@ async fn handle_checkout_completed(
     let event_object = &event["object"];
 
     let billing_type = {
-        // Priority 1: metadata herald_billing_kind
+        // Priority 1: metadata herald_billing_kind. Only a RECOGNIZED word
+        // form wins; an unrecognized one yields None and falls through.
         let from_metadata = metadata["herald_billing_kind"]
             .as_str()
-            .map(normalize_creem_billing_type);
+            .and_then(herald_core::domain::billing::normalize_creem_billing_type_word_form);
 
-        // Priority 2: Creem product.billing_type
+        // Priority 2: Creem product.billing_type — same rule: an unknown
+        // provider word form must not silently force recurring and short-
+        // circuit the operator-configured mapping below (vocabulary drift on
+        // the provider side should defer to local configuration).
         let from_product = event_object["product"]["billing_type"]
             .as_str()
-            .map(normalize_creem_billing_type);
+            .and_then(herald_core::domain::billing::normalize_creem_billing_type_word_form);
 
         // Priority 3: mapping lookup by provider product ID
         let from_mapping = if from_metadata.is_none() && from_product.is_none() {
@@ -2196,7 +2190,23 @@ async fn process_creem_event_once(
 /// Handle Creem webhook events
 ///
 /// Verifies signature, checks idempotency, routes to appropriate handler,
-/// and returns 202 Accepted immediately. Processing happens asynchronously.
+/// and returns 200 OK. Processing happens synchronously.
+#[utoipa::path(
+    post,
+    path = "/api/third/pay/{realmId}/creem/webhooks",
+    params(
+        ("realmId" = String, Path, description = "Realm id")
+    ),
+    request_body = String,
+    responses(
+        (status = 200, description = "Event processed (or idempotent replay / ignorable event)"),
+        (status = 400, description = "Invalid JSON payload or missing signature"),
+        (status = 401, description = "Invalid or expired webhook signature"),
+        (status = 500, description = "Internal error (Creem will retry)")
+    ),
+    tag = "billing.webhooks",
+    operation_id = "creem_webhook_handler"
+)]
 #[tracing::instrument(
     // Governance: `body` is the raw provider payload
     // (Creem event bodies may carry PII / customer data); `headers` carries
@@ -2538,47 +2548,6 @@ pub(crate) async fn reprocess_creem_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn normalize_creem_billing_type_maps_known_variants() {
-        assert_eq!(
-            normalize_creem_billing_type("onetime"),
-            BillingType::OneTime
-        );
-        assert_eq!(
-            normalize_creem_billing_type("one_time"),
-            BillingType::OneTime
-        );
-        assert_eq!(
-            normalize_creem_billing_type("recurring"),
-            BillingType::Recurring
-        );
-        assert_eq!(
-            normalize_creem_billing_type("subscription"),
-            BillingType::Recurring
-        );
-    }
-
-    #[test]
-    fn normalize_creem_billing_type_case_insensitive() {
-        assert_eq!(
-            normalize_creem_billing_type("OneTime"),
-            BillingType::OneTime
-        );
-        assert_eq!(
-            normalize_creem_billing_type("ONETIME"),
-            BillingType::OneTime
-        );
-    }
-
-    #[test]
-    fn normalize_creem_billing_type_unknown_defaults_recurring() {
-        assert_eq!(
-            normalize_creem_billing_type("unknown"),
-            BillingType::Recurring
-        );
-        assert_eq!(normalize_creem_billing_type(""), BillingType::Recurring);
-    }
 
     #[test]
     fn parse_checkout_completed_extracts_attempt_id() {

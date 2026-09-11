@@ -70,7 +70,7 @@
 
 > **已交付更新**：OAuth 回调 URL 已按自定义域名生成（`realm_public_origin_for_oauth` 优先返回生效的自定义域名，authorize/callback 的默认 `redirect_uri` 按其拼接）。该能力属 IdP 注册的安全敏感字段，已从未来范围移出。
 >
-> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve?host=<hostname>` 是一个公开、无认证的查询端点，附带按访问事实自报告 CNAME/TLS 展示状态（当请求 Host 与解析结果一致且经 https 访问时，顺带将映射的 cname_verified / tls_ready 展示状态置为 true；此为 tls_ready 置位的唯一途径，不影响授权判定与路由），供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig，不改变后端路由匹配或 path 解析方式。它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
+> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve?host=<hostname>` 是一个公开、无认证的查询端点，附带按访问事实自报告 CNAME/TLS 展示状态（当请求 Host 与解析结果一致且经 https 访问时，顺带将映射的 cname_verified / tls_ready 展示状态置为 true；此为 tls_ready 置位的唯一途径，不影响授权判定与路由），供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig，不改变后端路由匹配或 path 解析方式。`host` 查询参数可省略：省略时回退使用请求的 `Host` 头（去端口后按域名规范化规则归一），参数与 Host 头均缺时返回 404——即部署在自定义域名下的 SPA 不带参数直接调用该端点即可解析自身所在 realm。它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
 
 ### 2.4 依赖项
 
@@ -194,12 +194,12 @@
 - **证书授权门控查询基准**：授权判定仅以"已配置且启用"为准；CNAME/TLS 状态为展示态字段，不纳入授权判定，避免授权与签发形成循环
 - **扁平 realm，无父子层级**：用户所说"各个子 realm"即现有扁平 realm；本期每个 realm 为平等租户，不引入 parent_id 父子层级，不修改 realm 数据模型
 
-### 8.3 与既有设计文档的关系（Rule 7）
+### 8.3 与既有设计文档的关系
 
 - **与 passkey 设计文档的冲突（已按自定义域名侧落地）**：passkey 设计文档假设「单一部署统一域名，所有 Realm 共享 RP」与自定义域名的 per-realm RP 需求直接冲突。当前 passkey RP 按请求 Origin 与域映射（custom_domain_mapping / client_app allowed_origins）派生 per-realm / per-app RP ID，并校验其归属 realm；canonical 与自定义域凭证不互通，单一域名假设不再成立。此为显式冲突标记，不静默合并。
 - host→realm 路由解析在上一版实现后曾被回退（根因：框架层面改写层在路由匹配之后执行，无法改写 URI）。该重建属技术实现，当前列为未来范围，不在本期已发布能力中。
 
-### 8.4 与 Decision Brief 的关系（Rule 7）
+### 8.4 与 Decision Brief 的关系
 
 - Decision Brief 中的 Possible Expansions / Open Questions（跨域会话共享、TLS 运维面板）在本 PRD §2.2 / §2.3 中明确列为 Out of Scope 或未来范围，未作为已确认决策写入。
 - ACME 每域 TLS 管道在 Decision Brief 阶段为「阻塞 Proceed」的 Open Question，经技术预研确认可行（有条件：反代层授权查询 + 无新库）后已转为 §8.2 已确认决策。

@@ -3494,7 +3494,23 @@ async fn handle_credit_note_voided(
 /// Handle Stripe webhook events
 ///
 /// Verifies signature, checks idempotency, routes to appropriate handler,
-/// and returns 200 OK immediately. Processing happens synchronously (for now).
+/// and returns 200 OK. Processing happens synchronously (for now).
+#[utoipa::path(
+    post,
+    path = "/api/third/pay/{realmId}/stripe/webhooks",
+    params(
+        ("realmId" = String, Path, description = "Realm id")
+    ),
+    request_body = String,
+    responses(
+        (status = 200, description = "Event processed (or idempotent replay / ignorable event)"),
+        (status = 400, description = "Invalid JSON payload or missing signature"),
+        (status = 401, description = "Invalid or expired webhook signature"),
+        (status = 500, description = "Internal error (Stripe will retry)")
+    ),
+    tag = "billing.webhooks",
+    operation_id = "stripe_webhook_handler"
+)]
 #[tracing::instrument(
     // Governance: `body` is the raw provider payload
     // (Stripe event bodies may carry PII / customer data); `headers` carries

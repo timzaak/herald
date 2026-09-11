@@ -16,7 +16,7 @@
 // =============================================================================
 
 use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
-use crate::tests::helpers::client_helpers::create_test_api_key;
+use crate::tests::helpers::client_helpers::{create_test_api_key, seed_realm_api_key_client};
 use crate::tests::response_json;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -915,43 +915,6 @@ async fn test_api_key_roles_cache_invalidation_on_remove(ctx: &mut TestContext) 
 // User Stories: US-RA-006, US-TP-012, US-TP-013, US-TP-014
 //
 // =============================================================================
-
-// =============================================================================
-// Helper: seed the realm's built-in API Key Client App
-// =============================================================================
-
-/// Creates the built-in API Key Client App (client_id='admin-api-client', enabled=true)
-/// for the test realm and returns its UUID. Idempotent: if the row already exists (e.g.
-/// created by realm init), returns the existing UUID instead of failing.
-async fn seed_realm_api_key_client(ctx: &TestContext) -> uuid::Uuid {
-    let app_id = uuid::Uuid::now_v7();
-    let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(
-        "INSERT INTO client_app (id, realm_id, client_id, name, enabled, redirect_uris, browser_refresh_absolute_ttl_seconds)
-         VALUES ($1, $2, 'admin-api-client', 'API Key Client', true, '[]'::jsonb, 86400)
-         ON CONFLICT (realm_id, client_id) DO NOTHING
-         RETURNING id",
-    )
-    .bind(app_id)
-    .bind(&ctx._realm_id)
-    .fetch_optional(&ctx._app_state.pool)
-    .await
-    .expect("Failed to seed realm API Key Client App");
-
-    if let Some((id,)) = inserted {
-        return id;
-    }
-
-    // Row already exists (created by realm init); fetch its id.
-    let (existing_id,): (uuid::Uuid,) = sqlx::query_as(
-        "SELECT id FROM client_app WHERE realm_id = $1 AND client_id = 'admin-api-client'",
-    )
-    .bind(&ctx._realm_id)
-    .fetch_one(&ctx._app_state.pool)
-    .await
-    .expect("Failed to find existing realm API Key Client App");
-
-    existing_id
-}
 
 /// Creates an ordinary Client App for API key scoping tests.
 async fn seed_scoped_client_app(ctx: &TestContext, client_id: &str, name: &str) -> uuid::Uuid {

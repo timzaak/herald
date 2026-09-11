@@ -190,7 +190,7 @@
 
 - **品牌化页面范围扩展到所有 auth 流页面**：品牌化覆盖所有经统一 auth 流页面布局出口的页面及其子状态（登录、注册、忘记密码、邮箱验证、OAuth 同意、TOTP、passkey 等）。
   - **与 Decision Brief §6 的差异**：Decision Brief §6 In Scope 仅明确「仅登录/注册页」，将「忘记密码 / 邮箱验证 / OAuth 同意等其他 auth 流页面的品牌化」列为 Possible Expansions 留 PRD 评估。本 PRD 评估结论为扩展到所有 auth 流页面，**这是相对 Decision Brief 的明确 scope 扩张**，依据为这些页面技术上一共用统一布局出口、扩展成本近乎零，且同属面向终端用户的信任入口。
-  - **记录方式（Rule 7）**：作为显式 scope 扩张记录，不与 Decision Brief 的 In Scope 静默合并；Decision Brief §6 的「Possible Expansions」中相关项应视为已被本 PRD 吸收。
+  - **记录方式**：作为显式 scope 扩张记录，不与 Decision Brief 的 In Scope 静默合并；Decision Brief §6 的「Possible Expansions」中相关项应视为已被本 PRD 吸收。
 - **对比度策略「仅警告不拦截」**：Realm Admin 配置主色时，对比度低于 WCAG 1.4.3 AA 显示警告但不拦截保存；渲染端不做二次拦截
 - **本期仅 light 模式**：品牌资产字段仅作用于 light 主题，本期不接入暗色模式、不提供暗色模式下的独立品牌值
 - **管理后台之外页面不纳入**：legal 页、用户中心等非 auth 页面本期不做品牌化（即使技术上共享部分样式），与 Decision Brief §6 一致

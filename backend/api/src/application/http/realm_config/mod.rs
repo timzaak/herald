@@ -207,8 +207,8 @@ fn validate_ldap_settings_row(
 /// has active subscriptions in the realm.
 ///
 /// Generalized from the Stripe-only `ensure_stripe_config_deletable` to cover
-/// stripe / creem / apple / google: the guard filters active subscriptions by
-/// the provider string matching the config_type being deleted.
+/// stripe / creem / apple / google / wechat: the guard filters active
+/// subscriptions by the provider string matching the config_type being deleted.
 async fn ensure_provider_config_deletable(
     state: &AppState,
     realm_id: &str,

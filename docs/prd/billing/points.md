@@ -361,6 +361,7 @@
 **适用性**: 适用
 
 - 接口能力范围包括：积分账户查询与管理员钱包状态更新（含窗口剩余 + 充值余额双维度）、积分消费类（SDK，含混合消费协调）、积分充值/发放类、交易历史查询类、Entitlement Mapping 积分策略配置类（随 mapping 管理的 `points_distribution_rules`）、Realm 注册积分分发规则管理类（`registration-rules`，`owner_type=realm_registration`）、Webhook 回调处理类
+- 内部直写端点（demo/test-only）：`POST /api/internal/points/{realmId}/quota-entitlement/{grant,revoke}` 绕过用户认证与 `points_distribution_rules`，直接构造/撤销 `PointsQuotaEntitlement`（复刻 webhook 路径产物，供快速 demo/E2E 使用）。该端点仅由 `X-Internal-API-Key`（`INTERNAL_API_KEY` 密钥）防护、fail-closed，不进入 OpenAPI/SDK；生产部署不得配置该密钥，否则构成绕过分发规则的发放入口
 - 访问控制：SDK 消耗接口需 API Key 授权（ThirdParty 身份）；管理类接口需 Realm Admin 权限；用户查询类接口仅允许查询本人数据
 - SDK 消耗积分时校验 API Key 对 client_app 的作用域（client_app_scope），确保 API Key 只能操作其授权范围内的 client_app 积分
 - API Key 鉴权实时校验其绑定 Client App 的启用状态（包括缓存命中路径）：Client App 被禁用后，其 API Key 立即失效并返回 401，不依赖缓存 TTL 过期

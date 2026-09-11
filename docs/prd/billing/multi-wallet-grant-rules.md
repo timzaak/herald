@@ -116,6 +116,7 @@ Herald 已支持一个用户同时持有多个积分账户，但既有发放配�
 - 注册规则的来源可从 `registration` 与 `free_periodic_grant` 中声明一个或两个（允许同一条规则同时覆盖注册初始积分与免费周期额度）；两类来源共享同一注册事件锚点选取与提交，重复声明的触发源去重后执行，不因多来源声明而重复发放。
 - `subscription_downgrade` 当前不立即发放积分：用户保留当前周期权益，新配置在后续 `subscription_renewal` 生效，因此不作为独立发放触发源。
 - `admin_grant` 和 `sdk_grant` 是显式定向命令，不读取持久化分发规则，不自动扇出。
+- 内部直写端点（demo/test-only，`POST /api/internal/points/{realmId}/quota-entitlement/{grant,revoke}`，仅 `INTERNAL_API_KEY` 防护）绕过分发规则直写配额权益，**不属于**本目录的触发源，不读取也不记录 `distribution_rule_id`；生产部署不得配置该密钥（见 points PRD §6）。
 - `refund_revoke`、`expire_revoke`、`cancel_revoke` 和 `upgrade_revoke` 是原发放的派生回收来源，不允许管理员单独配置。
 - `system_grant` 当前没有生产调用入口，不纳入规则触发源；未来出现真实入口时另行扩展目录。
 
@@ -142,6 +143,7 @@ Herald 已支持一个用户同时持有多个积分账户，但既有发放配�
 - 注册初始积分规则发放 `registration_credit`，保持永久有效语义。
 - 免费周期规则发放 `free_periodic_credit`，可配置固定周期积分或多时间窗滚动额度。
 - 每条免费周期规则独立配置周期、有效期或窗口额度，并独立选择目标账户。
+- 固定积分形态的免费周期规则必须声明周期（`grant_period_type`）：保存时校验拒绝缺失周期的规则——否则执行时静默退化为一次性发放（无排期，周期份额永不发生）。声明了 `free_periodic_grant` 来源的组合规则（注册 + 免费周期同一条规则）同样必须携带周期：执行时注册份额即首期发放，排期承载后续免费周期。
 - 新用户注册时执行当时全部启用的注册规则；没有启用规则时不发积分，也不选择隐式默认账户。
 - 用户升级到付费套餐时，所有注册初始积分保留；仍有效的免费周期额度按既有升级规则停止，处理范围扩展到所有相关规则和账户。
 

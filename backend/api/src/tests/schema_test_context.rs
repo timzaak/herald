@@ -228,8 +228,7 @@ impl AsyncTestContext for SchemaTestContext {
 
         // Create admin user services
         use herald_core::domain::user::services::admin::{
-            AdminUserServiceImpl, PermissionManagementServiceImpl, RoleAssignmentServiceImpl,
-            UserPermissionServiceImpl,
+            AdminUserServiceImpl, RoleAssignmentServiceImpl, UserPermissionServiceImpl,
         };
         let audit_event_repository = Arc::new(
             herald_core::infrastructure::audit::PostgresAuditEventRepository::new(sea_conn.clone()),
@@ -256,12 +255,6 @@ impl AsyncTestContext for SchemaTestContext {
             user_role_repository.clone(),
             role_policy_repository.clone(),
             permission_checker.clone(),
-        ));
-        let permission_management_service = Arc::new(PermissionManagementServiceImpl::new(
-            user_role_repository.clone(),
-            role_policy_repository.clone(),
-            permission_checker.clone(),
-            audit_event_repository.clone(),
         ));
 
         let payment_attempt_repository = Arc::new(
@@ -398,7 +391,6 @@ impl AsyncTestContext for SchemaTestContext {
             admin_user_service,
             role_assignment_service,
             user_permission_service,
-            permission_management_service,
             fulfillment_service,
             payment_attempt_service,
             payment_attempt_repository,

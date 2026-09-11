@@ -4,6 +4,7 @@
 //
 // 提供客户端 API 密钥管理相关的测试辅助函数，包括：
 // - 创建测试 API Key
+// - 播种内置 API Key Client App
 // - 清理缓存
 // - 查询 API Key 统计
 //
@@ -12,6 +13,7 @@
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use chrono::{Duration, Utc};
 use herald_core::domain::authorization::principal_types;
+use herald_core::domain::client_api_keys::ADMIN_API_CLIENT_ID;
 use herald_core::domain::client_api_keys::entities::ClientApiKey;
 use herald_core::domain::client_api_keys::services::ClientApiKeyService;
 use uuid::Uuid;
@@ -417,4 +419,41 @@ pub async fn get_api_key_stats(
             .expect("Failed to query API key last_used_at");
 
     row.0
+}
+
+/// Creates the built-in API Key Client App (client_id='admin-api-client', enabled=true)
+/// for the test realm and returns its UUID. Idempotent: if the row already exists (e.g.
+/// created by realm init), returns the existing UUID instead of failing.
+///
+/// The built-in API Key Client App is seeded only at realm creation and has no
+/// auto-recreation path, so tests that rely on it must ensure it exists first.
+pub async fn seed_realm_api_key_client(ctx: &TestContext) -> uuid::Uuid {
+    let app_id = uuid::Uuid::now_v7();
+    let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(
+        "INSERT INTO client_app (id, realm_id, client_id, name, enabled, redirect_uris, browser_refresh_absolute_ttl_seconds)
+         VALUES ($1, $2, $3, 'API Key Client', true, '[]'::jsonb, 86400)
+         ON CONFLICT (realm_id, client_id) DO NOTHING
+         RETURNING id",
+    )
+    .bind(app_id)
+    .bind(&ctx._realm_id)
+    .bind(ADMIN_API_CLIENT_ID)
+    .fetch_optional(&ctx._app_state.pool)
+    .await
+    .expect("Failed to seed realm API Key Client App");
+
+    if let Some((id,)) = inserted {
+        return id;
+    }
+
+    // Row already exists (created by realm init); fetch its id.
+    let (existing_id,): (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM client_app WHERE realm_id = $1 AND client_id = $2")
+            .bind(&ctx._realm_id)
+            .bind(ADMIN_API_CLIENT_ID)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .expect("Failed to find existing realm API Key Client App");
+
+    existing_id
 }

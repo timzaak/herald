@@ -224,7 +224,7 @@
 - **Client App 状态**: Enabled / Disabled — 禁用的 Client App 拒绝 OAuth 授权；该检查实时生效，禁用同时使其名下 API Key 的鉴权立即失效（包括缓存命中路径，返回 401）
 - **API Key 状态**: Enabled / Disabled / Expired — 无效状态均返回 401
 - **authorization_code**: 一次性，使用后立即失效（Redis 删除）
-- **state token**: 一次性，校验后立即失效（Redis 删除），TTL 5 分钟
+- **state token**: 一次性，校验后立即失效（Redis 删除），TTL 5 分钟。`/authorize` 播种 state 使用 SET NX 语义：state 值已存在未消费的 pending 事务时拒绝该次 authorize（400），防止已知受害者 state 值的攻击者在登录完成前用自身 client_id/redirect_uri/PKCE 重播种（state fixation）；客户端应为每次流程生成新的随机 state
 - **OAuth 上下文参数**: oauthClientId、redirectUri、state 三项必须完整才触发 OAuth 流程
 
 ---
@@ -249,7 +249,7 @@
 **第三方 API 接入:**
 - API Key 认证系统：提取验证 X-API-Key header，校验 API Key 有效且未过期，更新使用统计
 - API Key Client App Scope 校验：绑定了 Client App 的 API Key 仅能访问该 App 的资源，Admin API Client 的 Key 除外
-- API Key 轮换：通过 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 轮换密钥，旧密钥立即失效，返回新明文密钥（仅展示一次）
+- API Key 轮换：通过 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 轮换密钥，旧密钥失效（缓存驱逐为 best-effort：驱逐失败时旧密钥最长残留 300s 缓存 TTL，见 api-key-roles PRD 同条说明），返回新明文密钥（仅展示一次）
 - 权限检查：第三方应用使用 API Key + 用户 session token，检查用户对指定资源的权限，支持 batch 检查
 - 订阅状态查询：第三方应用使用 API Key 查询客户端应用的订阅状态，无订阅时返回 free tier 信息
 - Ext API 完整能力：除权限检查和订阅查询外，还提供 Realm（创建/列表/查询）、User（创建/列表/查询）、Client App（创建/列表/查询）、Billing（订阅计划/分配查询）、Points（余额查询/消费/交易查询）管理接口。详细内容参考各自独立 PRD

@@ -45,6 +45,8 @@ pub mod wechat_webhook_handlers;
         crate::iap_handlers::submit_iap_receipt,
         crate::iap_handlers::handle_apple_webhook,
         crate::wechat_webhook_handlers::handle_wechat_webhook,
+        crate::webhook_handlers::handle_creem_webhook,
+        crate::stripe_webhook_handlers::handle_stripe_webhook,
         crate::handlers::list_subscriptions,
         crate::handlers::get_subscription,
         crate::handlers::get_subscription_for_client_app,

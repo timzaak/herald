@@ -27,6 +27,11 @@ pub fn distribution_rule_validation_error(
             Some("grantMode"),
             StatusCode::BAD_REQUEST,
         ),
+        DistributionRuleError::FreePeriodicRequiresGrantPeriod => (
+            "invalid_distribution_policy",
+            Some("grantPeriodType"),
+            StatusCode::BAD_REQUEST,
+        ),
         DistributionRuleError::InvalidFixedAmount => (
             "invalid_distribution_policy",
             Some("pointsAmount"),

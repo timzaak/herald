@@ -134,7 +134,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 
 **适用性**: 适用
 
-- **能力边界**：新增一个认证端点 `POST /api/oauth/{realmId}/google/one-tap`，接收 Google ID Token 凭证，返回会话信息或下游授权码重定向；请求必须携带发起方 Herald Client App 的 `client_id`（必填，非空——直登模式签发的浏览器 token family 绑定到该 Client App，与 Apple 原生登录端点的约束一致）
+- **能力边界**：新增一个认证端点 `POST /api/oauth/{realmId}/google/one-tap`，接收 Google ID Token 凭证，返回会话信息或下游授权码跳转地址（JSON 响应携带 `redirectUri` 字段，由第三方前端执行跳转，端点本身不发起 HTTP 重定向）；请求必须携带发起方 Herald Client App 的 `client_id`（必填，非空——直登模式签发的浏览器 token family 绑定到该 Client App，与 Apple 原生登录端点的约束一致）
 - **访问控制**：该端点为公开端点（无需已认证身份），但必须验证 Google 凭证的有效性作为访问前提
 - **Realm 数据边界**：端点路径包含 realmId，Google 凭证的 audience 必须与该 Realm 配置的 client_id 一致；用户匹配和创建限定在当前 Realm 内
 - **兼容性**：与现有 OAuth Code+PKCE 流程（US-TP-001/015/016）兼容，下游授权交易标识机制复用现有实现；与跳转式 Google 登录（US-RU-003）共存
@@ -155,7 +155,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 - **关键交互**：
   - 用户看到 One Tap 浮层（由 Google SDK 渲染）
   - 用户点击浮层中的账号 → Google 在浏览器内签发 ID Token → 第三方前端将 Token 发送给 Herald 后端
-  - 验证成功 → 第三方前端根据返回结果（session 或授权码重定向）完成登录
+  - 验证成功 → 第三方前端根据返回结果（session，或携带授权码的 `redirectUri` 跳转地址——由前端自行导航完成下游授权码交接）完成登录
 - **状态反馈**：
   - 验证失败 → 第三方前端显示错误提示（非敏感信息）
   - 用户关闭浮层 → 浮层消失，不影响其他登录方式

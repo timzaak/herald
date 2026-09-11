@@ -17,8 +17,6 @@ pub fn permission_router() -> Router<AppState> {
             "/{realmId}/define",
             crate::admin::permission_definitions::router(),
         )
-        // Permissions/policies (moved from /api/system)
-        .nest("/{realmId}/permissions", crate::admin::permission::router())
         // Role policies (moved from /api/system)
         .nest("/roles", role_policies::router())
         // User roles (moved from /api/system)

@@ -816,30 +816,6 @@ impl UserRoleRepository for PostgresUserRoleRepository {
         Ok(exists)
     }
 
-    async fn list_user_roles_by_realm_client(
-        &self,
-        realm_id: &str,
-        client_id: &str,
-    ) -> UserAdminResult<Vec<(Uuid, Uuid)>> {
-        let rows = sqlx::query_as::<_, (Uuid, Uuid)>(
-            r#"
-            SELECT user_id, role_id
-            FROM user_roles
-            WHERE realm_id = $1 AND client_id = $2
-            "#,
-        )
-        .bind(realm_id)
-        .bind(client_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list user roles: {}", e);
-            UserAdminError::DatabaseError(format!("Failed to list user roles: {}", e))
-        })?;
-
-        Ok(rows)
-    }
-
     async fn replace_api_key_roles(
         &self,
         api_key_id: &str,
@@ -1285,27 +1261,5 @@ impl RolePolicyRepository for PostgresRolePolicyRepository {
             deleted
         );
         Ok(deleted)
-    }
-
-    async fn list_role_policies_by_realm(
-        &self,
-        realm_id: &str,
-    ) -> UserAdminResult<Vec<(Uuid, String, String)>> {
-        let rows = sqlx::query_as::<_, (Uuid, String, String)>(
-            r#"
-            SELECT role_id, resource, action
-            FROM role_policies
-            WHERE realm_id = $1
-            "#,
-        )
-        .bind(realm_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list role policies: {}", e);
-            UserAdminError::DatabaseError(format!("Failed to list role policies: {}", e))
-        })?;
-
-        Ok(rows)
     }
 }

@@ -48,7 +48,7 @@
 - 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，默认 `enabled=true`）
 - API Key 认证路径受关联 Client App 的 `enabled` 状态影响（Client App 禁用时其下所有 API Key 均不可用）
 - ext API 对非 `admin-api-client` 的 API Key 执行 Client App 作用域隔离
-- API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（轮换生成新密钥，旧密钥立即失效，新明文仅返回一次）
+- API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（轮换生成新密钥，旧密钥失效，新明文仅返回一次）。旧密钥失效的精确语义：轮换在数据库换绑前后各执行一次缓存驱逐，正常情况下旧密钥立即失效；缓存驱逐为 best-effort——驱逐失败（如缓存短暂不可用）时轮换仍成功返回（新明文仅返回一次，不能因驱逐失败而 500 弃单），旧密钥最长残留一个 300s 的缓存 TTL 窗口后自然失效
 
 ### 2.2 不包含功能 (Out of Scope)
 

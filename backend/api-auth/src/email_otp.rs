@@ -461,6 +461,7 @@ pub async fn send(
         (status = 200, description = "Verification successful", body = BrowserTokenResponse),
         (status = 400, description = "OTP login not enabled for realm / bad request", body = ErrorResponse),
         (status = 401, description = "Invalid / expired / exhausted code, or disabled account", body = ErrorResponse),
+        (status = 409, description = "Email not registered (auto-register off, or registration gates failed at consumption time)", body = EmailOtpConflictResponse),
         (status = 429, description = "Rate limited", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
     )

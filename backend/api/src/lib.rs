@@ -49,8 +49,7 @@ use herald_core::domain::payment_attempt;
 use herald_core::domain::points;
 use herald_core::domain::user::services::SelfDeleteService;
 use herald_core::domain::user::services::admin::{
-    AdminUserServiceImpl, PermissionManagementServiceImpl, RoleAssignmentServiceImpl,
-    UserPermissionServiceImpl,
+    AdminUserServiceImpl, RoleAssignmentServiceImpl, UserPermissionServiceImpl,
 };
 use herald_core::infrastructure::PostgresCustomDomainMappingRepository;
 use herald_core::infrastructure::audit::PostgresAuditEventRepository;
@@ -398,12 +397,6 @@ pub async fn build_app_state_with_migrations(
         role_policy_repository.clone(),
         permission_checker.clone(),
     ));
-    let permission_management_service = Arc::new(PermissionManagementServiceImpl::new(
-        user_role_repository.clone(),
-        role_policy_repository.clone(),
-        permission_checker.clone(),
-        audit_event_repository.clone(),
-    ));
     info!("Admin user services initialized");
 
     // Create payment attempt service
@@ -530,7 +523,6 @@ pub async fn build_app_state_with_migrations(
         admin_user_service,
         role_assignment_service,
         user_permission_service,
-        permission_management_service,
         payment_attempt_service,
         payment_attempt_repository,
         fulfillment_service,

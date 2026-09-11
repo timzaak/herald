@@ -129,7 +129,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - Provider-to-Entitlement 映射是 Herald 本地的 allowlist 和只读缓存，不是本地商业目录
 - 映射数据以 Herald 本地配置为准；Stripe Product/Price metadata 可作为导入入口，Creem 需要在 Herald 中配置 entitlement 和积分策略
 - 映射承载的信息包括：provider、external_product_id、external_price_id（Creem 不适用）、entitlement_key、积分策略字段、`granted_role_ids`（支付成功后授予的 role，见 [support-paywall.md](support-paywall.md)）、规则集合中的 `quota_windows`（配额窗口策略，保存在 `points_distribution_rules`，不是 Mapping 基表字段）、provider_product_info、synced_at
-- 禁用映射后，匹配该映射的 webhook 订阅事件仍更新订阅投影，但不触发积分策略的发放或回收；管理员重新启用后恢复积分策略执行
+- 禁用映射后，匹配该映射的 webhook 订阅事件仍更新订阅投影，但跳过该映射的全部自动履约：既不触发积分策略的发放或回收，也不续授支付来源 role（`grant_payment_roles` 同步跳过，支付来源 role 可能因订阅周期结束而过期，见 [support-paywall.md](support-paywall.md) §4.2 的禁用映射例外）；管理员重新启用后恢复积分策略执行与 role 续授
 - 映射同步失败不应静默降级为默认策略，应 fail loud 并记录诊断；「fail loud」指单行同步失败可观测（返回 `Partial` 状态 + `partial_errors` 列表），非整体回滚
 
 **编目边界**：商品与价格生命周期由支付平台管理；Herald 不维护本地 Product/Plan，不提供套餐删除、升降级或 Client App 套餐分配能力。Herald 通过 `entitlement_mapping` 配置权益，并通过 webhook 感知支付平台上的订阅变化。

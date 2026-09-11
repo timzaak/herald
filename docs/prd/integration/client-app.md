@@ -126,6 +126,7 @@ Client App 采用双 ID 系统：
 - **人机验证（Turnstile）配置归属 Client App 级**：每个 Client App 配置自己的 Turnstile 启用开关、site_key 与 secret_key；未认证身份端点（注册/登录/找回密码/重置密码/邮箱验证/邮箱验证码登录）的人机验证按当前请求绑定的 Client App 的配置执行，未启用 Turnstile 的 Client App 不强制人机验证
 - **Turnstile secret 不回显**：Turnstile secret_key 属敏感凭证，读取 Client App 详情时不返回；仅在创建/编辑时接受明文
 - 内置第一方 Client App 不允许被删除：`admin-web-console`（管理控制台）与用户账户中心 Client App（`user-account-center`）；二者的 `client_id` 同时受保留字保护，新建 Client App 不得占用。防止内置管理/用户入口不可用
+- 内置 API Key Client App（`admin-api-client`）同样不允许被删除（返回 400）：它仅在 Realm 创建时播种、无自动重建路径，删除后该 Realm 将永久无法创建默认绑定 API Key（见 [API Key Roles PRD](api-key-roles.md) §5）
 - `device_code_grant_enabled` 字段控制是否启用 Device Code Grant 流程，默认 false；启用后允许该 Client App 参与 Device Code 授权流程
 
 ### 4.2 关键状态与异常

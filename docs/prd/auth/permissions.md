@@ -136,12 +136,12 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | permissions.manage | permissions | manage | 权限管理 |
 | policies.view | policies | view | 查看策略 |
 | policies.manage | policies | manage | 策略管理 |
-| settings.view | settings | view | 查看设置 |
-| settings.manage | settings | manage | 设置管理 |
+| settings.view | settings | view | 查看设置（含支付 Provider 凭证配置） |
+| settings.manage | settings | manage | 设置管理（含支付 Provider 凭证配置的写入与删除，见 `/api/configs/*` 端点） |
 | api_keys.view | api_keys | view | 查看 API Key 列表和详情 |
 | api_keys.manage | api_keys | manage | API Key 创建、更新、删除、轮换 |
-| billing.view | billing | view | 查看账单、订阅历史、支付配置 |
-| billing.manage | billing | manage | 账单管理、支付 Provider 配置管理 |
+| billing.view | billing | view | 查看账单、订阅历史 |
+| billing.manage | billing | manage | 账单业务管理（账单、订阅、发票等业务对象；不含支付 Provider 凭证配置——Provider 凭证由 `settings.view`/`settings.manage` 门控） |
 | points.view | points | view | 查看积分、积分规则 |
 | points.manage | points | manage | 积分管理、Provider 映射管理 |
 | audit.view | audit | view | 查看审计日志列表和详情 |
@@ -208,15 +208,16 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 **API 架构说明**:
 
-当前系统中存在两套权限相关 API 共存：
+权限管理 API 统一为下列端点。早期与 `PermissionData`（PoliceWrap/RoleWrap）格式并存的过渡期旧 API（`/api/permission/{realmId}/permissions` 及其 `/delete`、按 client_id 查询等端点）已在上线前整体移除，仅保留以下能力：
 
-| API 风格 | 路径前缀 | 说明 |
-|----------|---------|------|
-| 旧 API | `/api/permission/{realmId}/permissions` | 使用 `PermissionData` 格式，按 client 维度管理权限分配；含 RoleWrap 用户角色分配，写操作统一检查 `policies.manage`（而非 `roles.manage`） |
-| 新 API | `/api/permission/{realmId}/define` | 权限定义（permission_definitions）的 CRUD |
-| 新 API | `/api/roles/{realmId}/define` | 角色定义（role_definitions）的 CRUD 及角色权限关联 |
-
-旧 API 为过渡期保留，新 API 为主要演进方向。前端应优先使用新 API。
+| 路径前缀 | 说明 |
+|----------|------|
+| `/api/permission/{realmId}/define` | 权限定义（permission_definitions）的 CRUD |
+| `/api/roles/{realmId}/define` | 角色定义（role_definitions）的 CRUD 及角色权限关联 |
+| `/api/permission/roles/{roleId}/policies` | 角色策略关联（GET/POST/DELETE）：查询需 `policies.view`；增删需 `policies.manage` 且授予方自持被授予的 `resource.action` |
+| `/api/permission/users/{userId}/roles` | 用户的角色分配（GET/POST/DELETE）：查询需 `users.view`；分配需 `roles.manage` 且授予方自持对应策略权限；移除需 `roles.manage` |
+| `POST /api/permission/check` | 管理端批量权限检查（路径无 realm 段，realm 取自登录身份）：**任一**规则命中即 `allowed=true` |
+| `POST /api/ext/permission/check` | SDK/ext 批量权限检查（API Key 认证）：**全部**规则命中才 `allowed=true`（与 admin 侧 check 的任一命中语义相反，混用易误判） |
 
 **Principal 角色与权限管理**:
 
@@ -304,13 +305,13 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | Users | `users.view` | `users.manage` |
 | Permissions | `permissions.view` | `permissions.manage` |
 | Roles | `roles.view` | `roles.manage` |
-| Role policy assignment | 角色策略（旧 API）`policies.view`；角色权限（新 API `/define`）`roles.view` | 角色策略（旧 API）`policies.manage`；角色权限（新 API `/define`）`roles.manage`；均需自持被授予权限 |
-| User role assignment | `users.view` | 旧 API RoleWrap 检查 `policies.manage`；新用户管理服务修改既有用户角色检查 `roles.manage`（创建用户仅附带普通 `user` 角色为受限例外） |
+| Role policy assignment | 角色策略（`/api/permission/roles/{roleId}/policies`）`policies.view`；角色权限（`/api/roles/{realmId}/define`）`roles.view` | 角色策略 `policies.manage`；角色权限（`/define`）`roles.manage`；均需自持被授予权限 |
+| User role assignment | `users.view` | 用户角色分配（`/api/permission/users/{userId}/roles` 与用户管理服务）检查 `roles.manage`（创建用户仅附带普通 `user` 角色为受限例外） |
 | API Keys | `api_keys.view` | `api_keys.manage` |
 | API Key role assignment | `api_keys.view` | `roles.manage` |
-| Products / Plans / Invoices / Providers | `billing.view` | `billing.manage` |
+| Products / Plans / Invoices | `billing.view` | `billing.manage` |
 | Points Rules / Wallets | `points.view` | `points.manage` |
-| Settings | `settings.view` | `settings.manage` |
+| Settings（含支付 Provider 凭证配置） | `settings.view` | `settings.manage` |
 
 ---
 

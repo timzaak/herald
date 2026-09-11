@@ -153,6 +153,7 @@ pub enum DistributionRuleError {
     EmptyTriggerSources,
     TriggerNotAllowedForOwner(DistributionTrigger),
     PolicyNotAllowedForTrigger,
+    FreePeriodicRequiresGrantPeriod,
     InvalidFixedAmount,
     InvalidValidity,
     RegistrationMustBePermanent,
@@ -173,6 +174,13 @@ impl std::fmt::Display for DistributionRuleError {
             }
             DistributionRuleError::PolicyNotAllowedForTrigger => {
                 write!(f, "policy is not allowed for the declared triggers")
+            }
+            DistributionRuleError::FreePeriodicRequiresGrantPeriod => {
+                write!(
+                    f,
+                    "free-periodic fixed policy requires grant_period_type; without it the \
+                     rule would degrade to a one-shot grant"
+                )
             }
             DistributionRuleError::InvalidFixedAmount => {
                 write!(f, "fixed policy requires a positive points amount")
@@ -283,16 +291,23 @@ pub fn validate_rule_for_owner(
             if *validity_days < 0 {
                 return Err(DistributionRuleError::InvalidValidity);
             }
-            // grant_period_type is only meaningful for free-periodic rules; a
-            // registration rule is a one-time fixed grant (no period).
+            // grant_period_type is required for free-periodic fixed rules and
+            // illegal for every other fixed shape. The executor's plain-fixed
+            // branch creates no schedule, so a free-periodic rule without a
+            // period would silently degrade to a one-shot grant (the periodic
+            // share never happens); a rule without the free-periodic trigger
+            // has no scheduler to honor a period. A combined registration +
+            // free-periodic rule keeps its period (multi-wallet PRD §4.1
+            // allows one rule covering both; the registration share IS the
+            // first scheduled period).
             let is_free_periodic =
                 trigger_sources.contains(&DistributionTrigger::FreePeriodicGrant);
             let is_registration = trigger_sources.contains(&DistributionTrigger::Registration);
             if !is_free_periodic && grant_period_type.is_some() {
                 return Err(DistributionRuleError::PolicyNotAllowedForTrigger);
             }
-            if is_registration && grant_period_type.is_some() {
-                return Err(DistributionRuleError::PolicyNotAllowedForTrigger);
+            if is_free_periodic && grant_period_type.is_none() {
+                return Err(DistributionRuleError::FreePeriodicRequiresGrantPeriod);
             }
             // registration_credit carries a permanent-validity semantic
             // (points PRD §4.1 / multi-wallet PRD §4.4): an expiring
@@ -998,7 +1013,7 @@ mod tests {
             DistributionPolicy::Fixed {
                 amount: 100,
                 validity_days: 7,
-                grant_period_type: None,
+                grant_period_type: Some(GrantPeriodType::Daily),
             },
         );
         assert_eq!(
@@ -1038,6 +1053,72 @@ mod tests {
             },
         );
         assert!(validate_rule_for_owner(&r, None).is_ok());
+    }
+
+    #[test]
+    fn free_periodic_fixed_requires_grant_period() {
+        // WHY: the executor's plain-fixed branch writes no schedule, so a
+        // free-periodic fixed rule saved without grant_period_type would
+        // silently degrade to a one-shot grant at registration — the periodic
+        // share never happens and no error is raised anywhere. The save-time
+        // rejection is the contract.
+        let bad = rule(
+            realm_owner(),
+            &[DistributionTrigger::FreePeriodicGrant],
+            DistributionPolicy::Fixed {
+                amount: 10,
+                validity_days: 7,
+                grant_period_type: None,
+            },
+        );
+        assert_eq!(
+            validate_rule_for_owner(&bad, None),
+            Err(DistributionRuleError::FreePeriodicRequiresGrantPeriod)
+        );
+    }
+
+    #[test]
+    fn combined_registration_free_periodic_fixed_keeps_period() {
+        // WHY (multi-wallet PRD §4.1): one rule may cover both the
+        // registration initial grant and the free-periodic grants. The
+        // executor dedups the two registration-event passes onto the
+        // Registration trigger, so the first grant lands as registration
+        // credit and the schedule carries the later free_periodic periods —
+        // the period is what makes the combined shape more than a plain
+        // one-shot registration grant.
+        let r = rule(
+            realm_owner(),
+            &[
+                DistributionTrigger::Registration,
+                DistributionTrigger::FreePeriodicGrant,
+            ],
+            DistributionPolicy::Fixed {
+                amount: 100,
+                validity_days: 0,
+                grant_period_type: Some(GrantPeriodType::Monthly),
+            },
+        );
+        assert!(validate_rule_for_owner(&r, None).is_ok());
+
+        // The combined shape is still subject to the free-periodic period
+        // requirement: without a period it would degrade to a one-shot
+        // registration grant, losing the periodic share.
+        let bad = rule(
+            realm_owner(),
+            &[
+                DistributionTrigger::Registration,
+                DistributionTrigger::FreePeriodicGrant,
+            ],
+            DistributionPolicy::Fixed {
+                amount: 100,
+                validity_days: 0,
+                grant_period_type: None,
+            },
+        );
+        assert_eq!(
+            validate_rule_for_owner(&bad, None),
+            Err(DistributionRuleError::FreePeriodicRequiresGrantPeriod)
+        );
     }
 
     #[test]

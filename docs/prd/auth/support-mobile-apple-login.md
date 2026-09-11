@@ -149,7 +149,7 @@
 
 **适用性**: 适用
 
-- **能力边界**：新增一个 Apple native 认证端点，接收 Apple identityToken 凭证，返回会话信息或下游授权码重定向
+- **能力边界**：新增一个 Apple native 认证端点，接收 Apple identityToken 凭证，返回会话信息或下游授权码跳转地址（JSON 响应携带 `redirectUri` 字段，由 App 自行执行跳转，端点本身不发起 HTTP 重定向）
 - **访问控制**：该端点为公开端点（无需已认证身份），但必须校验 Apple identityToken 的有效性作为访问前提；下游授权码分支必须校验下游授权交易标识的合法性
 - **Realm 数据边界**：端点路径包含 realmId，Apple identityToken 的受众必须与该 Realm 配置的 Apple Client ID 一致；用户匹配和创建限定在当前 Realm 内
 - **兼容性**：与现有 OAuth Code+PKCE 流程（US-TP-001/015/016）兼容，下游授权交易标识机制复用现有实现；与 Apple web 跳转登录（US-RU-003）、Google One Tap、其他 Provider 共存；不依赖、不修改 Apple web redirect 的 client_secret 路径

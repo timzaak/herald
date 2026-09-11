@@ -8,6 +8,7 @@ use herald_domain::client::{
     ports::ClientRepository,
     value_objects::{CreateClientAppRequest, UpdateClientAppRequest},
 };
+use herald_domain::client_api_keys::ADMIN_API_CLIENT_ID;
 use herald_domain::common::entities::app_errors::CoreError;
 use herald_entity::{client_api_key, client_app};
 
@@ -260,6 +261,15 @@ impl ClientRepository for PostgresClientRepository {
         if is_builtin_first_party_client(&client.client_id) {
             return Err(CoreError::BadRequest(
                 "Cannot delete a built-in first-party client app".to_string(),
+            ));
+        }
+
+        // The realm's built-in API Key Client App is seeded only at realm
+        // creation; deleting it would permanently break default API key
+        // creation for the realm (no auto-recreation path).
+        if client.client_id == ADMIN_API_CLIENT_ID {
+            return Err(CoreError::BadRequest(
+                "Cannot delete the built-in API Key client app".to_string(),
             ));
         }
 
