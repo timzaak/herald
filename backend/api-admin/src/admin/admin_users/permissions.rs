@@ -1,5 +1,5 @@
 use crate::admin::admin_users::types::{
-    AssignPermissionRequest, EffectivePermission, EffectivePermissionsResponse, ErrorResponse,
+    DirectPermissionRequest, EffectivePermission, EffectivePermissionsResponse, ErrorResponse,
     UserPermissionsResponse,
 };
 use axum::{
@@ -92,7 +92,7 @@ pub async fn get_user_permissions(
         ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
-    request_body = AssignPermissionRequest,
+    request_body = DirectPermissionRequest,
     responses(
         (status = 200, description = "Permission assigned"),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -106,7 +106,7 @@ pub async fn assign_user_permission(
     Extension(identity): Extension<Identity>,
     Path((realm_id, target_user_id)): Path<(String, Uuid)>,
     _headers: HeaderMap,
-    Valid(Json(payload)): Valid<Json<AssignPermissionRequest>>,
+    Valid(Json(payload)): Valid<Json<DirectPermissionRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
     let current_user_id = admin.user_id_string();
@@ -249,7 +249,7 @@ pub async fn assign_user_permission(
         ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
-    request_body = AssignPermissionRequest,
+    request_body = DirectPermissionRequest,
     responses(
         (status = 200, description = "Permission removed"),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -262,7 +262,7 @@ pub async fn remove_user_permission(
     Extension(identity): Extension<Identity>,
     Path((realm_id, target_user_id)): Path<(String, Uuid)>,
     _headers: HeaderMap,
-    Valid(Json(payload)): Valid<Json<AssignPermissionRequest>>,
+    Valid(Json(payload)): Valid<Json<DirectPermissionRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
 

@@ -11,7 +11,7 @@ use crate::admin::permission_definitions::types::{
 };
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
-use herald_core::domain::audit::AuditAction;
+use herald_core::domain::audit::{AuditAction, AuditResult};
 
 /// Create a new permission
 #[utoipa::path(
@@ -47,6 +47,14 @@ pub async fn create_permission(
     // 格式: "resource.action" (如 "users.manage")
     let parts: Vec<&str> = payload.name.split('.').collect();
     if parts.len() != 2 {
+        record_permission_create_failure(
+            &state,
+            &admin,
+            &realm_id,
+            &payload.name,
+            "invalid_name_format",
+        )
+        .await;
         return Err(ApiError::bad_request(
             "Permission name must be in format 'resource.action' (e.g., 'users.manage')",
         ));
@@ -56,15 +64,35 @@ pub async fn create_permission(
 
     // 验证 resource 和 action 都不为空
     if resource.is_empty() || action.is_empty() {
+        record_permission_create_failure(
+            &state,
+            &admin,
+            &realm_id,
+            &payload.name,
+            "empty_resource_or_action",
+        )
+        .await;
         return Err(ApiError::bad_request(
             "Permission name must be in format 'resource.action' with both resource and action non-empty",
         ));
     }
 
     // Validate sensitive permissions can only be created in admin realm
-    super::super::middleware::validate_sensitive_permission_creation(&payload.name, &realm_id)?;
+    if let Err(e) =
+        super::super::middleware::validate_sensitive_permission_creation(&payload.name, &realm_id)
+    {
+        record_permission_create_failure(
+            &state,
+            &admin,
+            &realm_id,
+            &payload.name,
+            "sensitive_permission_outside_admin_realm",
+        )
+        .await;
+        return Err(e);
+    }
 
-    let row = sqlx::query_as::<_, PermissionResponse>(
+    let insert = sqlx::query_as::<_, PermissionResponse>(
         r#"
         INSERT INTO permissions (name, resource, action, description, realm_id, is_builtin)
         VALUES ($1, $2, $3, $4, $5, false)
@@ -77,18 +105,32 @@ pub async fn create_permission(
     .bind(&payload.description)
     .bind(&realm_id)
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create permission: {e}");
-        if let sqlx::Error::Database(db_err) = &e
-            && db_err.code().as_deref() == Some("23505")
-        // PostgreSQL unique constraint violation
-        {
-            ApiError::bad_request("Permission name already exists in this realm")
-        } else {
-            ApiError::internal("Failed to create permission")
+    .await;
+
+    let row = match insert {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to create permission: {e}");
+            let is_duplicate = matches!(
+                &e,
+                sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505")
+            );
+            if is_duplicate {
+                record_permission_create_failure(
+                    &state,
+                    &admin,
+                    &realm_id,
+                    &payload.name,
+                    "duplicate_name",
+                )
+                .await;
+                return Err(ApiError::bad_request(
+                    "Permission name already exists in this realm",
+                ));
+            }
+            return Err(ApiError::internal("Failed to create permission"));
         }
-    })?;
+    };
 
     // Record audit event (mirrors role-definitions create; permissions.md
     // [US-AU-005] requires permission-definition changes to be audited).
@@ -97,11 +139,33 @@ pub async fn create_permission(
         &admin,
         &realm_id,
         AuditAction::PermissionCreate,
-        row.id.to_string(),
-        Some(row.name.clone()),
+        (row.id.to_string(), Some(row.name.clone())),
+        AuditResult::Success,
         Some(serde_json::json!({"name": row.name})),
     )
     .await;
 
     Ok(ApiResult::created(row))
+}
+
+/// Record a failed permission-create attempt (audit.md requires failed
+/// writes to be audited alongside successes). Best-effort, like the success
+/// path above.
+async fn record_permission_create_failure(
+    state: &AppState,
+    admin: &AdminIdentity,
+    realm_id: &str,
+    name: &str,
+    reason: &str,
+) {
+    super::record_permission_audit(
+        state,
+        admin,
+        realm_id,
+        AuditAction::PermissionCreate,
+        (name.to_string(), None),
+        AuditResult::Failure,
+        Some(serde_json::json!({ "reason": reason })),
+    )
+    .await;
 }

@@ -155,14 +155,6 @@ mod realm_admin_tests {
             false
         }
 
-        async fn can_read_realm(&self, _identity: Identity) -> bool {
-            false
-        }
-
-        async fn can_update_realm(&self, _identity: Identity) -> bool {
-            false
-        }
-
         async fn can_update_own_realm_settings(&self, _identity: Identity) -> bool {
             false
         }
@@ -179,14 +171,6 @@ mod realm_admin_tests {
 
     impl RealmPolicy for OwnRealmOnlyPolicy {
         async fn can_create_realm(&self, _identity: Identity) -> bool {
-            false
-        }
-
-        async fn can_read_realm(&self, _identity: Identity) -> bool {
-            false
-        }
-
-        async fn can_update_realm(&self, _identity: Identity) -> bool {
             false
         }
 

@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::types::ErrorResponse;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
-use herald_core::domain::audit::AuditAction;
+use herald_core::domain::audit::{AuditAction, AuditResult};
 
 /// Delete permission
 #[utoipa::path(
@@ -96,8 +96,8 @@ pub async fn delete_permission(
         &admin,
         &realm_id,
         AuditAction::PermissionDelete,
-        id.to_string(),
-        None,
+        (id.to_string(), None),
+        AuditResult::Success,
         None,
     )
     .await;

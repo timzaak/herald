@@ -127,7 +127,7 @@
 
 ### 4.2 关键状态与异常
 
-**支付尝试状态**（复用既有，非钱包新增）：待支付、已成功、已失败、已过期；语义见 `docs/prd/billing/subscription.md` §4.2 与 `docs/user-stories/billing/payment-attempt.md`。
+**支付尝试状态**（复用既有，非钱包新增）：待支付、需操作、已成功、已失败、已取消、已过期（六态状态机）；语义见 `docs/user-stories/billing/payment-attempt.md`。
 
 **异常场景**：
 - **非法流程声明**：PaymentIntent 流声明用于非 Stripe 服务商或周期性购买时，请求被拒绝并返回明确错误（指明仅支持 Stripe / 仅支持一次性购买）；未知流程值同样被拒绝，不静默回退为托管页流——静默回退会让移动 App 拿到无法打开的托管页地址

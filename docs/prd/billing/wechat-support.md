@@ -146,7 +146,7 @@ WeChat Pay 支持为 Herald 系统新增面向微信生态的收款能力，让�
 
 ### 4.2 关键状态与异常
 
-**支付尝试状态**（复用既有，非 WeChat 新增）：待支付、已成功、已失败、已过期；语义见 `docs/prd/billing/subscription.md` §4.2 与 `docs/user-stories/billing/payment-attempt.md`。
+**支付尝试状态**（复用既有，非 WeChat 新增）：待支付、需操作、已成功、已失败、已取消、已过期（六态状态机）；语义见 `docs/user-stories/billing/payment-attempt.md`。
 
 **异常场景**：
 - 二维码过期：前端停止轮询并提示"二维码已过期"，提供重新获取入口

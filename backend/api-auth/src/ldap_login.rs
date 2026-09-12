@@ -748,10 +748,15 @@ async fn resolve_by_email_or_provision(
 
     // Level 3: JIT provisioning. Consent must be expressed BEFORE any account
     // row is created (US-LD-002 scenario 5); the gate mirrors email_otp's
-    // "consent before provisioning" semantics.
+    // "consent before provisioning" semantics. Realms with no effective
+    // agreements have nothing to consent to (PRD §5.1 FR-4 "如有"): demanding
+    // a non-empty agreements array there would deadlock JIT login with an
+    // empty consent list the user can never satisfy.
     if agreements.is_none_or(|a| a.is_empty()) {
         let summaries = current_effective_summaries(state, realm_id).await;
-        return Ok(LdapUserResolution::ConsentRequired(summaries));
+        if !summaries.is_empty() {
+            return Ok(LdapUserResolution::ConsentRequired(summaries));
+        }
     }
 
     // No registration-policy gate: enabling the directory IS the admin's

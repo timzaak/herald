@@ -50,38 +50,10 @@ pub async fn delete_client_app(
         "Deleting client app"
     );
 
-    // Revoke browser token families before deleting the client app so that a
-    // deleted OAuth client cannot keep validating tokens.
-    // The realm boundary must be verified BEFORE revoking: revoke acts on the
-    // raw id, so revoking ahead of the service-layer check would let a realm
-    // admin kill another realm's active sessions by passing a foreign
-    // clientAppId with their own realmId in the path.
+    // Delete through the service layer first: the realm boundary check and the
+    // rejection guards (built-in client app, bound API keys) all run inside, so
+    // a rejected delete returns before any session side effect.
     let client_service = state.service.client_service();
-    client_service
-        .get_client_app(admin.identity().clone(), id)
-        .await
-        .map_err(|e| match e {
-            herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
-                ApiError::not_found("client_app not found")
-            }
-            herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
-                ApiError::forbidden(msg)
-            }
-            e => {
-                tracing::error!("Failed to load client app before revocation: {e}");
-                ApiError::internal("Failed to load client app")
-            }
-        })?;
-    RedisBrowserTokenService::new(state.redis_manager.clone())
-        .revoke_client_families(id)
-        .await
-        .map_err(|e| {
-            ApiError::internal(format!(
-                "Browser token revocation failed before deleting client app: {e}"
-            ))
-        })?;
-
-    // Call service layer
     client_service
         .delete_client_app(admin.identity().clone(), id)
         .await
@@ -102,6 +74,20 @@ pub async fn delete_client_app(
                 tracing::error!("Failed to delete client app: {}", e);
                 ApiError::internal(format!("Failed to delete client app: {e}"))
             }
+        })?;
+
+    // Revoke browser token families only after the deletion persisted, so a
+    // deleted OAuth client cannot keep validating tokens. A revocation failure
+    // here surfaces as 500 with the row already gone — the client is deleted
+    // either way; retrying the delete answers 404, and outstanding tokens die
+    // at their natural expiry.
+    RedisBrowserTokenService::new(state.redis_manager.clone())
+        .revoke_client_families(id)
+        .await
+        .map_err(|e| {
+            ApiError::internal(format!(
+                "Browser token revocation failed after deleting client app: {e}"
+            ))
         })?;
 
     Ok(ApiResult::no_content())

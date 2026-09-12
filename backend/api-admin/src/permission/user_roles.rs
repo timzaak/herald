@@ -40,7 +40,7 @@ pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct RoleResponse {
+pub struct PermissionRoleResponse {
     pub id: Uuid,
     pub name: String,
     pub realm_id: String,
@@ -48,8 +48,8 @@ pub struct RoleResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct UserRolesResponse {
-    pub roles: Vec<RoleResponse>,
+pub struct PermissionUserRolesResponse {
+    pub roles: Vec<PermissionRoleResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
@@ -73,7 +73,7 @@ pub struct AssignRolesRequest {
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
-        (status = 200, description = "User's roles retrieved successfully", body = UserRolesResponse),
+        (status = 200, description = "User's roles retrieved successfully", body = PermissionUserRolesResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
         (status = 404, description = "User not found", body = ErrorResponse),
@@ -85,7 +85,7 @@ pub async fn get_user_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Path(user_id): Path<Uuid>,
-) -> Result<ApiResult<UserRolesResponse>, ApiError> {
+) -> Result<ApiResult<PermissionUserRolesResponse>, ApiError> {
     let user = account::Entity::find()
         .filter(account::Column::Id.eq(user_id))
         .one(state.db.as_ref())
@@ -116,10 +116,10 @@ pub async fn get_user_roles(
             ApiError::internal(format!("Failed to query user roles: {}", e))
         })?;
 
-    let roles: Vec<RoleResponse> = user_roles_data
+    let roles: Vec<PermissionRoleResponse> = user_roles_data
         .into_iter()
         .filter_map(|(_user_role, role_opt)| {
-            role_opt.map(|role| RoleResponse {
+            role_opt.map(|role| PermissionRoleResponse {
                 id: role.id,
                 name: role.name,
                 realm_id: role.realm_id,
@@ -127,7 +127,7 @@ pub async fn get_user_roles(
         })
         .collect();
 
-    Ok(ApiResult::ok(UserRolesResponse { roles }))
+    Ok(ApiResult::ok(PermissionUserRolesResponse { roles }))
 }
 
 /// Assign roles to user
@@ -141,7 +141,7 @@ pub async fn get_user_roles(
     ),
     request_body = AssignRolesRequest,
     responses(
-        (status = 201, description = "Roles assigned successfully", body = UserRolesResponse),
+        (status = 201, description = "Roles assigned successfully", body = PermissionUserRolesResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
@@ -155,7 +155,7 @@ pub async fn assign_roles_to_user(
     Extension(identity): Extension<Identity>,
     Path(user_id): Path<Uuid>,
     Json(request): Json<AssignRolesRequest>,
-) -> Result<ApiResult<UserRolesResponse>, ApiError> {
+) -> Result<ApiResult<PermissionUserRolesResponse>, ApiError> {
     // Validate request
     if let Err(errors) = request.validate() {
         return Err(ApiError::bad_request(format!(
@@ -202,6 +202,16 @@ pub async fn assign_roles_to_user(
         })?;
 
     if matching_roles.len() != unique_role_ids.len() {
+        record_user_role_audit(
+            &state,
+            &identity,
+            realm_id,
+            user_id,
+            AuditAction::RoleAssign,
+            AuditResult::Failure,
+            serde_json::json!({"reason": "roles_not_in_realm", "role_ids": request.role_ids}),
+        )
+        .await;
         return Err(ApiError::bad_request(
             "One or more roles do not exist in the target realm",
         ));
@@ -295,10 +305,10 @@ pub async fn assign_roles_to_user(
             ApiError::internal(format!("Failed to query updated user roles: {}", e))
         })?;
 
-    let roles: Vec<RoleResponse> = updated_roles
+    let roles: Vec<PermissionRoleResponse> = updated_roles
         .into_iter()
         .filter_map(|(_user_role, role_opt)| {
-            role_opt.map(|role| RoleResponse {
+            role_opt.map(|role| PermissionRoleResponse {
                 id: role.id,
                 name: role.name,
                 realm_id: role.realm_id,
@@ -313,30 +323,18 @@ pub async fn assign_roles_to_user(
         "Roles assigned to user"
     );
 
-    if let Err(e) = state
-        .audit_event_repository
-        .create(NewAuditEvent {
-            realm_id: realm_id.clone(),
-            category: AuditCategory::Rbac,
-            action: AuditAction::RoleAssign,
-            actor_id: identity.user_id().to_string(),
-            actor_type: Some(ActorType::Admin),
-            actor_name: identity.as_user().map(|u| u.email.clone()),
-            target_type: AuditTargetType::User,
-            target_id: user_id.to_string(),
-            target_name: None,
-            result: AuditResult::Success,
-            details: Some(serde_json::json!({"role_ids": request.role_ids})),
-            ip_address: None,
-            user_agent: None,
-            trace_id: None,
-        })
-        .await
-    {
-        tracing::warn!(error = %e, "Failed to record audit event");
-    }
+    record_user_role_audit(
+        &state,
+        &identity,
+        realm_id,
+        user_id,
+        AuditAction::RoleAssign,
+        AuditResult::Success,
+        serde_json::json!({"role_ids": request.role_ids}),
+    )
+    .await;
 
-    Ok(ApiResult::created(UserRolesResponse { roles }))
+    Ok(ApiResult::created(PermissionUserRolesResponse { roles }))
 }
 
 /// Remove role from user
@@ -399,6 +397,16 @@ pub async fn remove_role_from_user(
         })?;
 
     if result.rows_affected == 0 {
+        record_user_role_audit(
+            &state,
+            &identity,
+            realm_id,
+            user_id,
+            AuditAction::RoleUnassign,
+            AuditResult::Failure,
+            serde_json::json!({"reason": "assignment_not_found", "role_id": role_id}),
+        )
+        .await;
         return Err(ApiError::not_found("User role assignment not found"));
     }
 
@@ -411,28 +419,16 @@ pub async fn remove_role_from_user(
         "Role removed from user"
     );
 
-    if let Err(e) = state
-        .audit_event_repository
-        .create(NewAuditEvent {
-            realm_id: realm_id.clone(),
-            category: AuditCategory::Rbac,
-            action: AuditAction::RoleUnassign,
-            actor_id: identity.user_id().to_string(),
-            actor_type: Some(ActorType::Admin),
-            actor_name: identity.as_user().map(|u| u.email.clone()),
-            target_type: AuditTargetType::User,
-            target_id: user_id.to_string(),
-            target_name: None,
-            result: AuditResult::Success,
-            details: Some(serde_json::json!({"role_id": role_id})),
-            ip_address: None,
-            user_agent: None,
-            trace_id: None,
-        })
-        .await
-    {
-        tracing::warn!(error = %e, "Failed to record audit event");
-    }
+    record_user_role_audit(
+        &state,
+        &identity,
+        realm_id,
+        user_id,
+        AuditAction::RoleUnassign,
+        AuditResult::Success,
+        serde_json::json!({"role_id": role_id}),
+    )
+    .await;
 
     Ok(ApiResult::no_content())
 }
@@ -454,6 +450,41 @@ pub fn router() -> axum::Router<AppState> {
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/// Record a user-role write outcome (audit.md requires failed RBAC writes to
+/// be audited alongside successes). Best-effort.
+async fn record_user_role_audit(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    user_id: Uuid,
+    action: AuditAction,
+    result: AuditResult,
+    details: serde_json::Value,
+) {
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Rbac,
+            action,
+            actor_id: identity.user_id().to_string(),
+            actor_type: Some(ActorType::Admin),
+            actor_name: identity.as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::User,
+            target_id: user_id.to_string(),
+            target_name: None,
+            result,
+            details: Some(details),
+            ip_address: None,
+            user_agent: None,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to record audit event");
+    }
+}
 
 /// Invalidate user role cache after role changes
 ///

@@ -180,7 +180,7 @@ Passkey 同时支持两种认证场景：
 **适用性**: 适用
 
 - **接口能力范围**：Passkey 注册 challenge 生成与完成、Passkey 认证 challenge 生成与完成、用户已注册 Passkey 列表查询/重命名/删除、Realm 级别 Passkey 开关与策略配置（Passkey 启用率统计查询为 US-PK-010，P2，本期未实现）。
-- **访问控制**：Realm Admin 可操作 Realm 级别 Passkey 配置和统计；Regular User 仅可操作自身 Passkey 设置；Passkey 注册和管理操作需在已认证 Session 内进行；Passkey 登录为未认证接口，需应用速率限制。
+- **访问控制**：Realm Admin 可操作 Realm 级别 Passkey 配置和统计；Regular User 仅可操作自身 Passkey 设置；Passkey 注册和管理操作需在已认证 Session 内进行；Passkey 注册（发起/完成）与删除必须先完成独立重新认证并消费单次 reauth 票据（实现严于本 PRD 原文，属既定安全行为），仅重命名不要求重新认证；Passkey 登录为未认证接口，需应用速率限制。
 - **数据边界**：Passkey credential 数据按 realm 隔离；credential ID 在 `(realm, user, rp_id, credential_id)` 组合内唯一；响应中不返回公钥等敏感元数据。
 - **安全约束**：challenge 一次性且限时；验证 origin 与 RP_ID 必须匹配当前 Client App、有效自定义域名或部署默认配置；第一因素与第二因素均按本次目标 Client App 限定 RP 解析；签名计数器递增校验防止克隆；验证失败不暴露具体原因；注册和认证接口应用速率限制。
 - **兼容性约束**：接口设计需支持 usernameless（discoverable credential）和 non-discoverable credential 两种场景；前端需处理不同浏览器对 transports、user verification 的差异。

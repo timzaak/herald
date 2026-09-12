@@ -677,18 +677,35 @@ async fn ensure_oauth_provider_linked(
                 user_id: Some(user_id),
             });
 
-            state
+            match state
                 .service
                 .oauth_provider_repository()
                 .create_provider(provider)
                 .await
-                .map(|_| ())
-                .map_err(|e| {
-                    AuthError::InternalServerError(format!(
-                        "Failed to create oauth provider link: {}",
-                        e
-                    ))
-                })
+            {
+                Ok(_) => Ok(()),
+                // The (user_id, type) partial unique index allows exactly one
+                // provider row per user and type. A WeChat union_id match can
+                // arrive with a DIFFERENT open_id (each mini program / official
+                // app under the same open platform account gets its own); the
+                // user is already linked through this provider type via the
+                // union row, so the link this call exists to guarantee is
+                // already present — treat the duplicate as success instead of
+                // failing the login with a 500.
+                Err(herald_core::domain::common::entities::app_errors::CoreError::Conflict(_)) => {
+                    tracing::debug!(
+                        realm_id = realm_id,
+                        user_id = %user_id,
+                        provider_type = %user_info.provider_type.as_str(),
+                        "oauth provider link already exists for this user and type",
+                    );
+                    Ok(())
+                }
+                Err(e) => Err(AuthError::InternalServerError(format!(
+                    "Failed to create oauth provider link: {}",
+                    e
+                ))),
+            }
         }
         Err(e) => Err(AuthError::InternalServerError(format!(
             "Failed to lookup oauth provider: {}",
@@ -976,6 +993,28 @@ pub async fn handle_oauth_callback(
     })
 }
 
+/// Consume the one-time downstream authorization state (`GETDEL`) and decode
+/// it. `Ok(None)` means the state was missing or already used. The realm
+/// binding check stays at the call sites: the success path rejects a
+/// mismatch, the error path treats it as "nothing left to do".
+async fn consume_downstream_state(
+    redis_conn: &mut redis::aio::ConnectionManager,
+    downstream_state: &str,
+) -> Result<Option<DownstreamAuthorizationState>, AuthError> {
+    let state_json: Option<String> = redis_conn
+        .get_del(format!("oauth:state:{downstream_state}"))
+        .await
+        .map_err(|e| {
+            AuthError::InternalServerError(format!("Failed to consume downstream state: {e}"))
+        })?;
+    let Some(state_json) = state_json else {
+        return Ok(None);
+    };
+    let downstream: DownstreamAuthorizationState = serde_json::from_str(&state_json)
+        .map_err(|_| AuthError::BadRequest("Invalid downstream authorization state".to_string()))?;
+    Ok(Some(downstream))
+}
+
 pub async fn issue_downstream_authorization_code(
     state: &AppState,
     realm_id: &str,
@@ -987,19 +1026,12 @@ pub async fn issue_downstream_authorization_code(
         .get()
         .await
         .map_err(|e| AuthError::InternalServerError(format!("Redis connection error: {e}")))?;
-    let state_json: Option<String> = redis_conn
-        .get_del(format!("oauth:state:{downstream_state}"))
-        .await
-        .map_err(|e| {
-            AuthError::InternalServerError(format!("Failed to consume downstream state: {e}"))
-        })?;
-    let state_json = state_json.ok_or_else(|| {
-        AuthError::BadRequest(
+    let Some(downstream) = consume_downstream_state(&mut redis_conn, downstream_state).await?
+    else {
+        return Err(AuthError::BadRequest(
             "Downstream state not found or already used; restart authorization".to_string(),
-        )
-    })?;
-    let downstream: DownstreamAuthorizationState = serde_json::from_str(&state_json)
-        .map_err(|_| AuthError::BadRequest("Invalid downstream authorization state".to_string()))?;
+        ));
+    };
 
     if downstream.realm_id != realm_id {
         return Err(AuthError::BadRequest(
@@ -1035,21 +1067,77 @@ pub async fn issue_downstream_authorization_code(
             AuthError::InternalServerError(format!("Failed to store authorization code: {e}"))
         })?;
 
-    build_downstream_redirect_uri(&downstream.redirect_uri, &auth_code, downstream_state)
+    build_downstream_redirect_uri(
+        &downstream.redirect_uri,
+        ("code", &auth_code),
+        downstream_state,
+    )
 }
 
 fn build_downstream_redirect_uri(
     redirect_uri: &str,
-    auth_code: &str,
+    result_pair: (&str, &str),
     downstream_state: &str,
 ) -> Result<String, AuthError> {
     let mut redirect_url = Url::parse(redirect_uri)
         .map_err(|_| AuthError::BadRequest("Invalid downstream redirect URI".to_string()))?;
     redirect_url
         .query_pairs_mut()
-        .append_pair("code", auth_code)
+        .append_pair(result_pair.0, result_pair.1)
         .append_pair("state", downstream_state);
     Ok(redirect_url.into())
+}
+
+/// Handle a provider callback that carries `error` (e.g. `access_denied` after
+/// the user denied consent) instead of an authorization `code`.
+///
+/// The login can never complete through this state again — no code will be
+/// exchanged — so the one-time provider-flow state and any pending downstream
+/// transaction are both consumed. When a downstream authorization was pending,
+/// the caller receives the app redirect URI carrying `error` + `state`
+/// (standard OAuth error propagation, mirroring the success redirect's
+/// shape); otherwise `None` tells the caller to surface a friendly error to
+/// the user directly. A missing/expired/mismatched state is not an error
+/// here: there is nothing left to protect, the user still gets the denial
+/// message.
+pub async fn handle_oauth_callback_error(
+    state: &AppState,
+    realm_id: &str,
+    provider_type: &str,
+    state_token: Option<&str>,
+    error: &str,
+) -> Result<Option<String>, AuthError> {
+    let Some(state_token) = state_token else {
+        return Ok(None);
+    };
+    let Ok(state_data) = validate_state_token(&state.redis_manager, state_token).await else {
+        return Ok(None);
+    };
+    if state_data.realm_id != realm_id || state_data.provider_type != provider_type {
+        return Ok(None);
+    }
+    let Some(downstream_state) = state_data.downstream_state else {
+        return Ok(None);
+    };
+
+    let mut redis_conn: redis::aio::ConnectionManager =
+        state.redis_manager.get().await.map_err(|e| {
+            AuthError::InternalServerError(format!("Redis connection error: {}", e))
+        })?;
+    let Some(downstream) = consume_downstream_state(&mut redis_conn, &downstream_state).await?
+    else {
+        return Ok(None);
+    };
+    if downstream.realm_id != realm_id {
+        return Ok(None);
+    }
+
+    build_downstream_redirect_uri(
+        &downstream.redirect_uri,
+        ("error", error),
+        &downstream_state,
+    )
+    .map(Some)
 }
 
 #[cfg(test)]
@@ -1062,7 +1150,7 @@ mod downstream_redirect_tests {
         // parameters, and state is opaque client data that must survive exactly.
         let redirect = build_downstream_redirect_uri(
             "https://client.example/callback?source=herald",
-            "ac_test",
+            ("code", "ac_test"),
             "opaque state&value",
         )
         .expect("valid redirect URI");

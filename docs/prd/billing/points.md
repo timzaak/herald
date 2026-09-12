@@ -20,7 +20,7 @@
 - US-PO-004: 管理积分套餐配置 (P2)
 - US-PO-005: 查看套餐充值引导 (P2)
 - US-PO-006: 配置 Realm 默认积分策略 (P0)
-- US-PO-007: 查看免费用户积分统计 (P1)
+- US-PO-007: 查看免费用户积分统计 (P1) —— 不随 billing-statistics 首版交付（免费用户发放/转化漏斗口径，见 `docs/prd/billing/billing-statistics.md` §2.2 与 Q-billing-statistics-003）
 - US-PO-009: 配置多时间窗滚动配额 (P0)
 
 **Tenant User 积分查询**: `docs/user-stories/billing/points-user.md`

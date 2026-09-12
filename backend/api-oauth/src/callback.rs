@@ -12,7 +12,7 @@ use validator::Validate;
 
 use crate::helper::{
     audit_oauth_login_failure, audit_oauth_login_success, handle_oauth_callback,
-    issue_downstream_authorization_code,
+    handle_oauth_callback_error, issue_downstream_authorization_code,
 };
 use herald_api_auth::browser_token::BrowserTokenResponse;
 use herald_api_auth::consent_gate::{evaluate_login_consent_gate, mint_consent_restricted_session};
@@ -25,10 +25,30 @@ use herald_core::domain::legal::LegalAgreementSummary;
 use herald_core::domain::user::{User, UserRepository};
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 
+/// Provider callback parameters. A successful authorization carries `code` +
+/// `state`; a denial (or provider error) carries `error` (+ optional
+/// `error_description`) with `state` per RFC 6749 §4.1.2.1 — both shapes land
+/// on the same endpoint, so every field except `state` is optional and the
+/// branch decision happens in the handler.
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct OAuthCallbackQuery {
-    pub code: String,
-    pub state: String,
+    pub code: Option<String>,
+    #[schema(required = false)]
+    pub error: Option<String>,
+    #[schema(required = false)]
+    pub error_description: Option<String>,
+    pub state: Option<String>,
+}
+
+/// Friendly response body for a denied/failed provider authorization without
+/// a downstream app to propagate the error to (the first-party direct-login
+/// branch). 200 + JSON mirrors the success shape so the landing surface can
+/// render it like any other result instead of an HTTP error popup.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthCallbackErrorResponse {
+    pub error: String,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -64,12 +84,14 @@ pub struct OAuthCallbackResponse {
     params(
         ("realmId" = String, Path, description = "Realm ID"),
         ("provider" = String, Path, description = "OAuth provider type"),
-        ("code" = String, Query, description = "Authorization code from provider"),
-        ("state" = String, Query, description = "State token for CSRF protection")
+        ("code" = Option<String>, Query, description = "Authorization code from provider (absent when the user denied authorization)"),
+        ("state" = Option<String>, Query, description = "State token for CSRF protection"),
+        ("error" = Option<String>, Query, description = "Provider error code (e.g. access_denied) when authorization was denied"),
+        ("error_description" = Option<String>, Query, description = "Human-readable provider error description")
     ),
     responses(
-        (status = 200, description = "OAuth login successful", body = OAuthCallbackResponse),
-        (status = 302, description = "Redirect to application"),
+        (status = 200, description = "OAuth login successful (or, with error=..., a friendly denial body)", body = OAuthCallbackResponse),
+        (status = 302, description = "Redirect to application (authorization code on success; error=access_denied when the user denied a downstream authorization)"),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -131,16 +153,41 @@ async fn oauth_callback_inner(
         .validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
+    // Provider redirected back with an error (user denied consent, provider
+    // failure, ...). The flow can never complete through this state; consume
+    // the pending transaction(s) and surface a friendly result instead of a
+    // bare deserialization 400 (oauth.md §4.1 异常处理).
+    if let Some(error) = query.error {
+        let redirect = handle_oauth_callback_error(
+            &state,
+            &realm_id,
+            &provider_type,
+            query.state.as_deref(),
+            &error,
+        )
+        .await?;
+        if let Some(redirect_uri) = redirect {
+            return Ok(Redirect::temporary(&redirect_uri).into_response());
+        }
+        return Ok(Json(OAuthCallbackErrorResponse {
+            error,
+            message: "Authorization was denied or failed. Please try again or use another sign-in method.".to_string(),
+        })
+        .into_response());
+    }
+
+    // Success shape: `code` + `state` are both required to exchange.
+    let (code, state_token) = match (query.code, query.state) {
+        (Some(code), Some(state_token)) => (code, state_token),
+        _ => {
+            return Err(ApiError::bad_request("Missing authorization code or state"));
+        }
+    };
+
     // Handle OAuth callback
     let method = format!("oauth.{provider_type}");
-    let callback = handle_oauth_callback(
-        &state,
-        realm_id.clone(),
-        provider_type,
-        query.code,
-        query.state,
-    )
-    .await?;
+    let callback =
+        handle_oauth_callback(&state, realm_id.clone(), provider_type, code, state_token).await?;
 
     if let Some(downstream_state) = callback.downstream_state {
         return match issue_downstream_authorization(

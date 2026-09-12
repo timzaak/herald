@@ -71,41 +71,10 @@ pub async fn update_client_app(
         turnstile_secret_key: payload.turnstile_secret_key.clone(),
     };
 
-    // Revoke browser token families *before* disabling the client app so that
-    // a disabled app never has active tokens in the wild. If revocation fails,
-    // do not persist the disable.
-    // The realm boundary must be verified BEFORE revoking: revoke acts on the
-    // raw id, so revoking ahead of the service-layer check would let a realm
-    // admin kill another realm's active sessions by passing a foreign
-    // clientAppId with their own realmId in the path.
+    // Persist through the service layer first: the realm boundary check and
+    // request validation (redirect URIs, TTL bounds) run inside, so a rejected
+    // update returns before any session side effect.
     let client_service = state.service.client_service();
-    if payload.enabled == Some(false) {
-        client_service
-            .get_client_app(admin.identity().clone(), id)
-            .await
-            .map_err(|e| match e {
-                herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
-                    ApiError::not_found("client_app not found")
-                }
-                herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
-                    ApiError::forbidden(msg)
-                }
-                e => {
-                    tracing::error!("Failed to load client app before revocation: {e}");
-                    ApiError::internal("Failed to load client app")
-                }
-            })?;
-        RedisBrowserTokenService::new(state.redis_manager.clone())
-            .revoke_client_families(id)
-            .await
-            .map_err(|e| {
-                ApiError::internal(format!(
-                    "Browser token revocation failed before disabling client app: {e}"
-                ))
-            })?;
-    }
-
-    // Call service layer
     let client_app = client_service
         .update_client_app(admin.identity().clone(), id, service_request)
         .await
@@ -122,6 +91,23 @@ pub async fn update_client_app(
                 ApiError::internal(format!("Failed to update client app: {e}"))
             }
         })?;
+
+    // Revoke browser token families only after a disable persisted, so a
+    // disabled app does not keep active tokens in the wild. Revocation follows
+    // persistence (rather than preceding it) so a rejected update never logs
+    // the app's users out; a revocation failure after a persisted disable
+    // surfaces as 500 — the disable holds, and outstanding tokens die at their
+    // natural expiry.
+    if payload.enabled == Some(false) {
+        RedisBrowserTokenService::new(state.redis_manager.clone())
+            .revoke_client_families(id)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!(
+                    "Browser token revocation failed after disabling client app: {e}"
+                ))
+            })?;
+    }
 
     // Convert domain model to API response model. Echo the new secret only when
     // the caller asked to regenerate it.

@@ -167,7 +167,7 @@
 
 **OAuth 授权流程:**
 - 第三方 SPA 必须使用 Authorization Code + PKCE 流程，不支持 Implicit Flow
-- Client App 必须存在且已启用，redirect_uri 必须在白名单中精确匹配（origin + port 完全一致；第一方 Client App 例外，见上）
+- Client App 必须存在且已启用，redirect_uri 必须在白名单中精确匹配（origin + port 完全一致；第一方 Client App 例外，见上）；生产环境强制 redirect_uri 使用 HTTPS，非生产环境（开发/演示）允许 http（如 localhost 回调）
 - Google One Tap 与 Apple 原生（Sign in with Apple）直连登录由专属 PRD 承载（[google-one-tap.md](google-one-tap.md)、[support-mobile-apple-login.md](support-mobile-apple-login.md)），不经本 PRD 的 authorize/code 交换流
 - State 和 authorization_code 必须一次性使用，验证后立即删除
 - PKCE 的 code_challenge 必须使用 S256 方法（SHA256）
@@ -316,6 +316,7 @@
 - OAuth Provider 配置独立于 Realm Config（key-value），使用独立的 Provider 实体管理
 - 命名使用 "Provider" / "Identity Provider"，避免与 OAuth Config 技术术语混淆
 - redirect_uri 白名单采用精确匹配策略（origin + port），不使用前缀匹配
+- redirect_uri 协议规则：拒绝协议相对 URL 与 `javascript:` 等危险协议，仅允许 http/https；生产环境强制 HTTPS（非生产环境允许 http，供 localhost 开发/演示回调）
 - 第三方 API 认证使用独立 API Key 体系，与 session token 分离
 - API Key 支持 Client App Scope 绑定，限制 API Key 仅访问特定 Client App 资源；Admin API Client 不受此限制
 - OAuth Provider 支持 WeChat 和 WeChat Mini Program，WeChat Scope 限制为 `snsapi_login`，WeChat Mini Program 不使用 Scope

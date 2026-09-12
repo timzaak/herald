@@ -53,8 +53,6 @@ impl Action {
 
 pub trait RealmPolicy: Send + Sync {
     fn can_create_realm(&self, identity: Identity) -> impl Future<Output = bool> + Send;
-    fn can_read_realm(&self, identity: Identity) -> impl Future<Output = bool> + Send;
-    fn can_update_realm(&self, identity: Identity) -> impl Future<Output = bool> + Send;
     fn can_update_own_realm_settings(
         &self,
         identity: Identity,
@@ -99,12 +97,6 @@ pub struct AllowAllRealmPolicy;
 
 impl RealmPolicy for AllowAllRealmPolicy {
     fn can_create_realm(&self, _identity: Identity) -> impl Future<Output = bool> + Send {
-        async move { true }
-    }
-    fn can_read_realm(&self, _identity: Identity) -> impl Future<Output = bool> + Send {
-        async move { true }
-    }
-    fn can_update_realm(&self, _identity: Identity) -> impl Future<Output = bool> + Send {
         async move { true }
     }
     fn can_update_own_realm_settings(
@@ -248,26 +240,6 @@ mod tests {
             can_create,
             "AllowAllRealmPolicy should allow realm creation"
         );
-    }
-
-    #[tokio::test]
-    async fn test_allow_all_realm_policy_allows_read() {
-        let policy = AllowAllRealmPolicy;
-        let identity = create_test_identity("user456", "test-realm");
-
-        let can_read = policy.can_read_realm(identity).await;
-
-        assert!(can_read, "AllowAllRealmPolicy should allow realm reading");
-    }
-
-    #[tokio::test]
-    async fn test_allow_all_realm_policy_allows_update() {
-        let policy = AllowAllRealmPolicy;
-        let identity = create_test_identity("user789", "test-realm");
-
-        let can_update = policy.can_update_realm(identity).await;
-
-        assert!(can_update, "AllowAllRealmPolicy should allow realm updates");
     }
 
     #[tokio::test]

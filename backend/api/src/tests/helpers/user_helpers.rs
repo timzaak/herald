@@ -28,3 +28,14 @@ pub async fn create_simple_test_user(ctx: &TestContext, email: &str) -> uuid::Uu
     .expect("Failed to create test user");
     user_uuid
 }
+
+/// 统计 realm 内某邮箱的 account 行数（JIT/matching 场景断言账号是否
+/// 被创建或复用时使用）。
+pub async fn count_accounts_by_email(ctx: &TestContext, email: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM account WHERE realm_id = $1 AND email = $2")
+        .bind(&ctx._realm_id)
+        .bind(email)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .unwrap()
+}

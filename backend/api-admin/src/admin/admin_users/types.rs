@@ -120,7 +120,7 @@ pub struct UserPermissionsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
-pub struct AssignPermissionRequest {
+pub struct DirectPermissionRequest {
     #[validate(length(min = 1))]
     pub resource: String,
     #[validate(length(min = 1))]

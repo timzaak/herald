@@ -112,10 +112,11 @@ async fn record_permission_audit(
     admin: &AdminIdentity,
     realm_id: &str,
     action: AuditAction,
-    target_id: String,
-    target_name: Option<String>,
+    target: (String, Option<String>),
+    result: AuditResult,
     details: Option<serde_json::Value>,
 ) {
+    let (target_id, target_name) = target;
     if let Err(e) = state
         .audit_event_repository
         .create(NewAuditEvent {
@@ -128,7 +129,7 @@ async fn record_permission_audit(
             target_type: AuditTargetType::Permission,
             target_id,
             target_name,
-            result: AuditResult::Success,
+            result,
             details,
             ip_address: None,
             user_agent: None,

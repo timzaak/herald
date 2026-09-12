@@ -57,6 +57,7 @@ pub use wechat_miniprogram::*;
         crate::login::OAuthLoginRequest,
         crate::login::OAuthLoginResponse,
         crate::callback::OAuthCallbackResponse,
+        crate::callback::OAuthCallbackErrorResponse,
         crate::authorize::AuthorizeQueryParams,
         crate::config::CreateOAuthConfigRequest,
         crate::config::UpdateOAuthConfigRequest,

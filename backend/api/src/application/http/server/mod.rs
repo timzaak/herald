@@ -342,7 +342,6 @@ pub struct HealthCheckResponse {
         (name = "billing.payment-providers", description = "Payment provider configuration APIs"),
         (name = "billing-invoice", description = "Invoice and credit note management APIs"),
         (name = "points", description = "Points and virtual currency APIs"),
-        (name = "InternalPoints", description = "Internal quota entitlement APIs (service-to-service, demo/test only)"),
         (name = "ext", description = "External API (API Key authentication)"),
         (name = "system", description = "System health and monitoring APIs"),
         (name = "audit", description = "Audit log query APIs"),

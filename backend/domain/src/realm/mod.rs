@@ -224,12 +224,10 @@ pub trait RealmService: Send + Sync {
 }
 
 // Service implementations
-pub mod policies;
 pub mod services;
 pub mod validation;
 
 #[cfg(test)]
 mod tests;
 
-pub use policies::RealmPolicy;
 pub use validation::validate_realm_id;

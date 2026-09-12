@@ -11,6 +11,11 @@
 //! §27: seeded Stripe price IDs are placeholders and must never be driven through
 //! real Stripe. Fast demos therefore grant quota via these endpoints instead of
 //! the purchase flow.
+//!
+//! These endpoints deliberately carry no utoipa annotations and are excluded
+//! from the public OpenAPI spec (points PRD §6): they are a bypass around
+//! distribution rules and must not be publicly documented, only guarded by the
+//! internal API key.
 
 use axum::{
     Json,
@@ -18,11 +23,10 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
-use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
+use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::common::entities::now_utc;
 use herald_core::domain::points::entities::{
@@ -31,7 +35,7 @@ use herald_core::domain::points::entities::{
 
 /// A single window in a grant request. Mirrors `QuotaWindow` but accepts raw
 /// seconds + limit + the config-derived stable display `key`.
-#[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
+#[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct InternalQuotaWindowInput {
     pub key: String,
@@ -41,7 +45,7 @@ pub struct InternalQuotaWindowInput {
     pub limit: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
+#[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct GrantQuotaEntitlementRequest {
     pub user_id: Uuid,
@@ -61,14 +65,14 @@ pub struct GrantQuotaEntitlementRequest {
     pub effective_until: Option<String>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GrantQuotaEntitlementResponse {
     pub entitlement_id: Uuid,
     pub status: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
+#[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct RevokeQuotaEntitlementRequest {
     pub user_id: Uuid,
@@ -77,7 +81,7 @@ pub struct RevokeQuotaEntitlementRequest {
     pub source_id: String,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevokeQuotaEntitlementResponse {
     pub revoked: bool,
@@ -135,21 +139,6 @@ async fn ensure_user_and_bucket_in_realm(
 /// `idempotency_key` is derived as `internal:{source_id}` so a replayed grant
 /// converges on the same row (matching the `UNIQUE(realm_id, user_id, bucket_id,
 /// credit_type, idempotency_key)` constraint).
-#[utoipa::path(
-    post,
-    path = "/api/internal/points/{realmId}/quota-entitlement/grant",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = GrantQuotaEntitlementRequest,
-    responses(
-        (status = 200, description = "Quota entitlement granted", body = GrantQuotaEntitlementResponse),
-        (status = 400, description = "Bad request", body = ErrorResponse),
-        (status = 401, description = "Unauthorized — missing/invalid X-Internal-API-Key", body = ErrorResponse),
-        (status = 500, description = "Internal server error", body = ErrorResponse)
-    ),
-    tag = "InternalPoints"
-)]
 #[tracing::instrument(skip_all, fields(db.operation = "internal_grant_quota_entitlement"))]
 pub async fn grant_quota_entitlement(
     State(state): State<AppState>,
@@ -222,21 +211,6 @@ pub async fn grant_quota_entitlement(
 /// Revoke the active quota entitlement identified by `source_id`. Idempotent:
 /// a no-match returns `{ revoked: true }` (the post-condition "no active
 /// entitlement" holds).
-#[utoipa::path(
-    post,
-    path = "/api/internal/points/{realmId}/quota-entitlement/revoke",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = RevokeQuotaEntitlementRequest,
-    responses(
-        (status = 200, description = "Quota entitlement revoked (or already absent)", body = RevokeQuotaEntitlementResponse),
-        (status = 400, description = "Bad request", body = ErrorResponse),
-        (status = 401, description = "Unauthorized — missing/invalid X-Internal-API-Key", body = ErrorResponse),
-        (status = 500, description = "Internal server error", body = ErrorResponse)
-    ),
-    tag = "InternalPoints"
-)]
 #[tracing::instrument(skip_all, fields(db.operation = "internal_revoke_quota_entitlement"))]
 pub async fn revoke_quota_entitlement(
     State(state): State<AppState>,

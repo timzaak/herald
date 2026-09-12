@@ -12,7 +12,7 @@ use crate::admin::permission_definitions::types::{
 };
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
-use herald_core::domain::audit::AuditAction;
+use herald_core::domain::audit::{AuditAction, AuditResult};
 use herald_core::domain::authorization::PermissionService;
 
 /// Update permission
@@ -135,8 +135,8 @@ pub async fn update_permission(
         &admin,
         &realm_id,
         AuditAction::PermissionUpdate,
-        row.id.to_string(),
-        Some(row.name.clone()),
+        (row.id.to_string(), Some(row.name.clone())),
+        AuditResult::Success,
         Some(serde_json::json!({"name": row.name})),
     )
     .await;

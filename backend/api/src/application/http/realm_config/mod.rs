@@ -621,7 +621,7 @@ pub async fn upsert_realm_config(
 ) -> Result<Json<RealmConfigResponse>, ApiError> {
     payload
         .validate()
-        .map_err(|e| ApiError::bad_request(format!("验证错误: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let realm_config_service = state.service.realm_config_service();
 
@@ -785,7 +785,7 @@ pub async fn batch_upsert_realm_configs(
     );
     payload
         .validate()
-        .map_err(|e| ApiError::bad_request(format!("验证错误: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let realm_config_service = state.service.realm_config_service();
 

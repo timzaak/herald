@@ -59,6 +59,14 @@ pub async fn create_user(
     // 1. Normalize email to lowercase to match login behavior
     let normalized_email = normalize_email(&payload.email);
 
+    // Byte-count check mirroring the self-registration/ext API paths: the
+    // validator derive above counts Unicode characters (8–100), so a
+    // multi-byte password could otherwise exceed bcrypt's 72-byte input
+    // window and be silently truncated at hashing.
+    if payload.password.len() < 8 || payload.password.len() > 100 {
+        return Err(ApiError::bad_request("Password length invalid"));
+    }
+
     // 2. Build CreateUserWithRolesRequest (convert i16 to i32 for status)
     let request = CreateUserWithRolesRequest {
         email: normalized_email.clone(),

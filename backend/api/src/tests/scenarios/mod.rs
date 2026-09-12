@@ -118,3 +118,40 @@ pub mod apple_native_scenarios;
 // LDAP enterprise-directory login scenarios (login flow + admin config).
 pub mod ldap_login_scenarios;
 pub mod realm_ldap_config_scenarios;
+
+// WeChat identity matching (union_id/open_id) and mini-program login local
+// branches.
+pub mod wechat_matching_scenarios;
+
+#[cfg(test)]
+mod registration_guard {
+    /// Guard: every scenarios/*.rs file must be declared as a `pub mod` in
+    /// this mod.rs. An unregistered file never compiles or runs, yet still
+    /// reads like acceptance coverage and drifts from the current contract
+    /// (six such dead files were found and removed).
+    #[test]
+    fn every_scenario_file_is_registered() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tests/scenarios");
+        let mod_rs = std::fs::read_to_string(dir.join("mod.rs")).expect("read scenarios/mod.rs");
+        let mut unregistered = Vec::new();
+        for entry in std::fs::read_dir(&dir)
+            .expect("read scenarios dir")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if name != "mod" && !mod_rs.contains(&format!("pub mod {name};")) {
+                unregistered.push(name.to_string());
+            }
+        }
+        assert!(
+            unregistered.is_empty(),
+            "scenario files not registered in mod.rs (register or delete them): {unregistered:?}"
+        );
+    }
+}

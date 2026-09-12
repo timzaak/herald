@@ -40,7 +40,7 @@ pub async fn create_role(
 ) -> Result<ApiResult<RoleResponse>, ApiError> {
     let admin = AdminIdentity::require(identity, &realm_id, "role definitions")?;
     admin.require_permission(&state, "roles", "manage").await?;
-    let row = sqlx::query_as::<_, RoleResponse>(
+    let insert = sqlx::query_as::<_, RoleResponse>(
         r#"
         INSERT INTO roles (name, description, realm_id, client_id, is_builtin)
         VALUES ($1, $2, $3, $4, $5)
@@ -53,18 +53,32 @@ pub async fn create_role(
     .bind(&payload.client_id)
     .bind(false) // is_builtin = false for user-created roles
     .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create role: {e}");
-        if let sqlx::Error::Database(db_err) = &e
-            && db_err.code().as_deref() == Some("23505")
-        // PostgreSQL unique constraint violation
-        {
-            ApiError::bad_request("Role name already exists in this realm")
-        } else {
-            ApiError::internal("Failed to create role")
+    .await;
+
+    let row = match insert {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to create role: {e}");
+            let is_duplicate = matches!(
+                &e,
+                sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505")
+            );
+            if is_duplicate {
+                record_role_create_failure(
+                    &state,
+                    &admin,
+                    &realm_id,
+                    &payload.name,
+                    "duplicate_name",
+                )
+                .await;
+                return Err(ApiError::bad_request(
+                    "Role name already exists in this realm",
+                ));
+            }
+            return Err(ApiError::internal("Failed to create role"));
         }
-    })?;
+    };
 
     // Record audit event (failure does not fail the operation)
     if let Err(e) = state
@@ -91,4 +105,38 @@ pub async fn create_role(
     }
 
     Ok(ApiResult::created(row))
+}
+
+/// Record a failed role-creation attempt (audit.md requires failed RBAC
+/// writes to be audited alongside successes). Best-effort, like the success
+/// path above.
+async fn record_role_create_failure(
+    state: &AppState,
+    admin: &AdminIdentity,
+    realm_id: &str,
+    name: &str,
+    reason: &str,
+) {
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Rbac,
+            action: AuditAction::RoleCreate,
+            actor_id: admin.user_id_string(),
+            actor_type: Some(ActorType::Admin),
+            actor_name: admin.identity().as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::Role,
+            target_id: name.to_string(),
+            target_name: Some(name.to_string()),
+            result: AuditResult::Failure,
+            details: Some(serde_json::json!({"reason": reason})),
+            ip_address: None,
+            user_agent: None,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to record audit event");
+    }
 }
