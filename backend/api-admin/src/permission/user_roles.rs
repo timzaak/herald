@@ -69,6 +69,10 @@ pub struct AssignRolesRequest {
 #[utoipa::path(
     get,
     path = "/api/permission/users/{userId}/roles",
+    // Must not collide with the self-service GET /api/user/roles handler (also
+    // fn get_user_roles): duplicate operationIds let one variant silently
+    // shadow the other in the generated TS SDK.
+    operation_id = "permissionGetUserRoles",
     params(
         ("userId" = Uuid, Path, description = "User ID")
     ),
