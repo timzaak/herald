@@ -14,6 +14,32 @@ use herald_core::domain::authentication::Identity;
 use herald_core::domain::authorization::permission_service::PermissionService;
 use uuid::Uuid;
 
+/// Record a failed role-permission grant/revoke (audit.md requires failed
+/// writes to be audited alongside successes). Best-effort, like the success
+/// paths above.
+async fn record_role_permission_failure(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    action: AuditAction,
+    role_id: Uuid,
+    permission_id: Uuid,
+    reason: &str,
+) {
+    super::record_role_failure(
+        state,
+        identity,
+        realm_id,
+        action,
+        (role_id.to_string(), None),
+        serde_json::json!({
+            "reason": reason,
+            "permission_id": permission_id,
+        }),
+    )
+    .await;
+}
+
 /// Assign permission to role
 #[utoipa::path(
     post,
@@ -54,6 +80,16 @@ pub async fn assign_permission_to_role(
                 ApiError::internal("Failed to assign permission")
             })?;
     if role_exists.is_none() {
+        record_role_permission_failure(
+            &state,
+            &identity,
+            &realm_id,
+            AuditAction::PermissionGrant,
+            role_id,
+            payload.permission_id,
+            "role_not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Role not found"));
     }
 
@@ -68,6 +104,16 @@ pub async fn assign_permission_to_role(
                 ApiError::internal("Failed to sync role policy")
             })?;
     let Some((resource, action)) = perm_row else {
+        record_role_permission_failure(
+            &state,
+            &identity,
+            &realm_id,
+            AuditAction::PermissionGrant,
+            role_id,
+            payload.permission_id,
+            "permission_not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Permission not found"));
     };
 
@@ -187,6 +233,16 @@ pub async fn remove_permission_from_role(
     // role_id is a client-supplied primary key: a role outside the path realm
     // must not be touched (cross-tenant tampering).
     if role.is_none() {
+        record_role_permission_failure(
+            &state,
+            &identity,
+            &realm_id,
+            AuditAction::PermissionRevoke,
+            role_id,
+            permission_id,
+            "role_not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Role not found"));
     }
 
@@ -206,6 +262,16 @@ pub async fn remove_permission_from_role(
         ApiError::internal("Failed to check permission")
     })?;
     let Some((perm_resource, perm_action, perm_is_builtin)) = permission else {
+        record_role_permission_failure(
+            &state,
+            &identity,
+            &realm_id,
+            AuditAction::PermissionRevoke,
+            role_id,
+            permission_id,
+            "permission_not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Permission not found in this realm"));
     };
 

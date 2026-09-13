@@ -50,6 +50,21 @@ fn reject_custom_domain_config(config_type: &ConfigType) -> Result<(), ApiError>
     Ok(())
 }
 
+/// White-label rows carry values that `/api/public-config` echoes verbatim to
+/// third-party login UIs. The dedicated white-label surface validates them
+/// (CSS-declaration breakout, `url(` loading, markup smuggling) before a draft
+/// is stored or published; the generic configs API has no such validation, so
+/// accepting a `white_label` row here would bypass it and publish unvalidated
+/// CSS to every white-label consumer.
+fn reject_white_label_config(config_type: &ConfigType) -> Result<(), ApiError> {
+    if matches!(config_type, ConfigType::WhiteLabel) {
+        return Err(ApiError::bad_request(
+            "white_label configuration must be managed through the white-label endpoints",
+        ));
+    }
+    Ok(())
+}
+
 /// The platform self-service signup switch is an admin-realm-only config row
 /// (realm-create PRD §4.1); the signup flow reads it exclusively from the
 /// admin realm. Other realms must not write rows of this type — they would
@@ -644,6 +659,7 @@ pub async fn upsert_realm_config(
     let config_type = parse_config_type(payload.config_type)?;
     reject_non_admin_platform_signup(&realm_id, &config_type)?;
     reject_custom_domain_config(&config_type)?;
+    reject_white_label_config(&config_type)?;
     reject_production_provider_base_url(&state.app_env, &config_type, &payload.config_key)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
@@ -811,6 +827,7 @@ pub async fn batch_upsert_realm_configs(
         let config_type = parse_config_type(r.config_type)?;
         reject_non_admin_platform_signup(&realm_id, &config_type)?;
         reject_custom_domain_config(&config_type)?;
+        reject_white_label_config(&config_type)?;
         reject_production_provider_base_url(&state.app_env, &config_type, &r.config_key)?;
         if let Some(provider_type) =
             is_empty_secret_to_preserve(&config_type, &r.config_key, &r.config_value)
@@ -1300,5 +1317,20 @@ mod tests {
         // Non-custom-domain types keep flowing through the generic path.
         assert!(reject_custom_domain_config(&ConfigType::Registration).is_ok());
         assert!(reject_custom_domain_config(&ConfigType::Stripe).is_ok());
+    }
+
+    /// WHY: the dedicated white-label surface validates branding values
+    /// (CSS-declaration breakout, `url(` loading, markup smuggling) before
+    /// they are stored or published. A `white_label` row written through the
+    /// generic configs API skips that validation, and `/api/public-config`
+    /// echoes stored values verbatim — opening a custom CSS injection surface
+    /// the white-label PRD explicitly excludes. Every generic write path must
+    /// refuse the type outright.
+    #[test]
+    fn white_label_rows_are_rejected_on_generic_config_writes() {
+        assert!(reject_white_label_config(&ConfigType::WhiteLabel).is_err());
+        // Non-white-label types keep flowing through the generic path.
+        assert!(reject_white_label_config(&ConfigType::Registration).is_ok());
+        assert!(reject_white_label_config(&ConfigType::Stripe).is_ok());
     }
 }

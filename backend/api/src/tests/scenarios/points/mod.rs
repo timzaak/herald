@@ -8,6 +8,7 @@ mod test_02_view_balance;
 mod test_03_balance_permission;
 mod test_08_consume_success;
 mod test_09_consume_exact_balance;
+mod test_10_consume_invalid_amount;
 mod test_11_consume_edge_cases;
 mod test_13_concurrent_consumption;
 mod test_15_consume_idempotency;

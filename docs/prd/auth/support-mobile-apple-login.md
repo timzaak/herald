@@ -105,6 +105,7 @@
 - **一次性凭证**：Apple identityToken 是有有效期的 JWT，过期后校验失败
 - **共存原则**：native 登录与 Apple web 跳转登录按钮共存，互不影响；与现有其他 Provider（Google、GitHub、Facebook、WeChat 等）共存
 - **下游授权码模式绑定**：当请求携带下游授权交易标识时，必须指向一个已存在、未消费、与当前 realm / client_id / redirect_uri / code_challenge 完整绑定的下游授权事务（与 OAuth brokered redirect 共用校验）
+- **登录同意闸门**：native 登录与其他登录入口同受「登录即同意」闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1，直登不豁免）——同意缺失或版本过期时不签发完整会话：直登分支响应 `consentRequired: true` + 当前生效协议摘要 + 受限会话（无 token 字段），补全路径为受限会话提交 `POST /api/legal/{realmId}/consent` 记录同意后重新发起 native 登录；下游授权分支不签发授权码、不消费 `downstream_state`，响应同样携带 `consentRequired: true` 与协议摘要
 
 ### 4.2 关键状态与异常
 
@@ -114,6 +115,7 @@
 - **用户取消 Apple 授权**：用户在 iOS 系统弹窗中取消或不允许授权 → App 不向 Herald 提交凭证，Herald 不介入
 - **未在 Apple Developer 启用 capability**：iOS App 未配置 Sign in with Apple capability → 系统弹窗无法拉起，属接入方配置问题，不在 Herald 范围
 - **Realm 未开启自动注册**：未注册用户首次通过 native 登录时，若 Realm 注册开关关闭，不创建账号并返回 `409 conflict`（注册未开放），引导用户走显式注册入口；已命中已有用户的登录不受影响
+- **命中登录同意闸门**：同意缺失或版本过期 → 不签发会话/授权码，返回 `consentRequired: true` + 当前生效协议摘要（直登分支另附受限会话），见 §4.1「登录同意闸门」
 
 ---
 

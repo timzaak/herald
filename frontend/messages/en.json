@@ -52,7 +52,8 @@
     "statistics": "Statistics",
     "credit_buckets": "Credit Accounts",
     "audit_log": "Audit Log",
-    "settings": "Settings"
+    "settings": "Settings",
+    "github_repo": "GitHub repository"
   },
   "error": {
     "generic": "An unexpected error occurred",

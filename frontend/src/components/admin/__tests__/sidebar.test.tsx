@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event'
 import { Sidebar } from '../sidebar'
 import { useAuthStore } from '@/stores/auth-store'
 import { LocaleProvider } from '@/components/shared/locale-provider'
+import { APP_VERSION, GITHUB_REPO_URL } from '@/lib/constants'
 
 let currentPath = '/manage/billing?page=0&pageSize=20&status=all'
 
@@ -144,5 +145,27 @@ describe('Sidebar navigation', () => {
 
     expect(sidebar).toHaveClass('h-full', 'min-h-0', 'flex', 'flex-col')
     expect(nav).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
+  })
+
+  it('shows the deployed version and a link to the upstream GitHub repository', () => {
+    // Operators use the footer version to compare their deployment against
+    // upstream releases, so it must track package.json (what release.py bumps)
+    // rather than a hand-maintained string.
+    render(
+      <LocaleProvider>
+        <Sidebar />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByTestId('sidebar-version')).toHaveTextContent(`v${APP_VERSION}`)
+    // Guard against a broken package.json import silently rendering "vundefined".
+    expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/)
+
+    const githubLink = screen.getByTestId('sidebar-github-link')
+    expect(githubLink).toHaveAttribute('href', GITHUB_REPO_URL)
+    // The link leaves the console, so it must open a new tab instead of
+    // navigating the admin session away.
+    expect(githubLink).toHaveAttribute('target', '_blank')
+    expect(githubLink).toHaveAttribute('rel', 'noopener noreferrer')
   })
 })

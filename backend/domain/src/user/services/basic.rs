@@ -17,6 +17,17 @@ use crate::{
     },
 };
 
+/// Passwords are accepted at 8–100 UTF-8 bytes: the API layer validates
+/// 8–100 Unicode characters, so a multi-byte password could otherwise
+/// exceed bcrypt's 72-byte input window and be silently truncated at
+/// hashing.
+fn ensure_password_byte_length(password: &str) -> Result<(), CoreError> {
+    if password.len() < 8 || password.len() > 100 {
+        return Err(CoreError::BadRequest("Password length invalid".to_string()));
+    }
+    Ok(())
+}
+
 fn parse_reset_code_realm_id(code: &str) -> Result<&str, CoreError> {
     let mut parts = code.rsplitn(3, '_');
     let timestamp = parts.next();
@@ -85,9 +96,7 @@ where
 
         // Validate password if provided
         if let Some(ref password) = request.password {
-            if password.len() < 8 || password.len() > 100 {
-                return Err(CoreError::BadRequest("Password length invalid".to_string()));
-            }
+            ensure_password_byte_length(password)?;
             let password_hash = self.hash_password(password).await?;
             let user = self
                 .user_repository
@@ -311,6 +320,8 @@ where
         fields(db.system = "postgres", db.operation = "user_register")
     )]
     async fn register(&self, request: RegisterRequest) -> Result<User, CoreError> {
+        ensure_password_byte_length(&request.password)?;
+
         match self
             .user_repository
             .get_user_by_email(&request.realm_id, &request.email)
@@ -371,9 +382,7 @@ where
     ) -> Result<User, CoreError> {
         // Validate password if provided
         if let Some(ref password) = request.password {
-            if password.len() < 8 || password.len() > 100 {
-                return Err(CoreError::BadRequest("Password length invalid".to_string()));
-            }
+            ensure_password_byte_length(password)?;
             let password_hash = self.hash_password(password).await?;
             let user = self
                 .user_repository
@@ -607,6 +616,35 @@ mod tests {
             .expect_err("invalid code should be rejected");
 
         assert_eq!(err, CoreError::BadRequest("invalid reset code".to_string()));
+    }
+
+    // WHY: HTTP validators count Unicode characters (8–100), but bcrypt
+    // truncates at 72 bytes. Without the byte-count guard a 50-character
+    // multi-byte password (150 bytes) registers fine and then verifies
+    // against a silently-truncated hash.
+    #[tokio::test]
+    async fn register_rejects_passwords_over_100_bytes_before_hashing() {
+        let service = UserServiceImpl::new(
+            Arc::new(MockUserRepository::new()),
+            Arc::new(MockUserVerificationRepository::new()),
+            Arc::new(AllowAllUserPolicy),
+        );
+
+        // 50 chars, 150 UTF-8 bytes — passes the char-count validator.
+        let password = "密".repeat(50);
+        let err = service
+            .register(RegisterRequest {
+                realm_id: "test_realm".to_string(),
+                email: "user@example.com".to_string(),
+                password,
+            })
+            .await
+            .expect_err("over-100-byte password must be rejected before hashing");
+
+        assert_eq!(
+            err,
+            CoreError::BadRequest("Password length invalid".to_string())
+        );
     }
 }
 

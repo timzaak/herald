@@ -243,3 +243,56 @@ async fn test_scenario_miniprogram_login_rejects_empty_code(ctx: &mut TestContex
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+/// GET the generic browser-jump login endpoint for a provider.
+async fn get_generic_provider_login(
+    ctx: &mut TestContext,
+    provider: &str,
+) -> axum::response::Response {
+    let app = ctx.create_unified_test_router();
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(format!("/api/oauth/{}/{provider}/login", ctx._realm_id))
+        .body(Body::empty())
+        .unwrap();
+    app.oneshot(request).await.unwrap()
+}
+
+/// Scenario 6: the generic `/{provider}/login` browser-jump endpoint must
+/// 404 for `wechat_miniprogram` in a realm without the provider config —
+/// the same not-configured answer as any other provider (wechat-oauth.md
+/// §4.1 routes mini-program login exclusively through the dedicated
+/// code2session endpoint).
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_generic_login_miniprogram_without_config_is_404(ctx: &mut TestContext) {
+    let response = get_generic_provider_login(ctx, "wechat_miniprogram").await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body: serde_json::Value = response_json(response).await;
+    assert!(
+        body.to_string().contains("not configured"),
+        "404 should name the missing provider configuration, got: {body}"
+    );
+}
+
+/// Scenario 7: even with the provider configured, the generic
+/// `/{provider}/login` endpoint must answer 400 for `wechat_miniprogram` —
+/// the mini-program flow has no authorization URL to redirect a browser to
+/// (code2session is a server-side POST), so an authUrl here would advertise
+/// a jump that cannot work.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_generic_login_miniprogram_with_config_is_400(ctx: &mut TestContext) {
+    seed_miniprogram_provider_config(ctx).await;
+
+    let response = get_generic_provider_login(ctx, "wechat_miniprogram").await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = response_json(response).await;
+    assert!(
+        body.to_string().to_lowercase().contains("miniprogram")
+            || body.to_string().to_lowercase().contains("mini program"),
+        "400 should explain the mini-program exemption, got: {body}"
+    );
+}

@@ -845,3 +845,48 @@ async fn test_scenario_ldap_created_account_cannot_password_login(ctx: &mut Test
     let resp = ldap_login(ctx, &mock, "nopwd", "corp-pw-9", None).await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+/// User Story: US-LD-002 (FR-4 "如有")
+/// Covers: a realm with NO effective agreements must not deadlock JIT login.
+/// The consent gate is skipped and the account provisions directly — before
+/// this branch existed, the gate demanded a non-empty agreements payload
+/// unconditionally, which a user in an agreement-less realm could never
+/// satisfy.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_ldap_jit_no_effective_agreements_skips_gate(ctx: &mut TestContext) {
+    enable_ldap(ctx).await;
+
+    // Remove the platform-default agreement versions: this realm deploys no
+    // effective ToS/Privacy, so there is nothing to consent to. No consent
+    // rows exist yet in a fresh schema, so the RESTRICT FK cannot fire.
+    sqlx::query("DELETE FROM legal_agreement_version")
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("failed to clear agreement versions");
+
+    let email = format!("ld012-{}@test.com", uuid::Uuid::now_v7());
+    let dn = "uid=noagree,dc=example,dc=com";
+    let mock = mock_dir(one_mock_user("noagree", dn, Some(&email), "corp-pw-9"));
+
+    // No agreements array in the payload — must NOT answer consent_required.
+    let resp = ldap_login(ctx, &mock, "noagree", "corp-pw-9", None).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "JIT must provision directly when the realm has no effective agreements"
+    );
+    let (resp, token) = crate::tests::extract_bearer_token(resp).await;
+    assert!(token.is_some(), "login must complete with a session");
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert_ne!(
+        body.get("consentRequired"),
+        Some(&serde_json::json!(true)),
+        "the consent gate must be skipped, got: {body}"
+    );
+    assert_eq!(
+        count_accounts_by_email(ctx, &email).await,
+        1,
+        "the account must be provisioned in one step"
+    );
+}

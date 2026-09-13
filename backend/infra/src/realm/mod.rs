@@ -28,7 +28,10 @@ impl PostgresRealmRepository {
             description: model.description.clone(),
             created_at: model.created_at.into(),
             updated_at: model.updated_at.into(),
-            admin_user: None, // Not stored in database, only returned on creation
+            // Always None: creation flows surface the initial admin through
+            // their own response shapes (e.g. signup issues the admin session
+            // after a separate lookup), so this field is reserved.
+            admin_user: None,
         }
     }
 }

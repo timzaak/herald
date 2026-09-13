@@ -2,7 +2,7 @@
 // Provider-Agnostic OAuth Integration Scenarios Tests
 // =============================================================================
 //
-// **Purpose**: Eliminate 80% code duplication between Google, GitHub, and WeChat
+// **Purpose**: Eliminate 80% code duplication between Google and GitHub
 // OAuth tests by using a unified, parameterized framework.
 //
 // **User Story Covered**: US-RU-003 (OAuth Third-Party Login)
@@ -10,7 +10,11 @@
 // **Test Cases Consolidated**:
 // - google_oauth_scenarios.rs (8 tests)
 // - github_oauth_scenarios.rs (8 tests)
-// - wechat_oauth_scenarios.rs (8 tests)
+//
+// WeChat is NOT parameterized here: its flow diverges (appid instead of
+// client_id, code2session instead of an authorization-URL browser jump), so
+// WeChat coverage lives in wechat_matching_scenarios and the miniprogram /
+// matching-specific scenarios rather than this generic framework.
 //
 // **Benefits**:
 // - Reduces test code by 75%
@@ -543,25 +547,9 @@ async fn test_scenario_oauth_authorization_url_generation(ctx: &mut TestContext)
         println!("[Step 3] Verifying authorization URL parameters");
 
         // In test mode with mock server, URL should be redirected to mock server
-        // or contain client_id (or appid for WeChat) and redirect_uri
+        // or contain client_id and redirect_uri
         if auth_url.contains("beeceptor") || auth_url.contains("mock") {
             println!("[Step 3] ✓ Using mock OAuth server");
-        } else if auth_url.contains("weixin.qq.com") {
-            // WeChat uses appid instead of client_id
-            assert!(
-                auth_url.contains("appid="),
-                "WeChat URL should contain appid"
-            );
-            assert!(
-                auth_url.contains("redirect_uri"),
-                "URL should contain redirect_uri"
-            );
-            assert!(auth_url.contains("scope="), "URL should contain scope");
-            assert!(
-                auth_url.contains("state="),
-                "URL should contain state parameter"
-            );
-            println!("[Step 3] ✓ WeChat URL contains required parameters");
         } else {
             assert!(
                 auth_url.contains("client_id"),

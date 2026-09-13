@@ -13,10 +13,13 @@
 //
 // Environment behaviour (design §6.1 / §7, P2):
 // - `RateLimitConfig.enforce_in_dev` defaults to `false`, so `rate_limit_hit`
-//   is skipped in the test context. The IP-quota scenario below asserts the
-//   *actual* (non-429) behaviour with a comment and MUST NOT be strengthened
-//   to assert 429 by this item or the runner. The quota constant + call site
-//   are covered by the domain unit tests and production code.
+//   is skipped in the default test context. The IP-quota scenario below asserts
+//   the *actual* (non-429) behaviour with a comment and MUST NOT be strengthened
+//   to assert 429 by this item or the runner. The quota constant is pinned by
+//   the `signup_ip_quota_is_two_realms_per_24h` domain unit test, and the
+//   enforced 429 path is covered by
+//   `test_signup_ip_limit_enforced_returns_429_on_third_attempt` (scenario 4b
+//   below, production app_env override).
 // - The admin realm's `admin-web-console` Client App is seeded with
 //   `turnstile_enabled=false`, so Turnstile is never enforced here. The
 //   Turnstile-enforced branch is verified by the existing
@@ -319,9 +322,9 @@ async fn test_signup_disabled_when_toggle_off(ctx: &mut TestContext) {
 // context the limit is therefore skipped and the 3rd attempt does NOT return
 // 429. This scenario asserts the *actual* (non-429) behaviour with a comment
 // and MUST NOT be strengthened to assert 429 by this item or the runner.
-// The 2/24h quota constant and call site are verified by the domain unit tests
-// and production code; the live 429 path is exercised in environments that
-// opt into enforce_in_dev.
+// The 2/24h quota constant is pinned by the `signup_ip_quota_is_two_realms_per_24h`
+// domain unit test; the enforced 429 path is covered by scenario 4b below
+// (production app_env override).
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_signup_ip_limit_24h(ctx: &mut TestContext) {
@@ -475,4 +478,88 @@ async fn test_signup_slug_conflict(ctx: &mut TestContext) {
     assert_eq!(realm_count, 1, "no duplicate realm should be created");
 
     cleanup_realm(ctx, &slug).await;
+}
+
+// =============================================================================
+// Scenario 4b — DEC-011: same-IP 24h quota, ENFORCED path (positive test)
+// =============================================================================
+//
+// The sibling `test_signup_ip_limit_24h` runs in the default test environment
+// where `rate_limit_hit` is skipped, so it can only pin the non-429 shape.
+// This scenario flips the router's `app_env` to production (per-test state
+// override; no process-wide mutation), which is the ONLY branch the limiter
+// keys on, and drives the real 2/24h quota end to end: two provisions from
+// one IP succeed, the third is refused with 429 before any realm row is
+// created. A unique per-run IP keeps the enforced Redis counter from leaking
+// into other scenarios.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_signup_ip_limit_enforced_returns_429_on_third_attempt(ctx: &mut TestContext) {
+    set_platform_signup_enabled(ctx, true).await;
+    let app = ctx.create_unified_test_router_with_state(|s| {
+        s.app_env = "production".to_string();
+    });
+    let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap();
+    let ip = format!("203.0.{}.{}", 200 + (stamp % 40), (stamp / 41) % 250);
+
+    let mut created_slugs = Vec::new();
+    for i in 0..2 {
+        let slug = format!("sr-429-{stamp}-{i}");
+        let email = format!("enforced-{stamp}-{i}@signup.test");
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/auth/{ADMIN_REALM}/signup"))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", &ip)
+            .body(Body::from(signup_body(
+                &format!("Enforced Realm {i}"),
+                Some(&slug),
+                &email,
+                "Password123",
+            )))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "attempts 1-2 are within the 2/24h quota and must provision"
+        );
+        created_slugs.push(slug);
+    }
+
+    // Third attempt, same IP: refused 429 BEFORE create_realm — the quota is
+    // the P0 anti-abuse acceptance value (DEC-011), so a realm row must not
+    // appear.
+    let slug_third = format!("sr-429-{stamp}-2");
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{ADMIN_REALM}/signup"))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", &ip)
+        .body(Body::from(signup_body(
+            "Third Realm",
+            Some(&slug_third),
+            &format!("enforced-{stamp}-2@signup.test"),
+            "Password123",
+        )))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the 3rd signup from one IP within 24h must be refused with 429"
+    );
+    let refused_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM realm WHERE id = $1")
+        .bind(&slug_third)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        refused_count, 0,
+        "a quota-refused signup must not leave a realm row behind"
+    );
+
+    for slug in &created_slugs {
+        cleanup_realm(ctx, slug).await;
+    }
 }

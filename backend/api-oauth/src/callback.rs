@@ -117,6 +117,27 @@ pub async fn oauth_callback(
     oauth_callback_inner(state, realm_id, provider, query, user_agent, ip).await
 }
 
+/// Handle OAuth callback submitted as an HTML form (Apple `response_mode=form_post`
+/// sends the authorization response as a POST body instead of a redirect query).
+/// Same semantics as the GET variant.
+#[utoipa::path(
+    post,
+    path = "/api/oauth/{realmId}/{provider}/callback",
+    operation_id = "oauth_callback_form",
+    tag = "oauth",
+    params(
+        ("realmId" = String, Path, description = "Realm ID"),
+        ("provider" = String, Path, description = "OAuth provider type (form_post is used by Apple)")
+    ),
+    request_body(content = OAuthCallbackQuery, content_type = "application/x-www-form-urlencoded", description = "Authorization response fields (code/state on success; error/error_description on denial), sent as form fields by response_mode=form_post"),
+    responses(
+        (status = 200, description = "OAuth login successful (or, with error=..., a friendly denial body)", body = OAuthCallbackResponse),
+        (status = 302, description = "Redirect to application (authorization code on success; error=access_denied when the user denied a downstream authorization)"),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
 pub async fn oauth_callback_form(
     State(state): State<AppState>,
     Path((realm_id, provider)): Path<(String, String)>,

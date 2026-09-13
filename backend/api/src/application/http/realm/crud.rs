@@ -37,6 +37,8 @@ pub struct RealmResponse {
     pub description: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Always `null`. Creation flows surface the initial admin through their
+    /// own response shapes; this field is reserved and must not be relied on.
     pub admin_user: Option<AdminUserResponse>,
 }
 
@@ -127,7 +129,7 @@ pub async fn list_realms(
     tag = "realms",
     params(
         ("page" = Option<i32>, Query, description = "Page number (0-based, default 0)"),
-        ("pageSize" = Option<i32>, Query, description = "Page size (default 25, max 100)"),
+        ("pageSize" = Option<i32>, Query, description = "Page size (default 20, max 100)"),
         ("search" = Option<String>, Query, description = "Search term for realm_id or name"),
         ("sortBy" = Option<String>, Query, description = "Sort column (realm_id, name, created_at, updated_at)"),
         ("sortOrder" = Option<String>, Query, description = "Sort order (asc, desc)"),

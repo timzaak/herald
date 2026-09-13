@@ -14,12 +14,13 @@ import {
   FileText,
   ScrollText,
   BarChart3,
+  Github,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/use-auth'
 import { useRealmId } from '@/stores/auth-store'
 import { PERMISSION } from '@/lib/constants/auth-constants'
-import { BRAND_NAME } from '@/lib/constants'
+import { APP_VERSION, BRAND_NAME, GITHUB_REPO_URL } from '@/lib/constants'
 import { realmQueryOptions, featureAvailabilityQueryOptions } from '@/data/query-options'
 import { filterByPermission } from '@/lib/utils/filter-by-permission'
 import { m } from '@/paraglide/messages'
@@ -387,6 +388,24 @@ export function Sidebar() {
       <div className="mx-4 mb-2 h-px bg-sidebar-border" />
       <div className="px-4 pb-4">
         <LanguageSwitcher />
+        <div className="mt-2 flex items-center justify-between" data-testid="sidebar-footer-meta">
+          <span
+            className="text-xs font-medium text-sidebar-foreground/40"
+            data-testid="sidebar-version"
+          >
+            v{APP_VERSION}
+          </span>
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={m['nav.github_repo']()}
+            className="inline-flex items-center rounded-md text-sidebar-foreground/40 transition-colors hover:text-sidebar-foreground"
+            data-testid="sidebar-github-link"
+          >
+            <Github className="size-3.5" />
+          </a>
+        </div>
       </div>
     </div>
   )

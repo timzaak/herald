@@ -51,6 +51,15 @@ pub async fn update_permission(
     // 格式: "resource.action" (如 "users.manage")
     let parts: Vec<&str> = payload.name.split('.').collect();
     if parts.len() != 2 {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionUpdate,
+            (id.to_string(), None),
+            "invalid_name_format",
+        )
+        .await;
         return Err(ApiError::bad_request(
             "Permission name must be in format 'resource.action' (e.g., 'users.manage')",
         ));
@@ -58,11 +67,44 @@ pub async fn update_permission(
     let resource = parts[0];
     let action = parts[1];
 
+    // Security: same wildcard guard as create (renaming an unassigned
+    // definition to All/* would otherwise reopen what create refuses).
+    if super::is_reserved_wildcard(resource, action) {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionUpdate,
+            (id.to_string(), None),
+            "wildcard_permission",
+        )
+        .await;
+        return Err(ApiError::forbidden("Cannot create privileged permissions"));
+    }
+
     let Some(permission) = super::fetch_permission_definition(&state, id, &realm_id).await? else {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionUpdate,
+            (id.to_string(), None),
+            "not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Permission not found"));
     };
 
     if permission.is_builtin {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionUpdate,
+            (id.to_string(), Some(permission.name.clone())),
+            "builtin_permission",
+        )
+        .await;
         return Err(ApiError::forbidden(
             "Cannot modify built-in permission definition",
         ));
@@ -82,6 +124,15 @@ pub async fn update_permission(
         )
         .await?
     {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionUpdate,
+            (id.to_string(), Some(permission.name.clone())),
+            "resource_action_in_use",
+        )
+        .await;
         return Err(ApiError::conflict(
             "Cannot change resource/action of a permission that is assigned to roles",
         ));
@@ -102,20 +153,49 @@ pub async fn update_permission(
     .bind(id)
     .bind(&realm_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update permission: {e}");
-        if let sqlx::Error::Database(db_err) = &e
-            && db_err.code().as_deref() == Some("23505")
-        // PostgreSQL unique constraint violation
-        {
-            ApiError::bad_request("Permission name already exists in this realm")
-        } else {
-            ApiError::internal("Failed to update permission")
-        }
-    })?;
+    .await;
 
-    let row = row.ok_or_else(|| ApiError::not_found("Permission not found"))?;
+    let row = match row {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to update permission: {e}");
+            let is_duplicate = matches!(
+                &e,
+                sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505")
+            );
+            if is_duplicate {
+                super::record_permission_failure(
+                    &state,
+                    &admin,
+                    &realm_id,
+                    AuditAction::PermissionUpdate,
+                    (id.to_string(), Some(permission.name.clone())),
+                    "duplicate_name",
+                )
+                .await;
+                return Err(ApiError::bad_request(
+                    "Permission name already exists in this realm",
+                ));
+            }
+            return Err(ApiError::internal("Failed to update permission"));
+        }
+    };
+
+    let row = match row {
+        Some(row) => row,
+        None => {
+            super::record_permission_failure(
+                &state,
+                &admin,
+                &realm_id,
+                AuditAction::PermissionUpdate,
+                (id.to_string(), None),
+                "not_found_after_update",
+            )
+            .await;
+            return Err(ApiError::not_found("Permission not found"));
+        }
+    };
 
     // Authorization caches are keyed by resource/action, so only a rename
     // (not a description-only edit) requires dropping cached results.

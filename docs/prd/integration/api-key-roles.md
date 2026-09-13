@@ -120,7 +120,7 @@
    - 创建成功后自动绑定所选角色
    - 角色绑定失败不回滚 Key 创建，仍展示明文 Key
 
-   > 创建 API Key 时支持通过 `role_ids` 字段绑定角色，角色绑定失败不回滚 Key 创建。
+   > 创建 API Key 时支持通过 `role_ids` 字段绑定角色（上限 20 个，超出校验失败），角色绑定失败不回滚 Key 创建。
 
 3. **内置 API Key Client App**
    - 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`）

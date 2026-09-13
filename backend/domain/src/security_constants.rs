@@ -115,3 +115,18 @@ pub const DEVICE_CODE_DEFAULT_INTERVAL_SECONDS: i64 = 5;
 pub const DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS: i64 = 5;
 pub const DEVICE_CODE_USER_CODE_LENGTH: usize = 8;
 pub const DEVICE_CODE_USER_CODE_ALPHABET: &str = "BCDFGHJKMNPQRSTVWXYZ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WHY: the same-IP signup quota is a P0 acceptance value (realm-create
+    // DEC-011 anti-abuse economics: an automated actor gets at most two
+    // realms per IP per day). The constant has no other executable anchor,
+    // so silently loosening (or tightening) it would change platform abuse
+    // posture with no failing test.
+    #[test]
+    fn signup_ip_quota_is_two_realms_per_24h() {
+        assert_eq!(SIGNUP_IP_RATE_LIMIT, (2, 86_400));
+    }
+}

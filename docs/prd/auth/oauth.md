@@ -104,7 +104,6 @@
 - 用户主动授权/拒绝授权页面（当前授权自动完成，用户无需手动批准）
 - Implicit Flow（已被 OAuth 2.1 废弃）
 - API Key 管理界面（后续优化）
-- 审计日志（后续优化）
 - Webhooks 和 GraphQL 支持（后续优化）
 
 ### 2.3 依赖项
@@ -211,7 +210,7 @@
 - TOTP 验证成功后检查临时会话中的 OAuth 字段，有 OAuth 字段时走同样的 authorization_code 生成逻辑
 
 **异常处理:**
-- 用户拒绝授权（OAuth provider 返回 access_denied）：显示友好错误信息，引导使用其他登录方式
+- 用户拒绝授权（OAuth provider 按 RFC 6749 §4.1.2.1 回调携带 error/error_description、无 code）：回调端点接受该错误形态——下游授权分支消费 pending 的 `downstream_state` 后以 302 重定向回下游 `redirect_uri`（携带 `error` 与 `state`，由下游自行呈现）；第一方直登分支（无下游上下文）返回 200 JSON 拒绝体（错误码 + 友好信息，与成功响应同形以便落地页统一渲染），不签发任何会话或 token
 - State Token 验证失败（不存在或已过期）：提示"登录链接已过期，请重新发起登录"
 - 授权码无效或过期：提示"授权失败，请重新登录"
 - 获取用户信息失败：提示"无法获取用户信息，请联系管理员"

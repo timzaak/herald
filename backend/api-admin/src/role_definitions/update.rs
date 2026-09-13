@@ -129,18 +129,36 @@ pub async fn update_role(
     .bind(id)
     .bind(&realm_id)
     .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update role: {e}");
-        if let sqlx::Error::Database(db_err) = &e
-            && db_err.code().as_deref() == Some("23505")
-        // PostgreSQL unique constraint violation
-        {
-            ApiError::bad_request("Role name already exists in this realm")
-        } else {
-            ApiError::internal("Failed to update role")
+    .await;
+
+    let row = match row {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!("Failed to update role: {e}");
+            let is_duplicate = matches!(
+                &e,
+                sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505")
+            );
+            if is_duplicate {
+                super::record_role_failure(
+                    &state,
+                    &identity,
+                    &realm_id,
+                    AuditAction::RoleUpdate,
+                    (id.to_string(), Some(current_name.clone())),
+                    serde_json::json!({
+                        "reason": "duplicate_name",
+                        "name": payload.name,
+                    }),
+                )
+                .await;
+                return Err(ApiError::bad_request(
+                    "Role name already exists in this realm",
+                ));
+            }
+            return Err(ApiError::internal("Failed to update role"));
         }
-    })?;
+    };
 
     let row = match row {
         Some(r) => r,

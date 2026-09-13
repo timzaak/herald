@@ -905,3 +905,70 @@ async fn mcp_bearer_header_accepted(ctx: &mut TestContext) {
 
     let _ = client.close().await;
 }
+
+// =============================================================================
+// Scenario 20: per-key rate limit (60 req / 60s → 429)
+// =============================================================================
+
+// Given a valid API key,
+// When the 60-request budget is consumed by raw HTTP POSTs (every request
+// passes the API-key middleware's limiter no matter what the protocol layer
+// then thinks of the body) and a 61st request arrives within the same window,
+// Then the 61st is rejected 429 by the middleware, and a DIFFERENT key still
+// has its own budget — the quota is keyed by the authenticated key id, so a
+// noisy agent can never starve other keys or realms.
+//
+// Raw POSTs instead of an rmcp client: the limiter sits in middleware before
+// any MCP semantics, so this pins the quota boundary exactly (60 pass, 61st
+// 429) without 60 full protocol handshakes or waiting for a window to slide.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn mcp_rate_limit_returns_429_after_sixty_requests(ctx: &mut TestContext) {
+    let url = spawn_mcp_server(ctx).await;
+    let (api_key, _entity) = create_test_api_key(ctx, "mcp-ratelimit", true, None).await;
+
+    let client = rmcp_test_reqwest::Client::new();
+    for i in 1..=60 {
+        let response = client
+            .post(&url)
+            .header("X-API-Key", &api_key)
+            .body("{}")
+            .send()
+            .await
+            .expect("request must complete");
+        assert_ne!(
+            response.status().as_u16(),
+            429,
+            "request {i} within the 60/60s budget must not be rate limited"
+        );
+    }
+
+    let response = client
+        .post(&url)
+        .header("X-API-Key", &api_key)
+        .body("{}")
+        .send()
+        .await
+        .expect("request must complete");
+    assert_eq!(
+        response.status().as_u16(),
+        429,
+        "the 61st request in the same window must be rejected with 429"
+    );
+
+    // The budget is per-key: another key in the same realm is unaffected.
+    let (other_key, _other_entity) =
+        create_test_api_key(ctx, "mcp-ratelimit-other", true, None).await;
+    let response = client
+        .post(&url)
+        .header("X-API-Key", &other_key)
+        .body("{}")
+        .send()
+        .await
+        .expect("request must complete");
+    assert_ne!(
+        response.status().as_u16(),
+        429,
+        "a different key must have an independent budget"
+    );
+}

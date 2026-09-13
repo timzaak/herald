@@ -77,6 +77,25 @@ pub async fn create_permission(
         ));
     }
 
+    // Security: wildcard permissions are reserved for the platform.
+    if super::is_reserved_wildcard(resource, action) {
+        tracing::warn!(
+            user_id = %admin.user_id_string(),
+            realm_id = %realm_id,
+            permission_name = %payload.name,
+            "Attempted to create wildcard permission definition"
+        );
+        record_permission_create_failure(
+            &state,
+            &admin,
+            &realm_id,
+            &payload.name,
+            "wildcard_permission",
+        )
+        .await;
+        return Err(ApiError::forbidden("Cannot create privileged permissions"));
+    }
+
     // Validate sensitive permissions can only be created in admin realm
     if let Err(e) =
         super::super::middleware::validate_sensitive_permission_creation(&payload.name, &realm_id)
@@ -158,14 +177,13 @@ async fn record_permission_create_failure(
     name: &str,
     reason: &str,
 ) {
-    super::record_permission_audit(
+    super::record_permission_failure(
         state,
         admin,
         realm_id,
         AuditAction::PermissionCreate,
         (name.to_string(), None),
-        AuditResult::Failure,
-        Some(serde_json::json!({ "reason": reason })),
+        reason,
     )
     .await;
 }

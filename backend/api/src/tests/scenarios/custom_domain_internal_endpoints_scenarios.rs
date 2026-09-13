@@ -6,10 +6,11 @@
 // `GET /api/internal/custom-domain/authorize` (design §4.2.2 ask, §4.5 security):
 // shared-key `X-Herald-Ask-Key` gate; 200 / 404 / 401; no realm leak.
 //
-// NOTE: the public host→realmId resolve endpoint (`GET /api/internal/custom-
+// NOTE: the INTERNAL host→realmId resolve endpoint (`GET /api/internal/custom-
 // domain/resolve`) was removed when realm routing reverted to always relying on
-// the `{realmId}` path segment; only the ask (Caddy TLS authorization)
-// scenarios remain here.
+// the `{realmId}` path segment. The PUBLIC resolve endpoint (`GET
+// /api/public-config/custom-domain/resolve`) did survive; its scenarios are at
+// the bottom of this file.
 //
 // ask_key handling (see task BE-T02-A execution note):
 //   The shared test context (`SchemaTestContext`) hard-codes

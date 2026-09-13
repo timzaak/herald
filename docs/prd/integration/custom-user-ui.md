@@ -142,7 +142,7 @@
 - **注销账号不可逆**：浏览器 token 调用注销账号后，后果（匿名化、取消订阅、清除会话）不可恢复。
 - **高危操作重新认证**：修改密码、绑定或移除 TOTP/Passkey、注销账号前，必须使用账户已绑定的密码、TOTP 或要求用户验证的 Passkey 完成重新认证；重新认证结果短时、单次并绑定目标操作。Passkey 重命名不属于高危操作。
 - **Passkey RP 隔离**：Passkey 只在其注册 RP 下可见和可用；Client App origin 之间及 Client App 与 Herald 原 RP 之间不共享 credential。
-- **安全回跳**：邮箱验证和密码重置只回跳到 Client App 预登记目标；服务端状态绑定 Realm、Client App 与流程类型，拒绝任意外部回跳地址。
+- **安全回跳**：邮箱验证和密码重置只回跳到 Client App 预登记目标（未登记时回退 Realm 公共 URL）；服务端状态绑定 Realm、Client App 与流程类型，拒绝任意外部回跳地址。
 - **支付边界**：浏览器 token 只负责发起购买与轮询状态，支付最终确认由支付提供商页面承接。
 
 ### 4.2 关键状态与异常
@@ -159,7 +159,8 @@
 - **Client App 被禁用** → 其浏览器 token 联动失效（与既有 API Key 联动一致）。
 - **Passkey 来自其他 RP** → 当前 Client App 不返回、不使用该 credential；没有当前 RP credential 时走既有密码/TOTP 回退。
 - **高危操作缺少、过期、已消费或目标不匹配的重新认证结果** → 拒绝并要求重新认证。
-- **身份邮件请求的 Client App 无效、已禁用或回跳未登记** → 拒绝启动流程；邮件落地时再次校验绑定状态。
+- **身份邮件请求的 Client App 无效或已禁用** → 拒绝启动流程；邮件落地时再次校验绑定状态。
+- **身份邮件请求的回跳未登记** → 流程照常启动；邮件落地时回退 Realm 公共 URL（回退目标仍由服务端控制，不接受请求提供的任意 URL）。
 - **注销账号完成** → 账户不可恢复，当前及后续 token 全部失效。
 - **FirstParty 凭证类由 PKCE 换取且内置保留 Client App 标记决定**：普通 Client App 即便完成 PKCE 也不会升级为 FirstParty，其经 PKCE 换码获得的是 `CustomUserUi` 类浏览器 token（权限上限与 `/login` 签发一致）。
 
@@ -225,7 +226,7 @@
 - **CORS 兼容性**：非通配 origin + `allow_credentials(false)`（Bearer token 经 `Authorization` 头传递，无需 credentialed 请求），从单 origin 改 per-Client App 动态放行。
 - **Passkey 兼容性**：Client App HTTPS origin 对应独立 RP；credential 按 RP 隔离，既有 credential 保持原 RP 归属。
 - **高危操作**：修改密码、绑定或移除认证器、注销账号必须消费重新认证结果；重新认证支持账户已绑定的密码、TOTP 或要求用户验证的 Passkey。
-- **邮件流程**：验证/重置流程携带服务端生成的 Client App 绑定状态，回跳目标只能取自预登记配置。
+- **邮件流程**：验证/重置流程携带服务端生成的 Client App 绑定状态，回跳目标只能取自预登记配置（未登记时回退 Realm 公共 URL）。
 
 > 端点清单、参数 schema、状态码矩阵与迁移细节不在 PRD 承载范围，下沉到技术设计。
 
@@ -257,7 +258,7 @@
 - **D-AUTHZ-01（权限边界）**：CORS 不是授权机制。`CustomUserUi` token 只获得用户自服务权限上限，管理员与未知能力默认拒绝；新增能力必须显式归类。
 - **D-PASSKEY-01（RP 隔离）**：获准 Client App HTTPS origin 使用自身 host 作为 RP ID，credential 按 RP 隔离；既有 credential 继续归属原 Herald RP。
 - **D-REAUTH-01（高危操作确认）**：改密码、绑定或移除 TOTP/Passkey、注销账号必须先完成短时单次重新认证；可使用已绑定密码、TOTP 或要求用户验证的 Passkey。仅重命名 Passkey 不要求重新认证。
-- **D-RETURN-01（安全回跳）**：邮箱验证与密码恢复绑定 Client App，只使用预登记回跳目标；不接受任意 URL。
+- **D-RETURN-01（安全回跳）**：邮箱验证与密码恢复绑定 Client App，只使用预登记回跳目标（未登记时回退 Realm 公共 URL）；不接受任意 URL。
 - **D-CLIENT-01（禁用联动）**：Client App 禁用后拒绝其新身份流程并吊销其浏览器 token 家族，不影响其他 Client App。
 - **D-RESP-01（责任边界）**：token 进入前端后，XSS 防护与 token 存储策略由集成方前端负责；Herald 通过权限上限、短时效 access token、旋转 refresh token、复用检测和吊销限制爆炸半径。refresh token 的浏览器存储、并发和失败恢复契约由后续集成文档承接。
 - **D-SCOPE-03（不交付官方 JS SDK）**：原决策「本轮不交付官方 JS SDK；集成方用标准 `fetch` + `Authorization: Bearer`」**已由 DEC-js-sdk-003 取代**。官方 JS 浏览器 SDK 已作为独立能力交付，封装认证生命周期子集，见 [js-sdk PRD](/docs/prd/integration/js-sdk.md)。

@@ -40,6 +40,15 @@ pub async fn delete_permission(
         .await?;
 
     let Some(permission) = super::fetch_permission_definition(&state, id, &realm_id).await? else {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionDelete,
+            (id.to_string(), None),
+            "not_found",
+        )
+        .await;
         return Err(ApiError::not_found("Permission not found"));
     };
 
@@ -50,6 +59,15 @@ pub async fn delete_permission(
             permission_name = %permission.name,
             "Attempted to delete built-in permission"
         );
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionDelete,
+            (id.to_string(), Some(permission.name.clone())),
+            "builtin_permission",
+        )
+        .await;
         return Err(ApiError::forbidden("Cannot delete built-in permission"));
     }
 
@@ -65,6 +83,15 @@ pub async fn delete_permission(
     )
     .await?
     {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionDelete,
+            (id.to_string(), Some(permission.name.clone())),
+            "assigned_to_roles",
+        )
+        .await;
         return Err(ApiError::conflict(
             "Cannot delete permission that is assigned to roles",
         ));
@@ -81,6 +108,15 @@ pub async fn delete_permission(
         })?;
 
     if result.rows_affected() == 0 {
+        super::record_permission_failure(
+            &state,
+            &admin,
+            &realm_id,
+            AuditAction::PermissionDelete,
+            (id.to_string(), Some(permission.name.clone())),
+            "not_found_after_delete",
+        )
+        .await;
         return Err(ApiError::not_found("Permission not found"));
     }
 

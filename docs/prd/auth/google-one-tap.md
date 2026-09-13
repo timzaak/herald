@@ -40,7 +40,7 @@
 - **两种会话建立模式**：
   - 直接会话模式：One Tap 用于 Herald 自身前端登录时，Herald 直接建立 session
   - 授权码模式：One Tap 嵌入下游 OAuth Code+PKCE 流程时，Herald 签发授权码返回给第三方应用
-- **公开配置暴露 client_id**：Herald 公共配置接口向第三方前端暴露已启用的 Google Provider 的 client_id，使前端可初始化 One Tap SDK
+- **公开配置暴露 client_id**：Herald 公共配置接口（public-config）向第三方前端暴露该 Realm 全部已启用 OAuth Provider 的 client_id（有意泛化，client_id 本身非机密，secret 不暴露），其中 Google 项供前端初始化 One Tap SDK
 
 ### 2.2 不包含功能 (Out of Scope)
 
@@ -113,7 +113,7 @@ Google One Tap 允许第三方应用在自己的页面上直接弹出 Google 账
 
 2. **Herald 后端新增 One Tap 认证端点**：接收第三方前端传来的 Google 凭证 + 发起方 Herald Client App 的 `client_id`（必填）+ 可选的下游授权交易标识（`downstream_state`），验证通过后执行用户匹配/创建，并根据是否存在该标识选择直接建立 session 或签发授权码
 
-3. **公开配置暴露 client_id**：Herald 公共配置接口（public-config）向已启用 Google Provider 的 Realm 暴露 Google client_id，使第三方前端可初始化 GIS SDK
+3. **公开配置暴露 client_id**：Herald 公共配置接口（public-config）的 OAuth Provider 列表向全部启用 Provider 暴露各自 client_id（有意泛化；client_id 非机密，secret 不暴露），Google 项供第三方前端初始化 GIS SDK
 
 4. **下游授权码兼容**：当 One Tap 在 Authorization Code + PKCE 场景中使用时（请求携带 `downstream_state`），验证通过后签发一次性授权码，第三方应用通过现有的 token 端点 + PKCE 验证换取 access_token
 

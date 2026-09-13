@@ -112,6 +112,7 @@ Herald 项目需要接入微信账号体系，支持两种登录方式：
 **跨应用匹配**
 - 使用 UnionID 作为跨应用匹配的唯一标识
 - 同一用户可以有多个 Provider 记录（wechat、wechat-miniprogram），UnionID 相同
+- **同类型重复链接视为成功**：union_id/open_id 匹配到既有用户、但该用户名下同类型（wechat 或 wechat-miniprogram）链接已存在且 open_id 不同（同一人换了另一个应用）时，(user_id, type) 唯一索引冲突按成功处理——复用既有链接行完成登录，不落第二行、不向调用方报错（跨应用/换 open_id 重登录幂等）
 
 **与其他 OAuth Provider 的区别**
 

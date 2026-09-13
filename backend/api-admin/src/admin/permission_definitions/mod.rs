@@ -140,3 +140,34 @@ async fn record_permission_audit(
         tracing::warn!(error = %e, "Failed to record audit event");
     }
 }
+
+/// Record a failed permission-definition write (audit.md requires failed
+/// writes to be audited alongside successes). Best-effort, like the success
+/// paths above.
+async fn record_permission_failure(
+    state: &AppState,
+    admin: &AdminIdentity,
+    realm_id: &str,
+    action: AuditAction,
+    target: (String, Option<String>),
+    reason: &str,
+) {
+    record_permission_audit(
+        state,
+        admin,
+        realm_id,
+        action,
+        target,
+        AuditResult::Failure,
+        Some(serde_json::json!({ "reason": reason })),
+    )
+    .await;
+}
+
+/// Whether a permission definition names a platform-reserved wildcard
+/// (`All`, or a `*` in either segment). Wildcards are reserved for the
+/// platform: the RBAC matcher is exact-match today so this is inert, but a
+/// future wildcard matcher would turn such rows into bypasses.
+fn is_reserved_wildcard(resource: &str, action: &str) -> bool {
+    resource == "All" || resource.contains('*') || action.contains('*')
+}

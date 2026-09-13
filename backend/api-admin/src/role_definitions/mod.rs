@@ -26,6 +26,12 @@ pub use permissions::__path_remove_permission_from_role;
 pub use update::__path_update_role;
 
 use axum::routing::{delete, get, post};
+use herald_api_base::application::http::state::AppState;
+use herald_core::domain::audit::{
+    ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
+    NewAuditEvent,
+};
+use herald_core::domain::authentication::Identity;
 
 // Create individual router handlers for nested routes
 pub fn role_defs_router() -> axum::Router<herald_api_base::application::http::state::AppState> {
@@ -43,4 +49,41 @@ pub fn role_defs_router() -> axum::Router<herald_api_base::application::http::st
             "/{roleId}/permissions/{permissionId}",
             delete(remove_permission_from_role),
         )
+}
+
+/// Record a failed role-definitions write (audit.md requires failed writes
+/// to be audited alongside successes). Shared by the role update and
+/// role-permission grant/revoke failure paths. Best-effort: an audit write
+/// failure never fails the operation.
+async fn record_role_failure(
+    state: &AppState,
+    identity: &Identity,
+    realm_id: &str,
+    action: AuditAction,
+    target: (String, Option<String>),
+    details: serde_json::Value,
+) {
+    let (target_id, target_name) = target;
+    if let Err(e) = state
+        .audit_event_repository
+        .create(NewAuditEvent {
+            realm_id: realm_id.to_string(),
+            category: AuditCategory::Rbac,
+            action,
+            actor_id: identity.user_id().to_string(),
+            actor_type: Some(ActorType::Admin),
+            actor_name: identity.as_user().map(|u| u.email.clone()),
+            target_type: AuditTargetType::Role,
+            target_id,
+            target_name,
+            result: AuditResult::Failure,
+            details: Some(details),
+            ip_address: None,
+            user_agent: None,
+            trace_id: None,
+        })
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to record audit event");
+    }
 }

@@ -1,6 +1,18 @@
 /**
  * Shared constants used across the application
  */
+import { version } from '../../package.json'
+
+/**
+ * Product version shown in the admin console. Sourced from package.json so it
+ * always matches what scripts/release.py stamps on every release.
+ */
+export const APP_VERSION = version as string
+
+/**
+ * Upstream repository linked from the admin console (issues, releases, docs).
+ */
+export const GITHUB_REPO_URL = 'https://github.com/timzaak/herald'
 
 /**
  * Default product/brand name shown as a last-resort fallback when a realm has

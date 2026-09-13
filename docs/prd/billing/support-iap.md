@@ -139,7 +139,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 移动 App 通过既有 api-billing 浏览器路由（Bearer token + `PurchaseInitiate` scope）提交 Apple `jwsRepresentation` 或 Google `purchaseToken`
 - Apple：Herald 用自管的 Apple Root CA 信任锚对 JWS 做 x5c 证书链 + ES256 签名本地验签（密码学证明，无需回调 Apple），验签失败拒绝履约
 - Google：Herald 调 Google Play Developer API（`purchases.subscriptionsv2.get` / `purchases.products.get`）回查真实状态，以 API 返回状态为准
-- 凭证校验失败或归属不符当前用户时拒绝履约，返回明确失败原因（4xx）；凭证校验先于支付尝试创建，校验失败不产生 attempt 记录，由客户端修正后重新提交。已创建但履约中断的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
+- 凭证校验失败或归属不符当前用户时拒绝履约，返回明确失败原因（4xx）；凭证校验先于支付尝试创建，校验失败不产生 attempt 记录，由客户端修正后重新提交。履约失败（付款已成功）的 attempt 立即回滚为 Failed（满足 §4.1 死区恢复前置，客户端重提交可补救）；确因中断未获终局判定的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
 - 客户端提交不被信任，必须经上述密码学或 API 校验后才予履约
 - 用户绑定：购买 attempt 创建时建立 Herald user_id 与凭证的关联；IAP 凭证本身可能不携带 Herald user_id
 
@@ -197,7 +197,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 **订阅状态**（复用既有，非 IAP 新增）：Active / Past Due / Canceled / Expired / Grace Period 等；语义见 `docs/prd/billing/subscription.md` §4.2 与 IAP 平台通知映射。
 
 **异常场景**：
-- **客户端凭证校验失败或归属不符**：Herald 拒绝履约，返回明确失败原因（凭证无效 / 归属不符 / 已消耗）；校验先于 attempt 创建，失败时不产生支付尝试记录，由客户端修正后重新提交。已创建但履约中断的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
+- **客户端凭证校验失败或归属不符**：Herald 拒绝履约，返回明确失败原因（凭证无效 / 归属不符 / 已消耗）；校验先于 attempt 创建，失败时不产生支付尝试记录，由客户端修正后重新提交。履约失败（付款已成功）的 attempt 立即回滚为 Failed（满足 §4.1 死区恢复前置，客户端重提交可补救）；确因中断未获终局判定的 attempt 保持待处理，2 小时未完结由过期任务标记 Expired
 - **通知签名或来源校验失败**：拒绝处理，记录诊断，不改变任何权益或积分
 - **商品 ID 无对应 mapping**：fail loud，记录诊断并跳过履约，不静默降级
 - **客户端提交与平台通知次序错乱**：幂等约束（以 `originalTransactionId` / `purchaseToken` 为去重键）保证两者各履约一次、最终一致，不重复发放

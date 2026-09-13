@@ -52,7 +52,8 @@
     "statistics": "统计",
     "credit_buckets": "积分账户",
     "audit_log": "审计日志",
-    "settings": "设置"
+    "settings": "设置",
+    "github_repo": "GitHub 仓库"
   },
   "error": {
     "generic": "发生意外错误",

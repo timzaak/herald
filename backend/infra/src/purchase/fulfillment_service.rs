@@ -596,9 +596,12 @@ where
 
         // Role grant follows the points transaction, keeping the existing
         // idempotent / best-effort-cache-invalidation compensation semantics.
-        // Source id is the subscription id; expiry aligns to the period end so
-        // roles naturally lapse at expiry for NonRenewing (and the M4 sweep /
-        // explicit revoke catch them).
+        // Source id is the subscription id; the period end is recorded as the
+        // user_roles expiry, but RBAC checks do NOT filter on expires_at —
+        // the assignment does not naturally lapse. Removal relies on the
+        // explicit revoke paths (refund / M4 sweep); WeChat non_renewing
+        // purchases have no such path at expiry (documented channel gap, see
+        // docs/prd/billing/support-paywall.md 渠道边界).
         if !mapping.granted_role_ids.is_empty() {
             self.grant_payment_roles(
                 &attempt.realm_id,
