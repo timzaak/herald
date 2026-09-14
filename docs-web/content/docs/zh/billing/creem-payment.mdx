@@ -66,7 +66,7 @@ Herald 不维护本地商品目录。你在 Creem Dashboard 创建 Product，拿
 |------|----------------|
 | `subscription.paid` | 订阅首次支付或续费成功，创建订阅投影，发放积分 |
 | `subscription.update` | 订阅升降级处理，调整积分 |
-| `subscription.canceled` | 订阅取消（即时或期末取消），回收未使用积分 |
+| `subscription.canceled` | 订阅取消（即时或期末取消），收回剩余发放额度并撤销配额权益 |
 | `subscription.active` | 订阅激活，同步订阅状态 |
 | `subscription.trialing` | 订阅试用，同步订阅状态 |
 | `subscription.paused` | 订阅暂停，同步订阅状态 |
@@ -78,7 +78,7 @@ Herald 不维护本地商品目录。你在 Creem Dashboard 创建 Product，拿
 
 | 事件 | Herald 处理逻辑 |
 |------|----------------|
-| `refund.created` | 退款，按退款类型回收积分 |
+| `refund.created` | 退款；充值积分按单笔退款增量比例回收（以剩余额度封顶），累计全额退款时回收一次性购买角色 |
 | `dispute.created` | 争议发起，标记订阅为争议状态 |
 
 5. 创建完成后复制 **Signing secret**，回到 Herald Payment Providers → Creem 配置，填入 **Webhook Secret**

@@ -66,7 +66,7 @@ Saving valid credentials enables Creem — there is no separate enable toggle.
 |------|----------------|
 | `subscription.paid` | Subscription first payment or renewal succeeded; create the subscription projection and grant credits |
 | `subscription.update` | Handle upgrade/downgrade; adjust credits |
-| `subscription.canceled` | Subscription canceled (immediate or end-of-term); claw back unused credits |
+| `subscription.canceled` | Subscription canceled (immediate or end-of-term); revoke remaining grants and quota entitlements |
 | `subscription.active` | Subscription activated; sync state |
 | `subscription.trialing` | Subscription in trial; sync state |
 | `subscription.paused` | Subscription paused; sync state |
@@ -78,7 +78,7 @@ Saving valid credentials enables Creem — there is no separate enable toggle.
 
 | Event | Herald handling |
 |------|----------------|
-| `refund.created` | Refund; claw back credits by refund type |
+| `refund.created` | Refund; claw back top-up credits per refund (each refund's amount ÷ original payment, capped at what remains); revoke one-time purchase roles when cumulative refunds reach the full amount |
 | `dispute.created` | Dispute opened; mark the subscription as disputed |
 
 5. After creation, copy the **Signing secret**, go back to Herald Payment Providers → Creem config, and paste it into **Webhook Secret**

@@ -44,7 +44,7 @@
 - 一次性支付处理（Payment Intents）
 - Webhook 事件处理（支付状态同步）
 - 争议处理——`charge.dispute.created`/`charge.dispute.closed` 事件处理，标记订阅 Disputed 状态，争议解决后根据结果恢复或取消订阅（证据提交由 Stripe Dashboard 完成）
-- 退款处理——`charge.refunded` 事件处理：topup 退款按比例回收积分；subscription 退款在周期配额模型下按立即取消模式撤销订阅配额权益（原「回收未使用积分」的额度回收路径已被配额模型取代）
+- 退款处理——`charge.refunded` 事件处理：topup 退款按单笔退款增量占原支付金额的比例回收积分（多次部分退款的累计回收对齐累计退款比例，同一退款单重复推送不二次回收），一次性购买的角色仅在累计退款达到原支付金额时回收（见 `docs/prd/billing/refund-clawback.md`）；subscription 退款在周期配额模型下按立即取消模式撤销订阅配额权益（原「回收未使用积分」的额度回收路径已被配额模型取代）
 - 支付历史记录查询
 
 ### 2.2 不包含功能

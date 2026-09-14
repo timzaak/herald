@@ -81,7 +81,7 @@ Stripe 通过 Webhook 把支付结果推送给 Herald。这是整个对接中最
 |------|----------------|----------------|
 | `payment_intent.succeeded` | Payments → payment_intent.succeeded | 一次性支付（积分包购买）成功 |
 | `payment_intent.payment_failed` | Payments → payment_intent.payment_failed | 支付失败，标记支付尝试 |
-| `charge.refunded` | Payments → charge.refunded | 退款，按比例回收积分 |
+| `charge.refunded` | Payments → charge.refunded | 退款；充值积分按单笔退款增量比例回收（以剩余额度封顶），累计全额退款时回收一次性购买角色 |
 | `charge.dispute.created` | Payments → charge.dispute.created | 争议发起，标记订阅为争议状态 |
 | `charge.dispute.closed` | Payments → charge.dispute.closed | 争议结案：败诉则取消订阅，胜诉则恢复 |
 
@@ -214,7 +214,8 @@ Stripe Product 和 Price 支持 metadata。如果在 Stripe Dashboard 中给 Pro
 
 用户在 Stripe Dashboard 中发起退款时：
 - Stripe 发 `charge.refunded` Webhook
-- Herald 根据退款类型回收积分（充值退款按比例回收，订阅退款回收未使用积分）
+- 充值退款按单笔增量回收：每笔退款按 `本笔退款金额 / 原支付金额` 比例削减该笔支付发放的积分，以剩余额度封顶，同一退款单重复推送只回收一次。部分退款保留支付来源角色；累计退款达到原支付金额的那笔清掉剩余积分并回收角色
+- 订阅退款立即取消订阅并撤销其配额权益
 
 ## Step 7: 确认结果
 

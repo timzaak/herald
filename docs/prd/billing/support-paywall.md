@@ -29,7 +29,7 @@
 
 - `[US-PW-005]` 支付事件触发 role 撤销，优先级 P0，来源 [docs/user-stories/billing/support-paywall.md](/docs/user-stories/billing/support-paywall.md)
   - 角色：Realm Admin（系统代为执行）
-  - 摘要：订阅取消、过期或退款，以及一次性购买退款或撤销时，回收支付来源 role，幂等且最终一致
+  - 摘要：订阅取消、过期或退款，以及一次性购买累计全额退款时，回收支付来源 role，幂等且最终一致（部分退款保留角色，见 [refund-clawback.md](refund-clawback.md)）
 
 - `[US-PW-006]` 第三方应用凭 role 一行判断解锁功能，优先级 P0，来源 [docs/user-stories/billing/support-paywall.md](/docs/user-stories/billing/support-paywall.md)
   - 角色：Third-party App
@@ -102,8 +102,8 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 | recurring + 无积分 + role | 纯会员墙（只解锁） | 续费 | 订阅过期/取消/退款撤 |
 | non_renewing + 可选积分 + role | 固定期限权益（不自动续费） | 受活跃订阅购买约束 | 到期/取消/退款撤销支付来源角色（WeChat 到期例外见下方渠道边界） |
 | one_time + 积分 + 无 role | 积分包（现状） | 可重复买 | 不适用 |
-| one_time + 无积分 + role | 纯永久权益墙（买断解锁） | 一人一次 | 退款/撤销时回收支付来源角色 |
-| one_time + 积分 + role | 买断礼包（发积分+永久解锁） | 一人一次 | 退款/撤销时回收支付来源角色 |
+| one_time + 无积分 + role | 纯永久权益墙（买断解锁） | 一人一次 | 累计全额退款时回收支付来源角色（部分退款保留） |
+| one_time + 积分 + role | 买断礼包（发积分+永久解锁） | 一人一次 | 累计全额退款时回收支付来源角色（部分退款保留） |
 
 - 三维度（billing_type / points 策略 / role 授予）各自独立，可为空；空 role 授予 = 纯积分/纯支付记录
 - 不裂变 billing_type 枚举，不新增商品类型，不引入「积分包 vs 权益包」之类新名词
@@ -116,7 +116,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 **role 授予规则**：
 - role 来自用户在 Herald 自定义的角色/权限（复用现有 RBAC），不新建权限空间、不引入 `entitlement.*` 新权限格式
 - 支付成功自动授予映射配置的 role
-- 一次性购买（one_time + role）= 永久解锁，role 不设过期；退款或撤销时仅回收该笔支付来源的 role，正常取消或到期不触碰买断 role；`validity_days` 只约束积分有效期，不约束 role
+- 一次性购买（one_time + role）= 永久解锁，role 不设过期；累计退款达原支付金额 100% 时回收该笔支付来源的 role（部分退款保留，见 [refund-clawback.md](refund-clawback.md)），正常取消或到期不触碰买断 role；`validity_days` 只约束积分有效期，不约束 role
 - 订阅（recurring + role）= 周期内有效（靠 webhook 撤销 + 补偿框架最终一致，非 `expires_at` TTL 自动失效），续费 webhook 续授；`user_roles.expires_at` 仅保存支付周期来源信息，权限检查不按该字段过滤
 
 **重复购买判定规则**：
@@ -126,12 +126,13 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - 并发安全：应用层购买前检查为 UX 快路径，DB 层在 `payment_attempts(user_id, target_id) WHERE status='Succeeded' AND is_one_time_role=TRUE` 上有 partial unique index 兜底，关闭并发双购窗口
 
 **role 撤销规则**：
-- 订阅的取消、过期或退款触发支付来源 role 撤销；一次性购买仅在退款或撤销时触发回收
+- 订阅的取消、过期或退款触发支付来源 role 撤销；一次性购买仅在累计退款达到原支付金额时触发回收（部分退款保留，见 [refund-clawback.md](refund-clawback.md)）
 - **渠道边界（WeChat 例外）**：退款/撤销回收依赖支付渠道的退款信号（webhook 回调或对账）。Stripe/Creem/Apple/Google 均有退款信号源；WeChat 渠道本期不实现退款回调与争议状态（见 `wechat-support.md` §2.2），商户侧退款在 Herald 内无任何事件可扫。因此 WeChat 渠道的 one_time + role 映射退款后 role 无法自动回收，属于本 PRD 撤销承诺的已知渠道级例外——WeChat 商户如需退款，须先在 Herald 手工移除支付来源 role 再行退款
 - **渠道边界（WeChat non_renewing 到期缺口）**：non_renewing 行的"到期撤销"同样依赖渠道到期信号源。Apple/Google 由商店终端事件与对账承载；WeChat 渠道无任何到期事件源（webhook 仅覆盖支付成功结果，Herald 也不为 WeChat 运行订阅到期扫描），因此 WeChat non_renewing 映射到期后订阅保持 active、支付来源 role 不会自动撤销。这与 Apple 非续期订阅的到期缺口同为已接受的渠道级限制（见 `pay_model.md` §4.2"已接受的平台限制"）：SDK/第三方可凭订阅的 `current_period_end` 自行判断到期；需要硬撤销的场景应由商户到期后手工移除支付来源 role，或改用具备到期信号源的渠道
 - 撤销仅移除「支付授予」来源的 role 关联；Realm Admin 手工授予部分不受影响
 - 撤销操作必须幂等（复用既有 webhook 幂等键）
-- 一次性永久权益不会因正常取消或到期事件撤销；退款或撤销必须回收支付来源 role
+- 一次性永久权益不会因正常取消或到期事件撤销；累计退款达到原支付金额时必须回收支付来源 role（部分退款保留，退款回收语义见 [refund-clawback.md](refund-clawback.md)）
+- **渠道边界（争议/撤销事件）**：一次性购买的争议、撤销类事件不触发支付来源角色回收（Stripe、Creem 的争议处理均仅覆盖订阅，订阅争议走既有订阅状态流）；部分退款保留的角色不因争议事件失效。「争议事件回收一次性角色」的能力缺口另立方案解决
 - 撤销可靠性目标：最终一致，容忍窗口为分钟级，绝不永久漏撤；漏撤视为 P0 故障（适用于有退款信号源的渠道；WeChat 渠道例外见上）
 
 **权限来源可追溯规则**：
@@ -195,9 +196,10 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - 并发安全，防双购
 
 **M4 — 支付来源 role 撤销**：
-- 订阅取消、过期和退款，以及一次性购买退款或撤销，都通过既有补偿能力处理
+- 订阅取消、过期和退款，以及一次性购买累计全额退款，都通过既有补偿能力处理
 - 撤销仅移除支付来源的 role 关联，幂等
 - 容忍窗口内最终一致（分钟级）
+- 一次性购买部分退款保留角色（见 [refund-clawback.md](refund-clawback.md)）；争议/撤销事件的渠道边界见 §4.1
 - 渠道边界：WeChat 无退款信号源（见 §4.1 渠道边界），其退款回收依赖商户侧手工流程，不在自动撤销承诺范围内
 
 **M5 — 第三方应用 RBAC 判断**：
@@ -210,7 +212,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - 任意购买形态（one_time/recurring × 有无积分 × 有无 role）的 entitlement mapping 可配置并保存
 - 支付成功后用户自动获得映射配置的 role；一次性为永久，订阅为周期内有效
 - 「one_time + role」组合重复购买被阻止（含并发），积分包仍可重复
-- 订阅过期/取消/退款，以及一次性购买退款/撤销时，支付来源的 role 被撤销，手工授予不受影响
+- 订阅过期/取消/退款，以及一次性购买累计全额退款时，支付来源的 role 被撤销，手工授予不受影响；一次性购买部分退款保留角色（见 [refund-clawback.md](refund-clawback.md)）
 - 撤销幂等，重复 webhook 不产生二次错误
 - 第三方应用可凭 Herald RBAC 一行判断解锁，无需自建 entitlement 门控
 - Herald 全程不存储/解释 features/quotas 语义
@@ -269,8 +271,8 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 - **横切叠加（核心模型）**：role 授予是独立配置维度，与 billing_type、points 策略正交；不裂变类型、不新增商品类型、不引入新名词
 - **复用 RBAC**：映射到用户自定义 role/权限，不新建权限空间，不引入 `entitlement.*` 新权限格式
 - **不破坏 features 边界**：Herald 仅做键值映射管道，仍不知权限语义；与既有「Herald 不管理 features」决策不冲突
-- **一次性=永久解锁**：one_time + role 的 role 不设过期；`validity_days` 只约束积分有效期；不引入 cron/scheduler。退款或撤销仍须回收支付来源 role。
-- **role 撤销边界**：订阅取消、过期和退款会撤销支付来源 role；一次性购买只在退款或撤销时回收，正常取消或到期不触碰买断权益。
+- **一次性=永久解锁**：one_time + role 的 role 不设过期；`validity_days` 只约束积分有效期；不引入 cron/scheduler。累计全额退款仍须回收支付来源 role，部分退款保留（见 [refund-clawback.md](refund-clawback.md)）
+- **role 撤销边界**：订阅取消、过期和退款会撤销支付来源 role；一次性购买只在累计退款达到原支付金额时回收，正常取消或到期不触碰买断权益。争议/撤销事件的渠道边界见 §4.1。
 - **webhook 撤销可靠性**：撤销不可靠 = 白嫖权益，是支付墙最致命失败模式；通过复用补偿框架 + 内部失败重试扫面达成与积分发放同等的幂等/补偿可靠性，漏撤视为 P0 故障
 - **重复购买判定**：仅「one_time + 授予 role」强制一人一次；积分包可重复；recurring 续费不受限
 
@@ -279,6 +281,7 @@ Herald 当前付费履约硬绑积分：one-time 购买不配积分时履约直�
 ## 9. 参考资料
 
 - 用户故事：[docs/user-stories/billing/support-paywall.md](/docs/user-stories/billing/support-paywall.md)
+- 相关 PRD：[docs/prd/billing/refund-clawback.md](/docs/prd/billing/refund-clawback.md)（退款回收增量语义与一次性角色回收全额门）
 - 相关 PRD：[docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md)（订阅计费、Entitlement 映射、Webhook 处理）
 - 相关 PRD：[docs/prd/billing/points.md](/docs/prd/billing/points.md)（积分系统、退款积分回收）
 - 相关 PRD：[docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md)（含多价格映射）

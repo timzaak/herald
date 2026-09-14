@@ -76,7 +76,7 @@ Every leg of a consume is a row in `points_transactions` with a negative `amount
 
 ## Clawback: refunds, cancellations, expiry
 
-- **Top-up refund**: clawback is proportional and anchored to the originating payment — the ledgers granted by that specific payment are reduced by `refund amount / original payment amount`, capped at what remains. Unrelated credits are never touched.
+- **Top-up refund**: clawback runs per refund and is anchored to the originating payment — each refund reduces the ledgers granted by that payment by `refund amount / original payment amount`, capped at what remains, so several partial refunds add up to the refunded share instead of over-revoking. The idempotency unit is the provider's refund ID: the same refund redelivered claws back once. When cumulative refunds reach the full payment, the last refund sweeps everything that source still has, rounding remainders included. Unrelated credits are never touched.
 - **Subscription refund or immediate cancellation**: grants made by that subscription are revoked (remaining ledger amounts), and its quota entitlements are revoked. Already-consumed usage is not retro-adjusted — window usage rolls off naturally as the window slides.
 - **Subscription cancel at period end**: no clawback; the user keeps what the last period granted.
 - **Upgrade**: the old mapping's grants are revoked and the new mapping's rules execute in the same transaction. **Downgrade**: nothing is revoked; the next renewal grants by the new rules.

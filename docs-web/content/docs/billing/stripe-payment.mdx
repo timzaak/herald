@@ -81,7 +81,7 @@ Click **Select events** and check the events below. Missing any one of them brea
 |------|----------------|----------------|
 | `payment_intent.succeeded` | Payments → payment_intent.succeeded | One-time payment (credit-pack purchase) succeeded |
 | `payment_intent.payment_failed` | Payments → payment_intent.payment_failed | Payment failed; mark the payment attempt |
-| `charge.refunded` | Payments → charge.refunded | Refund; claw back credits proportionally |
+| `charge.refunded` | Payments → charge.refunded | Refund; claw back top-up credits per refund (each refund's amount ÷ original payment, capped at what remains); revoke one-time purchase roles when cumulative refunds reach the full amount |
 | `charge.dispute.created` | Payments → charge.dispute.created | Dispute opened; mark the subscription as disputed |
 | `charge.dispute.closed` | Payments → charge.dispute.closed | Dispute closed: lost cancels the subscription, won restores it |
 
@@ -214,7 +214,8 @@ When the product carries Prices in several currencies, the Herald purchase page 
 
 When a user initiates a refund in the Stripe Dashboard:
 - Stripe fires `charge.refunded`
-- Herald claws back credits based on refund type (top-up refunds claw back proportionally; subscription refunds claw back unused credits)
+- Top-up refunds claw back credits per refund: each refund reduces the credits granted by that payment by `refund amount / original payment`, capped at the remaining balance, and the same refund delivered twice claws back once. Partial refunds keep the payment-granted roles; the refund that brings the cumulative total to the full payment sweeps the remaining credits and revokes them
+- Subscription refunds cancel the subscription immediately and revoke its quota entitlements
 
 ## Step 7: Verify the result
 
