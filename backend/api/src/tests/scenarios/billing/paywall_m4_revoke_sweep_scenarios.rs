@@ -977,9 +977,13 @@ mod tests {
         create_points_wallet(ctx, user_id, &realm_id).await;
 
         // Fulfill a one-time attempt → grants role (source_id=attempt_id,
-        // permanent) AND 500 points.
+        // permanent) AND 500 points. The attempt amount must match the
+        // refunded 500/500 below: the refund's cumulative-full gate compares
+        // the refunded total against the authoritative attempt.amount, so a
+        // mismatched larger amount would read as a partial refund and keep
+        // the role.
         let attempt_id =
-            create_pending_attempt(ctx, &realm_id, user_id, mapping_id, 999, "USD").await;
+            create_pending_attempt(ctx, &realm_id, user_id, mapping_id, 500, "USD").await;
         let provider_tx_id = format!("pi_m4_refund_{}", attempt_id);
         let result = fulfill_attempt(ctx, attempt_id, &provider_tx_id).await;
         assert!(

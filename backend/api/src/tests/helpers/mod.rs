@@ -1,6 +1,10 @@
 pub mod async_payment_helpers;
 pub mod auth_helpers;
 pub mod billing_helpers;
+// Stripe one-time billing seeding helpers (mappings, Succeeded attempts,
+// payment/manual role grants). Imported explicitly by the billing refund /
+// revocation scenario tests, mirroring the `points_helpers` pattern.
+pub mod billing_seed_helpers;
 pub mod client_helpers;
 #[cfg(test)]
 pub mod credit_bucket_helpers;

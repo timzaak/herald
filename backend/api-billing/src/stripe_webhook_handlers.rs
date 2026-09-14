@@ -35,6 +35,7 @@ use herald_core::domain::points::entities::{
     PointsRevocationRecord, PointsTransaction, RevocationType, TransactionType,
 };
 use herald_core::domain::points::ports::PointsRepository;
+use herald_core::domain::points::ports::TopupRefundRevokeRequest;
 use herald_core::domain::points::subscription_service::CancelMode;
 use herald_core::domain::purchase::metadata_keys;
 use herald_core::domain::realm_config::RealmConfigRepository;
@@ -90,11 +91,25 @@ struct StripeSubscriptionDeletedPayload {
     current_period_end: Option<DateTime<Utc>>,
 }
 
+/// The single refund object (`refunds.data[0]`) carried by a
+/// `charge.refunded` event — that event's own refund, with its OWN amount
+/// (the incremental revocation input), distinct from the charge-level
+/// cumulative `amount_refunded`.
+struct StripeRefundObject {
+    id: String,
+    amount: i64,
+}
+
 struct StripeChargeRefundedPayload {
     event_id: String,
     charge_id: String,
-    amount: i64,
+    /// Charge-level `amount` — provider-declared original payment, used only
+    /// to detect divergence from the local attempt snapshot (warn log).
+    charge_amount: Option<i64>,
     amount_refunded: i64,
+    /// None when the payload carries no `refunds.data[0]` — tolerated for
+    /// subscription refunds, fail-loud for topups (see handle_charge_refunded).
+    refund: Option<StripeRefundObject>,
     user_id: Uuid,
     subscription_id: Option<Uuid>,
     refund_type: String,
@@ -624,20 +639,37 @@ fn parse_subscription_deleted_payload(
 }
 
 fn parse_charge_refunded_payload(event: &Value) -> Result<StripeChargeRefundedPayload, CoreError> {
+    // The refund object is required for topup refunds (it carries the refund
+    // id and that refund's own amount). Absent OR malformed data stays None
+    // so subscription-shaped payloads keep their existing tolerance; the
+    // topup branch then fails loud. data[0] relies on Stripe listing refunds
+    // newest-first (its documented list ordering), making the head element
+    // the refund this event describes.
+    let refund = event["data"]["object"]["refunds"]["data"]
+        .as_array()
+        .and_then(|data| data.first())
+        .and_then(|first| {
+            let id = first["id"].as_str()?;
+            let amount = first["amount"].as_i64()?;
+            Some(StripeRefundObject {
+                id: id.to_string(),
+                amount,
+            })
+        });
+
     Ok(StripeChargeRefundedPayload {
         event_id: parse_event_id(event)?,
         charge_id: event["data"]["object"]["id"]
             .as_str()
             .ok_or_else(|| CoreError::BadRequest("Missing charge id".to_string()))?
             .to_string(),
-        amount: event["data"]["object"]["amount"]
-            .as_i64()
-            .ok_or_else(|| CoreError::BadRequest("Missing or invalid amount".to_string()))?,
+        charge_amount: event["data"]["object"]["amount"].as_i64(),
         amount_refunded: event["data"]["object"]["amount_refunded"]
             .as_i64()
             .ok_or_else(|| {
                 CoreError::BadRequest("Missing or invalid amount_refunded".to_string())
             })?,
+        refund,
         user_id: parse_uuid_field(
             metadata_value(
                 &event["data"]["object"]["metadata"],
@@ -2506,34 +2538,71 @@ async fn handle_charge_refunded(
                     payload.charge_id
                 )));
             }
-            let _output = app_state
+            // Revocation input is THIS event's refund (`refunds.data[0]`):
+            // its id is the persistent dedup unit and its amount the
+            // incremental share. `amount_refunded` is the cumulative provider
+            // figure — using it as the per-refund input double-revokes on
+            // every later partial refund of the same charge.
+            let refund = payload.refund.as_ref().ok_or_else(|| {
+                CoreError::BadRequest("Missing refunds data in charge.refunded payload".to_string())
+            })?;
+            // The gate denominator is the local attempt snapshot by design; a
+            // divergence from the provider's charge amount silently skews the
+            // full-refund gate (or 400s the refund cap forever) — surface it
+            // instead of failing silently.
+            if let Some(charge_amount) = payload.charge_amount
+                && charge_amount != attempt.amount
+            {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    charge_id = %payload.charge_id,
+                    charge_amount,
+                    attempt_amount = attempt.amount,
+                    "Stripe charge amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
+                );
+            }
+            let outcome = app_state
                 .points_service
-                .revoke_topup_source_proportional(
+                .revoke_topup_refund(TopupRefundRevokeRequest {
+                    realm_id,
+                    user_id: payload.user_id,
+                    payment_attempt_id: attempt.id,
+                    payment_provider: "stripe",
+                    refund_id: &refund.id,
+                    refund_amount: refund.amount,
+                    original_payment_amount: attempt.amount,
+                    provider_cumulative_refunded: Some(payload.amount_refunded),
+                })
+                .await?;
+
+            // Full-refund gate: a partial refund (any share, any count) keeps
+            // the payment-granted permanent roles; only a refund that brings
+            // the cumulative total to the original payment amount revokes
+            // them. Runs on duplicate re-delivery too: the revoke is
+            // idempotent (NotFound is a no-op; only source='payment' rows)
+            // and the call itself is best-effort, so re-running it is the
+            // only self-heal path when the first attempt failed transiently —
+            // the persistent dedup row above guards the points revocation.
+            if outcome.fully_refunded {
+                revoke_payment_roles_for_attempt(
+                    &app_state,
                     realm_id,
                     payload.user_id,
                     &attempt.id.to_string(),
-                    payload.amount_refunded,
-                    payload.amount,
-                    event_id,
                 )
-                .await?;
-
-            // Revoke payment-granted permanent roles for this one-time attempt
-            // `source_id = attempt.id`, so revoke with the same source id.
-            // Idempotent (NotFound is a no-op); manual grants unaffected.
-            revoke_payment_roles_for_attempt(
-                &app_state,
-                realm_id,
-                payload.user_id,
-                &attempt.id.to_string(),
-            )
-            .await;
+                .await;
+            }
 
             info!(
                 realm_id = %realm_id,
                 user_id = %payload.user_id,
                 charge_id = %payload.charge_id,
-                amount = payload.amount_refunded,
+                refund_id = %refund.id,
+                refund_amount = refund.amount,
+                cumulative_refunded = payload.amount_refunded,
+                duplicate = outcome.duplicate,
+                fully_refunded = outcome.fully_refunded,
+                total_revoked = outcome.revoked.total_revoked,
                 "Topup refund - proportionally revoked topup credits"
             );
         }

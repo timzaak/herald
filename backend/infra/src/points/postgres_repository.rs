@@ -27,8 +27,8 @@ use herald_domain::points::{
     errors::PointsErrorExt,
     expiration_service::ExpirationSummary,
     ports::{
-        LedgerFilters, LedgerUpdate, PointsRepository, ReclaimLocator, TransactionFilters,
-        WalletDelta, WalletFilters,
+        LedgerFilters, LedgerUpdate, PointsRepository, ReclaimLocator, TopupRefundRevokeOutcome,
+        TopupRefundRevokeRequest, TransactionFilters, WalletDelta, WalletFilters,
     },
     service::{MixedConsumePlan, plan_mixed_consume},
 };
@@ -4258,36 +4258,110 @@ impl PointsRepository for PostgresPointsRepository {
         }
     }
 
-    fn revoke_topup_source_proportional_atomic(
+    fn revoke_topup_refund_atomic<'a>(
         &self,
-        realm_id: &str,
-        user_id: Uuid,
-        source_id: &str,
-        refund_amount: i64,
-        original_payment_amount: i64,
-        refund_id: &str,
-    ) -> impl std::future::Future<Output = Result<RevokePointsOutput, CoreError>> + Send {
+        request: TopupRefundRevokeRequest<'a>,
+    ) -> impl std::future::Future<Output = Result<TopupRefundRevokeOutcome, CoreError>> + Send {
         let pool = self.pool.clone();
-        let realm_id = realm_id.to_string();
-        let source_id = source_id.to_string();
-        let refund_id = refund_id.to_string();
+        let realm_id = request.realm_id.to_string();
+        let user_id = request.user_id;
+        let attempt_id = request.payment_attempt_id;
+        let payment_provider = request.payment_provider.to_string();
+        let refund_id = request.refund_id.to_string();
+        let refund_amount = request.refund_amount;
+        let original_payment_amount = request.original_payment_amount;
+        let provider_cumulative_refunded = request.provider_cumulative_refunded;
         async move {
-            let idempotency_key = format!("refund:topup:{}", refund_id);
             let mut tx = pool
                 .begin()
                 .await
                 .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
 
-            if Self::check_completed_idempotency_in_tx(&mut tx, &realm_id, &idempotency_key)
-                .await?
-                .is_some()
-            {
+            // Creem's in-statement SUM aggregates only rows visible to this
+            // transaction's snapshot: two concurrent refunds of the same
+            // attempt would each see the pre-existing committed rows only and
+            // persist undercounted cumulatives (READ COMMITTED never sees the
+            // sibling's uncommitted insert). The SUM path therefore serializes
+            // refund recording per attempt with a transaction-scoped advisory
+            // lock; Stripe trusts the provider-authoritative payload
+            // cumulative and needs no lock.
+            if provider_cumulative_refunded.is_none() {
+                sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                    .bind((attempt_id.as_u64_pair().0 ^ attempt_id.as_u64_pair().1) as i64)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+            }
+
+            // Persist the refund row and dedup on the provider refund id in
+            // the SAME transaction as the revocation: committing the row first
+            // would make a failed-revocation retry look like a duplicate and
+            // silently skip a real revocation forever. The cumulative figure
+            // is computed in the INSERT itself: Creem's refund payload carries
+            // no cumulative, so the in-statement SUM aggregates the attempt's
+            // previously recorded refunds (Stripe instead trusts the
+            // provider-authoritative payload cumulative passed as $8).
+            let inserted = sqlx::query_as::<_, (Uuid, i64)>(
+                "INSERT INTO payment_refunds \
+                     (id, realm_id, payment_provider, payment_attempt_id, refund_id, \
+                      amount, original_payment_amount, cumulative_refunded_after) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, \
+                         COALESCE($8, (SELECT COALESCE(SUM(amount), 0)::BIGINT \
+                                       FROM payment_refunds \
+                                       WHERE payment_attempt_id = $4) + $6)) \
+                 ON CONFLICT (realm_id, payment_provider, refund_id) DO NOTHING \
+                 RETURNING id, cumulative_refunded_after",
+            )
+            .bind(Uuid::now_v7())
+            .bind(&realm_id)
+            .bind(&payment_provider)
+            .bind(attempt_id)
+            .bind(&refund_id)
+            .bind(refund_amount)
+            .bind(original_payment_amount)
+            .bind(provider_cumulative_refunded)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+
+            let Some((_refund_row_id, cumulative_refunded_after)) = inserted else {
+                // Duplicate delivery of an already-recorded refund: report the
+                // row's own gate state instead of a fabricated false, so a
+                // caller whose best-effort role revocation failed after this
+                // row committed can reconcile it on re-delivery.
+                let (existing_cumulative, existing_original) = sqlx::query_as::<_, (i64, i64)>(
+                    "SELECT cumulative_refunded_after, original_payment_amount \
+                         FROM payment_refunds \
+                         WHERE realm_id = $1 AND payment_provider = $2 AND refund_id = $3",
+                )
+                .bind(&realm_id)
+                .bind(&payment_provider)
+                .bind(&refund_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
                 tx.commit()
                     .await
                     .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
-                return Ok(RevokePointsOutput::empty());
-            }
+                return Ok(TopupRefundRevokeOutcome {
+                    duplicate: true,
+                    fully_refunded: existing_cumulative >= existing_original,
+                    revoked: RevokePointsOutput::empty(),
+                });
+            };
 
+            let fully_refunded = cumulative_refunded_after >= original_payment_amount;
+            // At the full-refund gate, revoke against the whole original
+            // amount: proportional caps at each grant's remaining balance, so
+            // this sweeps every remaining point of the source — including the
+            // rounding residue accumulated by half-up across partial refunds.
+            let effective_refund_amount = if fully_refunded {
+                original_payment_amount
+            } else {
+                refund_amount
+            };
+
+            let source_id = attempt_id.to_string();
             let ledgers = sqlx::query_as::<_, PointsCreditLedgerRow>(
                 "SELECT l.* \
                  FROM points_credit_ledger l \
@@ -4316,7 +4390,7 @@ impl PointsRepository for PostgresPointsRepository {
                 let amount_to_revoke = Self::proportional_refund_for_grant(
                     ledger.granted_amount,
                     ledger.remaining_amount,
-                    refund_amount,
+                    effective_refund_amount,
                     original_payment_amount,
                 );
                 if amount_to_revoke <= 0 {
@@ -4339,7 +4413,7 @@ impl PointsRepository for PostgresPointsRepository {
                     revoked_amount: amount_to_revoke,
                     reason: format!(
                         "Proportional refund ({}/{})",
-                        refund_amount, original_payment_amount
+                        effective_refund_amount, original_payment_amount
                     ),
                     reference_id: Some(refund_id.clone()),
                     created_at: chrono::Utc::now(),
@@ -4350,23 +4424,19 @@ impl PointsRepository for PostgresPointsRepository {
                 ledger_ids.push(updated_ledger.id);
             }
 
-            Self::record_completed_idempotency_in_tx(
-                &mut tx,
-                &realm_id,
-                &idempotency_key,
-                Uuid::now_v7(),
-            )
-            .await?;
-
             tx.commit()
                 .await
                 .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
 
-            Ok(RevokePointsOutput {
-                revocation_id: Uuid::now_v7(),
-                ledger_ids,
-                total_revoked,
-                revoked_at: chrono::Utc::now(),
+            Ok(TopupRefundRevokeOutcome {
+                duplicate: false,
+                fully_refunded,
+                revoked: RevokePointsOutput {
+                    revocation_id: Uuid::now_v7(),
+                    ledger_ids,
+                    total_revoked,
+                    revoked_at: chrono::Utc::now(),
+                },
             })
         }
     }

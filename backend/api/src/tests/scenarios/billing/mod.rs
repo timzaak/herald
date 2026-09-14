@@ -103,6 +103,12 @@ pub mod async_payment_points_strategy_scenarios;
 // User Story: US-AP-002 (idempotency), US-AP-003 (revocation), US-AP-004 (debt)
 pub mod async_payment_revocation_scenarios;
 
+// Refund incremental revocation scenario tests: per-refund incremental
+// points revocation + refund-id idempotency, the cumulative-full-refund
+// gate for one-time role revocation, dispute retention, and the Stripe
+// missing-refunds fail-loud contract.
+pub mod refund_incremental_scenarios;
+
 pub mod payment_attempt_status_guard_scenarios;
 
 // Webhook grant idempotency scenario tests

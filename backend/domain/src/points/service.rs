@@ -15,7 +15,10 @@ use crate::points::{
     errors::PointsErrorExt,
     event_key_for_free_periodic,
     policies::PointsPolicy,
-    ports::{PointsRepository, TransactionFilters, WalletFilters},
+    ports::{
+        PointsRepository, TopupRefundRevokeOutcome, TopupRefundRevokeRequest, TransactionFilters,
+        WalletFilters,
+    },
 };
 
 /// Points Service - Business logic for points management
@@ -922,66 +925,76 @@ where
         Ok(result)
     }
 
-    pub async fn revoke_topup_source_proportional(
+    /// Revoke topup points for a single provider refund (fail-loud on
+    /// nonsensical amounts). The idempotency unit is the provider refund id;
+    /// see `TopupRefundRevokeRequest`. The caller gates payment-role
+    /// revocation on `fully_refunded` alone: the revoke is idempotent, so
+    /// duplicate re-delivery of a full refund re-runs it and self-heals a
+    /// transient best-effort failure.
+    pub async fn revoke_topup_refund(
         &self,
-        realm_id: &str,
-        user_id: Uuid,
-        source_id: &str,
-        refund_amount: i64,
-        original_payment_amount: i64,
-        refund_id: &str,
-    ) -> Result<RevokePointsOutput, CoreError> {
-        if original_payment_amount <= 0 {
+        request: TopupRefundRevokeRequest<'_>,
+    ) -> Result<TopupRefundRevokeOutcome, CoreError> {
+        if request.original_payment_amount <= 0 {
             return Err(CoreError::BadRequest(
                 "Original payment amount must be positive".to_string(),
             ));
         }
 
-        if refund_amount <= 0 {
+        if request.refund_amount <= 0 {
             return Err(CoreError::BadRequest(
                 "Refund amount must be positive".to_string(),
             ));
         }
 
-        if refund_amount > original_payment_amount {
+        if request.refund_amount > request.original_payment_amount {
             return Err(CoreError::BadRequest(
                 "Refund amount cannot exceed original payment".to_string(),
             ));
         }
 
-        let result = self
+        if let Some(cumulative) = request.provider_cumulative_refunded
+            && cumulative < request.refund_amount
+        {
+            return Err(CoreError::BadRequest(
+                "Provider cumulative refund cannot be less than refund amount".to_string(),
+            ));
+        }
+
+        let outcome = self
             .repository
-            .revoke_topup_source_proportional_atomic(
-                realm_id,
-                user_id,
-                source_id,
-                refund_amount,
-                original_payment_amount,
-                refund_id,
-            )
+            .revoke_topup_refund_atomic(request.clone())
             .await?;
 
-        if result.total_revoked == 0 {
+        if outcome.duplicate {
             tracing::info!(
-                realm_id = %realm_id,
-                user_id = %user_id,
-                refund_id = %refund_id,
+                realm_id = %request.realm_id,
+                user_id = %request.user_id,
+                refund_id = %request.refund_id,
+                "Provider refund already processed - skipped topup revocation"
+            );
+        } else if outcome.revoked.total_revoked == 0 {
+            tracing::info!(
+                realm_id = %request.realm_id,
+                user_id = %request.user_id,
+                refund_id = %request.refund_id,
                 "No active topup ledgers found for proportional revocation"
             );
         } else {
             tracing::info!(
-                realm_id = %realm_id,
-                user_id = %user_id,
-                refund_id = %refund_id,
-                refund_amount = refund_amount,
-                original_payment_amount = original_payment_amount,
-                total_revoked = result.total_revoked,
-                ledger_count = result.ledger_ids.len(),
-                "Proportionally revoked topup points"
+                realm_id = %request.realm_id,
+                user_id = %request.user_id,
+                refund_id = %request.refund_id,
+                refund_amount = request.refund_amount,
+                original_payment_amount = request.original_payment_amount,
+                fully_refunded = outcome.fully_refunded,
+                total_revoked = outcome.revoked.total_revoked,
+                ledger_count = outcome.revoked.ledger_ids.len(),
+                "Proportionally revoked topup points for provider refund"
             );
         }
 
-        Ok(result)
+        Ok(outcome)
     }
 
     /// Internal method to grant points directly to ledger
@@ -2010,5 +2023,116 @@ mod reconcile_evolution_tests {
             .await
             .expect_err("realization write errors must fail loud");
         assert!(matches!(err, CoreError::DatabaseError(_)));
+    }
+}
+
+// Refund-revocation validation matrix. WHY: these guards are the fail-loud
+// contract toward the payment provider — a nonsensical amount must 400 (and be
+// retried/redelivered) instead of silently revoking a wrong share of credits.
+// Each arm pins one rejection so a weakened guard fails loudly.
+#[cfg(test)]
+mod revoke_topup_refund_tests {
+    use super::*;
+    use crate::points::policies::AllowAllPointsPolicy;
+    use crate::points::ports::MockPointsRepository;
+
+    fn request(
+        provider: &'static str,
+        refund_amount: i64,
+        original: i64,
+        cumulative: Option<i64>,
+    ) -> TopupRefundRevokeRequest<'static> {
+        TopupRefundRevokeRequest {
+            realm_id: "realm",
+            user_id: Uuid::nil(),
+            payment_attempt_id: Uuid::nil(),
+            payment_provider: provider,
+            refund_id: "re_test",
+            refund_amount,
+            original_payment_amount: original,
+            provider_cumulative_refunded: cumulative,
+        }
+    }
+
+    async fn assert_bad_request(req: TopupRefundRevokeRequest<'_>, expected: &str) {
+        let mut repo = MockPointsRepository::new();
+        repo.expect_revoke_topup_refund_atomic().times(0);
+        let svc = PointsService::new(Arc::new(repo), Arc::new(AllowAllPointsPolicy));
+        let err = svc.revoke_topup_refund(req).await.expect_err("must reject");
+        match err {
+            CoreError::BadRequest(msg) => assert_eq!(msg, expected),
+            other => panic!("expected BadRequest, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_non_positive_original_payment_amount() {
+        assert_bad_request(
+            request("stripe", 100, 0, Some(100)),
+            "Original payment amount must be positive",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_non_positive_refund_amount() {
+        assert_bad_request(
+            request("stripe", 0, 1000, Some(0)),
+            "Refund amount must be positive",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_refund_amount_exceeding_original_payment() {
+        assert_bad_request(
+            request("stripe", 1001, 1000, Some(1001)),
+            "Refund amount cannot exceed original payment",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_cumulative_below_refund_amount() {
+        // Stripe's payload cumulative must include this refund; a lower value
+        // means the payload is inconsistent — fail loud rather than guess.
+        assert_bad_request(
+            request("stripe", 300, 1000, Some(299)),
+            "Provider cumulative refund cannot be less than refund amount",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn accepts_cumulative_none_creem_shape_and_propagates_outcome() {
+        // Creem sends no cumulative field: validation must not reject `None`
+        // (the SUM is computed in-transaction) and the outcome must pass
+        // through unmodified — the caller gates role revocation on it.
+        let mut repo = MockPointsRepository::new();
+        repo.expect_revoke_topup_refund_atomic()
+            .times(1)
+            .withf(|req| {
+                req.payment_provider == "creem"
+                    && req.refund_id == "re_test"
+                    && req.refund_amount == 200
+                    && req.original_payment_amount == 1000
+                    && req.provider_cumulative_refunded.is_none()
+            })
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(TopupRefundRevokeOutcome {
+                        duplicate: false,
+                        fully_refunded: true,
+                        revoked: RevokePointsOutput::empty(),
+                    })
+                })
+            });
+        let svc = PointsService::new(Arc::new(repo), Arc::new(AllowAllPointsPolicy));
+        let outcome = svc
+            .revoke_topup_refund(request("creem", 200, 1000, None))
+            .await
+            .unwrap();
+        assert!(!outcome.duplicate);
+        assert!(outcome.fully_refunded);
     }
 }

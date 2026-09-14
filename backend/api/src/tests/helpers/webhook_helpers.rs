@@ -1239,6 +1239,62 @@ pub async fn setup_test_entitlement_mapping_for_webhook(
     mapping_id
 }
 
+/// Build a `charge.refunded` Stripe webhook event for a one-time (topup)
+/// refund with the full incremental shape: an explicit `refunds.data[0]`
+/// entry carrying THIS refund's `id` and `amount`, plus the cumulative
+/// `amount_refunded` on the charge. The two are deliberately independent
+/// parameters — Stripe sends `amount_refunded` as the running total across
+/// all refunds of the charge, while `refunds.data[0]` is the single refund
+/// object that triggered this event.
+///
+/// `amount` is the original charge total.
+#[allow(clippy::too_many_arguments)]
+pub fn build_stripe_charge_refunded_topup_event(
+    event_id: &str,
+    realm_id: &str,
+    user_id: Uuid,
+    charge_id: &str,
+    amount: i64,
+    amount_refunded: i64,
+    refund_id: &str,
+    refund_amount: i64,
+) -> serde_json::Value {
+    json!({
+        "id": event_id,
+        "object": "event",
+        "type": "charge.refunded",
+        "api_version": "2020-08-27",
+        "created": chrono::Utc::now().timestamp(),
+        "data": {
+            "object": {
+                "id": charge_id,
+                "object": "charge",
+                "amount": amount,
+                "amount_refunded": amount_refunded,
+                "refunds": {
+                    "object": "list",
+                    "data": [
+                        {
+                            "id": refund_id,
+                            "object": "refund",
+                            "amount": refund_amount,
+                            "status": "succeeded",
+                            "created": chrono::Utc::now().timestamp(),
+                        }
+                    ]
+                },
+                "metadata": {
+                    "herald_realm_id": realm_id,
+                    "herald_user_id": user_id.to_string(),
+                    "userId": user_id.to_string(),
+                    "refundType": "topup",
+                },
+                "created": chrono::Utc::now().timestamp(),
+            }
+        }
+    })
+}
+
 /// ============================================================================
 /// Stripe Webhook Sending Helpers
 /// ============================================================================

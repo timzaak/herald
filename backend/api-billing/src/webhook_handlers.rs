@@ -26,6 +26,7 @@ use herald_core::domain::billing::{
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::points::IdempotencyResult;
 use herald_core::domain::points::entities::{PointsTransaction, TransactionType};
+use herald_core::domain::points::ports::TopupRefundRevokeRequest;
 use herald_core::domain::points::subscription_service::CancelMode;
 use herald_core::domain::purchase::metadata_keys;
 use herald_core::domain::purchase::{CompletePaymentAttemptInput, PaymentCompletionSource};
@@ -1762,28 +1763,60 @@ async fn handle_refund_created(
         })?;
     match payload.refund_type.as_str() {
         "topup" => {
-            let _output = app_state
+            // The provider-reference lookup is realm-free; a refund signed for
+            // this realm must not revoke against another realm's attempt.
+            if attempt.realm_id != realm_id {
+                return Err(CoreError::BadRequest(format!(
+                    "Creem refund realm mismatch for payment_id {}",
+                    payload.payment_id
+                )));
+            }
+            // Creem's payload amount is this refund's own amount (already the
+            // incremental input) and carries no cumulative figure — the
+            // cumulative total for the full-refund gate aggregates in-transaction
+            // from the recorded refund rows. The gate denominator is the local
+            // attempt snapshot by design; a divergence from the provider-declared
+            // original amount silently skews the gate — surface it.
+            if payload.original_amount != attempt.amount {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    payment_id = %payload.payment_id,
+                    provider_original_amount = payload.original_amount,
+                    attempt_amount = attempt.amount,
+                    "Creem refund original amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
+                );
+            }
+            let outcome = app_state
                 .points_service
-                .revoke_topup_source_proportional(
+                .revoke_topup_refund(TopupRefundRevokeRequest {
+                    realm_id,
+                    user_id: payload.user_id,
+                    payment_attempt_id: attempt.id,
+                    payment_provider: "creem",
+                    refund_id: &payload.refund_id,
+                    refund_amount: payload.amount,
+                    original_payment_amount: attempt.amount,
+                    provider_cumulative_refunded: None,
+                })
+                .await?;
+
+            // Full-refund gate: a partial refund (any share, any count) keeps
+            // the payment-granted permanent roles; only a refund that brings
+            // the cumulative total to the original payment amount revokes
+            // them. Runs on duplicate re-delivery too: the revoke is
+            // idempotent (NotFound is a no-op; only source='payment' rows)
+            // and the call itself is best-effort, so re-running it is the
+            // only self-heal path when the first attempt failed transiently —
+            // the persistent dedup row above guards the points revocation.
+            if outcome.fully_refunded {
+                revoke_payment_roles_for_source(
+                    &app_state,
                     realm_id,
                     payload.user_id,
                     &attempt.id.to_string(),
-                    payload.amount,
-                    payload.original_amount,
-                    &payload.refund_id,
                 )
-                .await?;
-
-            // Revoke payment-granted permanent roles for this one-time attempt
-            // `source_id = attempt.id`, so revoke with the same source id.
-            // Idempotent (NotFound is a no-op); manual grants unaffected.
-            revoke_payment_roles_for_source(
-                &app_state,
-                realm_id,
-                payload.user_id,
-                &attempt.id.to_string(),
-            )
-            .await;
+                .await;
+            }
 
             info!(
                 realm_id = %realm_id,
@@ -1791,6 +1824,9 @@ async fn handle_refund_created(
                 refund_id = %payload.refund_id,
                 amount = payload.amount,
                 original_amount = payload.original_amount,
+                duplicate = outcome.duplicate,
+                fully_refunded = outcome.fully_refunded,
+                total_revoked = outcome.revoked.total_revoked,
                 "Topup refund - proportionally revoked topup credits"
             );
         }

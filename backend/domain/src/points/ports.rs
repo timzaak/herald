@@ -39,6 +39,47 @@ pub enum ReclaimLocator {
     },
 }
 
+/// Request for a single provider-refund topup revocation.
+///
+/// The idempotency unit is the provider refund id (`refund_id`), not the
+/// webhook event id: the same refund re-pushed under a different event id
+/// must not revoke twice. `refund_amount` is that single refund's own amount
+/// — never a cumulative provider figure.
+#[derive(Debug, Clone)]
+pub struct TopupRefundRevokeRequest<'a> {
+    pub realm_id: &'a str,
+    pub user_id: Uuid,
+    /// Ledger / role-revocation source anchor (payment attempt id)
+    pub payment_attempt_id: Uuid,
+    /// "stripe" | "creem"
+    pub payment_provider: &'a str,
+    /// Provider refund id (Stripe `re_...`, Creem refund id)
+    pub refund_id: &'a str,
+    /// This refund's own amount (incremental revocation input)
+    pub refund_amount: i64,
+    /// Immutable original payment snapshot (gate denominator)
+    pub original_payment_amount: i64,
+    /// `Some` = provider-authoritative cumulative refund (Stripe payload
+    /// `amount_refunded`); `None` = compute in-transaction SUM (Creem).
+    pub provider_cumulative_refunded: Option<i64>,
+}
+
+/// Result of a provider-refund topup revocation.
+#[derive(Debug, Clone)]
+pub struct TopupRefundRevokeOutcome {
+    /// Same provider refund already processed — the per-refund points
+    /// revocation is skipped. Payment-role revocation is idempotent and
+    /// re-runs on duplicates when `fully_refunded`, so a best-effort role
+    /// revoke failure self-heals on re-delivery.
+    pub duplicate: bool,
+    /// Cumulative refund reached the original payment amount — caller revokes
+    /// the payment-source roles (full-refund gate). Truthful on duplicates:
+    /// read back from the recorded refund row.
+    pub fully_refunded: bool,
+    /// Points revoked by this call (empty when `duplicate`).
+    pub revoked: RevokePointsOutput,
+}
+
 /// Transaction filters
 #[derive(Debug, Clone, Default)]
 pub struct TransactionFilters {
@@ -365,15 +406,14 @@ pub trait PointsRepository: Send + Sync {
         refund_id: &str,
     ) -> impl Future<Output = Result<RevokePointsOutput, CoreError>> + Send;
 
-    fn revoke_topup_source_proportional_atomic(
+    /// Revoke topup points for a single provider refund, atomically binding
+    /// the refund's persistent dedup row, the cumulative-refund gate decision
+    /// and the per-grant proportional revocation in one transaction.
+    /// Returns the dedup/gate outcome so the caller can gate role revocation.
+    fn revoke_topup_refund_atomic<'a>(
         &self,
-        realm_id: &str,
-        user_id: Uuid,
-        source_id: &str,
-        refund_amount: i64,
-        original_payment_amount: i64,
-        refund_id: &str,
-    ) -> impl Future<Output = Result<RevokePointsOutput, CoreError>> + Send;
+        request: TopupRefundRevokeRequest<'a>,
+    ) -> impl Future<Output = Result<TopupRefundRevokeOutcome, CoreError>> + Send;
 
     fn grant_points_atomic(
         &self,

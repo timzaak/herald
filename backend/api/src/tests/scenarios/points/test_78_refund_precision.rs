@@ -249,3 +249,119 @@ async fn test_refund_full_amount_revokes_all_remaining(ctx: &mut SchemaTestConte
     assert_eq!(revocations[0].revoked_amount, 7000);
     assert_eq!(revocations[0].reference_id, Some(refund_id));
 }
+
+// ============================================================================
+// Test 4: Multi-refund half-up residue is swept by the final full refund
+// ============================================================================
+
+// User Story: docs/user-stories/points-billing-events.md
+// Covers: US-PO-06 - Integer rounding precision for proportional refund revocation
+//
+// Half-up rounding loses a fraction on each PARTIAL refund when the ratio
+// does not divide evenly; the cumulative-full-refund gate must claw back the
+// accumulated residue so the total revoked equals the full grant exactly.
+//
+// Payment 1000 grants 9998 points. Refunds 334/333/333 of the 1000 payment:
+// - refund 334: (9998*334 + 500) / 1000 = 3339 (true ratio 3339.33)
+// - refund 333: (9998*333 + 500) / 1000 = 3329 (true ratio 3329.33;
+//   cumulative 667 < 1000, partial)
+// - refund 333: cumulative 334+333+333 = 1000 = original -> full-refund gate
+//   opens, revoke target is the whole grant capped at remaining ->
+//   sweeps the remaining 3330, total revoked exactly 9998.
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_refund_rounding_residue_swept_by_final_full_refund(ctx: &mut SchemaTestContext) {
+    // Given
+    let realm_id = ctx._realm_id.clone();
+    let user_id = create_test_user(&ctx.app_state.pool, &realm_id, "user_rp4@example.com").await;
+    let payment_id = format!("payment_{}", Uuid::now_v7());
+
+    create_points_wallet(ctx, user_id, &realm_id).await;
+
+    ctx.with_creem_config(&realm_id, None, None, None).await;
+
+    // Payment 1000 -> granted 9998 points (rule grants a non-round amount).
+    let bucket_id = get_wallet_bucket_id(ctx, &realm_id, user_id).await;
+    let (attempt_id, mapping_id, rule_id) =
+        create_payment_attempt_snapshot(ctx, &realm_id, user_id, &payment_id, bucket_id, 1000)
+            .await;
+    let ledger_id = seed_attributed_topup_ledger(
+        ctx, &realm_id, user_id, attempt_id, mapping_id, rule_id, bucket_id, 9998, None,
+    )
+    .await;
+
+    let app = ctx.create_unified_test_router();
+
+    // When/Then: refund 334 -> revoke 3339
+    let event = build_refund_created_event_with_user(
+        generate_test_event_id(),
+        format!("refund_{}", Uuid::now_v7()),
+        payment_id.clone(),
+        334,
+        1000,
+        &realm_id,
+        user_id,
+    );
+    let response = send_webhook_with_signature(&app, &realm_id, event, "test_webhook_secret").await;
+    assert_webhook_success(&response);
+
+    let ledger = get_ledger_by_id(ctx, ledger_id).await;
+    assert_eq!(
+        ledger.revoked_amount, 3339,
+        "first partial refund revokes half-up 3339, not the true 3339.33"
+    );
+    assert_eq!(ledger.remaining_amount, 6659);
+
+    // And: refund 333 -> revoke 3329 (cumulative 667 < 1000, still partial)
+    let event = build_refund_created_event_with_user(
+        generate_test_event_id(),
+        format!("refund_{}", Uuid::now_v7()),
+        payment_id.clone(),
+        333,
+        1000,
+        &realm_id,
+        user_id,
+    );
+    let response = send_webhook_with_signature(&app, &realm_id, event, "test_webhook_secret").await;
+    assert_webhook_success(&response);
+
+    let ledger = get_ledger_by_id(ctx, ledger_id).await;
+    assert_eq!(
+        ledger.revoked_amount, 6668,
+        "second partial refund adds half-up 3329 (3339 + 3329)"
+    );
+    assert_eq!(ledger.remaining_amount, 3330);
+
+    // And: final refund 333 brings cumulative to 1000 = original -> the
+    // full-refund gate sweeps ALL remaining, absorbing the two lost fractions.
+    let event = build_refund_created_event_with_user(
+        generate_test_event_id(),
+        format!("refund_{}", Uuid::now_v7()),
+        payment_id.clone(),
+        333,
+        1000,
+        &realm_id,
+        user_id,
+    );
+    let response = send_webhook_with_signature(&app, &realm_id, event, "test_webhook_secret").await;
+    assert_webhook_success(&response);
+
+    let ledger = get_ledger_by_id(ctx, ledger_id).await;
+    assert_eq!(
+        ledger.revoked_amount, 9998,
+        "final full refund sweeps the rounding residue: total revoked equals the full grant"
+    );
+    assert_eq!(ledger.remaining_amount, 0);
+    assert_eq!(
+        ledger.status,
+        CreditLedgerStatus::Revoked,
+        "ledger status must be Revoked after the full-refund sweep"
+    );
+
+    // Three distinct refund ids -> exactly three revocation records.
+    let revocations = get_revocation_records(ctx, user_id).await;
+    assert_eq!(revocations.len(), 3, "one revocation record per refund");
+    for record in &revocations {
+        assert_eq!(record.revocation_type, RevocationType::RefundRevoke);
+    }
+}

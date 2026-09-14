@@ -22,7 +22,8 @@ mod tests {
     };
     use crate::tests::helpers::billing_helpers::setup_stripe_config;
     use crate::tests::helpers::webhook_helpers::{
-        generate_test_event_id, send_stripe_webhook_with_signature,
+        build_stripe_charge_refunded_topup_event, generate_test_event_id,
+        send_stripe_webhook_with_signature,
     };
     use crate::tests::schema_test_context::SchemaTestContext;
     use axum::http::StatusCode;
@@ -964,8 +965,11 @@ mod tests {
 
     /// Build a `charge.refunded` Stripe webhook event for a one-time (topup)
     /// refund. The handler (`handle_charge_refunded` topup branch) resolves the
-    /// originating attempt via `provider_reference = charge_id` and revokes the
-    /// payment-source roles keyed by `attempt.id`.
+    /// originating attempt via `provider_reference = charge_id`, reads the
+    /// per-refund increment from `refunds.data[0]` and the cumulative total
+    /// from `amount_refunded`. This builder always models a FULL single refund
+    /// (refund amount = charge amount, cumulative = charge amount), so the
+    /// cumulative-full-refund gate opens and the role revocation fires.
     fn build_stripe_charge_refunded_topup(
         event_id: &str,
         realm_id: &str,
@@ -973,29 +977,18 @@ mod tests {
         charge_id: &str,
         amount: i64,
     ) -> serde_json::Value {
-        json!({
-            "id": event_id,
-            "object": "event",
-            "type": "charge.refunded",
-            "api_version": "2020-08-27",
-            "created": chrono::Utc::now().timestamp(),
-            "data": {
-                "object": {
-                    "id": charge_id,
-                    "object": "charge",
-                    "amount": amount,
-                    "amount_refunded": amount,
-                    "metadata": {
-                        "attemptId": charge_id,
-                        "herald_realm_id": realm_id,
-                        "herald_user_id": user_id.to_string(),
-                        "userId": user_id.to_string(),
-                        "refundType": "topup",
-                    },
-                    "created": chrono::Utc::now().timestamp(),
-                }
-            }
-        })
+        let mut event = build_stripe_charge_refunded_topup_event(
+            event_id,
+            realm_id,
+            user_id,
+            charge_id,
+            amount,
+            amount,
+            &format!("re_{}", Uuid::now_v7()),
+            amount,
+        );
+        event["data"]["object"]["metadata"]["attemptId"] = json!(charge_id);
+        event
     }
 
     /// User Story: US-PM-008 (Stripe one_time refund → permanent role revoked;

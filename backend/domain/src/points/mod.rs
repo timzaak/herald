@@ -32,8 +32,9 @@ pub use expiration_service::{ExpirationService, ExpirationSummary};
 pub use idempotency_service::{IdempotencyService, IdempotencyStore};
 pub use policies::PointsPolicy;
 pub use ports::{
-    LedgerFilters, LedgerUpdate, Pagination, PointsRepository, ReclaimLocator, TransactionFilters,
-    WalletDelta, WalletFilters,
+    LedgerFilters, LedgerUpdate, Pagination, PointsRepository, ReclaimLocator,
+    TopupRefundRevokeOutcome, TopupRefundRevokeRequest, TransactionFilters, WalletDelta,
+    WalletFilters,
 };
 pub use service::PointsService;
 /// Stable display-key derivation for quota windows (design §4.2.2 / §4.4.3).
