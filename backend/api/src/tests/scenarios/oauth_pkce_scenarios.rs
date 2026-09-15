@@ -18,17 +18,15 @@
 // =============================================================================
 
 use crate::tests::helpers::auth_helpers::{
-    create_admin_session_with_user, grant_realm_admin_role, obtain_reauth_token,
+    create_admin_session_with_user, generate_totp_code, grant_realm_admin_role, obtain_reauth_token,
 };
 use crate::tests::helpers::oauth_pkce_helpers::*;
 use crate::tests::helpers::test_setup_helpers::{create_test_user, login_user};
 use crate::tests::response_json;
 use crate::tests::schema_test_context::SchemaTestContext;
 use axum::http::StatusCode;
-use base32;
 use serde_json::Value;
 use test_context::test_context;
-use totp_lite::Sha256;
 use tower::ServiceExt;
 
 /// Helper: set up admin session and return the token.
@@ -79,17 +77,6 @@ async fn setup_realm_totp_config(ctx: &SchemaTestContext, enabled: bool, force_e
         .await
         .expect("Failed to create realm TOTP config");
     }
-}
-
-/// Generate a TOTP code from a base32-encoded secret.
-fn generate_totp_code(secret: &str) -> String {
-    let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
-        .expect("Failed to decode secret");
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
 }
 
 /// Enable TOTP for a user who has already logged in.

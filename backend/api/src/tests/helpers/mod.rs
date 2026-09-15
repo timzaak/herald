@@ -60,6 +60,12 @@ pub mod apple_native_helpers;
 #[cfg(test)]
 pub mod ldap_helpers;
 
+// Shared passkey-flow orchestration (registration ceremony, realm config,
+// rate-limit key) for the passkey and OIDC scenario files. Imported
+// explicitly, mirroring the `otp_helpers` pattern.
+#[cfg(test)]
+pub mod passkey_flow_helpers;
+
 pub use auth_helpers::*;
 pub use billing_helpers::*;
 pub use client_helpers::*;

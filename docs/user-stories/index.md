@@ -10,7 +10,7 @@
 |-------|----------|--------------|
 | 租户与运营 | 创建 Realm → 配置 → Dashboard 运营 → 审计 | [Admin Realm](core/admin-realm.md)、[自助开通 Realm](core/realm-create.md)、[Realm Admin](core/realm-admin.md)、[审计](core/audit.md)、[内置保护](core/builtin-protection.md) |
 | 用户生命周期与合规 | 注册/登录 → 资料维护 → 协议确认 → 账户注销 | [普通用户](core/regular-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
-| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
+| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OpenID Connect](auth/openid-connect.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
 | 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md) |
@@ -218,6 +218,10 @@
 | US-TP-014 | 通过 SDK 管理 Client App | Third-Party App | P1 | [integration/sdk](integration/sdk.md#故事-3通过-sdk-管理-client-app-us-tp-014) |
 | US-TP-015 | 第三方 Web SPA 发起 SSO 登录 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-8第三方-web-spa-发起-sso-登录-us-tp-015) |
 | US-TP-016 | 第三方后端用授权码换取令牌 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-9第三方后端用授权码换取令牌-us-tp-016) |
+| US-OC-001 | 通过 issuer 自动发现 OIDC 配置 | 第三方应用开发者 | P0 | [auth/openid-connect](auth/openid-connect.md#故事-1通过-issuer-自动发现-oidc-配置-us-oc-001) |
+| US-OC-002 | 标准 OIDC 客户端完成登录并获得可本地验签的身份令牌 | 第三方应用开发者 | P0 | [auth/openid-connect](auth/openid-connect.md#故事-2标准-oidc-客户端完成登录并获得可本地验签的身份令牌-us-oc-002) |
+| US-OC-003 | 获取已登录用户的身份资料 | 第三方应用开发者 | P0 | [auth/openid-connect](auth/openid-connect.md#故事-3获取已登录用户的身份资料-us-oc-003) |
+| US-OC-004 | 签名公钥轮换对客户端透明 | 第三方应用开发者 | P1 | [auth/openid-connect](auth/openid-connect.md#故事-4签名公钥轮换对客户端透明-us-oc-004) |
 | US-TP-017 | 通过 SDK 发放积分 | Third-Party App | P0 | [integration/sdk](integration/sdk.md#故事-4通过-sdk-发放积分-us-tp-017) |
 | US-CUI-001 | 集成方前端完成注册与邮箱验证 | Third-Party App | P0 | [integration/custom-user-ui](integration/custom-user-ui.md#故事-1集成方前端完成注册与邮箱验证-us-cui-001) |
 | US-CUI-002 | 集成方前端完成登录获得浏览器 token | Third-Party App | P0 | [integration/custom-user-ui](integration/custom-user-ui.md#故事-2集成方前端完成登录获得浏览器-token-us-cui-002) |
@@ -306,6 +310,7 @@
 | 角色 | 文档 | 相关 PRD |
 |------|------|---------|
 | Third-Party App | [auth/third-party-app.md](auth/third-party-app.md), [auth/client-app-settings.md](auth/client-app-settings.md) | [OAuth PRD](/docs/prd/auth/oauth.md), [Client Apps PRD](/docs/prd/integration/client-app.md) |
+| OpenID Connect | [auth/openid-connect.md](auth/openid-connect.md) | [OpenID Connect PRD](/docs/prd/auth/openid-connect.md) |
 | TOTP User | [auth/totp.md](auth/totp.md) | [TOTP PRD](/docs/prd/auth/totp.md) |
 | Passkey User | [auth/passkey.md](auth/passkey.md) | [Passkey PRD](/docs/prd/auth/passkey.md) |
 | OAuth Extension | [auth/oauth-extension.md](auth/oauth-extension.md) | [OAuth PRD](/docs/prd/auth/oauth.md) |

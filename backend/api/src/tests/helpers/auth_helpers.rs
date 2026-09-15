@@ -26,6 +26,20 @@ use herald_core::domain::authorization::principal_types;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::user::UserRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
+use totp_lite::Sha256;
+
+/// Generate the current TOTP code for a base32-encoded secret — 30s period,
+/// 6 digits, SHA-256, matching the production verification parameters, so
+/// second-factor scenario tests complete deterministically.
+pub fn generate_totp_code(secret: &str) -> String {
+    let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
+        .expect("test TOTP secret must decode");
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock must be after unix epoch")
+        .as_secs();
+    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
+}
 
 /// ============================================================================
 /// 会话管理

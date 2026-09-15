@@ -13,6 +13,9 @@ pub struct BrowserAccessTokenData {
     pub user_id: String,
     pub family_id: Uuid,
     pub credential_class: CredentialClass,
+    /// Carries `CredentialScope::Openid` when the OAuth exchange that minted
+    /// this token's family requested the `openid` scope (an id_token was
+    /// issued); gates the OIDC userinfo endpoint (OIDC Core §5.3.1).
     pub allowed_scopes: HashSet<CredentialScope>,
     pub expires_at: DateTime<Utc>,
 }

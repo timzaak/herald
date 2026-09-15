@@ -1,0 +1,116 @@
+---
+title: OpenID Connect 集成
+description: "用一个 issuer URL 把 Grafana、Vault 等标准 OIDC 客户端接入 Herald 租户——discovery、RS256 id_token 与 userinfo 叠加在既有 OAuth 2.0 授权码 + PKCE 流程之上，无需 Herald SDK。"
+---
+
+Herald 在既有 OAuth 2.0 Authorization Code + PKCE 流程之上提供 OpenID Connect 身份层。现成的 OIDC 客户端——Grafana、Vault 以及任何只要求填 issuer 的工具——都能用 Herald 账号登录，无需 Herald SDK 或私有 API 知识。
+
+这个身份层刻意保持最小：标准 OIDC Discovery、发布 RS256 公钥的 JWKS 端点、随访问令牌一并签发的 `id_token`、以及 userinfo 端点。没有独立的 scope/consent 体系。唯一具有 OIDC 语义的 scope 是字面量 `openid`，不含它的请求行为与从前完全一致。
+
+## 1. Issuer URL
+
+每个租户有自己的 issuer，由 Herald 主机地址派生（映射了自定义域名时改用该域名）：
+
+```
+https://your-herald-host/api/oauth/{realmId}
+```
+
+标准 OIDC 客户端只需要这一个值——它们从 `{issuer}/.well-known/openid-configuration` 拉取提供方元数据并自行完成配置：
+
+| 端点 | URL |
+|------|-----|
+| Discovery | `{issuer}/.well-known/openid-configuration` |
+| JWKS（验签公钥） | `{issuer}/.well-known/jwks.json` |
+| 授权 | `{issuer}/authorize` |
+| 令牌 | `{issuer}/token` |
+| Userinfo | `{issuer}/userinfo` |
+
+Discovery 与 JWKS 响应带 `Cache-Control: public, max-age=300`，切换自定义域名后客户端缓存最长 5 分钟才失效。三个公开端点均按 IP 限流 30 次 / 60 秒。
+
+## 2. 准备 Client App
+
+OIDC 登录与 OAuth 流程共用同一套 Client App：
+
+1. 在 Herald 管理后台为租户创建或复用一个 **Client App**。
+2. 登记客户端的回调 URI（Grafana 为 `https://your-grafana-host/login/generic_oauth`）。
+3. 保持 PKCE 开启——Herald 的令牌端点是纯公共客户端（`token_endpoint_auth_methods_supported: ["none"]`），从不校验 client secret；工具非要填的话，任意占位值即可。
+
+第一次接触 Client App 与回调白名单？[第三方后端集成指南](/docs/zh/integration/third-party-backend)对同一套准备步骤有完整走查。
+
+## 3. 登录流程
+
+流程就是标准 OIDC 授权码 + PKCE 序列，新增的只有 `openid` scope（以及可选的 `nonce`）：
+
+1. 客户端把用户导向 `{issuer}/authorize`，携带 `response_type=code`、`scope=openid ...`、`code_challenge`/`code_challenge_method=S256`、`state`，可选 `nonce`。
+2. 用户在常规 Herald 登录页完成登录——密码、TOTP、Passkey、LDAP 与同意闸门的行为与其他登录完全一致。
+3. Herald 携带授权码重定向回已登记的回调 URI。
+4. 客户端用 `code_verifier` 在 `{issuer}/token` 换取令牌。令牌端点同时接受 `application/x-www-form-urlencoded`（RFC 6749 表单编码，标准 OIDC 客户端的默认形态）与 JSON，Grafana 类客户端与既有 Herald 集成都不用改。scope 含 `openid` 时，响应在既有 `access_token` 之外增加 `id_token` 字段；不含 `openid` 时，响应与该层出现之前逐字节一致。
+
+`nonce` 会在 id_token 中原样返回；发送并核对它，把令牌绑定到你的请求上。
+
+## 4. id_token
+
+id_token 是签名 JWT（RS256，有效期 10 分钟），在本地验签：
+
+- 拉取 `{issuer}/.well-known/jwks.json`，选取与令牌头部 `kid` 匹配的公钥。
+- 校验 `iss` 等于你的 issuer URL、`aud` 等于你的 client ID、`exp`/`iat` 可接受。
+
+| Claim | 出现条件 | 值 |
+|-------|----------|-----|
+| `iss` | 总是 | 租户 issuer URL |
+| `sub` | 总是 | 用户的 Herald 用户 ID |
+| `aud` | 总是 | 你的 client ID |
+| `exp` / `iat` | 总是 | 过期 / 签发时间（TTL 10 分钟） |
+| `email` | 总是 | 用户邮箱 |
+| `email_verified` | 总是 | 仅当用户状态为 Normal 时为 `true` |
+| `nickname` | 已设置时 | 用户资料昵称 |
+| `nonce` | 已发送时 | 授权请求中的 nonce |
+
+## 5. Userinfo
+
+用同一流程拿到的浏览器访问令牌请求 `GET`（或 `POST`）`{issuer}/userinfo`：
+
+```bash
+curl -H "Authorization: Bearer <access_token>" \
+  https://your-herald-host/api/oauth/{realmId}/userinfo
+```
+
+响应携带与 id_token 相同的身份声明（`sub`、`email`、`email_verified`、`nickname`）——同一数据源、同样的值，且响应禁止缓存（`Cache-Control: no-store`）。拒绝分两种：无效、过期或跨租户的令牌返回 401；令牌本身有效但流程未请求 `openid` scope 的返回 403（按 OIDC Core §5.3.1，一方控制台会话也在此列）——身份声明只服务于经过 openid 授权的凭据。
+
+## 6. 接入通用 OIDC 客户端（Grafana 示例）
+
+Grafana 内置的 generic OAuth 支持只需要端点地址与客户端登记。在 `grafana.ini`（或对应环境变量）中：
+
+```ini
+[auth.generic_oauth]
+name = Herald
+enabled = true
+client_id = <your-client-id>
+client_secret = placeholder-not-validated
+scopes = openid
+auth_url = https://your-herald-host/api/oauth/{realmId}/authorize
+token_url = https://your-herald-host/api/oauth/{realmId}/token
+api_url = https://your-herald-host/api/oauth/{realmId}/userinfo
+```
+
+把 Grafana 显示的回调 URI（`/login/generic_oauth`）登记到 Herald Client App，之后"Sign in with Herald"即跑通 discovery → 登录 → id_token 验签 → userinfo 全链路。其他通用 OIDC 工具（Vault JWT/OIDC 认证、自建门户）形态相同：把 issuer 或 discovery URL 填给它们，并登记回调 URI。
+
+## 7. 签名密钥与轮换
+
+id_token 由平台级 RSA-2048 密钥签名，各租户共用（租户隔离由 `iss` 与 `aud` 校验保证，不靠密钥）。私钥加密存储（AES-256-GCM），JWKS 端点只发布公钥半边。
+
+轮换是内部操作（暂无管理界面）：
+
+```bash
+curl -X POST -H "X-Herald-Ask-Key: <shared secret>" \
+  https://your-herald-host/api/internal/oidc/signing-key/rotate
+```
+
+响应报告新的 `kid`、重叠截止时间与退役密钥 ID。旧密钥在 **7 天**内继续留在 JWKS 集合中，轮换前签发的 id_token 仍可验签——对已登录用户完全透明。并发轮换的败者收到 HTTP 409；重复执行是安全的。
+
+> **更换 `[jwt] secret` 后须执行一次轮换。** 存储的签名密钥密文由 `[jwt] secret` 派生的密钥封装。更换该 secret 后旧密钥材料不可读（JWKS 与 id_token 签发 fail closed）——执行一次上述轮换，铸造新密钥即可恢复服务。
+
+## 8. Scope 语义与审计
+
+- 只有大小写敏感的字面量 scope `openid` 会启用身份层。`OPENID`、`OpenID` 或省略 scope 都是 OIDC 之前的行为——没有 id_token，令牌响应保持原样。
+- 每次 id_token 签发写入审计事件（`oidc.id_token_issue`）；每次轮换写入 `oidc.signing_key_rotate`。

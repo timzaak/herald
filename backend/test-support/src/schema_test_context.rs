@@ -436,6 +436,17 @@ impl AsyncTestContext for SchemaTestContext {
             ldap_authenticator: std::sync::Arc::new(
                 herald_core::infrastructure::ldap::Ldap3Authenticator::default(),
             ),
+            // OIDC signing keys are sealed with a KEK derived from the test
+            // JWT secret. No key is generated here: RSA-2048 keygen per test
+            // schema would tax every unrelated scenario, and no consumer of
+            // this context exercises OIDC issuance today.
+            oidc_signing_key_store: std::sync::Arc::new(
+                herald_core::infrastructure::oidc_signing_key::OidcSigningKeyStore::new(
+                    pool_with_schema.clone(),
+                    crate::TEST_JWT_SECRET,
+                )
+                .expect("test JWT secret must initialize the OIDC signing key store"),
+            ),
         });
 
         // 13. 初始化 Redis Functions（只运行一次）

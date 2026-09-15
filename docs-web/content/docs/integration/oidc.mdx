@@ -1,0 +1,116 @@
+---
+title: OpenID Connect Integration
+description: "Connect Grafana, Vault, or any standard OIDC client to your Herald realm with a single issuer URL — discovery, RS256 id_token, and userinfo ride on the existing OAuth 2.0 Authorization Code + PKCE flow, no Herald SDK required."
+---
+
+Herald speaks OpenID Connect on top of its existing OAuth 2.0 Authorization Code + PKCE flow. Off-the-shelf OIDC clients — Grafana, Vault, and anything else that asks for an issuer URL — can sign users in with their Herald accounts without an Herald SDK or private API knowledge.
+
+The identity layer is minimal by design: OIDC Discovery, a JWKS endpoint publishing RS256 public keys, an `id_token` issued alongside the access token, and a userinfo endpoint. There is no separate scope/consent system. The only scope with OIDC semantics is the literal `openid` token, and requests that omit it behave exactly as before.
+
+## 1. The Issuer URL
+
+Every realm has its own issuer, derived from your Herald host (or the realm's custom domain, when one is mapped):
+
+```
+https://your-herald-host/api/oauth/{realmId}
+```
+
+Standard OIDC clients need nothing else — they fetch the provider metadata from `{issuer}/.well-known/openid-configuration` and configure themselves from it:
+
+| Endpoint | URL |
+|----------|-----|
+| Discovery | `{issuer}/.well-known/openid-configuration` |
+| JWKS (verification keys) | `{issuer}/.well-known/jwks.json` |
+| Authorization | `{issuer}/authorize` |
+| Token | `{issuer}/token` |
+| Userinfo | `{issuer}/userinfo` |
+
+Discovery and JWKS responses carry `Cache-Control: public, max-age=300`, so a custom-domain switch takes up to five minutes to propagate through client caches. All three public endpoints are rate-limited to 30 requests per 60 seconds per IP.
+
+## 2. Prepare a Client App
+
+OIDC logins use the same Client Apps as the OAuth flow:
+
+1. In the Herald admin console, create or reuse a **Client App** for your realm.
+2. Register the client's redirect URI (for Grafana, `https://your-grafana-host/login/generic_oauth`).
+3. Keep PKCE enabled — Herald's token endpoint is a pure public client (`token_endpoint_auth_methods_supported: ["none"]`). A client secret is never validated; if your tool insists on one, any placeholder value works.
+
+New to Client Apps and redirect whitelists? The [third-party integration guide](/docs/integration/third-party-backend) walks through the same preparation in detail.
+
+## 3. The Login Flow
+
+The flow is the standard OIDC Authorization Code + PKCE sequence; only the `openid` scope (and optionally a `nonce`) is new:
+
+1. The client sends the user to `{issuer}/authorize` with `response_type=code`, `scope=openid ...`, `code_challenge`/`code_challenge_method=S256`, `state`, and optionally `nonce`.
+2. The user signs in on the regular Herald login page — password, TOTP, passkey, LDAP, and any consent gate behave exactly as for any other login.
+3. Herald redirects back to the registered redirect URI with the authorization code.
+4. The client exchanges the code at `{issuer}/token` with its `code_verifier`. The token endpoint accepts both `application/x-www-form-urlencoded` (the RFC 6749 form every standard OIDC client uses) and JSON, so Grafana-style clients and existing Herald integrations work unchanged. When the scope contains `openid`, the response gains an `id_token` field next to the existing `access_token`. Without `openid`, the response is byte-for-byte what it was before this layer existed.
+
+The `nonce` echoes back inside the id_token; send one and check it to bind the token to your request.
+
+## 4. The id_token
+
+The id_token is a signed JWT (RS256, 10-minute lifetime). Verify it locally:
+
+- Fetch `{issuer}/.well-known/jwks.json` and select the key whose `kid` matches the token header.
+- Check `iss` equals your issuer URL, `aud` equals your client ID, and `exp`/`iat` are acceptable.
+
+| Claim | Presence | Value |
+|-------|----------|-------|
+| `iss` | always | The realm issuer URL |
+| `sub` | always | The user's Herald user id |
+| `aud` | always | Your client ID |
+| `exp` / `iat` | always | Expiry / issue time (10-minute TTL) |
+| `email` | always | The user's email |
+| `email_verified` | always | `true` only when the user's status is Normal |
+| `nickname` | when set | The user's profile nickname |
+| `nonce` | when sent | The nonce from your authorize request |
+
+## 5. Userinfo
+
+`GET` (or `POST`) `{issuer}/userinfo` with the browser access token from the same flow:
+
+```bash
+curl -H "Authorization: Bearer <access_token>" \
+  https://your-herald-host/api/oauth/{realmId}/userinfo
+```
+
+The response carries the same identity claims as the id_token (`sub`, `email`, `email_verified`, `nickname`) — same source, same values, and never cached (`Cache-Control: no-store`). Rejections come in two flavors: an invalid, expired, or cross-realm token gets HTTP 401, while a valid token whose flow did not request the `openid` scope gets HTTP 403 (per OIDC Core §5.3.1 this includes first-party console sessions) — identity claims are served only for openid-consented credentials.
+
+## 6. Connecting a Generic OIDC Client (Grafana Example)
+
+Grafana's built-in generic OAuth support needs only the endpoints and the client registration. In `grafana.ini` (or the corresponding environment variables):
+
+```ini
+[auth.generic_oauth]
+name = Herald
+enabled = true
+client_id = <your-client-id>
+client_secret = placeholder-not-validated
+scopes = openid
+auth_url = https://your-herald-host/api/oauth/{realmId}/authorize
+token_url = https://your-herald-host/api/oauth/{realmId}/token
+api_url = https://your-herald-host/api/oauth/{realmId}/userinfo
+```
+
+Set the redirect URI Grafana displays (`/login/generic_oauth`) in your Herald Client App, then "Sign in with Herald" runs the full discovery → login → id_token verification → userinfo chain. Other generic OIDC tools (Vault JWT auth, self-hosted portals) follow the same shape: point them at the issuer or the discovery URL and register the redirect URI.
+
+## 7. Signing Keys and Rotation
+
+id_tokens are signed by a platform-level RSA-2048 key, shared across realms (realm isolation is enforced by the `iss` and `aud` checks, not by the key). Private keys are stored encrypted (AES-256-GCM); only the public halves are ever published at the JWKS endpoint.
+
+Rotating is an internal operation (no admin-console UI yet):
+
+```bash
+curl -X POST -H "X-Herald-Ask-Key: <shared secret>" \
+  https://your-herald-host/api/internal/oidc/signing-key/rotate
+```
+
+The response reports the new `kid`, the overlap deadline, and the retired key ids. The previous key stays in the JWKS set for **7 days** so id_tokens issued before the rotation keep verifying — rotation is transparent to logged-in users. Two concurrent rotations resolve as HTTP 409 for the loser; re-running is safe.
+
+> **Changing the `[jwt] secret` requires one rotation.** The stored signing-key ciphertext is sealed with a key derived from the `[jwt] secret`. After changing that secret, the old key material becomes unreadable (JWKS and id_token issuance fail closed) — run the rotation above once to mint a fresh key and restore service.
+
+## 8. Scope Semantics and Audit
+
+- Only the exact, case-sensitive scope token `openid` enables the identity layer. `OPENID`, `OpenID`, or omitting the scope produce the pre-OIDC behavior — no id_token, identical token responses.
+- Every id_token issuance writes an audit event (`oidc.id_token_issue`); every rotation writes `oidc.signing_key_rotate`.

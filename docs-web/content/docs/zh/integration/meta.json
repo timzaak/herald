@@ -4,6 +4,7 @@
   "pages": [
     "third-party-backend",
     "custom-user-ui",
-    "mcp"
+    "mcp",
+    "oidc"
   ]
 }

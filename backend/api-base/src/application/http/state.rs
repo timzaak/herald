@@ -303,4 +303,11 @@ pub struct AppState {
     /// `create_unified_test_router_with_state` (same override pattern as the
     /// JWKS URL fields above).
     pub ldap_authenticator: std::sync::Arc<dyn herald_core::domain::ldap::LdapAuthenticator>,
+
+    /// Platform-level OIDC signing key store (RS256 id_token signing /
+    /// JWKS publication / rotation). Held as the concrete infra type — same
+    /// pattern as `custom_domain_mapping_repo` — because `api-base` depends
+    /// on `herald-core`, which re-exports `herald-infra`.
+    pub oidc_signing_key_store:
+        std::sync::Arc<herald_core::infrastructure::oidc_signing_key::OidcSigningKeyStore>,
 }

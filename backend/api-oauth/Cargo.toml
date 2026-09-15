@@ -12,6 +12,7 @@ herald-core = { path = "../core" }
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
 utoipa = { workspace = true }
 validator = { workspace = true }
 tracing = { workspace = true }
@@ -24,3 +25,4 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
 url = { workspace = true }
+tokio = { workspace = true }

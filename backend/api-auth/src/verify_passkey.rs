@@ -593,14 +593,14 @@ async fn finish_login(
             .unwrap_or("")
             .to_string();
         let code_key = format!("oauth:code:{auth_code}");
-        let code_value = serde_json::json!({
-            "code_challenge": code_challenge,
-            "client_id": oauth_client_id,
-            "redirect_uri": redirect_uri,
-            "user_id": user_id.to_string(),
-            "realm_id": login_state.realm_id,
-        })
-        .to_string();
+        let code_value = crate::oauth_oidc::build_oauth_code_record_from_state(
+            &code_challenge,
+            oauth_client_id,
+            redirect_uri,
+            &user_id.to_string(),
+            &login_state.realm_id,
+            &state_data,
+        );
 
         let _: () = conn
             .set_ex(&code_key, code_value, OAUTH_STATE_TTL_SECONDS)

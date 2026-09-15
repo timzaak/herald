@@ -47,6 +47,12 @@ struct DownstreamAuthorizationState {
     realm_id: String,
     redirect_uri: String,
     code_challenge: String,
+    // serde(default): states seeded before the OIDC layer existed (or by
+    // non-OIDC authorize requests) carry no scope/nonce keys.
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    nonce: Option<String>,
 }
 
 pub struct OAuthCallbackResult {
@@ -1048,14 +1054,15 @@ pub async fn issue_downstream_authorization_code(
     }
 
     let auth_code = format!("ac_{}", Uuid::now_v7());
-    let code_value = serde_json::json!({
-        "code_challenge": downstream.code_challenge,
-        "client_id": downstream.client_id,
-        "redirect_uri": downstream.redirect_uri,
-        "user_id": user_id.to_string(),
-        "realm_id": downstream.realm_id,
-    })
-    .to_string();
+    let code_value = herald_api_auth::oauth_oidc::build_oauth_code_record(
+        &downstream.code_challenge,
+        &downstream.client_id,
+        &downstream.redirect_uri,
+        &user_id.to_string(),
+        &downstream.realm_id,
+        downstream.scope.as_deref(),
+        downstream.nonce.as_deref(),
+    );
     redis_conn
         .set_ex::<String, String, ()>(
             format!("oauth:code:{auth_code}"),

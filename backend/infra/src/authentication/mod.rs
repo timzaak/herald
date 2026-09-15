@@ -237,6 +237,9 @@ struct BrowserTokenFamilyData {
     client_app_id: Uuid,
     user_id: String,
     credential_class: CredentialClass,
+    /// Carries `CredentialScope::Openid` when the exchange that created this
+    /// family requested `openid`; copied onto every refreshed access token
+    /// via `allowed_scopes`.
     allowed_scopes: HashSet<CredentialScope>,
     absolute_expires_at_ts: i64,
     access_digests: Vec<String>,
@@ -494,6 +497,43 @@ impl RedisBrowserTokenService {
             refresh_expires_in: refresh_absolute_ttl_seconds,
             token_type: "Bearer".to_string(),
         })
+    }
+
+    /// Mint the browser-token family for the OAuth authorization-code
+    /// exchange. Unlike the login-side family creators (trait surface), the
+    /// exchange knows whether the flow carried the `openid` scope: an
+    /// openid-consented flow carries `CredentialScope::Openid` in its scope
+    /// set — onto the family and every access token refreshed from it — so
+    /// the OIDC userinfo endpoint can enforce OIDC Core §5.3.1 (identity
+    /// claims only for openid-consented credentials).
+    pub async fn create_oauth_token_family(
+        &self,
+        user: &User,
+        client_app: &ClientApp,
+        user_agent: Option<String>,
+        client_ip: Option<String>,
+        openid_requested: bool,
+    ) -> Result<BrowserTokenSet, CoreError> {
+        let (credential_class, mut scopes) = if client_app.is_first_party {
+            (CredentialClass::FirstParty, Self::first_party_scopes())
+        } else {
+            (CredentialClass::CustomUserUi, Self::custom_user_ui_scopes())
+        };
+        if openid_requested {
+            scopes.insert(CredentialScope::Openid);
+        }
+        self.create_family(
+            user.realm_id.clone(),
+            user.id.to_string(),
+            client_app.id,
+            credential_class,
+            scopes,
+            client_app.browser_refresh_absolute_ttl_seconds as u64,
+            Some(client_app.name.clone()),
+            user_agent,
+            client_ip,
+        )
+        .await
     }
 
     async fn refresh_inner(&self, refresh_token: &str) -> Result<BrowserTokenSet, RefreshError> {

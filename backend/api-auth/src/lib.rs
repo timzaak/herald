@@ -9,6 +9,7 @@ pub mod ldap_login;
 pub mod login;
 pub mod logout;
 mod mailflow;
+pub mod oauth_oidc;
 mod passkey_rp;
 pub mod reauth;
 pub mod register;

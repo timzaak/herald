@@ -90,6 +90,14 @@ pub enum AuditAction {
     OAuthConfigUpdate,
     #[serde(rename = "oauth_config.delete")]
     OAuthConfigDelete,
+    /// An OIDC id_token was issued during an authorization-code exchange
+    /// requested with the `openid` scope.
+    #[serde(rename = "oidc.id_token_issue")]
+    OidcIdTokenIssue,
+    /// Platform-level OIDC signing key rotated (new Active key promoted,
+    /// previous key enters its retained overlap window).
+    #[serde(rename = "oidc.signing_key_rotate")]
+    OidcSigningKeyRotate,
     #[serde(rename = "passkey_config.update")]
     PasskeyConfigUpdate,
     #[serde(rename = "totp_config.update")]

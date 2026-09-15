@@ -312,33 +312,15 @@ pub async fn handle_custom_domain_authorize(
     Query(query): Query<CustomDomainHostQuery>,
     headers: HeaderMap,
 ) -> Result<Json<CustomDomainAuthorizeResponse>, ApiError> {
-    // Shared-key gate. `ask_key` is validated non-empty at server startup
-    // (build_app_state_with_migrations), so an empty configured
-    // key cannot reach here in production. Compared in constant time, matching
-    // the internal-api-key gate (`internal_auth::constant_time_compare`).
-    // Non-empty failed comparisons are throttled with the same sliding-window
-    // budget so the secret is not brute-forceable at network speed (own
-    // instance — see `FailureThrottle` for why gates do not share budgets).
-    // A missing header reveals no secret material and stays a plain 401.
-    let provided = headers
-        .get("x-herald-ask-key")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let attempt_is_guess = !provided.is_empty();
-    if attempt_is_guess && !ASK_KEY_FAILURE_THROTTLE.allows_attempt() {
-        return Err(ApiError::too_many_requests("Too many ask key attempts"));
-    }
-    let key_matches = attempt_is_guess
-        && herald_api_base::application::http::internal_auth::constant_time_compare(
-            provided,
-            &state.custom_domain_ask_key,
-        );
-    if !key_matches {
-        if attempt_is_guess {
-            ASK_KEY_FAILURE_THROTTLE.record_failure();
-        }
-        return Err(ApiError::unauthorized("Invalid ask key"));
-    }
+    // Shared ask-key gate (`require_ask_key`): missing header stays a plain
+    // 401, non-empty failed comparisons are throttled with this endpoint's own
+    // sliding-window budget and compared in constant time. The configured key
+    // is validated non-empty at server startup (build_app_state_with_migrations).
+    herald_api_base::application::http::internal_auth::require_ask_key(
+        &headers,
+        &state.custom_domain_ask_key,
+        &ASK_KEY_FAILURE_THROTTLE,
+    )?;
 
     // Effectiveness predicate: `enabled = true` only. The repo
     // filters this; `cname_verified`/`tls_ready` are display-only and play no

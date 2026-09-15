@@ -14,11 +14,12 @@
 //   POST /api/legal/{realmId}/consent   (existing consent endpoint, BE-D05)
 //   PUT  /api/legal/admin/{realmId}/agreements/{type}   (admin publish)
 //
-// Design reference: `.ai/design/legal-consent-account-deletion.md` §4.1/§4.2/§5.1
-// User stories: `.ai/user-stories/core/legal-consent-account-deletion.md`
+// User stories: docs/user-stories/core/legal-consent-account-deletion.md
 //   US-RU-011, US-RU-012, US-RU-015
 
-use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
+use crate::tests::helpers::auth_helpers::{
+    create_admin_session_with_user, generate_totp_code, grant_realm_admin_role,
+};
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
     body::Body,
@@ -30,7 +31,6 @@ use herald_core::domain::user_totp::UserTotpService;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use test_context::test_context;
-use totp_lite::Sha256;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -168,16 +168,6 @@ async fn seed_enabled_totp(ctx: &TestContext, realm_id: &str, user_id: Uuid) -> 
     .expect("failed to seed enabled TOTP config");
 
     secret
-}
-
-fn generate_totp_code(secret: &str) -> String {
-    let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
-        .expect("test TOTP secret must decode");
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock must be after unix epoch")
-        .as_secs();
-    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
 }
 
 /// POST /api/legal/{realmId}/consent on behalf of an already-authenticated user.

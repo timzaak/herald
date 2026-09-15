@@ -5,6 +5,7 @@
 
 use axum::{
     Json,
+    body::Bytes,
     extract::{Path, State},
     http::HeaderMap,
 };
@@ -15,7 +16,6 @@ use herald_api_base::application::http::auth::util::{
 };
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
-use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::security_constants::OAUTH_TOKEN_IP_RATE_LIMIT;
@@ -54,6 +54,11 @@ pub struct TokenResponse {
     pub token_type: String,
     pub expires_in: u64,
     pub refresh_expires_in: u64,
+    /// OIDC identity token (RS256 JWT). Present only when the authorization
+    /// request carried the `openid` scope; omitted otherwise so non-OIDC
+    /// responses stay byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +74,32 @@ fn verify_pkce(code_verifier: &str, code_challenge: &str) -> bool {
     let hash = hasher.finalize();
     let computed = URL_SAFE_NO_PAD.encode(hash);
     computed == code_challenge
+}
+
+/// Parse the token request body.
+///
+/// Standard OIDC/OAuth clients POST `application/x-www-form-urlencoded` per
+/// RFC 6749 §4.1.3 — the discovery document advertises this endpoint to them
+/// (Grafana-style "issuer URL only" setups) — while the first-party flow this
+/// endpoint was built on uses JSON. Both content types deserialize into the
+/// same `TokenRequest` (field names are snake_case, matching the OAuth
+/// parameter names), so one struct serves both wire forms.
+fn parse_token_request(headers: &HeaderMap, body: &[u8]) -> Result<TokenRequest, ApiError> {
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let is_form = content_type.split(';').next().is_some_and(|mime| {
+        mime.trim()
+            .eq_ignore_ascii_case("application/x-www-form-urlencoded")
+    });
+    if is_form {
+        serde_urlencoded::from_bytes(body)
+            .map_err(|_| ApiError::bad_request("invalid token request body"))
+    } else {
+        serde_json::from_slice(body)
+            .map_err(|_| ApiError::bad_request("invalid token request body"))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,11 +120,11 @@ fn verify_pkce(code_verifier: &str, code_challenge: &str) -> bool {
     )
 )]
 #[tracing::instrument(
-    // Governance: req carries authorization code, PKCE
+    // Governance: body carries authorization code, PKCE
     // code_verifier, client_id — all credentials/secrets. state holds handles;
     // realm_id conservatively skipped; headers carries User-Agent/cookies, ip
     // may be PII. Only http.route is recorded.
-    skip(state, req, headers, ip),
+    skip(state, body, headers, ip),
     fields(http.route = "/api/oauth/{realmId}/token")
 )]
 pub async fn oauth_token(
@@ -101,7 +132,7 @@ pub async fn oauth_token(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
-    Json(req): Json<TokenRequest>,
+    body: Bytes,
 ) -> Result<Json<TokenResponse>, ApiError> {
     // Per-IP cap mirroring /authorize: each request costs a Redis GETDEL plus
     // client_app/user DB reads, so an unauthenticated code flood must not hit
@@ -115,6 +146,7 @@ pub async fn oauth_token(
     .await?;
 
     let user_agent = user_agent_from_headers(&headers);
+    let req = parse_token_request(&headers, &body)?;
 
     if req.grant_type != "authorization_code" {
         return Err(ApiError::bad_request(
@@ -190,25 +222,75 @@ pub async fn oauth_token(
         return Err(ApiError::bad_request("authorization code user is invalid"));
     }
 
-    let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
-    let tokens = if client_app.is_first_party {
-        token_service
-            .create_first_party_token_family(
-                &user,
-                &client_app,
-                user_agent.clone(),
-                Some(ip.clone()),
-            )
-            .await
+    // OIDC layer: mint an id_token only when the authorization request asked
+    // for the `openid` scope. Everything inside this branch is incremental —
+    // a flow without `openid` produces the identical response as before.
+    //
+    // The mint runs BEFORE the token family is written: every step in it can
+    // fail (disabled user, profile read, signing-key fetch/decrypt/sign), and
+    // once the family lands in Redis the response may no longer fail — a 500
+    // after that point would burn the one-time code, strand an orphan token
+    // family per retry, and force the user back through login.
+    let stored_scope = stored["scope"].as_str();
+    let openid_requested = herald_api_auth::oauth_oidc::scope_requests_openid(stored_scope);
+    let id_token = if openid_requested {
+        // The login-side entrances already reject disabled users, but the
+        // authorization code outlives the login by up to its TTL; a user
+        // disabled in between must not receive an identity token.
+        if user.status.is_disabled() {
+            return Err(ApiError::bad_request("authorization code user is invalid"));
+        }
+        let nonce = stored["nonce"].as_str().map(str::to_string);
+        // The profile row, the active signing key, and the realm origin are
+        // independent reads — fetch them concurrently instead of paying three
+        // serial DB round-trips on the login critical path.
+        let (nickname, active_key, origin) = tokio::try_join!(
+            crate::oidc_id_token::profile_nickname(&state, &user),
+            async {
+                state
+                    .oidc_signing_key_store
+                    .active_signing_key()
+                    .await
+                    .map_err(|error| {
+                        tracing::error!(%error, %realm_id, "OIDC active signing key unavailable");
+                        ApiError::internal("Internal server error")
+                    })
+            },
+            crate::oidc_discovery::build_realm_oauth_origin(&state, &realm_id),
+        )?;
+        Some(crate::oidc_id_token::issue_id_token(
+            &realm_id,
+            &req.client_id,
+            &user,
+            nickname,
+            nonce,
+            &active_key,
+            &origin,
+        )?)
     } else {
-        token_service
-            .create_token_family(&user, &client_app, user_agent.clone(), Some(ip.clone()))
-            .await
+        None
+    };
+
+    let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
+    let tokens = token_service
+        .create_oauth_token_family(
+            &user,
+            &client_app,
+            user_agent.clone(),
+            Some(ip.clone()),
+            openid_requested,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "OAuth browser token issuance failed");
+            ApiError::internal("Internal server error")
+        })?;
+
+    // Best-effort audit after the family write — it never fails the exchange.
+    if openid_requested {
+        crate::oidc_id_token::audit_id_token_issued(&state, &realm_id, &user, &req.client_id, &ip)
+            .await;
     }
-    .map_err(|error| {
-        tracing::error!(%error, "OAuth browser token issuance failed");
-        ApiError::internal("Internal server error")
-    })?;
 
     Ok(Json(TokenResponse {
         access_token: tokens.access_token,
@@ -216,6 +298,7 @@ pub async fn oauth_token(
         token_type: tokens.token_type,
         expires_in: tokens.expires_in,
         refresh_expires_in: tokens.refresh_expires_in,
+        id_token,
     }))
 }
 
@@ -279,6 +362,65 @@ pub(crate) fn validate_first_party_redirect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::header::{CONTENT_TYPE, HeaderMap};
+
+    fn json_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        headers
+    }
+
+    fn form_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        headers
+    }
+
+    // WHY: standard OIDC clients (Grafana-style) POST form-encoded per RFC
+    // 6749 §4.1.3 and the discovery document points them at this endpoint —
+    // the JSON body the first-party flow uses must not be the only wire form.
+    #[test]
+    fn parse_token_request_accepts_form_and_json_bodies() {
+        let expected = TokenRequest {
+            grant_type: "authorization_code".into(),
+            code: "code-123".into(),
+            redirect_uri: "https://app.example.com/cb".into(),
+            client_id: "client-a".into(),
+            code_verifier: "verifier".into(),
+        };
+
+        let from_form = parse_token_request(
+            &form_headers(),
+            b"grant_type=authorization_code&code=code-123&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb&client_id=client-a&code_verifier=verifier",
+        )
+        .expect("form-encoded token request must parse");
+        assert_eq!(from_form.code, expected.code);
+        assert_eq!(from_form.redirect_uri, expected.redirect_uri);
+        assert_eq!(from_form.client_id, expected.client_id);
+        assert_eq!(from_form.code_verifier, expected.code_verifier);
+
+        let json_body = serde_json::json!({
+            "grant_type": "authorization_code",
+            "code": "code-123",
+            "redirect_uri": "https://app.example.com/cb",
+            "client_id": "client-a",
+            "code_verifier": "verifier",
+        })
+        .to_string()
+        .into_bytes();
+        let from_json = parse_token_request(&json_headers(), &json_body)
+            .expect("JSON token request must keep parsing");
+        assert_eq!(from_json.code, expected.code);
+    }
+
+    #[test]
+    fn parse_token_request_rejects_unparseable_bodies() {
+        assert!(parse_token_request(&form_headers(), b"grant_type=&missing=everything").is_err());
+        assert!(parse_token_request(&json_headers(), b"not json at all").is_err());
+    }
 
     #[test]
     fn verify_pkce_correct_challenge() {

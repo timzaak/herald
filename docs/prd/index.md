@@ -10,7 +10,7 @@ PRD 文件保留独立主题，便于评审和追踪；规划、排期和端到�
 |-------|------|------------------|
 | 租户与运营 | 创建、配置和运营 Realm | [Realm](core/realm.md)、[SaaS 自助注册开通 Realm](core/realm-create.md)、[Realm Settings](core/realm-settings.md)、[Dashboard](core/dashboard.md)、[Audit](core/audit.md) |
 | 用户生命周期与合规 | 用户从注册、资料维护到协议确认和注销 | [Users](core/users.md)、[会话管理/强制下线](core/kickoff-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
-| 登录体验与品牌 | 提供统一、可品牌化且可本地化的认证入口 | [OAuth](auth/oauth.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/ui-custom.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
+| 登录体验与品牌 | 提供统一、可品牌化且可本地化的认证入口 | [OAuth](auth/oauth.md)、[OpenID Connect](auth/openid-connect.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/ui-custom.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 配置并完成多因素或无密码认证 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | 管理 RBAC、Client App、API Key 与 SDK 接入 | [权限管理](auth/permissions.md)、[Client App](integration/client-app.md)、[API Key 角色](integration/api-key-roles.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
 | 商品、支付与权益履约 | 从商品同步、购买到订阅/权益生效和异常补偿 | [Subscription（含多价格、产品同步与 Webhook 补偿）](billing/subscription.md)、[履约模型扩展（买断与非续期订阅）](billing/pay_model.md)、[Stripe 支付](billing/stripe-payment.md)、[Paywall](billing/support-paywall.md)、[App Store / Google Play 内购(IAP)](billing/support-iap.md)、[WeChat Pay 支持](billing/wechat-support.md)、[Google Pay / Apple Pay 钱包支付](billing/support-googlepay-applepay.md)、[多货币购买体验](billing/multiple-currency.md)、[计费统计（支付与积分消耗）](billing/billing-statistics.md) |
@@ -59,6 +59,7 @@ docs/
 | PRD 文档 | 标题 | 相关角色 |
 |---------|------|---------|
 | [oauth.md](auth/oauth.md) | OAuth 与第三方集成 | Realm Admin, Regular User, Third-Party App |
+| [openid-connect.md](auth/openid-connect.md) | OpenID Connect 最小兼容层（标准 OIDC 客户端接入：发现/id_token/JWKS/userinfo） | Third-Party App |
 | [wechat-oauth.md](auth/wechat-oauth.md) | 微信 OAuth 集成 | Realm Admin, Regular User |
 | [email-otp-login.md](auth/email-otp-login.md) | 邮箱验证码登录（含未注册邮箱自动注册） | Regular User, Realm Admin |
 | [google-one-tap.md](auth/google-one-tap.md) | Google One Tap 登录（第三方页面无跳转 Google 登录） | Regular User, Third-Party App |

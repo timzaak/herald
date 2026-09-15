@@ -62,9 +62,38 @@ pub async fn oauth_authorize(
     code_challenge: &str,
     code_challenge_method: &str,
 ) -> axum::response::Response {
+    oauth_authorize_with_oidc(
+        ctx,
+        realm_id,
+        client_id,
+        redirect_uri,
+        state,
+        code_challenge,
+        code_challenge_method,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Call the authorize endpoint with optional OIDC parameters.
+///
+/// `scope` and `nonce` are appended to the query only when `Some`, so a flow
+/// without them stays byte-identical to the pre-OIDC authorize request.
+pub async fn oauth_authorize_with_oidc(
+    ctx: &SchemaTestContext,
+    realm_id: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    state: &str,
+    code_challenge: &str,
+    code_challenge_method: &str,
+    scope: Option<&str>,
+    nonce: Option<&str>,
+) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
 
-    let query = format!(
+    let mut query = format!(
         "/api/oauth/{}/authorize?client_id={}&redirect_uri={}&state={}&response_type=code&code_challenge={}&code_challenge_method={}",
         realm_id,
         urlencoding::encode(client_id),
@@ -73,6 +102,12 @@ pub async fn oauth_authorize(
         urlencoding::encode(code_challenge),
         urlencoding::encode(code_challenge_method),
     );
+    if let Some(scope) = scope {
+        query.push_str(&format!("&scope={}", urlencoding::encode(scope)));
+    }
+    if let Some(nonce) = nonce {
+        query.push_str(&format!("&nonce={}", urlencoding::encode(nonce)));
+    }
 
     let request = Request::builder()
         .method("GET")

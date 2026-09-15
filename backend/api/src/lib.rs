@@ -439,9 +439,25 @@ pub async fn build_app_state_with_migrations(
         .as_ref()
         .map(|j| j.secret.clone())
         .unwrap_or_default();
+    // Fail fast rather than warn: the OIDC signing keys are sealed with a KEK
+    // derived from this secret, so an empty secret would leave discovery/JWKS
+    // serving 500s and every openid exchange failing at request time.
     if jwt_secret.is_empty() {
-        tracing::warn!("JWT secret not configured - device code and OAuth flows will fail");
+        anyhow::bail!(
+            "Configuration error: [jwt].secret must be set. It backs the OAuth JWT flows and \
+             the OIDC signing-key encryption key."
+        );
     }
+
+    // Platform-level OIDC signing key store; the first active key is
+    // bootstrapped after the state is assembled (see ensure_active_key below).
+    let oidc_signing_key_store = std::sync::Arc::new(
+        herald_core::infrastructure::oidc_signing_key::OidcSigningKeyStore::new(
+            pg_pool.clone(),
+            &jwt_secret,
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to build OIDC signing key store: {e}"))?,
+    );
 
     // Build application service once (no temp_state double-construction)
     let application_service = herald_core::application::ApplicationServiceBuilder::new()
@@ -543,6 +559,7 @@ pub async fn build_app_state_with_migrations(
         ldap_authenticator: std::sync::Arc::new(
             herald_core::infrastructure::ldap::Ldap3Authenticator::default(),
         ),
+        oidc_signing_key_store,
     });
 
     // Initialize Redis Functions using the final state's redis_manager
@@ -565,6 +582,15 @@ pub async fn build_app_state_with_migrations(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to initialize authentication Redis Functions: {e}"))?;
     info!("Authentication Redis Functions initialized");
+
+    // Bootstrap the platform OIDC signing key (idempotent; concurrent
+    // instances are arbitrated by the partial unique index).
+    state
+        .oidc_signing_key_store
+        .ensure_active_key()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to bootstrap OIDC signing key: {e}"))?;
+    info!("OIDC signing key ensured");
 
     Ok(state)
 }

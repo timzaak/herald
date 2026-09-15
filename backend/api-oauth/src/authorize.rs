@@ -18,7 +18,7 @@ use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::security_constants::{
-    OAUTH_AUTHORIZE_IP_RATE_LIMIT, OAUTH_STATE_TTL_SECONDS,
+    OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES, OAUTH_AUTHORIZE_IP_RATE_LIMIT, OAUTH_STATE_TTL_SECONDS,
 };
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -30,6 +30,13 @@ pub struct AuthorizeQueryParams {
     pub response_type: String,
     pub code_challenge: String,
     pub code_challenge_method: Option<String>,
+    /// Space-delimited OAuth/OIDC scope tokens. Only the presence of the
+    /// literal `openid` token has meaning (triggers id_token issuance); other
+    /// tokens are stored verbatim and never interpreted.
+    pub scope: Option<String>,
+    /// OIDC protocol security parameter, echoed back into the issued
+    /// id_token's `nonce` claim.
+    pub nonce: Option<String>,
 }
 
 fn default_response_type() -> String {
@@ -70,7 +77,9 @@ fn default_response_type() -> String {
         ("state" = String, Query, description = "State token (CSRF protection)"),
         ("response_type" = String, Query, description = "Response type (must be 'code')"),
         ("code_challenge" = String, Query, description = "PKCE code challenge (SHA256 + Base64url)"),
-        ("code_challenge_method" = Option<String>, Query, description = "PKCE method (must be 'S256' if provided, defaults to S256)")
+        ("code_challenge_method" = Option<String>, Query, description = "PKCE method (must be 'S256' if provided, defaults to S256)"),
+        ("scope" = Option<String>, Query, description = "Space-delimited scope tokens; presence of the literal 'openid' token triggers id_token issuance, other tokens are not interpreted"),
+        ("nonce" = Option<String>, Query, description = "OIDC nonce, echoed into the id_token nonce claim when openid is requested")
     ),
     responses(
         (status = 302, description = "Redirect to /{realmId}/auth/login with OAuth parameters"),
@@ -111,6 +120,18 @@ pub async fn oauth_authorize(
             "Unsupported code_challenge_method '{}'. Only 'S256' is supported.",
             method
         )));
+    }
+
+    // The optional OIDC parameters are stored verbatim in the Redis state, so
+    // they need a size bound to not double as a Redis-storage write primitive.
+    for (name, value) in [("scope", &params.scope), ("nonce", &params.nonce)] {
+        if let Some(value) = value
+            && value.len() > OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES
+        {
+            return Err(ApiError::bad_request(format!(
+                "'{name}' exceeds {OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES} bytes"
+            )));
+        }
     }
 
     // Validate client_id and redirect_uri
@@ -186,14 +207,21 @@ pub async fn oauth_authorize(
 
     // Store state token in Redis with PKCE parameters (5 minutes TTL, CSRF protection)
     let state_key = format!("oauth:state:{}", params.state);
-    let state_value = serde_json::json!({
+    let mut state_value = serde_json::json!({
         "client_id": params.client_id,
         "realm_id": realm_id,
         "redirect_uri": params.redirect_uri,
         "code_challenge": params.code_challenge,
         "code_challenge_method": params.code_challenge_method.as_deref().unwrap_or("S256"),
-    })
-    .to_string();
+    });
+    // OIDC fields are only added when present, keeping the stored state (and
+    // every downstream behavior) byte-identical for non-OIDC flows.
+    herald_api_auth::oauth_oidc::insert_optional_oidc_fields(
+        &mut state_value,
+        params.scope.as_deref(),
+        params.nonce.as_deref(),
+    );
+    let state_value = state_value.to_string();
 
     let mut conn = state
         .redis_manager

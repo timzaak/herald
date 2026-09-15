@@ -12,6 +12,11 @@ pub mod device_verify;
 pub mod google_one_tap;
 pub mod helper;
 pub mod login;
+pub mod oidc_discovery;
+pub mod oidc_id_token;
+pub mod oidc_jwks;
+pub mod oidc_rotation;
+pub mod oidc_userinfo;
 pub mod token;
 pub mod wechat;
 pub mod wechat_miniprogram;
@@ -26,6 +31,10 @@ pub use device_token::*;
 pub use device_verify::*;
 pub use google_one_tap::*;
 pub use login::*;
+pub use oidc_discovery::*;
+pub use oidc_jwks::*;
+pub use oidc_rotation::*;
+pub use oidc_userinfo::*;
 pub use token::*;
 pub use wechat::*;
 pub use wechat_miniprogram::*;
@@ -53,6 +62,10 @@ pub use wechat_miniprogram::*;
         crate::device_verify::device_verify,
         crate::device_confirm::device_confirm,
         crate::token::oauth_token,
+        crate::oidc_discovery::oidc_discovery,
+        crate::oidc_jwks::oidc_jwks,
+        crate::oidc_userinfo::oidc_userinfo,
+        crate::oidc_rotation::oidc_rotate_signing_key,
     ),
     components(schemas(
         crate::login::OAuthLoginRequest,
@@ -86,6 +99,11 @@ pub use wechat_miniprogram::*;
         crate::device_confirm::DeviceConfirmErrorResponse,
         crate::token::TokenRequest,
         crate::token::TokenResponse,
+        crate::oidc_discovery::OidcDiscoveryResponse,
+        crate::oidc_jwks::OidcJwk,
+        crate::oidc_jwks::OidcJwksResponse,
+        crate::oidc_userinfo::OidcUserInfoResponse,
+        crate::oidc_rotation::OidcRotationResponse,
     ))
 )]
 pub struct ApiDoc;

@@ -2206,8 +2206,10 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha2",
  "sqlx",
+ "tokio",
  "tracing",
  "url",
  "urlencoding",
@@ -2323,6 +2325,7 @@ dependencies = [
 name = "herald-infra"
 version = "0.5.4"
 dependencies = [
+ "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "futures",
@@ -2340,6 +2343,7 @@ dependencies = [
  "rand 0.8.5",
  "redis",
  "reqwest 0.12.28",
+ "rsa",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",

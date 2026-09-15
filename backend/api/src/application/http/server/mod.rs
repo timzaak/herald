@@ -603,6 +603,12 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             "/api/internal/custom-domain/authorize",
             get(realm::custom_domain_config::handle_custom_domain_authorize),
         )
+        // Internal OIDC signing-key rotation (X-Herald-Ask-Key shared secret,
+        // checked in-handler; mirrors the custom-domain ask gate above).
+        .route(
+            "/api/internal/oidc/signing-key/rotate",
+            post(oauth::oidc_rotate_signing_key),
+        )
         // Public legal agreement endpoints (no Bearer identity).
         // Grouped separately from the consent nest below so the Bearer middleware
         // layer never covers the public agreements routes.
@@ -620,6 +626,28 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             get(oauth::oauth_authorize),
         )
         .route("/api/oauth/{realmId}/token", post(oauth::oauth_token))
+        // OIDC discovery + JWKS (public; handler applies per-IP rate limiting
+        // and realm existence checks). Static segments, so they win over the
+        // parameterized {provider} routes below in the router's matcher.
+        .route(
+            "/api/oauth/{realmId}/.well-known/openid-configuration",
+            get(oauth::oidc_discovery),
+        )
+        .route(
+            "/api/oauth/{realmId}/.well-known/jwks.json",
+            get(oauth::oidc_jwks),
+        )
+        // OIDC userinfo (browser access token via the shared identity
+        // middleware; POST accepted per OIDC Core §5.3.1 and ignores the body).
+        .nest(
+            "/api/oauth/{realmId}",
+            Router::new()
+                .route(
+                    "/userinfo",
+                    get(oauth::oidc_userinfo).post(oauth::oidc_userinfo),
+                )
+                .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
+        )
         .route(
             "/api/oauth/{realmId}/{provider}/login",
             get(oauth::oauth_login),

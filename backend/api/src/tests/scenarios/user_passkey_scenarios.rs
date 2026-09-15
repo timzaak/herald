@@ -2,8 +2,12 @@
 // User Passkey API Scenarios
 // =============================================================================
 
-use crate::tests::helpers::auth_helpers::obtain_reauth_token;
+use crate::tests::helpers::auth_helpers::{generate_totp_code, obtain_reauth_token};
 use crate::tests::helpers::passkey_authenticator::Es256Authenticator;
+use crate::tests::helpers::passkey_flow_helpers::{
+    RP_ORIGIN, begin_registration, clear_passkey_user_rate_limit, register_one_passkey,
+    setup_realm_passkey_config,
+};
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
     body::Body,
@@ -13,13 +17,11 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use redis::AsyncCommands;
 use serde_json::{Value, json};
 use test_context::test_context;
-use totp_lite::Sha256;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 const PASSWORD: &str = "Password123!";
 const PASSKEY_VERIFY_FAILED: &str = "Passkey 验证失败";
-const RP_ORIGIN: &str = "https://localhost";
 
 type TestAuthenticator = Es256Authenticator;
 
@@ -104,27 +106,6 @@ async fn create_session(ctx: &TestContext, email: &str, password: &str) -> Strin
     token.expect("login should return accessToken")
 }
 
-async fn setup_realm_passkey_config(ctx: &TestContext, realm_id: &str, enabled: bool) {
-    let config_value = json!({ "enabled": enabled });
-
-    sqlx::query(
-        "INSERT INTO realm_config
-            (id, realm_id, config_type, config_key, config_value, is_secret, enabled, metadata, created_at, updated_at)
-         VALUES ($1, $2, 'passkey', 'settings', $3, false, $4, NULL, NOW(), NOW())
-         ON CONFLICT (realm_id, config_type, config_key)
-         DO UPDATE SET config_value = EXCLUDED.config_value,
-                       enabled = EXCLUDED.enabled,
-                       updated_at = NOW()",
-    )
-    .bind(Uuid::now_v7())
-    .bind(realm_id)
-    .bind(config_value.to_string())
-    .bind(enabled)
-    .execute(&ctx._app_state.pool)
-    .await
-    .expect("passkey realm config should upsert");
-}
-
 async fn setup_realm_totp_config(ctx: &TestContext, enabled: bool, force_enabled: bool) {
     let config_value = json!({ "enabled": enabled, "force_enabled": force_enabled });
     let metadata = json!({ "force_enabled": force_enabled });
@@ -147,104 +128,6 @@ async fn setup_realm_totp_config(ctx: &TestContext, enabled: bool, force_enabled
     .execute(&ctx._app_state.pool)
     .await
     .expect("totp realm config should upsert");
-}
-
-async fn clear_passkey_user_rate_limit(ctx: &TestContext, user_id: &str) {
-    let mut conn = ctx._app_state.redis_manager.get().await.unwrap();
-    let _: () = conn
-        .del(format!("rl:passkey:user:{user_id}"))
-        .await
-        .expect("passkey user rate limit key should clear");
-}
-
-async fn begin_registration(
-    ctx: &TestContext,
-    session_token: &str,
-    password: &str,
-    nickname: Option<&str>,
-) -> (Value, String) {
-    let reauth_token =
-        obtain_reauth_token(ctx, session_token, "bind_authenticator", password).await;
-    let mut payload = json!({ "reauthToken": reauth_token });
-    if let Some(name) = nickname {
-        payload["nickname"] = json!(name);
-    }
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/user/passkey/registration/begin")
-        .header("content-type", "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
-        .body(Body::from(payload.to_string()))
-        .unwrap();
-    let response = ctx.create_unified_test_router().oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response_body(response).await;
-
-    (
-        body["options"].clone(),
-        body["regToken"]
-            .as_str()
-            .expect("regToken should be present")
-            .to_string(),
-    )
-}
-
-async fn finish_registration(
-    ctx: &TestContext,
-    session_token: &str,
-    password: &str,
-    authenticator: &mut TestAuthenticator,
-    reg_token: &str,
-    options: Value,
-) -> Value {
-    let attestation = authenticator.register(&options, RP_ORIGIN);
-    let reauth_token =
-        obtain_reauth_token(ctx, session_token, "bind_authenticator", password).await;
-    let payload = json!({
-        "reauthToken": reauth_token,
-        "regToken": reg_token,
-        "attestation": attestation
-    });
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/user/passkey/registration/finish")
-        .header("content-type", "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
-        .body(Body::from(payload.to_string()))
-        .unwrap();
-    let response = ctx.create_unified_test_router().oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    response_body(response).await
-}
-
-async fn register_one_passkey(
-    ctx: &TestContext,
-    session_token: &str,
-    user_id: &str,
-    password: &str,
-    nickname: &str,
-    authenticator: &mut TestAuthenticator,
-) -> String {
-    let (options, reg_token) =
-        begin_registration(ctx, session_token, password, Some(nickname)).await;
-    clear_passkey_user_rate_limit(ctx, user_id).await;
-    let body = finish_registration(
-        ctx,
-        session_token,
-        password,
-        authenticator,
-        &reg_token,
-        options,
-    )
-    .await;
-    clear_passkey_user_rate_limit(ctx, user_id).await;
-
-    body["credentialId"]
-        .as_str()
-        .expect("credentialId should be present")
-        .to_string()
 }
 
 async fn delete_passkey(
@@ -415,16 +298,6 @@ async fn finish_second_factor(
     (token, body)
 }
 
-fn generate_totp_code(secret: &str) -> String {
-    let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
-        .expect("secret should decode");
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
-}
-
 async fn enable_totp_via_http(ctx: &TestContext, session_token: &str) -> String {
     let reauth_token =
         obtain_reauth_token(ctx, session_token, "bind_authenticator", PASSWORD).await;
@@ -502,7 +375,7 @@ async fn test_passkey_registration_finish_persists_credential(ctx: &mut TestCont
         &session,
         &user_id,
         PASSWORD,
-        "Laptop",
+        Some("Laptop"),
         &mut authenticator,
     )
     .await;
@@ -550,7 +423,7 @@ async fn test_passkey_first_factor_login_success_and_counter_updates(ctx: &mut T
         &session,
         &user_id,
         PASSWORD,
-        "Security Key",
+        Some("Security Key"),
         &mut authenticator,
     )
     .await;
@@ -602,7 +475,7 @@ async fn test_passkey_first_factor_login_rejects_disabled_user(ctx: &mut TestCon
         &session,
         &user_id,
         PASSWORD,
-        "Security Key",
+        Some("Security Key"),
         &mut authenticator,
     )
     .await;
@@ -654,7 +527,7 @@ async fn test_passkey_second_factor_login_success(ctx: &mut TestContext) {
         &session,
         &user_id,
         PASSWORD,
-        "Phone",
+        Some("Phone"),
         &mut authenticator,
     )
     .await;
@@ -699,9 +572,16 @@ async fn test_passkey_list_rename_and_delete(ctx: &mut TestContext) {
     let mut first = softtoken();
     let mut second = softtoken();
     let first_id =
-        register_one_passkey(ctx, &session, &user_id, PASSWORD, "First", &mut first).await;
-    let second_id =
-        register_one_passkey(ctx, &session, &user_id, PASSWORD, "Second", &mut second).await;
+        register_one_passkey(ctx, &session, &user_id, PASSWORD, Some("First"), &mut first).await;
+    let second_id = register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        Some("Second"),
+        &mut second,
+    )
+    .await;
 
     clear_passkey_user_rate_limit(ctx, &user_id).await;
     let list_req = Request::builder()
@@ -767,7 +647,7 @@ async fn test_delete_last_passkey_removes_from_second_factors(ctx: &mut TestCont
         &session,
         &user_id,
         PASSWORD,
-        "Only",
+        Some("Only"),
         &mut authenticator,
     )
     .await;
@@ -844,7 +724,15 @@ async fn test_assertion_failure_returns_unified_message_no_internal_cause(ctx: &
     let user_id = create_test_user(ctx, email, PASSWORD).await;
     let session = create_session(ctx, email, PASSWORD).await;
     let mut authenticator = softtoken();
-    register_one_passkey(ctx, &session, &user_id, PASSWORD, "Key", &mut authenticator).await;
+    register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        Some("Key"),
+        &mut authenticator,
+    )
+    .await;
 
     let (_options, auth_token) = begin_first_factor(ctx, &ctx._realm_id).await;
     let invalid_payload = json!({
@@ -921,7 +809,7 @@ async fn test_first_factor_cross_realm_credential_isolated(ctx: &mut TestContext
         &session,
         &user_id,
         PASSWORD,
-        "A Realm Key",
+        Some("A Realm Key"),
         &mut authenticator,
     )
     .await;

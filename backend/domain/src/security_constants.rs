@@ -116,6 +116,26 @@ pub const DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS: i64 = 5;
 pub const DEVICE_CODE_USER_CODE_LENGTH: usize = 8;
 pub const DEVICE_CODE_USER_CODE_ALPHABET: &str = "BCDFGHJKMNPQRSTVWXYZ";
 
+// --- OpenID Connect identity layer ---
+/// id_token lifetime. Short on purpose: the token only needs to cover the
+/// client's post-exchange validation window, and a short window bounds replay
+/// value without a revocation surface.
+pub const OIDC_ID_TOKEN_TTL_SECONDS: i64 = 600;
+/// Overlap period during which a rotated-away signing key stays published in
+/// JWKS so tokens signed before rotation remain verifiable.
+pub const OIDC_SIGNING_KEY_RETENTION_SECONDS: i64 = 7 * 24 * 3600;
+pub const OAUTH_DISCOVERY_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+pub const OAUTH_JWKS_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+pub const OAUTH_USERINFO_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+/// Size bound for the optional authorize `scope`/`nonce` parameters. The
+/// values are stored verbatim in the Redis OAuth state, so without a bound
+/// they double as a Redis-storage write primitive.
+pub const OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES: usize = 4096;
+/// Cache-Control max-age for the public discovery/JWKS responses. Safe with
+/// rotation: a client hitting an unknown `kid` refetches JWKS per standard
+/// behavior, so the cached document cannot make verification fail.
+pub const OIDC_PUBLIC_CACHE_MAX_AGE_SECONDS: u32 = 300;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +148,21 @@ mod tests {
     #[test]
     fn signup_ip_quota_is_two_realms_per_24h() {
         assert_eq!(SIGNUP_IP_RATE_LIMIT, (2, 86_400));
+    }
+
+    // WHY: the id_token TTL and the key retention window are protocol-facing
+    // security values — changing either silently alters the replay window or
+    // how long pre-rotation tokens stay verifiable. The rate-limit trio and
+    // cache age shape the public endpoint abuse posture. Pin them so any
+    // adjustment is a conscious, reviewed change.
+    #[test]
+    fn oidc_layer_constants_keep_pinned_values() {
+        assert_eq!(OIDC_ID_TOKEN_TTL_SECONDS, 600);
+        assert_eq!(OIDC_SIGNING_KEY_RETENTION_SECONDS, 7 * 24 * 3600);
+        assert_eq!(OAUTH_DISCOVERY_IP_RATE_LIMIT, (30, 60));
+        assert_eq!(OAUTH_JWKS_IP_RATE_LIMIT, (30, 60));
+        assert_eq!(OAUTH_USERINFO_IP_RATE_LIMIT, (30, 60));
+        assert_eq!(OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES, 4096);
+        assert_eq!(OIDC_PUBLIC_CACHE_MAX_AGE_SECONDS, 300);
     }
 }

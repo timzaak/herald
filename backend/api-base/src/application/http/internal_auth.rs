@@ -9,12 +9,14 @@
 
 use axum::{
     extract::Request,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::application::http::server::api_entities::ApiError;
 
 /// Constant-time string comparison.
 ///
@@ -92,6 +94,37 @@ impl Default for FailureThrottle {
 }
 
 static INTERNAL_KEY_THROTTLE: FailureThrottle = FailureThrottle::new();
+
+/// Verify the `X-Herald-Ask-Key` shared-secret gate for ask-key guarded
+/// endpoints (Caddy on-demand-TLS ask, OIDC signing-key rotation).
+///
+/// The expected key must be validated non-empty at startup by the caller. A
+/// missing header reveals no secret material and stays a plain 401; only
+/// non-empty comparisons are throttled (pass the endpoint's own
+/// [`FailureThrottle`] instance) and compared in constant time. Rejects with
+/// 429 when the throttle is tripped and 401 when the key does not match.
+pub fn require_ask_key(
+    headers: &HeaderMap,
+    expected: &str,
+    throttle: &FailureThrottle,
+) -> Result<(), ApiError> {
+    let provided = headers
+        .get("x-herald-ask-key")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let attempt_is_guess = !provided.is_empty();
+    if attempt_is_guess && !throttle.allows_attempt() {
+        return Err(ApiError::too_many_requests("Too many ask key attempts"));
+    }
+    let key_matches = attempt_is_guess && constant_time_compare(provided, expected);
+    if !key_matches {
+        if attempt_is_guess {
+            throttle.record_failure();
+        }
+        return Err(ApiError::unauthorized("Invalid ask key"));
+    }
+    Ok(())
+}
 
 fn now_epoch_ms() -> u64 {
     SystemTime::now()

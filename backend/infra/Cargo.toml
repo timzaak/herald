@@ -34,6 +34,8 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 ldap3 = { workspace = true }
+rsa = "0.9"
+aes-gcm = { workspace = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
 rustls-native-certs = { workspace = true }

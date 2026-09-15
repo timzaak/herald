@@ -40,6 +40,7 @@ pub enum CredentialScope {
     InvoiceApply,
     SubscriptionRead,
     SubscriptionCancel,
+    Openid,
 }
 
 #[derive(Debug, Clone)]
