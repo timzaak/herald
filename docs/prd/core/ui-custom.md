@@ -47,7 +47,7 @@
 - Per-realm 主色 / accent color（影响主按钮、链接等品牌色）
 - Per-realm 背景（图片 URL 或背景渐变，替代当前固定背景）
 - Per-realm 页脚文案（替代当前固定品牌信息）
-- Per-realm 登录/注册页文案（标题 / 副标题，复用已有 realmName / realmDescription 扩展）
+- Per-realm 登录/注册页文案（标题 / 副标题，为独立的登录/注册文案字段，不复用 realmName / realmDescription——后者是 Realm 档案字段，语义与展示位不同）
 - 品牌资产配置的管理后台入口（Settings 页面新增品牌化 Tab）
 - 品牌化呈现覆盖所有经统一布局出口的 auth 流页面及其子状态（登录、注册、忘记密码、邮箱验证、OAuth 同意、TOTP、passkey 等）
 - logo / 背景加载失败时的默认回退

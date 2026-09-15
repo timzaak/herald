@@ -26,7 +26,10 @@ describe('checkPermission cache', () => {
     const { handler, requests } = permissionHandler('user-1')
     server.use(handler)
 
-    const result = await makeClient().checkPermission({ accessToken: 'tok', clientId: 'client-1' })
+    const result = await makeClient().checkPermission({
+      accessToken: 'tok',
+      rules: [{ resource: 'doc', action: 'read' }],
+    })
 
     expect(result).toEqual({ allowed: true, userId: 'user-1' })
     expect(requests).toHaveLength(1)
@@ -38,32 +41,43 @@ describe('checkPermission cache', () => {
     server.use(handler)
     const client = makeClient()
 
-    const first = await client.checkPermission({ accessToken: 'tok', clientId: 'client-1' })
-    const second = await client.checkPermission({ accessToken: 'tok', clientId: 'client-1' })
+    const first = await client.checkPermission({
+      accessToken: 'tok',
+      rules: [{ resource: 'doc', action: 'read' }],
+    })
+    const second = await client.checkPermission({
+      accessToken: 'tok',
+      rules: [{ resource: 'doc', action: 'read' }],
+    })
 
     expect(second).toEqual(first)
     expect(requests).toHaveLength(1)
   })
 
-  it('distinguishes requests by rules (undefined vs [] vs order)', async () => {
+  it('distinguishes requests by rules ([] vs populated vs order)', async () => {
     const { handler, requests } = permissionHandler('user-1')
     server.use(handler)
     const client = makeClient()
 
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c' })
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c', rules: [] })
+    await client.checkPermission({ accessToken: 'tok', rules: [] })
     await client.checkPermission({
       accessToken: 'tok',
-      clientId: 'c',
       rules: [{ resource: 'doc', action: 'read' }],
     })
     await client.checkPermission({
       accessToken: 'tok',
-      clientId: 'c',
       rules: [{ resource: 'doc', action: 'read' }],
+    })
+    await client.checkPermission({
+      accessToken: 'tok',
+      rules: [{ resource: 'doc', action: 'read' }, { resource: 'doc', action: 'write' }],
+    })
+    await client.checkPermission({
+      accessToken: 'tok',
+      rules: [{ resource: 'doc', action: 'read' }, { resource: 'doc', action: 'write' }],
     })
 
-    // 3 distinct requests + 1 cache hit = 3 HTTP calls.
+    // 3 distinct requests + 2 cache hits = 3 HTTP calls.
     expect(requests).toHaveLength(3)
   })
 
@@ -72,9 +86,9 @@ describe('checkPermission cache', () => {
     server.use(handler)
     const client = makeClient(1 /* second */)
 
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c' })
+    await client.checkPermission({ accessToken: 'tok', rules: [] })
     vi.setSystemTime(vi.getMockedSystemTime()!.getTime() + 1500)
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c' })
+    await client.checkPermission({ accessToken: 'tok', rules: [] })
 
     expect(requests).toHaveLength(2)
   })
@@ -84,8 +98,8 @@ describe('checkPermission cache', () => {
     server.use(handler)
     const client = makeClient()
 
-    const req1 = { accessToken: 'token1', clientId: 'c' }
-    const req2 = { accessToken: 'token2', clientId: 'c' }
+    const req1 = { accessToken: 'token1', rules: [] }
+    const req2 = { accessToken: 'token2', rules: [] }
     await client.checkPermission(req1)
     await client.checkPermission(req2)
 
@@ -102,9 +116,9 @@ describe('checkPermission cache', () => {
     server.use(handler)
     const client = makeClient(600) // TTL longer than the 5-minute heuristic
 
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c' })
+    await client.checkPermission({ accessToken: 'tok', rules: [] })
     vi.setSystemTime(vi.getMockedSystemTime()!.getTime() + 301_000) // token now "expired" per heuristic
-    await client.checkPermission({ accessToken: 'tok', clientId: 'c' })
+    await client.checkPermission({ accessToken: 'tok', rules: [] })
 
     expect(requests).toHaveLength(2)
   })

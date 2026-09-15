@@ -191,6 +191,13 @@ pub async fn change_password(
     Valid(Json(payload)): Valid<Json<ChangePasswordRequest>>,
 ) -> Result<ApiResult<serde_json::Value>, ApiError> {
     require_token_scope(&identity, &context, CredentialScope::ChangePassword)?;
+
+    // Byte-length gate before the single-use reauth ticket is consumed: the
+    // character-count validator alone lets a multi-byte password exceed
+    // bcrypt's 72-byte window (same gate as the domain register path), and an
+    // invalid password must not burn the reauth ticket.
+    herald_core::domain::user::services::ensure_password_byte_length(&payload.new_pass)?;
+
     consume_reauth(
         &state,
         &identity,

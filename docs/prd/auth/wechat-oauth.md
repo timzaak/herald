@@ -11,7 +11,7 @@
 ### 1.1 故事引用
 
 **租户管理员**
-- `[US-RA-010]` OAuth Provider 配置管理 (P0)，来源 `docs/user-stories/auth/oauth-extension.md`
+- `[US-OE-001]` OAuth Provider 配置管理 (P0)，来源 `docs/user-stories/auth/oauth-extension.md`
   - 角色：Realm Admin
   - 摘要：管理 OAuth Provider 配置（Google、GitHub、Facebook、Apple、WeChat），以便用户可以使用第三方登录
 
@@ -21,16 +21,16 @@
   - 摘要：使用第三方账号（Google、GitHub、Facebook、Apple、WeChat）登录，以便无需记忆额外密码
 
 **微信专属**
-- `[US-RA-011]` WeChat OAuth Provider 配置 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
+- `[US-WO-001]` WeChat OAuth Provider 配置 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
   - 角色：Realm Admin
   - 摘要：配置 WeChat OAuth Provider，以便用户可以使用微信登录
-- `[US-RA-012]` WeChat Mini Program Provider 配置 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
+- `[US-WO-002]` WeChat Mini Program Provider 配置 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
   - 角色：Realm Admin
   - 摘要：配置 WeChat Mini Program Provider，以便小程序用户可以登录
-- `[US-RU-010]` 微信网站应用登录 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
+- `[US-WO-003]` 微信网站应用登录 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
   - 角色：Regular User
   - 摘要：使用微信扫码登录，以便快速访问系统
-- `[US-RU-011]` 微信小程序登录 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
+- `[US-WO-004]` 微信小程序登录 (P1)，来源 `docs/user-stories/auth/wechat-oauth.md`
   - 角色：小程序用户
   - 摘要：使用微信账号登录，以便在小程序内访问 Herald 服务
 

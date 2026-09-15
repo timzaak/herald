@@ -52,8 +52,9 @@
   - **用户管理**：用户创建、更新、删除（`user.delete` 为双轨：管理员删除记入用户管理类别，用户自助注销记入合规类别——按类别筛选用户管理不会包含自助注销行，需按 action 跨类别检索）
   - **RBAC 变更**：角色创建/更新/删除、权限定义创建/更新/删除（`permission.create` / `permission.update` / `permission.delete`）、权限授予/撤销、角色分配/取消、权限拒绝（`rbac.permission_denied`）
   - **Realm 管理**：Realm 创建、RBAC 初始化
-  - **认证事件**：用户登录、登出、登录失败、Passkey 注册/删除、Client App 切换（`auth.client_switch`）
+  - **认证事件**：用户登录、登出、登录失败、Passkey 注册/删除、Client App 切换（`auth.client_switch`）、OIDC id_token 签发（`oidc.id_token_issue`，openid 授权流程的令牌交换成功时记录）
   - **合规事件**：用户协议/隐私政策同意（`agreement.consent`）、协议发布（`agreement.published`）、协议回退（`agreement.reverted`）、用户自助注销（`user.delete`，见用户管理条目的双轨说明）
+  - **OIDC 运维事件**：签名密钥轮换（`oidc.signing_key_rotate`，admin realm 承载，经 ask-key 门控的内部轮换端点触发）
   - **关键配置变更**（边界定义）：经通用 realm_config API 的所有配置行写入/删除均记审计——支付 Provider（Stripe/Creem/Apple/Google/WeChat）记 `payment_config.update` / `payment_config.delete`，其余配置类型（SMTP/Resend、LDAP、Turnstile、注册策略、`totp_key` 等）记 `realm_config.update` / `realm_config.delete`；白标草稿保存/丢弃、发布和恢复同样记 `realm_config.update/delete` 并在 details 标注生命周期操作；认证策略配置经专用端点写入时记专用事件（`passkey_config.update` / `totp_config.update` / `email_otp_config.update`）；OAuth Provider 配置记 `oauth_config.*`；自定义域名保存/清空经专用单保存端点写入，记 `realm_config.update` 并在 details 标注 `config_type: "custom_domain"` 与 `operation: saved|cleared`。Realm 档案（名称/描述）编辑当前不在审计范围
 
 ### 2.2 不包含功能 (Out of Scope)

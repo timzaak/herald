@@ -47,11 +47,10 @@ async fn test_scenario_sdk_permission_cache_hit(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: session_token.clone(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 5. First permission check - should hit the server
@@ -108,11 +107,10 @@ async fn test_scenario_sdk_cache_invalidation(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: session_token.clone(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 5. First permission check - should populate cache

@@ -836,7 +836,7 @@ CREATE UNIQUE INDEX uk_invoice_realm_external_order_id ON invoice(realm_id, exte
 CREATE INDEX idx_invoice_realm_provider ON invoice(realm_id, provider);
 
 COMMENT ON TABLE invoice IS 'Invoice records with buyer/seller snapshots and monetary amounts';
-COMMENT ON COLUMN invoice.invoice_number IS 'Formatted as INV-{YEAR}-{SEQ}';
+COMMENT ON COLUMN invoice.invoice_number IS 'Formatted as INV-{YEAR}-{SEQ} with SEQ zero-padded to 4 digits (e.g. INV-2026-0042, see invoice_service::format_invoice_number)';
 COMMENT ON COLUMN invoice.source IS 'admin_manual = created by realm admin; user_application = applied by end user; external_sync = synced from external platform';
 COMMENT ON COLUMN invoice.subtotal IS 'Sum of all line item subtotals in smallest currency unit';
 COMMENT ON COLUMN invoice.total IS 'subtotal - discount_amount + tax_amount + shipping_amount';

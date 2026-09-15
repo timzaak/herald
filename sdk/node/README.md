@@ -39,7 +39,6 @@ const client = new HeraldClient(
 // Check permission (cached per exact request for the TTL)
 const resp = await client.checkPermission({
   accessToken: 'user-browser-token', // issued by /api/auth/{realmId}/login
-  clientId: 'your-client-id',
   rules: [{ resource: 'document', action: 'read' }],
 })
 console.log('allowed:', resp.allowed)

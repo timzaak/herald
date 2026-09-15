@@ -147,6 +147,7 @@ Then WeChat Mini Program Provider 状态变为 "Enabled"
 **场景 1：微信网站应用登录成功（新用户）**
 ```gherkin
 Given Realm realm-1 已配置 WeChat OAuth Provider
+And Realm realm-1 已开启注册（自动建号受注册政策门控，注册关闭时不自动创建账号）
 And 用户未登录
 When 用户在登录页面点击 "微信登录" 按钮
 And 用户扫描二维码并授权
@@ -201,6 +202,18 @@ And 用户自动登录系统
 And 用户可以继续使用之前的账号数据
 ```
 
+**场景 7：注册关闭时不自动建号**
+```gherkin
+Given Realm realm-1 已配置 WeChat OAuth Provider
+And Realm realm-1 已关闭注册
+And 用户未登录且在 Herald 中不存在账号
+When 用户在登录页面点击 "微信登录" 按钮
+And 用户扫描二维码并授权
+Then 登录失败，系统提示当前 Realm 未开放注册
+And 系统不自动创建用户账号
+And 已存在账号的用户登录不受注册开关影响
+```
+
 ---
 
 ### 故事 4：微信小程序登录 [US-WO-004]
@@ -219,6 +232,7 @@ And 用户可以继续使用之前的账号数据
 **场景 1：微信小程序登录成功（新用户）**
 ```gherkin
 Given Realm realm-1 已配置 WeChat Mini Program Provider
+And Realm realm-1 已开启注册（自动建号受注册政策门控，注册关闭时不自动创建账号）
 And 用户在小程序中打开登录页面
 When 用户点击 "微信登录" 按钮
 And 用户确认授权

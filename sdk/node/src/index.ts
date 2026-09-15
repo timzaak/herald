@@ -38,5 +38,6 @@ export type {
   SubscriptionDetail,
   TransactionDetail,
   UserInfo,
+  UserPage,
   WalletByBucket,
 } from './types'

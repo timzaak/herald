@@ -79,7 +79,7 @@
 
 ### 3.2 关键特性
 
-- **RFC 8628 完整合规**：实现协议规定的全部端点、参数和错误码
+- **RFC 8628 合规（含两处已记录偏差）**：实现协议规定的全部端点、参数和错误码；偏差见 §6——`access_denied` 返回 403、令牌轮询端点不接受 `client_id` 参数（客户端身份在设备授权时绑定于 device_code 状态，轮询仅凭 device_code + realm 定位）
 - **复用现有架构**：复用 Client App 模型和 Session Token 机制
 - **双通道验证**：Herald 提供默认验证页面，同时开放 API 供第三方自定义
 - **安全防护**：短生命周期码、轮询限速、展示 Client App 名称防钓鱼
@@ -135,6 +135,7 @@
 **Realm 隔离校验**
 - 所有端点（authorize、verify、confirm、token）均校验存储的 `realm_id` 与路径参数 `realmId` 一致
 - 不匹配时返回 `invalid_request` 错误（realm mismatch），且不消费已授权的 device code
+- 会话认证端点（verify、confirm）在此之上还有一层身份 Realm 守卫：登录身份所属 Realm 与路径 Realm 不一致时先行返回 403（不进入设备状态查询）；`invalid_request` 的状态层校验对身份匹配但设备状态属于其他 Realm 的请求生效
 
 **幂等性**
 - 同一用户重复调用 verify 端点验证同一 user_code 时，幂等返回 Client App 信息，不会重复修改状态
@@ -173,6 +174,7 @@
 
 - 设备授权请求需验证 `client_id` 有效且 Client App 已启用 Device Code Grant
 - 令牌轮询需实现 RFC 8628 §3.5 规定的全部错误码（`authorization_pending` / `slow_down` / `expired_token` / `access_denied`），错误响应体携带 `error` 与 `error_description` 字段；状态码存在一处与 RFC 的有意偏差：`authorization_pending`、`slow_down`、`expired_token` 均按 RFC 返回 400，而 `access_denied`（用户明确拒绝授权）返回 **403 Forbidden**（错误码名与 RFC 一致；拒绝属授权终态，语义上更贴近 403，且已有测试锁定该行为）
+- 参数面存在另一处与 RFC 的偏差：令牌轮询端点（`POST /api/device/{realmId}/token`）不接受也不校验 `client_id`——客户端身份在设备授权（`/authorize`）时即绑定于 device_code 的服务端状态，轮询仅凭 `device_code` + realm 定位事务；RFC 8628 §3.5 允许（不强制）client 参数，缺失该参数不破坏协议兼容性
 - 轮询端点需对 `slow_down` 错误正确累加间隔（每次 +5 秒）
 - 验证页面 API 需要求用户已登录（session 认证）
 - 所有端点遵守 realm 隔离原则

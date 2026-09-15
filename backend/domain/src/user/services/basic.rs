@@ -21,7 +21,7 @@ use crate::{
 /// 8–100 Unicode characters, so a multi-byte password could otherwise
 /// exceed bcrypt's 72-byte input window and be silently truncated at
 /// hashing.
-fn ensure_password_byte_length(password: &str) -> Result<(), CoreError> {
+pub fn ensure_password_byte_length(password: &str) -> Result<(), CoreError> {
     if password.len() < 8 || password.len() > 100 {
         return Err(CoreError::BadRequest("Password length invalid".to_string()));
     }
@@ -452,6 +452,11 @@ where
         new_password: String,
         realm_id: &str,
     ) -> Result<Uuid, CoreError> {
+        // Same byte-length gate as register/create: the HTTP layer's
+        // character-count validation alone would let a multi-byte password
+        // exceed bcrypt's 72-byte window.
+        ensure_password_byte_length(&new_password)?;
+
         let code_realm_id = parse_reset_code_realm_id(code)?;
 
         if code_realm_id != realm_id {

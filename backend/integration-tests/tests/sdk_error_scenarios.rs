@@ -37,11 +37,10 @@ async fn test_scenario_sdk_unauthorized_error(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: invalid_token.to_string(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 5. Permission check with invalid token should fail
@@ -102,7 +101,7 @@ async fn test_scenario_sdk_not_found_error(ctx: &mut SchemaTestContext) {
 /// Verifies that the SDK correctly handles invalid JSON responses
 #[test_context(SchemaTestContext)]
 #[tokio::test]
-async fn test_scenario_sdk_invalid_json_error(ctx: &mut SchemaTestContext) {
+async fn test_scenario_sdk_invalid_json_error(_ctx: &mut SchemaTestContext) {
     // 1. Setup: We'll need to mock the API to return invalid JSON
     // For now, we'll verify that the SDK properly handles connection errors
     // In a full implementation, we'd use a custom test server that returns malformed JSON
@@ -116,11 +115,10 @@ async fn test_scenario_sdk_invalid_json_error(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: "test_token".to_string(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 3. Permission check to non-existent server should fail
@@ -138,7 +136,7 @@ async fn test_scenario_sdk_invalid_json_error(ctx: &mut SchemaTestContext) {
 /// Verifies that the SDK correctly handles network connection errors
 #[test_context(SchemaTestContext)]
 #[tokio::test]
-async fn test_scenario_sdk_network_error(ctx: &mut SchemaTestContext) {
+async fn test_scenario_sdk_network_error(_ctx: &mut SchemaTestContext) {
     // 1. Setup: Test with a non-existent server
     let client = Client::new(
         "http://127.0.0.1:54322".to_string(),
@@ -148,11 +146,10 @@ async fn test_scenario_sdk_network_error(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: "test_token".to_string(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 2. Permission check to non-existent server should fail with network error

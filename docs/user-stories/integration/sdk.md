@@ -208,11 +208,12 @@ Then 返回发放成功
 And 该批积分永久有效
 ```
 
-**场景 3：积分数量必须为正数**
+**场景 3：积分数量越界被拒**
 ```gherkin
 Given SDK 已使用 API Key 初始化
-When 调用 SDK 发放积分且数量为 0 或负数
-Then 返回参数校验错误："Points amount must be greater than 0"
+When 调用 SDK 发放积分且数量为 0、负数或超过 1,000,000
+Then 返回参数校验错误（错误码 invalid_amount）
+And 提示积分数量必须为正数且不超过 1,000,000
 ```
 
 **场景 4：缺少积分发放权限**

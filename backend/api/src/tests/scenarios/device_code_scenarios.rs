@@ -1530,4 +1530,227 @@ mod tests {
             "poll must mint the full token family after consent recovery"
         );
     }
+
+    /// Test: the poll-time consent gate fallback (device-code PRD §4.1 — the
+    /// issuance point re-runs the gate as defense in depth).
+    ///
+    /// WHY: the confirm endpoint refuses to authorize a stale-consent user,
+    /// but an agreement can be published in the confirm→poll window, after the
+    /// device already reached `authorized`. Without the issuance-point gate
+    /// that window would mint a full browser token family for a stale-consent
+    /// user — a login entrance no credential path allows. Fail closed: the
+    /// poll answers 403 consent_required AND consumes the device code, so the
+    /// user must re-consent and restart the device flow (a re-poll of the same
+    /// code is a consumed-code invalid_request, never a token).
+    #[test_context(SchemaTestContext)]
+    #[tokio::test]
+    async fn test_scenario_device_token_poll_blocked_by_consent_gate_after_window_publication(
+        ctx: &mut SchemaTestContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let admin_token = setup_admin_session(ctx, "dc-poll-consent-gate@test.com").await;
+
+        let create_response = create_client_app_with_device_code_grant(
+            ctx,
+            &realm_id,
+            &admin_token,
+            "dc-poll-consent-gate-app",
+            "DC Poll Consent Gate App",
+            true,
+            true,
+        )
+        .await;
+        assert_eq!(create_response.status(), 201);
+
+        let auth_response = device_authorize(ctx, &realm_id, "dc-poll-consent-gate-app").await;
+        assert_eq!(auth_response.status(), 200);
+        let auth_json: Value = response_json(auth_response).await;
+        let device_code = auth_json["device_code"].as_str().unwrap().to_string();
+        let user_code = auth_json["user_code"].as_str().unwrap().to_string();
+
+        let verify_response = device_verify(ctx, &realm_id, &user_code, &admin_token).await;
+        assert_eq!(verify_response.status(), 200);
+
+        // Consent is current at confirm time, so the confirm-side gate passes
+        // and the device reaches authorized.
+        let confirm_response = device_confirm(ctx, &realm_id, &user_code, true, &admin_token).await;
+        assert_eq!(confirm_response.status(), 200);
+        let confirm_json: Value = response_json(confirm_response).await;
+        assert_eq!(
+            confirm_json["status"].as_str(),
+            Some("authorized"),
+            "consent is current, confirm must authorize, got: {:?}",
+            confirm_json["status"]
+        );
+
+        // Agreement published in the confirm→poll window → consent is stale
+        // by the time the CLI polls for tokens.
+        publish_new_tos_version(ctx, &realm_id, &admin_token).await;
+
+        let poll_response = device_token_poll(ctx, &realm_id, &device_code).await;
+        assert_eq!(
+            poll_response.status(),
+            403,
+            "issuance-point consent gate must fail closed with 403"
+        );
+        let poll_json: Value = response_json(poll_response).await;
+        assert_eq!(
+            poll_json["error"].as_str(),
+            Some("consent_required"),
+            "poll gate error must be consent_required, got: {:?}",
+            poll_json["error"]
+        );
+        assert!(
+            poll_json["access_token"].is_null(),
+            "no token fields may accompany the gate"
+        );
+        assert_eq!(
+            device_code_status(ctx, &device_code).await,
+            "consumed",
+            "the gated poll consumes the device code — the flow must restart"
+        );
+
+        // Re-consent cannot revive THIS device code: it was consumed by the
+        // gated poll, so the recovery is re-consent + restart, not re-poll.
+        consent_to_current_effective(ctx, &realm_id, &admin_token).await;
+        let re_poll_response = device_token_poll(ctx, &realm_id, &device_code).await;
+        assert_eq!(re_poll_response.status(), 400);
+        let re_poll_json: Value = response_json(re_poll_response).await;
+        assert_eq!(
+            re_poll_json["error"].as_str(),
+            Some("invalid_request"),
+            "consumed code must answer invalid_request, got: {:?}",
+            re_poll_json["error"]
+        );
+
+        // The restarted flow (new device code, same now-current consent)
+        // completes normally end to end.
+        let restart_response = device_authorize(ctx, &realm_id, "dc-poll-consent-gate-app").await;
+        assert_eq!(restart_response.status(), 200);
+        let restart_json: Value = response_json(restart_response).await;
+        let new_user_code = restart_json["user_code"].as_str().unwrap().to_string();
+        let new_device_code = restart_json["device_code"].as_str().unwrap().to_string();
+        assert_eq!(
+            device_verify(ctx, &realm_id, &new_user_code, &admin_token)
+                .await
+                .status(),
+            200
+        );
+        let restart_confirm =
+            device_confirm(ctx, &realm_id, &new_user_code, true, &admin_token).await;
+        assert_eq!(restart_confirm.status(), 200);
+        let final_poll = device_token_poll(ctx, &realm_id, &new_device_code).await;
+        assert_eq!(final_poll.status(), 200);
+        let final_json: Value = response_json(final_poll).await;
+        assert!(
+            final_json["access_token"]
+                .as_str()
+                .is_some_and(|t| !t.is_empty()),
+            "restarted flow must mint the full token family"
+        );
+    }
+
+    /// Test: cross-realm access to a device flow is rejected by every
+    /// endpoint, and a rejected wrong-realm poll does NOT consume an
+    /// already-authorized device code (device-code PRD §4.2 Realm 隔离校验).
+    ///
+    /// WHY: the device_code key is a global Redis namespace — without the
+    /// stored-realm check a CLI (or attacker) reading a leaked code could
+    /// redeem it through any realm's endpoint path. The wrong-realm branch
+    /// must also be side-effect free (no consume, no interval bump) so the
+    /// owning realm's flow still completes afterwards.
+    #[test_context(SchemaTestContext)]
+    #[tokio::test]
+    async fn test_scenario_device_endpoints_reject_cross_realm_without_consuming(
+        ctx: &mut SchemaTestContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let admin_token = setup_admin_session(ctx, "dc-cross-realm@test.com").await;
+        let other_realm_id = Uuid::now_v7().to_string();
+
+        let create_response = create_client_app_with_device_code_grant(
+            ctx,
+            &realm_id,
+            &admin_token,
+            "dc-cross-realm-app",
+            "DC Cross Realm App",
+            true,
+            true,
+        )
+        .await;
+        assert_eq!(create_response.status(), 201);
+
+        let auth_response = device_authorize(ctx, &realm_id, "dc-cross-realm-app").await;
+        assert_eq!(auth_response.status(), 200);
+        let auth_json: Value = response_json(auth_response).await;
+        let device_code = auth_json["device_code"].as_str().unwrap().to_string();
+        let user_code = auth_json["user_code"].as_str().unwrap().to_string();
+
+        // Cross-realm verify: the identity-level realm guard (token realm vs
+        // path realm) fires first and answers 403 before the device-state
+        // realm check — the session holder is simply not allowed to operate
+        // another realm's endpoint at all.
+        let foreign_verify = device_verify(ctx, &other_realm_id, &user_code, &admin_token).await;
+        assert_eq!(
+            foreign_verify.status(),
+            403,
+            "wrong-realm verify must be rejected by the identity realm guard"
+        );
+
+        // Complete verification and authorization in the OWNING realm.
+        assert_eq!(
+            device_verify(ctx, &realm_id, &user_code, &admin_token)
+                .await
+                .status(),
+            200
+        );
+        // Cross-realm confirm on the verified code is rejected the same way.
+        let foreign_confirm =
+            device_confirm(ctx, &other_realm_id, &user_code, true, &admin_token).await;
+        assert_eq!(
+            foreign_confirm.status(),
+            403,
+            "wrong-realm confirm must be rejected by the identity realm guard"
+        );
+        let confirm_response = device_confirm(ctx, &realm_id, &user_code, true, &admin_token).await;
+        assert_eq!(confirm_response.status(), 200);
+        assert_eq!(
+            device_code_status(ctx, &device_code).await,
+            "authorized",
+            "owning-realm confirm must still authorize after foreign rejections"
+        );
+
+        // Cross-realm poll of the AUTHORIZED code: invalid_request, and the
+        // realm check precedes the consume transition in the poll function,
+        // so the code must survive for the owning realm.
+        let foreign_poll = device_token_poll(ctx, &other_realm_id, &device_code).await;
+        assert_eq!(foreign_poll.status(), 400);
+        let foreign_poll_json: Value = response_json(foreign_poll).await;
+        assert_eq!(
+            foreign_poll_json["error"].as_str(),
+            Some("invalid_request"),
+            "wrong-realm poll error must be invalid_request, got: {:?}",
+            foreign_poll_json["error"]
+        );
+        assert!(
+            foreign_poll_json["access_token"].is_null(),
+            "wrong-realm poll must not mint tokens"
+        );
+        assert_eq!(
+            device_code_status(ctx, &device_code).await,
+            "authorized",
+            "wrong-realm poll must not consume the authorized device code"
+        );
+
+        // The owning realm can still redeem the same code.
+        let owning_poll = device_token_poll(ctx, &realm_id, &device_code).await;
+        assert_eq!(owning_poll.status(), 200);
+        let owning_json: Value = response_json(owning_poll).await;
+        assert!(
+            owning_json["access_token"]
+                .as_str()
+                .is_some_and(|t| !t.is_empty()),
+            "owning-realm poll must mint the full token family"
+        );
+    }
 }

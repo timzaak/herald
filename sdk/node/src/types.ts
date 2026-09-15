@@ -19,8 +19,8 @@ export interface Rule {
 export interface PermissionCheckRequest {
   /** Browser access token issued by `/api/auth/{realmId}/login`. */
   accessToken: string
-  rules?: Rule[]
-  clientId: string
+  /** Required by the backend: a missing/empty `rules` array is a 400. */
+  rules: Rule[]
 }
 
 export interface PermissionCheckResponse {
@@ -232,6 +232,16 @@ export interface UserInfo {
   nickname: string | null
   status: number
   createdAt: string
+}
+
+/** One page of the paginated user list (`listUsersPage`). */
+export interface UserPage {
+  items: UserInfo[]
+  /** 1-based page number echo. */
+  page: number
+  pageSize: number
+  /** Total matching users across all pages. */
+  total: number
 }
 
 // --- Client apps ---

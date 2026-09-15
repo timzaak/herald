@@ -153,6 +153,8 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | realm.view | realm | view | 查看 Realm 列表（前端 Realms 菜单可见性） |
 | realm.manage | realm | manage | Realm 创建（仅 admin realm） |
 
+> **敏感权限定义的创建约束**：`realm.manage` 属敏感权限——其**权限定义本身**仅可在 admin realm 创建（其他 Realm 对该名称的权限定义创建请求返回 403），防止租户自行造出跨租户语义的 Realm 管理权限。
+
 **user 权限清单**:
 
 | 权限项 | 资源 | 动作 | 说明 |
@@ -190,7 +192,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 
 **防提权约束（授予方权限自持）**:
 
-1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在 `policies.manage`/`roles.manage` 之外，必须自身持有被授予的 `resource.action` 权限
+1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在端点所需的管理权限（角色策略路径为 `policies.manage`；用户的角色分配为 `roles.manage`；用户直接权限分配为 `policies.manage`，见 §4.2 API 架构说明）之外，必须自身持有被授予的 `resource.action` 权限
 2. 修改既有用户的角色集合必须持有 `roles.manage`；创建用户时仅附带普通 `user` 角色可由 `users.manage` 完成，其他角色仍要求角色管理权限与授予方自持检查
 3. 该规则防止仅持部分管理权限的 delegated-admin 通过授权操作自我提权（例如把高权限内置角色或自身不具备的权限授予自己）；权限不满足时返回权限不足错误
 

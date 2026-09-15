@@ -89,7 +89,7 @@
 ### 4.1 业务规则
 
 - **Realm 隔离**：所有配置项属于 Realm 级别，不同 Realm 的配置相互独立
-- **权限要求**：仅 Realm Admin 角色可查看和修改 Realm Settings
+- **权限要求**：按权限判定而非角色硬编码——查看需 `settings.view`、修改需 `settings.manage`（Realm Admin 角色默认持有这些权限，被显式授予相应权限的委托管理员亦可操作）
 - **敏感信息脱敏**：密码、密钥类字段（Resend API Key、SMTP 密码等）在展示时必须脱敏，编辑时才暴露为输入框
 - **邮件配置完整性定义**：provider + from_address + 对应 provider 的必填字段均已填写（不检查 enabled 标志，仅检查字段非空）
 - **功能开关前置验证**：`require_email_verification` 开关仅在邮件配置完整时可开启；未配置邮件时，该开关显示为禁用状态，提示 "Email verification requires email configuration"
@@ -139,8 +139,8 @@
 
 **适用性**: 适用
 
-- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、passkey、white_label、custom_domain、ldap、email_otp、platform_signup、stripe、creem、apple、google、wechat、invoice_policy、turnstile 配置类型（以 ConfigType 枚举为准），以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）。**`custom_domain` 为例外：通用 configs API 对该类型仅放行查询，全部写路径（单个/批量 Upsert、删除）一律 400 拒绝**——该类型的写会绕过专用 custom-domain 端点对 `custom_domain_mapping` 耦合表的同步维护（见 realm-custom-domain.md §2.3），因此 custom_domain 行的写与删必须走专用 custom-domain 端点
-- 访问控制原则：所有接口要求 Realm Admin 权限，操作需通过 Realm 归属校验
+- 接口能力范围：Realm Config 的查询、单个 Upsert、批量 Upsert（batch_upsert）、删除（delete），涵盖 registration、email、totp、totp_key、passkey、white_label、custom_domain、ldap、email_otp、platform_signup、stripe、creem、apple、google、wechat、invoice_policy、turnstile 配置类型（以 ConfigType 枚举为准），以及 OAuth Provider 的独立配置管理。`turnstile` 配置类型仅保留遗留兼容，不再承载有效配置（见 §3.1、§8）。**例外类型两种：`custom_domain` 与 `white_label`——通用 configs API 对这两类仅放行查询，全部写路径（单个/批量 Upsert、删除）一律 400 拒绝**：`custom_domain` 的写会绕过专用 custom-domain 端点对 `custom_domain_mapping` 耦合表的同步维护（见 realm-custom-domain.md §2.3）；`white_label` 的写会绕过专用白标端点对品牌值（CSS 注入、URL 加载等）的校验直接把未校验值发布给第三方登录 UI，且通用 DELETE 可清除已发布品牌配置或 `previous_settings` 恢复快照、绕过草稿/发布/恢复生命周期（见 ui-custom.md §6）。因此这两类行的写与删必须走各自的专用端点
+- 访问控制原则：所有接口按 `settings.view`（查询）/ `settings.manage`（写入与删除）权限判定（Realm Admin 角色默认持有），操作需通过 Realm 归属校验
 - 数据边界原则：配置数据按 Realm 隔离，不同 Realm 之间不可交叉访问
 - 敏感信息处理：密码、密钥等敏感字段在读取时脱敏返回（is_secret=true 时 config_value 返回 null），仅在写入时接受明文
 - 审计要求：关键配置变更应记录审计日志

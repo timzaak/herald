@@ -8,9 +8,9 @@
 export type HeraldErrorKind =
   /** Non-browser/SSR use without an injected `TokenStorage` adapter. */
   | 'ssr-no-storage'
-  /** Cross-origin blocked because the page origin is not on the Client App allow-list. */
-  | 'origin-not-allowed'
-  /** Network failure or undifferentiated fetch error. */
+  /** Network failure or undifferentiated fetch error. Cross-origin blocks
+   *  (origin not on the Client App allow-list) surface here too — the browser
+   *  hides CORS rejections, so they cannot be told apart from network faults. */
   | 'network'
   /** 401 — credentials invalid (non-refresh context). */
   | 'unauthorized'

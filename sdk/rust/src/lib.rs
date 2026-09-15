@@ -40,9 +40,10 @@ pub struct PermissionCheckRequest {
     /// request body contract (`api-ext::permission::PermissionCheckRequest`
     /// is `#[serde(rename_all = "camelCase")]` on `access_token`).
     pub access_token: String,
-    #[serde(default)]
-    pub rules: Option<Vec<Rule>>,
-    pub client_id: String,
+    /// Required by the backend: a missing/empty `rules` array is a 400, so
+    /// the field is non-optional here. (The backend body has no `clientId`
+    /// field — the client identity travels in the `X-API-Key` header.)
+    pub rules: Vec<Rule>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -448,10 +449,7 @@ impl Client {
             .build();
 
         Self {
-            http_client: ReqwestClient::builder()
-                .no_proxy()
-                .build()
-                .expect("Failed to create SDK HTTP client"),
+            http_client: Self::build_http_client(None),
             base_url,
             cache,
             token_index,
@@ -460,10 +458,29 @@ impl Client {
         }
     }
 
+    /// Single construction point for the underlying HTTP client so the
+    /// default and timeout-configured variants cannot drift apart.
+    fn build_http_client(timeout: Option<Duration>) -> ReqwestClient {
+        let mut builder = ReqwestClient::builder().no_proxy();
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        builder.build().expect("Failed to create SDK HTTP client")
+    }
+
     fn build_request(&self, method: Method, url: &str) -> reqwest::RequestBuilder {
         self.http_client
             .request(method, url)
             .header("X-API-Key", &self.api_key)
+    }
+
+    /// Set a per-request HTTP timeout (total request time). Without this the
+    /// underlying client waits indefinitely, matching the historical default;
+    /// a timed-out request surfaces as `Error::Reqwest` whose inner error
+    /// reports `is_timeout() == true`.
+    pub fn with_http_timeout(mut self, timeout: Duration) -> Self {
+        self.http_client = Self::build_http_client(Some(timeout));
+        self
     }
 
     /// Checks if a user has a specific permission
@@ -478,10 +495,11 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns `Err(Error::Network)` if the HTTP request fails
-    /// Returns `Err(Error::Timeout)` if the request times out
+    /// Returns `Err(Error::Reqwest)` if the HTTP request fails or times out
+    /// (check `error.is_timeout()` on the inner reqwest error; a timeout only
+    /// occurs when one was configured via [`Client::with_http_timeout`])
     /// Returns `Err(Error::Unauthorized)` if the client credentials are invalid
-    /// Returns `Err(Error::Api)` if the API returns an error response
+    /// Returns `Err(Error::ApiError)` if the API returns an error response
     pub async fn check_permission(
         &self,
         req: PermissionCheckRequest,
@@ -932,8 +950,10 @@ mod tests {
 
         let req = PermissionCheckRequest {
             access_token: "test_token".to_string(),
-            rules: None,
-            client_id: uuid::Uuid::now_v7().to_string(),
+            rules: vec![Rule {
+                resource: "article".to_string(),
+                action: "read".to_string(),
+            }],
         };
 
         let result = client.check_permission(req).await.unwrap();
@@ -967,8 +987,10 @@ mod tests {
 
         let req = PermissionCheckRequest {
             access_token: "test_token".to_string(),
-            rules: None,
-            client_id: uuid::Uuid::now_v7().to_string(),
+            rules: vec![Rule {
+                resource: "article".to_string(),
+                action: "read".to_string(),
+            }],
         };
 
         // First call, should hit the server
@@ -1014,14 +1036,18 @@ mod tests {
 
         let req1 = PermissionCheckRequest {
             access_token: "token1".to_string(),
-            rules: None,
-            client_id: uuid::Uuid::now_v7().to_string(),
+            rules: vec![Rule {
+                resource: "article".to_string(),
+                action: "read".to_string(),
+            }],
         };
 
         let req2 = PermissionCheckRequest {
             access_token: "token2".to_string(),
-            rules: None,
-            client_id: uuid::Uuid::now_v7().to_string(),
+            rules: vec![Rule {
+                resource: "article".to_string(),
+                action: "read".to_string(),
+            }],
         };
 
         // First calls, should hit the server
@@ -1102,25 +1128,29 @@ mod tests {
     #[tokio::test]
     async fn test_sdk_timeout_handling() {
         let server = MockServer::start().await;
-        let client = Client::new(
-            server.uri(),
-            "test-api-key".to_string(),
-            Some(std::time::Duration::from_millis(100)), // Short timeout
-        );
-
+        // The mock DELAYS its response past the configured HTTP timeout, so
+        // the request must fail with a reqwest timeout error (not a 404 from
+        // an unmatched mock path — the request path must match the real one).
         Mock::given(method("GET"))
-            .and(path(
-                "/api/realms/realm1/billing/client-apps/client1/subscription",
-            ))
+            .and(path("/api/ext/bill/realm1/client/client1/subscription"))
             .respond_with(
                 ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(2)), // 2 second delay
             )
             .mount(&server)
             .await;
 
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None)
+            .with_http_timeout(std::time::Duration::from_millis(100));
+
         let result = client.get_subscription("realm1", "client1").await;
 
-        assert!(result.is_err(), "Timeout should return error");
+        match result {
+            Err(Error::Reqwest(e)) => assert!(
+                e.is_timeout(),
+                "short-delayed mock must fail as a timeout, got: {e}"
+            ),
+            other => panic!("expected reqwest timeout error, got: {other:?}"),
+        }
     }
 
     // Realm API Tests

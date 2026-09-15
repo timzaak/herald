@@ -60,7 +60,7 @@
 ### 2.3 依赖项
 
 - **用户认证与会话系统** — 提供登录态、会话失效能力。
-- **Settings 页面与权限基础设施** — 复用 Settings 页面 Tab 与 `settings.view`/`settings.manage` 权限承载协议管理界面；协议正文与版本由专用版本表存储（不复用 `realm_config` KV，因其 upsert 无法承载 append-only 版本历史）。
+- **Settings 页面与权限基础设施** — 复用 Settings 页面 Tab 与 `settings.view`/`settings.manage` 权限承载协议管理界面；协议正文与版本由专用版本表存储（不复用 `realm_config` KV，因其 upsert 无法承载 append-only 版本历史）。端点级权限映射：管理端协议列表与历史版本正文读取需 `settings.view`；草稿读取/保存/丢弃、发布、回退与 per-realm 自定义维护需 `settings.manage`（草稿读取也归 `settings.manage`，因草稿是编辑态数据）。
 - **Audit 审计日志** — 记录协议同意、版本变更、账户注销事件（复用既有统一审计模型）。
 - **权限管理系统** — Realm Admin 协议管理的访问控制。
 - **i18n 国际化** — 协议界面与文本多语言（en / zh-CN）。

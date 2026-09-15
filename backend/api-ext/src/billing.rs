@@ -214,21 +214,25 @@ pub async fn get_subscription(
 /// admin billing API registers a same-named schema in the merged OpenAPI
 /// spec; sharing the name shadowed this shape and hid its fields (e.g.
 /// `currency`) from generated SDK clients.
+///
+/// The single-target fields of the pre-rule model (`bucket_id`,
+/// `points_per_period`, `validity_days`) are gone: under the multi-wallet
+/// distribution-rule model a mapping fans out to 0..N buckets and the grant
+/// amounts live on the rules, so no per-mapping scalar can represent them
+/// (the view used to placeholder them with a nil UUID / `None`, which read
+/// like real values). Rule-based surfacing belongs to the payment-attempt /
+/// external-API migration item.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtOneTimeMappingItem {
     pub id: String,
     pub entitlement_key: String,
-    /// Bound credit bucket (non-null; matches domain entity).
-    pub bucket_id: Uuid,
     pub provider_product_info: Option<serde_json::Value>,
     /// Currency hoisted out of `provider_product_info` for direct SDK
     /// consumption; `None` when the product info carries no currency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
-    pub points_per_period: Option<i64>,
     pub payment_provider: String,
-    pub validity_days: Option<i64>,
 }
 
 /// Response for one-time mappings external endpoint
@@ -315,17 +319,9 @@ pub async fn get_one_time_mappings(
             ExtOneTimeMappingItem {
                 id: m.id.to_string(),
                 entitlement_key: m.entitlement_key,
-                // The single-target mapping fields have been removed with the
-                // multi-wallet rule model; the external one-time-mappings view
-                // surfaces nil/None for them until it is migrated to the rule
-                // model. Rule-based points-pack surfacing is the responsibility of
-                // the payment-attempt / external-API migration item.
-                bucket_id: Uuid::nil(),
                 provider_product_info: m.provider_product_info,
                 currency,
-                points_per_period: None,
                 payment_provider: m.payment_provider,
-                validity_days: None,
             }
         })
         .collect();

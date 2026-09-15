@@ -161,7 +161,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - **主动 kickoff 与账号状态解耦**：管理员主动撤销会话不改账号状态，被下线用户可重新登录；主动 kickoff 与 Forbidden 联动撤销是两个不同入口，触发方式和账号语义不同。
 - **域归属**：core（用户生命周期与运营能力的扩展，与 [用户管理](users.md) 同域）。
 - **权限模型**：复用既有 `resource.action` 模型，会话查看与撤销**直接复用既有 `users.manage` 权限**（已隐含 `users.view`），不新增权限点、不引入新的 action 类型（遵循权限管理 PRD "仅 manage/create/view" 的约束）。
-- **会话元数据独立索引**：会话列表至少展示所属 Client App、设备/浏览器（User-Agent）、登录来源 IP、登录时间。登录侧捕获的 client_ip 与 User-Agent 以**独立的会话元数据索引**形式存放（**不写入浏览器令牌族记录本体**）供列表读取——这些信息很少被读取，不应污染令牌校验热路径记录。具体索引结构归属技术设计。
+- **会话元数据独立索引**：会话列表至少展示所属 Client App、设备/浏览器（User-Agent）、登录来源 IP、登录时间。登录侧捕获的 client_ip 与 User-Agent 以**独立的会话元数据索引**形式存放（**不写入浏览器令牌族记录本体**）供列表读取——这些信息很少被读取，不应污染令牌校验热路径记录。具体索引结构归属技术设计。早于元数据索引建立的**legacy 会话**没有对应元数据：这些会话在列表中照常出现，但 Client App 名称、User-Agent、来源 IP 与登录时间（created_at）返回空值；绝对过期时间等可由令牌族记录推导的字段不受影响。
 - **审计 action 复用 `user.update`**：主动 kickoff（撤销单会话/全部会话）与 Forbidden 联动撤销统一复用既有 `user.update`（`AuditAction::UserUpdate`），不新增审计 action；主动 kickoff 的 target_type 复用既有 `Session`（`AuditTargetType::Session`），Forbidden 联动撤销则借用户编辑的 `user.update` 记录在 `User` 目标（`AuditTargetType::User`）上，以 `details.trigger`（`admin_action` / `forbidden_linkage`）与 `scope`（`single` / `all`）区分触发来源与范围。若后续合规审计要求 action 与 target_type 语义自洽（主动 kickoff 的操作对象是 Session，与字面 `user.update` 存在语义张力），可在本 PRD 调整为新增专用 action（如 `user.session.revoke`）。
 
 ---

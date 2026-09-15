@@ -6,7 +6,7 @@
  * the external API surface (`/api/ext/*`). `checkPermission` additionally
  * mirrors the Rust caching behaviour exactly:
  *
- *   - a TTL cache keyed by the full request (token + clientId + rules);
+ *   - a TTL cache keyed by the full request (token + rules);
  *   - a token→keys index so `invalidateCache(token)` drops every cached check
  *     for that token;
  *   - a 300s "token snapshot is stale" heuristic: once a token has been seen
@@ -35,6 +35,7 @@ import type {
   SubscriptionDetail,
   TransactionDetail,
   UserInfo,
+  UserPage,
 } from './types'
 
 /** Rust `is_token_expired` threshold: 5 minutes, independent of the cache TTL. */
@@ -47,12 +48,14 @@ interface CacheEntry {
 }
 
 /**
- * Cache key for a permission check. `rules: undefined` and `rules: []` are
- * DIFFERENT keys (Rust: `Option<Vec<Rule>>` participates in `Hash`/`Eq`), and
+ * Cache key for a permission check. An empty `rules: []` is a valid key and
  * rule order is significant — `JSON.stringify` preserves both distinctions.
+ * (The Rust cache key is the whole `PermissionCheckRequest`; `clientId` was
+ * removed from the request because the backend body has no such field — the
+ * client identity travels in the `X-API-Key` header.)
  */
 function permissionCacheKey(req: PermissionCheckRequest): string {
-  return JSON.stringify({ accessToken: req.accessToken, clientId: req.clientId, rules: req.rules })
+  return JSON.stringify({ accessToken: req.accessToken, rules: req.rules })
 }
 
 /** Map a `fetch` response onto the Rust `handle_response` semantics. */
@@ -274,12 +277,26 @@ export class HeraldClient {
     return this.requestJson('POST', `/api/ext/realms/${encodeURIComponent(realmId)}/users`, { body: request })
   }
 
+  /** List users in a realm, first page with the server defaults
+   *  (page = 1, pageSize = 20). Use {@link listUsersPage} to page further. */
   async listUsers(realmId: string): Promise<UserInfo[]> {
-    const body = await this.requestJson<{ items: UserInfo[] }>(
+    return (await this.listUsersPage(realmId)).items
+  }
+
+  /**
+   * List users in a realm with pagination. `page` is 1-based and defaults to
+   * 1 when undefined; `pageSize` defaults to 20 and is clamped to 100 by the
+   * server. The response echoes the applied paging and the cross-page total.
+   */
+  async listUsersPage(realmId: string, page?: number, pageSize?: number): Promise<UserPage> {
+    const query: Record<string, string> = {}
+    if (page !== undefined) query.page = String(page)
+    if (pageSize !== undefined) query.pageSize = String(pageSize)
+    return this.requestJson<UserPage>(
       'GET',
       `/api/ext/realms/${encodeURIComponent(realmId)}/users`,
+      { query },
     )
-    return body.items
   }
 
   getUser(realmId: string, userId: string): Promise<UserInfo> {

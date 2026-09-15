@@ -26,9 +26,6 @@
 - `[US-TP-003]` 检查用户权限 (P0) — 来源 `docs/user-stories/auth/third-party-app.md`
   - 角色：第三方应用
   - 摘要：检查用户是否有权限访问特定资源，实现细粒度访问控制
-- `[US-TP-006]` 第三方应用授权登录 (P0) — 来源 `docs/user-stories/auth/third-party-app.md`
-  - 角色：第三方应用开发者
-  - 摘要：使用 OAuth Provider 进行第三方登录，快速接入系统
 - `[US-TP-006]` 处理异常情况 (P1) — 来源 `docs/user-stories/auth/third-party-app.md`
   - 角色：第三方应用
   - 摘要：正确处理各种异常情况，提供友好体验
@@ -71,7 +68,7 @@
 
 | 优先级 | 数量 | 关键故事 |
 |--------|------|----------|
-| P0 | 12 | 配置 OAuth Provider、Authorization Code + PKCE 流程、Web SPA SSO、令牌交换、API Key 认证、权限检查、订阅查询、第三方跳转登录、白名单配置 |
+| P0 | 11 | 配置 OAuth Provider、Authorization Code + PKCE 流程、Web SPA SSO、令牌交换、API Key 认证、权限检查、订阅查询、第三方跳转登录、白名单配置 |
 | P1 | 2 | 异常处理、会话管理 |
 | P2 | 0 | - |
 
@@ -95,12 +92,13 @@
 - API Key Realm 隔离，API Key 使用统计
 - OAuth 2.0 Device Authorization Grant (RFC 8628)，详见独立 PRD `docs/prd/auth/device-code.md`
 - Herald 作为 OAuth Client 的 SSO 登录，通过 `/api/oauth/{realmId}/{provider}/login` 和 `/{provider}/callback` 路径实现第三方 Provider 登录
+- **OpenID Connect 兼容身份层（叠加在上述 Authorization Code + PKCE 核心端点上）**：`/authorize` 接受可选 `scope`/`nonce` 参数，`/token` 在流程携带字面 `openid` scope 时额外签发 RS256 `id_token`；并新增 discovery（`/.well-known/openid-configuration`）、JWKS（`/.well-known/jwks.json`）与 `userinfo` 端点。完整语义（claim 集、签名密钥轮换、自定义域名 issuer 重定位等）由独立 PRD [openid-connect.md](openid-connect.md) 承载，本 PRD 只声明基础授权码流的语义
 
 ### 2.2 不包含功能 (Out of Scope)
 
 - Refresh Token（server-side token 当前不支持令牌刷新）；浏览器 token 变体支持旋转 refresh token（见 [自建用户 UI](/docs/prd/integration/custom-user-ui.md) D-TOK-01）
 - Token 撤销：server-side token 当前不支持撤销；浏览器 token 变体支持即时吊销（见 [自建用户 UI](/docs/prd/integration/custom-user-ui.md) D-TOK-02）
-- OAuth 2.0 Scope 管理（没有细粒度 scope 授权页面）
+- OAuth 2.0 Scope 管理（没有细粒度 scope 授权页面；唯一例外是 OIDC 身份层识别字面 `openid` token 以触发 id_token 签发，其余 scope 一律原样透传，见 [openid-connect.md](openid-connect.md)）
 - 用户主动授权/拒绝授权页面（当前授权自动完成，用户无需手动批准）
 - Implicit Flow（已被 OAuth 2.1 废弃）
 - API Key 管理界面（后续优化）
@@ -171,6 +169,7 @@
 - State 和 authorization_code 必须一次性使用，验证后立即删除
 - PKCE 的 code_challenge 必须使用 S256 方法（SHA256）
 - 无 OAuth 参数时，登录行为与现有普通登录完全一致
+- `/authorize` 接受可选 `scope` 与 `nonce` 参数（存入授权事务状态，随授权码记录传递）；唯一的 scope 语义是识别**字面且区分大小写**的 `openid` token——命中时 `/token` 在 access_token 之外额外签发 RS256 `id_token`（回显 `nonce`），未命中时响应完全不含 `id_token` 字段；其余 scope token 不做任何解释，原样透传。OIDC 专属语义（claim 集、 userinfo、签名密钥）见 [openid-connect.md](openid-connect.md)
 - OAuth 参数不完整时（缺少任意一项），应显示错误提示，不静默降级为普通登录
 - 未认证 OAuth 端点实施 per-IP 速率限制，超限返回 429：`/authorize` 与 `/token` 默认 30 次/分钟/IP；发起 Provider 登录（含上游 JWKS/code2session 拉取）与 Device Authorization Grant 的 authorize 端点默认 10 次/分钟/IP（阈值为后端统一常量管理的运行默认值，第三方集成方须处理 429）
 
@@ -204,12 +203,16 @@
 **第一方直登分支（无 downstream_state）:**
 - Provider 回调 / Google One Tap / Apple 原生登录 / WeChat 直登在无下游上下文时为第一方直登：校验通过后为用户签发第一方浏览器 token family（完整会话）
 - 直登分支同样执行登录同意闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」，直登不豁免）：同意缺失或版本过期时不签发完整会话，响应改为 `consentRequired: true` + 当前生效协议摘要 + 受限会话（仅资料读取/注销账户/退出登录 scope，无 token 字段）；因 provider 凭据一次性、不可携带同意重放登录，补全路径为受限会话显式记录同意（`POST /api/legal/{realmId}/consent`）后重新触发登录入口
+- **闸门降级口径**：上述各分支（下游授权、第一方直登、设备授权码流）的同意状态/生效协议查询发生存储故障时，闸门按 legal-consent PRD §4.1 的既定取舍 fail-open 放行并记录告警（可用性优先），不视为同意已记录
 
 **TOTP + OAuth 兼容:**
 - TOTP 临时会话中保存 OAuth 上下文（oauth_client_id、redirect_uri、state）
 - TOTP 验证成功后检查临时会话中的 OAuth 字段，有 OAuth 字段时走同样的 authorization_code 生成逻辑
 
 **异常处理:**
+
+> 下列"提示"为**用户可见语义**（前端落地页呈现的友好文案口径），不是后端错误消息的逐字契约；后端实际返回英文错误消息/错误码，端点级错误模型以技术设计为准。
+
 - 用户拒绝授权（OAuth provider 按 RFC 6749 §4.1.2.1 回调携带 error/error_description、无 code）：回调端点接受该错误形态——下游授权分支消费 pending 的 `downstream_state` 后以 302 重定向回下游 `redirect_uri`（携带 `error` 与 `state`，由下游自行呈现）；第一方直登分支（无下游上下文）返回 200 JSON 拒绝体（错误码 + 友好信息，与成功响应同形以便落地页统一渲染），不签发任何会话或 token
 - State Token 验证失败（不存在或已过期）：提示"登录链接已过期，请重新发起登录"
 - 授权码无效或过期：提示"授权失败，请重新登录"
@@ -285,6 +288,7 @@
 - Client App 禁用时拒绝所有 OAuth 授权请求
 - Herald OAuth Client SSO 路径：`GET /api/oauth/{realmId}/{provider}/login`（发起授权）和 `GET|POST /api/oauth/{realmId}/{provider}/callback`（回调处理），用于 Herald 自身通过第三方 Provider 登录
 - OAuth 2.0 Device Authorization Grant 完整实现（RFC 8628），端点包含 authorize、token、verify、confirm，详见 `docs/prd/auth/device-code.md`
+- OpenID Connect 兼容端点叠加在本 PRD 的核心端点上：`GET /api/oauth/{realmId}/.well-known/openid-configuration`（discovery）、`GET /api/oauth/{realmId}/.well-known/jwks.json`（验签公钥）、`GET|POST /api/oauth/{realmId}/userinfo`（需 openid scope 同意的令牌）；`/token` 在流程携带 `openid` scope 时返回 `id_token`，并接受 RFC 6749 form-urlencoded 请求体。端点契约与错误语义见 `docs/prd/auth/openid-connect.md`
 - 详细端点契约、认证方式和错误模型应下沉到技术设计或接口说明文档
 
 ---
@@ -338,3 +342,4 @@
 - 相关 PRD：`docs/prd/auth/permissions.md`
 - 相关 PRD：`docs/prd/auth/totp.md`
 - 相关 PRD：`docs/prd/auth/device-code.md`（Device Authorization Grant）
+- 相关 PRD：`docs/prd/auth/openid-connect.md`（叠加在本 PRD 核心端点上的 OIDC 身份层：discovery/JWKS/userinfo、id_token、签名密钥轮换）

@@ -10,4 +10,5 @@ pub mod self_delete;
 
 // Re-export basic user services for backward compatibility
 pub use basic::UserServiceImpl;
+pub use basic::ensure_password_byte_length;
 pub use self_delete::SelfDeleteService;

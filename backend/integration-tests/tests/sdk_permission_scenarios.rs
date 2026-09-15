@@ -55,11 +55,10 @@ async fn test_scenario_sdk_permission_allowed(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: session_token.clone(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(),
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 6. Perform permission check
@@ -119,11 +118,10 @@ async fn test_scenario_sdk_permission_denied(ctx: &mut SchemaTestContext) {
 
     let request = PermissionCheckRequest {
         access_token: session_token.clone(),
-        rules: Some(vec![Rule {
+        rules: vec![Rule {
             resource: "article".to_string(), // User doesn't have this permission
             action: "read".to_string(),
-        }]),
-        client_id: ctx._client_id.clone(),
+        }],
     };
 
     // 6. Perform permission check

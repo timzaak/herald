@@ -58,6 +58,10 @@ use crate::webhook_subscription_helpers::{
     ResolvedEntitlement, SyncSubscriptionInput, resolve_entitlement_mapping, sync_subscription,
 };
 
+/// `provider_status` recorded when fulfillment fails after a verified
+/// receipt; the submit response echoes it as `failure_reason` verbatim.
+const FULFILLMENT_FAILED_STATUS: &str = "fulfillment_failed";
+
 // ============================================================================
 // DTOs
 // ============================================================================
@@ -91,6 +95,11 @@ pub struct IapReceiptResponse {
     pub entitlement_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_type: Option<String>,
+    /// Why a `failed` submission failed. Receipt verification failures are
+    /// rejected with 422 before any attempt row exists, so a `failed` in this
+    /// response always means fulfillment failed after a verified receipt —
+    /// the same value `mark_failed_for_async_recovery` records on the attempt
+    /// (`provider_status`), echoed verbatim on idempotent re-submissions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<String>,
 }
@@ -727,7 +736,7 @@ pub async fn submit_iap_receipt(
                 .mark_failed_for_async_recovery(
                     &realm_id,
                     attempt.id,
-                    "fulfillment_failed".to_string(),
+                    FULFILLMENT_FAILED_STATUS.to_string(),
                     Utc::now(),
                 )
                 .await
@@ -772,11 +781,10 @@ pub async fn submit_iap_receipt(
         status: status.to_string(),
         entitlement_key: Some(resolved.entitlement_key.clone()),
         billing_type: Some(billing_type_str),
-        failure_reason: if status == "failed" {
-            Some("verification_failed".to_string())
-        } else {
-            None
-        },
+        // Verification failures return 422 before this point; the only
+        // failure reachable here is the fulfillment rollback above, whose
+        // recorded provider_status is "fulfillment_failed".
+        failure_reason: (status == "failed").then(|| FULFILLMENT_FAILED_STATUS.to_string()),
     }))
 }
 

@@ -1055,6 +1055,7 @@ pub async fn delete_realm_config(
     let parsed_config_type = parse_config_type(config_type.clone())?;
     reject_non_admin_platform_signup(&realm_id, &parsed_config_type)?;
     reject_custom_domain_config(&parsed_config_type)?;
+    reject_white_label_config(&parsed_config_type)?;
     ensure_provider_config_deletable(&state, &realm_id, &parsed_config_type).await?;
 
     // Capture the row identity before it is consumed by the delete call, so

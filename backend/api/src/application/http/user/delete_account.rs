@@ -26,9 +26,8 @@ use herald_api_auth::reauth::consume_reauth;
 use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
 use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::{
-    BrowserTokenService, CredentialScope, Identity, TargetOperation, TokenCredentialContext,
+    CredentialScope, Identity, TargetOperation, TokenCredentialContext,
 };
-use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 
 /// DELETE /api/user request body.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -79,8 +78,9 @@ pub async fn delete_account(
         .self_delete_service
         .self_delete_account(&identity, &ctx)
         .await?;
-    RedisBrowserTokenService::new(app_state.redis_manager.clone())
-        .revoke_family(context.family_id)
-        .await?;
+    // No second revoke here: the service's Phase 3 already revoked every
+    // browser token family of the user (including the caller's, fail-closed),
+    // and a redundant post-delete revoke whose error propagates would answer
+    // 500 for an account that was in fact deleted successfully.
     Ok(StatusCode::NO_CONTENT)
 }

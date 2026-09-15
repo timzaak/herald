@@ -365,8 +365,8 @@
 - 访问控制：SDK 消耗接口需 API Key 授权（ThirdParty 身份）；管理类接口需 Realm Admin 权限；用户查询类接口仅允许查询本人数据
 - SDK 消耗积分时校验 API Key 对 client_app 的作用域（client_app_scope），确保 API Key 只能操作其授权范围内的 client_app 积分
 - API Key 鉴权实时校验其绑定 Client App 的启用状态（包括缓存命中路径）：Client App 被禁用后，其 API Key 立即失效并返回 401，不依赖缓存 TTL 过期
-- 限流策略：realm 级别 100 次/分钟，user 级别 20 次/分钟
-- 管理接口权限：所有管理端点使用 `require_authenticated_user_in_realm` + `require_permission` 进行权限控制：
+- 限流策略（生效范围：SDK ext 消费与发放两点，即 `/api/ext` 下的 consume 与 grant 端点）：realm 级别 100 次/分钟，user 级别 20 次/分钟；api-points 管理端点当前不设独立限流
+- 管理接口权限：所有管理端点经灵活认证中间件（先尝试 API Key、失败后回退 Bearer token，双通道注入身份），再在 handler 内以 `require_authenticated_user_in_realm`（Realm 归属校验）+ 权限校验进行控制：
   - 积分数据查询（wallets、transactions）：`points.manage`。`points.view` 授权用户本人数据查询（经用户自查端点）；管理端跨用户查询 wallets/transactions 需 `points.manage`（内置 user 角色持有 `points.view`，若管理端仅要求 view 会导致普通用户跨用户读取积分数据）
   - Entitlement Mapping 的积分分发规则（随 mapping 的 `point_rules`）：随 mapping CRUD，`billing.manage`（带 `point_rules` 时额外要 `points.manage`）
   - Realm 注册积分分发规则（`registration-rules`，`owner_type=realm_registration`）：读操作 `points.view`，写操作 `points.manage`

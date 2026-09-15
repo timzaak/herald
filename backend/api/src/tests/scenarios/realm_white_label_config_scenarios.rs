@@ -414,3 +414,69 @@ async fn white_label_rejects_invalid_asset_url_and_gradient(ctx: &mut TestContex
     let invalid_gradient_resp = app.oneshot(invalid_gradient_req).await.unwrap();
     assert_eq!(invalid_gradient_resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/// User Story: US-WL-001 — white-label rows must only flow through the dedicated
+/// draft/publish/restore lifecycle, never the generic configs API.
+/// Covers: ui-custom PRD §6 capability list (no generic delete) and the
+/// reject chain shared by upsert/batch/delete in the configs handler.
+///
+/// WHY: a `settings.manage` caller deleting `settings` (or the
+/// `previous_settings` recovery snapshot) through
+/// `DELETE /api/configs/{realm}/white_label/{key}` would clear published
+/// branding and break restore without ever passing the dedicated surface's
+/// validation — the same bypass the upsert rejection exists to prevent, so
+/// every generic write path (PUT and DELETE alike) must refuse the type.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn white_label_rows_cannot_be_written_or_deleted_via_generic_configs_api(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+    let (token, user_id) =
+        create_admin_session_with_user(ctx, "white-label-generic-api@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+    let published = json!({"loginTitle": "Published Brand"});
+    insert_white_label_config(ctx, "settings", published.clone()).await;
+    insert_white_label_config(ctx, "previous_settings", json!({"loginTitle": "Old Brand"})).await;
+
+    let put_req = authed_request(
+        "PUT",
+        format!("/api/configs/{}", ctx._realm_id),
+        &token,
+        Some(json!({
+            "configType": "white_label",
+            "configKey": "settings",
+            "configValue": "{\"loginTitle\":\"Smuggled Brand\"}"
+        })),
+    );
+    let put_resp = app.clone().oneshot(put_req).await.unwrap();
+    assert_eq!(put_resp.status(), StatusCode::BAD_REQUEST);
+
+    for key in ["settings", "previous_settings"] {
+        let delete_req = authed_request(
+            "DELETE",
+            format!("/api/configs/{}/white_label/{}", ctx._realm_id, key),
+            &token,
+            None,
+        );
+        let delete_resp = app.clone().oneshot(delete_req).await.unwrap();
+        assert_eq!(
+            delete_resp.status(),
+            StatusCode::BAD_REQUEST,
+            "generic delete of white_label/{key} must be refused"
+        );
+    }
+
+    // The bypass must not have touched the lifecycle rows.
+    assert_eq!(
+        serde_json::from_str::<Value>(&fetch_white_label_config(ctx, "settings").await.unwrap())
+            .unwrap(),
+        published
+    );
+    assert!(
+        fetch_white_label_config(ctx, "previous_settings")
+            .await
+            .is_some(),
+        "recovery snapshot must survive the refused deletes"
+    );
+}

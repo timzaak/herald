@@ -345,13 +345,18 @@ mod tests {
                 "item should have providerProductInfo"
             );
             assert!(
-                item.get("pointsPerPeriod").is_some(),
-                "item should have pointsPerPeriod"
-            );
-            assert!(
                 item.get("paymentProvider").is_some(),
                 "item should have paymentProvider"
             );
+            // Rule-model scalars the view cannot represent are absent, not
+            // null-placeholdered (bucketId was a nil UUID, pointsPerPeriod /
+            // validityDays were hardcoded null before the fields' removal).
+            for field in ["bucketId", "pointsPerPeriod", "validityDays"] {
+                assert!(
+                    item.get(field).is_none(),
+                    "ext one-time item must not emit placeholder field {field}"
+                );
+            }
         }
     }
 
@@ -385,18 +390,16 @@ mod tests {
     }
 
     /// User Story: US-PU-006
-    /// Covers: Design section 4.2.2 "validityDays field" — pins the CURRENT
-    /// (unmigrated) external one-time-mappings contract.
+    /// Covers: Design section 4.2.2 "validityDays field" — pins the external
+    /// one-time-mappings contract after the legacy scalar fields were removed.
     ///
-    /// The external `GET /api/ext/{realm}/one-time-mappings` view has NOT yet
-    /// been migrated to the distribution-rule model: it still returns the legacy
-    /// top-level shape with `validityDays`/`pointsPerPeriod` hardcoded to null
-    /// (`backend/api-ext/src/billing.rs`, comment "surfaced nil/None ... until
-    /// it is migrated to the rule model"). A one-time mapping whose topup rule
-    /// carries `validity_days = 30` is still returned by the view, but the
-    /// rule's validity_days is NOT surfaced until that deferred migration lands.
-    /// This test documents that state; when the ext view is migrated to surface
-    /// `pointRules[].validityDays`, flip the assertion to expect 30.
+    /// The external `GET /api/ext/{realm}/one-time-mappings` view is not
+    /// migrated to the distribution-rule model: a mapping fans out to 0..N
+    /// rules, so no per-mapping scalar can represent `validityDays` /
+    /// `pointsPerPeriod` / `bucketId`. The view previously placeholdered them
+    /// with null / a nil UUID — values that read like real data — so the
+    /// fields are now absent from the response entirely. Rule surfacing stays
+    /// a deferred migration item; when it lands, assert `pointRules[].validityDays == 30`.
     #[test_context(TestContext)]
     #[tokio::test]
     async fn test_ext_one_time_mappings_includes_validity_days(ctx: &mut TestContext) {
@@ -453,13 +456,14 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "Expected 200, got {status}: {body}");
         let items = body["items"].as_array().expect("items should be an array");
         assert_eq!(items.len(), 1, "Should return 1 mapping");
-        // ...but validityDays is null: the ext view is not yet migrated to
-        // surface the rule's validity_days (deferred item).
-        assert_eq!(
-            items[0]["validityDays"],
-            serde_json::Value::Null,
-            "ext one-time view does not yet surface rule validity_days (deferred migration)"
-        );
+        // ...and the unsurfaced rule scalars are absent, not null-placeholdered:
+        // a null/nil placeholder reads like a real (empty) value.
+        for field in ["validityDays", "pointsPerPeriod", "bucketId"] {
+            assert!(
+                items[0].get(field).is_none(),
+                "ext one-time view must not emit placeholder field {field}"
+            );
+        }
     }
 
     /// User Story: US-PU-006
@@ -498,9 +502,9 @@ mod tests {
         let items = body["items"].as_array().expect("items should be an array");
         assert_eq!(items.len(), 1, "Should return 1 mapping");
         assert!(
-            items[0]["validityDays"].is_null(),
-            "validityDays should be null for permanent points, got: {:?}",
-            items[0]["validityDays"]
+            items[0].get("validityDays").is_none(),
+            "validityDays is a rule-model scalar the view cannot represent; it must be absent, got: {:?}",
+            items[0].get("validityDays")
         );
     }
 
