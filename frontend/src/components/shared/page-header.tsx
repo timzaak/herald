@@ -26,7 +26,7 @@ export function PageHeader({
   className = '',
 }: PageHeaderProps) {
   return (
-    <div className={`flex items-center justify-between ${className}`}>
+    <div className={`flex flex-wrap items-center justify-between gap-2 ${className}`}>
       <div>
         <h1
           className="text-xl font-semibold tracking-tight"

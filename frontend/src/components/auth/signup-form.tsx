@@ -186,7 +186,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           type="submit"
           data-testid="signup-submit-button"
           disabled={isSubmitting}
-          className="w-full"
+          className="h-11 w-full md:h-10"
         >
           {isSubmitting ? m['auth.signup.submitting']() : m['auth.signup.submit']()}
         </Button>

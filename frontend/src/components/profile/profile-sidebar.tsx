@@ -76,13 +76,32 @@ export function ProfileSidebar() {
   return (
     <aside
       data-testid="profile-sidebar"
-      className="w-64 border-r border-border flex flex-col px-6 py-8"
+      className="flex w-full flex-col border-b border-border md:w-64 md:border-b-0 md:border-r md:px-6 md:py-8"
     >
-      <h1 className="text-lg font-semibold tracking-tight text-foreground">
-        {m['nav_profile.profile']()}
-      </h1>
+      {/* <md: title row doubling as the mobile toolbar (admin entry + language);
+          ≥md: plain block title, toolbar items live in the bottom block below. */}
+      <div className="flex items-center justify-between gap-2 px-4 pt-4 md:block md:px-0 md:pt-0">
+        <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
+          {m['nav_profile.profile']()}
+        </h1>
+        <div className="flex items-center gap-3 md:hidden">
+          {canAccessAdminConsole && (
+            <a
+              href={realmPath({ ...realmContext, realmId }, '/manage')}
+              data-testid="profile-admin-console-link-mobile"
+              className="py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {m['nav.dashboard']()}
+            </a>
+          )}
+          <LanguageSwitcher />
+        </div>
+      </div>
 
-      <nav className="mt-8 flex-1 space-y-1">
+      <nav
+        data-testid="profile-sidebar-nav"
+        className="flex gap-1 overflow-x-auto px-4 pb-3 md:mt-8 md:flex-1 md:flex-col md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
+      >
         {menuItems
           .filter((item) => item.visible !== false)
           .map((item) => (
@@ -90,9 +109,9 @@ export function ProfileSidebar() {
               key={item.name}
               to={item.path}
               data-testid={`profile-menu-${item.name.toLowerCase()}`}
-              className={`block py-1.5 text-sm transition-colors ${
+              className={`whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors md:block md:px-0 md:py-1.5 md:rounded-none ${
                 isActive(item.path)
-                  ? 'font-medium text-foreground'
+                  ? 'bg-muted font-medium text-foreground md:bg-transparent'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -101,7 +120,7 @@ export function ProfileSidebar() {
           ))}
       </nav>
 
-      <div className="space-y-2">
+      <div className="hidden space-y-2 md:block">
         {canAccessAdminConsole && (
           <a
             href={realmPath({ ...realmContext, realmId }, '/manage')}
@@ -114,7 +133,7 @@ export function ProfileSidebar() {
         <LanguageSwitcher />
       </div>
 
-      <div className="mt-4 border-t border-border pt-4">
+      <div className="mt-4 hidden border-t border-border pt-4 md:block">
         <button
           data-testid="profile-logout-button"
           onClick={handleLogout}

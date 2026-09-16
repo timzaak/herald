@@ -76,6 +76,7 @@ export function ChangePasswordForm() {
               type="submit"
               disabled={isSubmitting}
               data-testid="change-password-submit-button"
+              className="h-11 w-full md:h-9 md:w-auto"
             >
               {isSubmitting ? m['profile.changing']() : m['profile.change_password_button']()}
             </Button>

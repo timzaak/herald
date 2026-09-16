@@ -73,7 +73,7 @@ export function TotpStatusCard({ onEnable, onDisable, onRegenerate }: TotpStatus
           </Badge>
         </div>
 
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={onRegenerate} data-testid="totp-regenerate-button">
             {m['profile.totp_regenerate_codes_button']()}
           </Button>

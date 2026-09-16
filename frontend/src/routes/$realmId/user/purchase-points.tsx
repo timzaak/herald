@@ -542,7 +542,7 @@ export function PurchasePointsPage({
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button onClick={() => paymentStatusQuery.refetch()}>
                     {m['common.retry']()}
                   </Button>
@@ -626,7 +626,7 @@ export function PurchasePointsPage({
         <div className="space-y-6">{renderStepContent()}</div>
 
         {currentStep === 'packages' || currentStep === 'payment' ? (
-          <div className="mt-6 flex justify-between">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
             <Button
               variant="outline"
               onClick={handlePreviousStep}
@@ -639,6 +639,7 @@ export function PurchasePointsPage({
             <Button
               onClick={handleNextStep}
               disabled={isNextDisabled()}
+              className="h-11 md:h-9"
               data-testid="purchase-next-button"
             >
               {currentStep === 'payment' ? (

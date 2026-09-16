@@ -148,7 +148,7 @@ export function VerifyEmailPage() {
             type="submit"
             data-testid="verify-button"
             disabled={code.length !== VERIFICATION_CODE_LENGTH || isVerifying}
-            className="w-full"
+            className="h-11 w-full md:h-10"
           >
             {isVerifying
               ? m['auth.verify_email.verifying']()

@@ -86,7 +86,7 @@ export function ProfileSecurity() {
       {showPasskeyGuidance && (
         <Alert data-testid="passkey-force-guidance">
           <AlertTitle>{m['profile.passkey_force_banner_title']()}</AlertTitle>
-          <AlertDescription className="flex items-center justify-between gap-4">
+          <AlertDescription className="flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
             <span>{m['profile.passkey_force_banner_description']()}</span>
             <Button
               size="sm"
@@ -105,7 +105,7 @@ export function ProfileSecurity() {
       {showTotpGuidance && (
         <Alert data-testid="totp-force-guidance">
           <AlertTitle>{m['profile.totp_force_banner_title']()}</AlertTitle>
-          <AlertDescription className="flex items-center justify-between gap-4">
+          <AlertDescription className="flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
             <span>{m['profile.totp_force_banner_description']()}</span>
             <Button
               size="sm"
@@ -119,17 +119,25 @@ export function ProfileSecurity() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="password" data-testid="password-tab">
+        <TabsList className="flex w-full md:inline-flex md:w-auto">
+          <TabsTrigger
+            value="password"
+            className="flex-1 md:flex-initial"
+            data-testid="password-tab"
+          >
             {m['profile.password_tab']()}
           </TabsTrigger>
           {totpEnabled && (
-            <TabsTrigger value="totp" data-testid="totp-tab">
+            <TabsTrigger value="totp" className="flex-1 md:flex-initial" data-testid="totp-tab">
               {m['profile.totp_tab']()}
             </TabsTrigger>
           )}
           {passkeyEnabled && (
-            <TabsTrigger value="passkey" data-testid="passkey-tab">
+            <TabsTrigger
+              value="passkey"
+              className="flex-1 md:flex-initial"
+              data-testid="passkey-tab"
+            >
               {m['profile.passkey_tab']()}
             </TabsTrigger>
           )}

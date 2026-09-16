@@ -103,7 +103,10 @@ export function TotpSetupPage() {
   const currentStepNumber = STEP_NUMBER[step]
 
   return (
-    <div className="container max-w-2xl mx-auto py-6 px-6 space-y-6" data-testid="totp-setup-page">
+    <div
+      className="container max-w-2xl mx-auto py-6 px-0 space-y-6 md:px-6"
+      data-testid="totp-setup-page"
+    >
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button
@@ -298,7 +301,7 @@ export function TotpSetupPage() {
 
       {/* Footer navigation */}
       <div
-        className="flex justify-between pt-4"
+        className="flex flex-wrap justify-between gap-2 pt-4"
         role="navigation"
         aria-label="TOTP setup navigation"
       >
@@ -475,9 +478,10 @@ function OtpCodeInput({
           onPaste={handlePaste}
           disabled={disabled}
           data-testid={`totp-otp-digit-${index}`}
-          className="w-12 h-14 text-center text-2xl font-semibold border-2 border-input rounded-lg
+          className="w-10 h-12 text-center text-xl font-semibold border-2 border-input rounded-lg
             focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none
-            transition-all disabled:cursor-not-allowed disabled:border-transparent disabled:bg-muted disabled:text-muted-foreground"
+            transition-all disabled:cursor-not-allowed disabled:border-transparent disabled:bg-muted disabled:text-muted-foreground
+            md:w-12 md:h-14 md:text-2xl"
           aria-label={`Digit ${index + 1}`}
         />
       ))}

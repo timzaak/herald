@@ -1,4 +1,10 @@
-import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import {
+  type ColumnDef,
+  type RowData,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import {
   Table,
   TableBody,
@@ -9,6 +15,16 @@ import {
 } from '@/components/ui/table'
 import { m } from '@/paraglide/messages'
 import { getErrorMessage } from '@/lib/error-utils'
+
+// Mobile column pruning: columns flagged here render only from md upward —
+// secondary columns are hidden instead of shrinking text to fit.
+// Declared once for the whole app — TransactionHistoryTable consumes it without importing.
+declare module '@tanstack/react-table' {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- augmentation boilerplate: params must match the original interface
+  interface ColumnMeta<TData extends RowData, TValue> {
+    hiddenOnMobile?: boolean
+  }
+}
 
 export interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -77,7 +93,14 @@ export function DataTable<TData, TValue>({
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
+                <TableHead
+                  key={header.id}
+                  className={
+                    header.column.columnDef.meta?.hiddenOnMobile
+                      ? 'hidden md:table-cell'
+                      : undefined
+                  }
+                >
                   {header.isPlaceholder
                     ? null
                     : flexRender(header.column.columnDef.header, header.getContext())}
@@ -95,7 +118,12 @@ export function DataTable<TData, TValue>({
               onClick={() => onRowClick?.(row.original)}
             >
               {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>
+                <TableCell
+                  key={cell.id}
+                  className={
+                    cell.column.columnDef.meta?.hiddenOnMobile ? 'hidden md:table-cell' : undefined
+                  }
+                >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </TableCell>
               ))}

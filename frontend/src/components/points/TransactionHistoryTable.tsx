@@ -116,6 +116,7 @@ export function TransactionHistoryTable({
               id: 'bucket',
               accessorKey: 'bucketId' as const,
               header: m['points.transaction_bucket_column'](),
+              meta: { hiddenOnMobile: true },
               cell: ({ row }: { row: { original: PointsTransactionResponse; index: number } }) => {
                 // Read bucketId from `row.original` rather than `row.getValue('bucketId')`:
                 // this column sets an explicit `id: 'bucket'`, which overrides the
@@ -136,6 +137,7 @@ export function TransactionHistoryTable({
       {
         accessorKey: 'balanceAfter',
         header: m['points.transaction_col_balance_after'](),
+        meta: { hiddenOnMobile: true },
         cell: ({ row }) => (
           <div className="font-mono" data-testid={`transaction-balance-${row.index}`}>
             {(row.getValue('balanceAfter') as number).toLocaleString()}
@@ -145,6 +147,7 @@ export function TransactionHistoryTable({
       {
         accessorKey: 'description',
         header: m['points.transaction_col_description'](),
+        meta: { hiddenOnMobile: true },
         cell: ({ row }) => {
           const description = row.getValue('description') as string | null
           const subscriptionId = row.original.subscriptionId
@@ -165,6 +168,7 @@ export function TransactionHistoryTable({
             {
               accessorKey: 'clientAppId',
               header: m['points.transaction_col_source'](),
+              meta: { hiddenOnMobile: true },
               cell: ({ row }: { row: { getValue: (key: string) => unknown; index: number } }) => {
                 const clientAppId = row.getValue('clientAppId') as string | null
                 const clientApp = clientAppsMap.get(clientAppId ?? '')
@@ -186,6 +190,7 @@ export function TransactionHistoryTable({
             {
               accessorKey: 'externalRefId',
               header: m['points.transaction_col_ref_id'](),
+              meta: { hiddenOnMobile: true },
               cell: ({ row }: { row: { getValue: (key: string) => unknown; index: number } }) => {
                 const externalRefId = row.getValue('externalRefId') as string | null
                 return (
@@ -249,7 +254,14 @@ export function TransactionHistoryTable({
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
+                <TableHead
+                  key={header.id}
+                  className={
+                    header.column.columnDef.meta?.hiddenOnMobile
+                      ? 'hidden md:table-cell'
+                      : undefined
+                  }
+                >
                   {header.isPlaceholder
                     ? null
                     : flexRender(header.column.columnDef.header, header.getContext())}
@@ -262,7 +274,12 @@ export function TransactionHistoryTable({
           {table.getRowModel().rows.map((row) => (
             <TableRow key={row.id} data-testid={`transaction-row-${row.index}`}>
               {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>
+                <TableCell
+                  key={cell.id}
+                  className={
+                    cell.column.columnDef.meta?.hiddenOnMobile ? 'hidden md:table-cell' : undefined
+                  }
+                >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </TableCell>
               ))}

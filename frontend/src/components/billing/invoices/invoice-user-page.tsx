@@ -31,6 +31,7 @@ function createInvoiceColumns(
     {
       id: 'rowNumber',
       header: '#',
+      meta: { hiddenOnMobile: true },
       cell: ({ row }) => (
         <span className="text-muted-foreground text-sm">{page * pageSize + row.index + 1}</span>
       ),
@@ -39,12 +40,15 @@ function createInvoiceColumns(
       accessorKey: 'invoiceNumber',
       header: m['billing.invoice_number'](),
       cell: ({ row }) => (
-        <span className="font-mono text-sm font-medium">{row.getValue('invoiceNumber')}</span>
+        <span className="font-mono text-sm font-medium break-all">
+          {row.getValue('invoiceNumber')}
+        </span>
       ),
     },
     {
       accessorKey: 'provider',
       header: m['billing.invoice_provider'](),
+      meta: { hiddenOnMobile: true },
       cell: ({ row }) => {
         const provider = row.original.provider
         if (provider === 'manual') return null
@@ -94,6 +98,7 @@ function createInvoiceColumns(
     {
       accessorKey: 'dueDate',
       header: m['billing.invoice_due_date'](),
+      meta: { hiddenOnMobile: true },
       cell: ({ row }) => {
         const dueDate = row.getValue('dueDate') as string
         return <span className="text-sm">{formatDate(dueDate)}</span>

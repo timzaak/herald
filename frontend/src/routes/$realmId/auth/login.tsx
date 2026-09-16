@@ -814,7 +814,7 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   disabled={loginMutation.isPending || hasPartialOAuth}
-                  className="w-full"
+                  className="h-11 w-full md:h-10"
                   data-testid="login-submit-button"
                 >
                   {loginMutation.isPending
@@ -905,7 +905,7 @@ export function LoginPage() {
                         disabled={loginMutation.isPending}
                         data-testid={`oauth-login-button-${provider.name}`}
                       >
-                        {provider.displayName}
+                        <span className="min-w-0 truncate">{provider.displayName}</span>
                       </Button>
                     ))}
                   </div>

@@ -25,7 +25,7 @@ export function TurnstileWidget({ siteKey, onTokenChange, onError }: TurnstileWi
   }
 
   return (
-    <div className="turnstile-widget-container">
+    <div className="turnstile-widget-container w-full overflow-x-auto">
       <Turnstile
         siteKey={siteKey}
         onSuccess={handleSuccess}

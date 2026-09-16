@@ -53,13 +53,15 @@ const HistoryTableRow = memo(
 
     return (
       <TableRow data-testid={`purchase-history-item-${purchase.attemptId}`}>
-        <TableCell className="font-medium">{timestamp}</TableCell>
+        <TableCell className="whitespace-nowrap font-medium">{timestamp}</TableCell>
         <TableCell>
-          {purchase.productName ?? (
-            <span className="text-sm text-muted-foreground">
-              {m['points.purchase_history_unknown_product']()}
-            </span>
-          )}
+          <div className="max-w-[140px] truncate md:max-w-none md:whitespace-normal">
+            {purchase.productName ?? (
+              <span className="text-sm text-muted-foreground">
+                {m['points.purchase_history_unknown_product']()}
+              </span>
+            )}
+          </div>
         </TableCell>
         <TableCell>
           {purchase.points != null ? (
@@ -71,21 +73,21 @@ const HistoryTableRow = memo(
             <span className="text-sm text-muted-foreground">--</span>
           )}
         </TableCell>
-        <TableCell>
+        <TableCell className="hidden md:table-cell">
           <div className="text-sm">{formatInvoiceAmount(purchase.amount, purchase.currency)}</div>
         </TableCell>
-        <TableCell>
+        <TableCell className="hidden md:table-cell">
           <div className="flex items-center gap-2">
             <CreditCard className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">{purchase.paymentProvider}</span>
           </div>
         </TableCell>
-        <TableCell>
+        <TableCell className="hidden md:table-cell">
           <Badge variant={getPaymentStatusBadgeVariant(purchase.status)} className="text-xs">
             {purchase.status}
           </Badge>
         </TableCell>
-        <TableCell className="text-right">
+        <TableCell className="whitespace-nowrap text-right">
           <div className="flex justify-end gap-1">
             {onApplyInvoice && realmId && purchase.paymentProvider !== 'stripe' && (
               <InvoiceApplyRowButton
@@ -172,9 +174,15 @@ export function PurchaseHistoryList({
             <TableHead>{m['points.purchase_history_date']()}</TableHead>
             <TableHead>{m['points.purchase_history_product']()}</TableHead>
             <TableHead>{m['points.purchase_history_points']()}</TableHead>
-            <TableHead>{m['points.purchase_history_amount']()}</TableHead>
-            <TableHead>{m['points.purchase_history_provider']()}</TableHead>
-            <TableHead>{m['points.purchase_history_status']()}</TableHead>
+            <TableHead className="hidden md:table-cell">
+              {m['points.purchase_history_amount']()}
+            </TableHead>
+            <TableHead className="hidden md:table-cell">
+              {m['points.purchase_history_provider']()}
+            </TableHead>
+            <TableHead className="hidden md:table-cell">
+              {m['points.purchase_history_status']()}
+            </TableHead>
             <TableHead className="text-right">{m['points.purchase_history_actions']()}</TableHead>
           </TableRow>
         </TableHeader>

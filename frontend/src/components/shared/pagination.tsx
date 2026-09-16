@@ -34,7 +34,7 @@ export function ListPagination({
   const pageNumbers = Array.from({ length: end - start }, (_, i) => start + i)
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="text-sm text-muted-foreground">
         {m['pagination.showing']({
           from: Math.min(page * pageSize + 1, total),

@@ -42,17 +42,21 @@ export function PurchaseDetailsDialog({
                 <h3 className="font-semibold">{m['points.purchase_details_package_info']()}</h3>
               </div>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5">
                   <span className="text-muted-foreground">
                     {m['points.purchase_details_product_name']()}
                   </span>
-                  <span className="font-medium">{purchase.productName ?? 'N/A'}</span>
+                  <span className="min-w-0 break-all text-right font-medium">
+                    {purchase.productName ?? 'N/A'}
+                  </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5">
                   <span className="text-muted-foreground">
                     {m['points.purchase_details_mapping_id']()}
                   </span>
-                  <span className="font-mono text-xs">{purchase.targetMappingId}</span>
+                  <span className="min-w-0 break-all text-right font-mono text-xs">
+                    {purchase.targetMappingId}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
@@ -97,11 +101,13 @@ export function PurchaseDetailsDialog({
                     {purchase.status}
                   </Badge>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5">
                   <span className="text-muted-foreground">
                     {m['points.purchase_details_attempt_id']()}
                   </span>
-                  <span className="font-mono text-xs">{purchase.attemptId}</span>
+                  <span className="min-w-0 break-all text-right font-mono text-xs">
+                    {purchase.attemptId}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
