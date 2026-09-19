@@ -380,3 +380,99 @@ async fn test_scenario_consume_idempotency_no_key_normal_consumption(ctx: &mut T
 
     assert_eq!(txn_count, 2, "Should have exactly two consume transactions");
 }
+
+// ============================================================================
+// Scenario 4 (audit run-1: api-ext/points.rs/
+// consume-idempotency-replay-request-mismatch): same key + different payload
+// ============================================================================
+
+// 一个幂等键只应回应"同一请求"的重放。旧代码在 Cached 分支不比对请求指纹：
+// 同键不同 amount/user 的请求会拿到第一次消费的流水、却回显第二次请求的
+// amount —— 一个从未发生的扣减记录，破坏第三方侧的财务对账。现在：同键
+// 不同负载 → 409 idempotency_conflict；同键同负载 → 照常 200 重放。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_consume_idempotency_same_key_different_payload_conflicts(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+
+    let user_id =
+        create_test_user(&ctx._app_state.pool, &ctx._realm_id, "user15d@example.com").await;
+    let _wallet_id = create_test_points_wallet(&ctx._app_state.pool, user_id, 5000).await;
+
+    let client_app_id = create_test_client_app(&ctx._app_state.pool, &ctx._realm_id).await;
+    let api_key = create_test_api_key(&ctx._app_state.pool, &ctx._realm_id, client_app_id).await;
+
+    let idempotency_key = format!("req-15d-{}", Uuid::now_v7());
+
+    // First consume: 100, records the fingerprint for this key.
+    let request1 = build_consume_request(
+        &ctx._realm_id,
+        &api_key,
+        &user_id.to_string(),
+        &client_app_id.to_string(),
+        100,
+        "AI API call",
+        Some(&idempotency_key),
+    );
+    let response1 = app.clone().oneshot(request1).await.unwrap();
+    assert_eq!(response1.status(), StatusCode::OK);
+    let body1 = parse_response_body(response1).await;
+    assert_eq!(body1["amount"].as_i64(), Some(100));
+
+    // Same key, DIFFERENT payload (amount 999) must conflict, not fabricate a
+    // replay response (old code: 200 with the first consume's transactions
+    // next to amount=999).
+    let request2 = build_consume_request(
+        &ctx._realm_id,
+        &api_key,
+        &user_id.to_string(),
+        &client_app_id.to_string(),
+        999,
+        "AI API call — corrected amount",
+        Some(&idempotency_key),
+    );
+    let response2 = app.clone().oneshot(request2).await.unwrap();
+    assert_eq!(
+        response2.status(),
+        StatusCode::CONFLICT,
+        "key reuse with a different payload must 409, not replay the original consume"
+    );
+    let body2 = parse_response_body(response2).await;
+    assert!(
+        body2["transactions"].is_null(),
+        "the conflict response must not carry the original consume's transactions: {body2}"
+    );
+
+    // Same key + IDENTICAL payload still replays 200 (the guard is a
+    // fingerprint equality check, not a blanket rejection).
+    let request3 = build_consume_request(
+        &ctx._realm_id,
+        &api_key,
+        &user_id.to_string(),
+        &client_app_id.to_string(),
+        100,
+        "AI API call",
+        Some(&idempotency_key),
+    );
+    let response3 = app.clone().oneshot(request3).await.unwrap();
+    assert_eq!(
+        response3.status(),
+        StatusCode::OK,
+        "identical replay must succeed"
+    );
+    let body3 = parse_response_body(response3).await;
+    assert_eq!(body3["amount"].as_i64(), Some(100));
+
+    // Exactly one consume transaction may exist — the conflicting replay
+    // neither deducted nor fabricated a second record.
+    let (txn_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM points_transactions WHERE user_id = $1 AND type = 'consume'",
+    )
+    .bind(user_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .expect("Failed to count transactions");
+    assert_eq!(txn_count, 1, "exactly one consume may take effect");
+}

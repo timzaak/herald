@@ -53,7 +53,7 @@
 ### 2.3 依赖项
 
 - Realm 系统 — Dashboard 所有指标必须 Realm 隔离
-- 用户认证系统 — 审计事件（AuthLogin、AuthLoginFailed）作为趋势图数据来源
+- 用户认证系统 — 审计事件（`auth.login`、`auth.login_failed`）作为趋势图数据来源
 - Realm Admin 权限检查机制 — Dashboard 访问权限控制
 - Realm 创建流程 — 创建 Realm 后应能访问其 Dashboard
 

@@ -166,6 +166,7 @@ pub async fn handle_update_custom_domain_config(
     // check the published mapping table and other realms' realm_config
     // custom_domain settings rows. The current realm's own row is excluded.
     if let Some(ref hostname) = normalized_hostname {
+        assert_hostname_not_reserved(&state, hostname)?;
         assert_hostname_globally_unique(&state, &realm_id, hostname).await?;
     }
 
@@ -474,9 +475,71 @@ fn build_custom_domain_upsert_request(
     })
 }
 
+/// Extract the lowercase host of a configured deployment URL for the
+/// reserved-host comparison.
+///
+/// `Url::parse` is authoritative for host extraction — the hand-rolled
+/// splitter it replaced produced garbage hosts for upper-case schemes
+/// (`HTTPS://host` → `https`), userinfo (`user@host`), and IPv6 literals,
+/// and each of those gaps meant the deployment-owned name was NOT reserved
+/// and stayed claimable by a tenant.
+fn host_of_configured_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let parsed = url::Url::parse(raw)
+        .ok()
+        .filter(|url| url.host_str().is_some());
+    let url = match parsed {
+        Some(url) => url,
+        // `Url::parse` requires an absolute URL: a bare host configured
+        // without a scheme (or a `host:port` value that parses as a
+        // scheme-only URL with no host) is still deployment-owned, so retry
+        // under an assumed https scheme. Inputs that already carry a scheme
+        // are not retried — the retry could only manufacture a bogus host.
+        None if !raw.contains("://") => url::Url::parse(&format!("https://{raw}")).ok()?,
+        None => return None,
+    };
+    let host = url.host_str()?.trim_matches(['[', ']']);
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+}
+
 /// Assert a hostname is not claimed by another realm.
 ///
 /// Checks two sources:
+/// Rejects deployment-owned hostnames at the claim boundary.
+///
+/// The SPA host (`[frontend].url`, carried on `AppState.public_base_url`) and
+/// the Herald CNAME target (`[custom_domain].cname_target`) are platform
+/// infrastructure: a tenant claiming either would re-home the platform host's
+/// realm resolution, white-label surface and OIDC issuer onto its own realm on
+/// the operator's legitimate domain. `localhost` is rejected outright. No
+/// DNS-control proof exists anywhere in the claim flow, so this static guard
+/// is the only protection for deployment-owned names.
+fn assert_hostname_not_reserved(state: &AppState, hostname: &str) -> Result<(), ApiError> {
+    let claimed = hostname.to_ascii_lowercase();
+    if claimed == "localhost" {
+        return Err(ApiError::bad_request(
+            "localhost cannot be claimed as a custom domain",
+        ));
+    }
+    for reserved in [
+        host_of_configured_url(&state.public_base_url),
+        host_of_configured_url(&state.custom_domain_cname_target),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if claimed == reserved {
+            return Err(ApiError::bad_request(
+                "This hostname is reserved by the deployment and cannot be claimed as a custom domain",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// 1. The `custom_domain_mapping` table (configured hostnames) — via the repo
 ///    port, filtered to enabled rows.
 /// 2. Other realms' `realm_config` `custom_domain` rows for the `settings`
@@ -574,5 +637,67 @@ fn map_mapping_error(error: CoreError) -> ApiError {
             tracing::error!("Custom-domain mapping operation failed: {}", error);
             ApiError::internal("Internal server error")
         }
+    }
+}
+
+#[cfg(test)]
+mod reserved_host_tests {
+    use super::host_of_configured_url;
+
+    // WHY: every shape here is a form of `[frontend].url` /
+    // `[custom_domain].cname_target` an operator could write. A shape the
+    // extractor fails to resolve is a deployment-owned hostname that
+    // `assert_hostname_not_reserved` does NOT reserve — and with no DNS-proof
+    // in the claim flow, that hostname stays claimable by a tenant, re-homing
+    // the platform's realm resolution onto their realm. These cases pin the
+    // exact shapes the previous hand-rolled splitter silently mis-parsed
+    // (upper-case scheme, userinfo, IPv6) plus the ones it already got right,
+    // so the switch to `Url::parse` can never narrow the reserved set.
+    #[test]
+    fn extracts_the_deployment_host_from_every_configured_url_shape() {
+        // Canonical shapes the old splitter handled — unchanged.
+        assert_eq!(
+            host_of_configured_url("https://App.Example.com/base"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("http://app.example.com?x=1"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("https://app.example.com:8443"),
+            Some("app.example.com".to_string())
+        );
+        // Scheme-less bare host / host:port stay reserved — `Url::parse`
+        // needs an absolute URL, so these go through the https retry.
+        assert_eq!(
+            host_of_configured_url("app.example.com"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("app.example.com:8443"),
+            Some("app.example.com".to_string())
+        );
+
+        // Shapes the old splitter mis-parsed into garbage hosts ("https",
+        // "ops@app.example.com", "[") — each used to leave the real host
+        // unreserved.
+        assert_eq!(
+            host_of_configured_url("HTTPS://App.Example.com"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("https://ops@app.example.com"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("https://[2001:db8::1]:8443"),
+            Some("2001:db8::1".to_string())
+        );
+
+        // Nothing extractable — no bogus reservation either.
+        assert_eq!(host_of_configured_url(""), None);
+        assert_eq!(host_of_configured_url("   "), None);
+        assert_eq!(host_of_configured_url("https://"), None);
     }
 }

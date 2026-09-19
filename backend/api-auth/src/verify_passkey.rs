@@ -24,7 +24,7 @@ use herald_core::domain::audit::{
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::security_constants::{
-    LOGIN_IDENTIFIER_RATE_LIMIT, LOGIN_IP_RATE_LIMIT, OAUTH_STATE_TTL_SECONDS,
+    DEFAULT_OAUTH_CODE_TTL_SECONDS, LOGIN_IDENTIFIER_RATE_LIMIT, LOGIN_IP_RATE_LIMIT,
     TOTP_LOCKOUT_SECONDS, TOTP_MAX_FAILURES, TOTP_VERIFY_IP_RATE_LIMIT,
     TOTP_VERIFY_USER_RATE_LIMIT,
 };
@@ -603,7 +603,7 @@ async fn finish_login(
         );
 
         let _: () = conn
-            .set_ex(&code_key, code_value, OAUTH_STATE_TTL_SECONDS)
+            .set_ex(&code_key, code_value, DEFAULT_OAUTH_CODE_TTL_SECONDS)
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to store OAuth authorization code");
@@ -640,7 +640,8 @@ async fn finish_login(
             tracing::warn!(error = %audit_err, "Failed to record passkey login-success audit event");
         }
 
-        let redirect_to = format!("{redirect_uri}?code={auth_code}&state={state_param}");
+        let redirect_to =
+            crate::oauth_oidc::append_code_and_state(redirect_uri, &auth_code, state_param);
         return Ok(Json(PasskeyVerifyResponse {
             message: "ok".to_string(),
             user_id: user_id.to_string(),

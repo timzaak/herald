@@ -8,7 +8,7 @@ use herald_api_base::application::http::server::api_entities::{ApiError, ApiResu
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
 
-use crate::api_keys::client_app_info::client_app_name;
+use crate::api_keys::client_app_info::{api_key_role_summaries, client_app_name};
 use crate::api_keys::types::{ApiKeyListItem, UpdateApiKeyRequest};
 
 /// Update an API Key
@@ -89,6 +89,10 @@ pub async fn update_api_key(
         ));
     }
 
+    // The documented response shape includes the key's roles; an empty array
+    // here made the UI drop role chips after every rename/toggle.
+    let roles = api_key_role_summaries(&state, admin.identity(), &realm_id, &saved.id).await?;
+
     let response = ApiKeyListItem {
         id: saved.id,
         name: saved.name,
@@ -99,7 +103,7 @@ pub async fn update_api_key(
         expires_at: saved.expires_at.map(|dt| dt.to_rfc3339()),
         last_used_at: saved.last_used_at.map(|dt| dt.to_rfc3339()),
         created_at: saved.created_at.to_rfc3339(),
-        roles: Vec::new(),
+        roles,
     };
 
     Ok(ApiResult::ok(response))

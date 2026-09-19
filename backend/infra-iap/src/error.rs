@@ -11,6 +11,7 @@
 //! | `AppleVerification`   | 422  |
 //! | `GoogleApi`           | 422  |
 //! | `AlreadyConsumed`     | 422  |
+//! | `InvalidPathSegment`  | 422  |
 //! | `ServiceAccountAuth`  | 500  |
 //! | `Transport`           | 500  |
 //! | `Json`                | 500  |
@@ -55,6 +56,14 @@ pub enum IapError {
     /// 422 `already_consumed`.
     #[error("product already consumed")]
     AlreadyConsumed,
+
+    /// A caller-supplied identifier (receipt token / product id) cannot be
+    /// addressed as a single URL path segment — it is `.` or `..`, which URL
+    /// dot-segment normalization folds into a different resource path (and
+    /// `%2E` folds too, so escaping cannot rescue it). Such a value can never
+    /// be a real store identifier. Maps to HTTP 422 `verification_failed`.
+    #[error("invalid identifier for API path segment: {0:?}")]
+    InvalidPathSegment(String),
 
     /// Underlying HTTP transport error. Maps to HTTP 500.
     #[error("transport error: {0}")]

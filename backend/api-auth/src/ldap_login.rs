@@ -280,7 +280,7 @@ pub async fn ldap_login(
             "disabled_account",
         )
         .await;
-        return Err(ApiError::forbidden("账号已被禁用".to_string()));
+        return Err(ApiError::forbidden("Account is disabled".to_string()));
     }
 
     // 7. Link the directory identity only after account-state enforcement.
@@ -570,7 +570,8 @@ pub async fn ldap_login(
             tracing::warn!(error = %audit_err, "Failed to record audit event");
         }
 
-        let redirect_to = format!("{}?code={}&state={}", redirect_uri, auth_code, state_param);
+        let redirect_to =
+            crate::oauth_oidc::append_code_and_state(redirect_uri, &auth_code, state_param);
 
         return Ok(Json(LoginResponse {
             message: "ok".to_string(),

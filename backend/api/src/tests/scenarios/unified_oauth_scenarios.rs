@@ -700,3 +700,76 @@ async fn test_scenario_oauth_provider_not_configured(ctx: &mut TestContext) {
         println!("[Step 2] ✓ 404 Not Found returned as expected");
     }
 }
+
+/// ============================================================================
+/// 回归（审计 run-1：generate_oauth_auth_url:login-redirect-uri-override-
+/// unvalidated）：provider-login 的可选 redirect_uri 覆盖必须精确等于
+/// canonical 回调地址。前端从不发送该参数；任何其他值都会把调用者选定的
+/// 重定向目标写进一次性流程状态、并复用于 provider 授权 URL 与 code 交换
+/// —— 对接受未注册 redirect_uri 的 provider 是授权码截获原语。
+/// 旧代码：任意值原样生效（200）。
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_oauth_login_rejects_non_canonical_redirect_uri(ctx: &mut TestContext) {
+    use axum::body::Body;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    let realm_id = ctx._realm_id.clone();
+    let provider_config = OAuthProviderTestConfig::github();
+
+    let admin_email = provider_config.admin_email_for("rduri");
+    let (token, admin_user_id) = create_admin_session_with_user(ctx, &admin_email, 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+    let config = provider_config.to_provider_config();
+    let resp = create_oauth_provider_config(ctx, &config, &token, &realm_id).await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    let app = ctx.create_unified_test_router();
+    let login_uri = |query: String| {
+        Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/oauth/{}/github/login{}", realm_id, query))
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    // 未携带参数：照常 200（默认 canonical 回调）。
+    let resp = app.clone().oneshot(login_uri(String::new())).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "default login must still work"
+    );
+
+    // 任意外部地址必须被拒绝（旧代码：200 并把该值写入流程状态）。
+    let resp = app
+        .clone()
+        .oneshot(login_uri(
+            "?redirect_uri=https://attacker.example/callback".to_string(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a non-canonical redirect_uri override must be rejected"
+    );
+
+    // 精确等于 canonical 值（{public_base_url}/api/oauth/{realm}/{provider}/callback）仍被接受。
+    let canonical = format!(
+        "http://localhost:8080/api/oauth/{}/github/callback",
+        realm_id
+    );
+    let resp = app
+        .clone()
+        .oneshot(login_uri(format!("?redirect_uri={canonical}")))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "the exact canonical redirect_uri must still be accepted"
+    );
+}

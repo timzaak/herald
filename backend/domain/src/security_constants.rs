@@ -7,6 +7,10 @@ pub const DEFAULT_LOGIN_CHALLENGE_TTL_SECONDS: u64 = 300;
 // --- TOTP ---
 pub const TOTP_MAX_FAILURES: i64 = 5;
 pub const TOTP_LOCKOUT_SECONDS: u64 = 900;
+/// One-time-code replay window for the shared `totp:last_code:{user}` Redis
+/// record (login ceremony + re-auth): 2 minutes spans 4 TOTP time steps, so
+/// previous-step codes age out while same-step replays stay blocked.
+pub const TOTP_REPLAY_WINDOW_SECONDS: u64 = 120;
 
 // --- Email OTP (design email-otp-login §4.5) ---
 /// Maximum verification attempts before a code is invalidated and must be
@@ -49,6 +53,12 @@ pub const TOTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 
 pub const REAUTH_VERIFY_USER_RATE_LIMIT: (i64, usize) = (5, 60);
 pub const REAUTH_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
+
+/// Anonymous WeChat webhook ingress (per IP per realm). The handler reaches
+/// the WeChat Pay client (and possibly a platform-cert download) BEFORE the
+/// inbound signature is verified, so ingress must be bounded independently of
+/// signature validity.
+pub const WECHAT_WEBHOOK_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 
 // --- Browser refresh token TTL ---
 pub const BROWSER_REFRESH_ABSOLUTE_TTL_MIN_SECONDS: i32 = 86_400;
@@ -126,6 +136,7 @@ pub const OIDC_ID_TOKEN_TTL_SECONDS: i64 = 600;
 pub const OIDC_SIGNING_KEY_RETENTION_SECONDS: i64 = 7 * 24 * 3600;
 pub const OAUTH_DISCOVERY_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 pub const OAUTH_JWKS_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+pub const TURNSTILE_STATUS_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 pub const OAUTH_USERINFO_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 /// Size bound for the optional authorize `scope`/`nonce` parameters. The
 /// values are stored verbatim in the Redis OAuth state, so without a bound

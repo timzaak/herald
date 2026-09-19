@@ -178,6 +178,94 @@ pub struct ExtGrantPointsResponse {
 ///   https://api.example.com/api/ext/points/realm123/balance?userId=user-123 \
 ///   -H "X-API-Key: your-api-key"
 /// ```
+/// Fingerprint guard for idempotent consume replays: stores sha256 of the
+/// serialized request under a dedicated Redis key (SET NX, first writer wins)
+/// and rejects key reuse with a different payload via 409
+/// `idempotency_conflict`.
+///
+/// TTL: the main idempotency cache is written with its 24h TTL only when the
+/// first processing COMPLETES (`save_result`), while this fingerprint anchors
+/// at first-request start — at equal TTLs the fingerprint dies first and
+/// leaves a window where a different payload replays the cached transaction
+/// unguarded (review 20260919, points fingerprint finding). The slack
+/// (1h) exceeds any bounded HTTP request lifetime, keeping the fingerprint
+/// horizon covering the cache horizon.
+#[allow(clippy::too_many_arguments)]
+async fn ensure_idempotency_fingerprint(
+    state: &AppState,
+    idempotency_scope: &str,
+    idempotency_key: &str,
+    request_data: &str,
+) -> Result<(), Response> {
+    use redis::AsyncCommands;
+    use sha2::{Digest, Sha256};
+
+    const FINGERPRINT_TTL_SECS: u64 = 24 * 60 * 60 + 60 * 60;
+
+    let fingerprint = hex::encode(Sha256::digest(request_data.as_bytes()));
+    let fp_key = format!("idempotency:reqfp:{idempotency_scope}:{idempotency_key}");
+
+    let mut conn = match state.redis_manager.get().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::error!(%e, "Failed to get Redis connection for idempotency fingerprint");
+            return Err(json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalError,
+            ));
+        }
+    };
+
+    for _ in 0..2 {
+        // SET NX: the first request to use this key records its fingerprint.
+        let first_writer: Option<String> = redis::cmd("SET")
+            .arg(&fp_key)
+            .arg(&fingerprint)
+            .arg("NX")
+            .arg("EX")
+            .arg(FINGERPRINT_TTL_SECS)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "Failed to store idempotency fingerprint");
+                json_error(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalError)
+            })?;
+        if first_writer.is_some() {
+            return Ok(());
+        }
+        let stored: Option<String> = conn.get(&fp_key).await.map_err(|e| {
+            tracing::error!(%e, "Failed to read idempotency fingerprint");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalError)
+        })?;
+        match stored.as_deref() {
+            Some(s) if s == fingerprint.as_str() => return Ok(()),
+            Some(_) => {
+                tracing::warn!(
+                    idempotency_key = %idempotency_key,
+                    "Idempotency key reused with a different request payload"
+                );
+                return Err(json_error(
+                    StatusCode::CONFLICT,
+                    ErrorCode::IdempotencyConflict,
+                ));
+            }
+            // The fingerprint vanished between the SET NX and the GET (TTL
+            // boundary / eviction): a byte-identical replay must not be
+            // misjudged as a conflict — retry, letting the next SET NX
+            // re-anchor the fingerprint.
+            None => continue,
+        }
+    }
+    tracing::error!(
+        idempotency_key = %idempotency_key,
+        "Idempotency fingerprint kept vanishing between SET NX and GET"
+    );
+    Err(json_error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        ErrorCode::InternalError,
+    ))
+}
+
 #[utoipa::path(
     get,
     path = "/api/ext/points/{realmId}/balance",
@@ -454,6 +542,24 @@ pub async fn consume_points_ext(
             );
             String::new()
         });
+
+        // Request-fingerprint guard: an idempotency key must answer only
+        // replays of the SAME request. Without this, a key reused with a
+        // different payload replays the FIRST consume's transactions while
+        // echoing the second request's amount — a fabricated financial
+        // response. The sha256 fingerprint is stored beside the idempotency
+        // record (first writer wins, same 24h horizon as the store's
+        // IDEMPOTENCY_TTL) and compared before the cached branch.
+        if let Err(resp) = ensure_idempotency_fingerprint(
+            &state,
+            &idempotency_scope,
+            idempotency_key,
+            &request_data,
+        )
+        .await
+        {
+            return resp;
+        }
 
         match idempotency_service
             .check_or_create(&idempotency_scope, idempotency_key, &request_data)

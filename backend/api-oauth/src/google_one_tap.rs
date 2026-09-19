@@ -93,11 +93,14 @@ pub struct OneTapCodeResponse {
     ),
     request_body = OneTapRequest,
     responses(
-        (status = 200, description = "Direct-session mode: token family issued for the given client_id", body = OneTapDirectResponse),
+        (status = 200, description = "Direct-session mode: token family issued for the given client_id. Stale-legal-consent gate: the same 200 body instead carries `consentRequired: true` + `agreements` + `restrictedSession` and no token fields (variant not separately modeled)", body = OneTapDirectResponse),
         (status = 200, description = "Downstream-authorization-code mode: redirect URI returned for Code+PKCE exchange", body = OneTapCodeResponse),
         (status = 400, description = "Bad request (validation error or missing/invalid downstream state)", body = ErrorResponse),
         (status = 401, description = "Unauthorized (ID Token signature/issuer/audience/expiry validation failed, or email not verified)", body = ErrorResponse),
+        (status = 403, description = "Forbidden (provider email not verified)", body = ErrorResponse),
         (status = 404, description = "Google provider not configured or not enabled", body = ErrorResponse),
+        (status = 409, description = "Conflict (auto-registration not enabled or email domain not allowed)", body = ErrorResponse),
+        (status = 429, description = "Rate limited", body = ErrorResponse),
         (status = 503, description = "Upstream service unavailable (Google JWKS unreachable)", body = ErrorResponse)
     )
 )]

@@ -414,14 +414,31 @@ async fn scenario_cross_realm_access(ctx: &mut SchemaTestContext) {
     );
 
     let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
-    // Step 5: 验证错误消息
+    // 他域 UUID 与未知 UUID 不可区分：都 404（旧代码 403/404 分裂构成跨租户
+    // client-app 存在性预言）。
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "a foreign-realm client app UUID must be indistinguishable from an unknown one"
+    );
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let foreign_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    // 验证是跨 realm 错误
-    assert!(json.as_object().unwrap().contains_key("message"));
+    // 对照：完全未知的 UUID 得到相同状态与错误体。
+    let request = create_request_with_api_key(
+        Method::GET,
+        &format!("/api/ext/subscription/{}", Uuid::now_v7()),
+        &api_key,
+        None,
+    );
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let unknown_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        foreign_json, unknown_json,
+        "the error body must not distinguish foreign-realm from unknown UUIDs"
+    );
 }
 
 /// ============================================================================
@@ -684,5 +701,100 @@ async fn scenario_client_app_not_found(ctx: &mut SchemaTestContext) {
         error_str.contains("not_found") || error_str.contains("client_app"),
         "Expected error message to contain 'not_found' or 'client_app', got: {}",
         error_str
+    );
+}
+
+// ============================================================================
+// 回归（审计 run-1：api-ext/permission.rs:check_permission:
+// introspection-skips-disabled-principal-recheck）
+// ============================================================================
+
+/// 内省必须与 identity_middleware 同规则重检主体：禁用 Client App 不吊销
+/// 令牌族（令牌存活至 TTL），Forbidden/Deleted 用户的吊销也可能滞后/失败 ——
+/// 这些令牌在所有 Bearer 路由被拒，内协（权限检查）不得回答 allowed=true
+/// 并回显 userId，否则 SDK 侧授权决策与真实路由行为分叉。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn scenario_check_permission_rejects_disabled_principals(ctx: &mut SchemaTestContext) {
+    let app = ctx.create_unified_test_router();
+    let (api_key, _entity) = create_test_api_key(ctx, "introspect-disabled", true, None).await;
+    let (user_id, session_token) = create_test_user_with_permissions(
+        ctx,
+        "introspect-disabled@example.com",
+        &[("article", "read")],
+    )
+    .await;
+
+    let check = |token: &str| {
+        create_request_with_api_key(
+            Method::POST,
+            "/api/ext/permission/check",
+            token,
+            Some(json!({
+                "accessToken": session_token,
+                "rules": [{"resource": "article", "action": "read"}]
+            })),
+        )
+    };
+
+    let read_allowed = |resp: axum::response::Response| async move {
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+    };
+
+    // Baseline: healthy principal introspects allowed=true.
+    let resp = app.clone().oneshot(check(&api_key)).await.unwrap();
+    let body = read_allowed(resp).await;
+    assert_eq!(body["allowed"], true, "baseline must be allowed");
+
+    // 禁用用户（Forbidden=2）：所有 Bearer 路由拒绝该令牌，内省同样拒绝。
+    sqlx::query("UPDATE account SET status = 2 WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&user_id).expect("user id is a UUID"))
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let resp = app.clone().oneshot(check(&api_key)).await.unwrap();
+    let body = read_allowed(resp).await;
+    assert_eq!(
+        body["allowed"], false,
+        "a Forbidden user's token must not introspect as allowed"
+    );
+    assert_eq!(body["error"], "invalid_token");
+    assert!(
+        body["userId"].is_null(),
+        "denied introspection must not echo the userId"
+    );
+
+    // 恢复用户；禁用 Client App（令牌族不吊销，令牌仍存活）。
+    sqlx::query("UPDATE account SET status = 1 WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&user_id).expect("user id is a UUID"))
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE client_app SET enabled = false WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&ctx._client_app_id).expect("client app id is a UUID"))
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let resp = app.clone().oneshot(check(&api_key)).await.unwrap();
+    let body = read_allowed(resp).await;
+    assert_eq!(
+        body["allowed"], false,
+        "a disabled Client App's live token must not introspect as allowed"
+    );
+    assert_eq!(body["error"], "invalid_token");
+
+    // Control: re-enabling restores allowed=true (the recheck is state-driven,
+    // not a blanket denial).
+    sqlx::query("UPDATE client_app SET enabled = true WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&ctx._client_app_id).expect("client app id is a UUID"))
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let resp = app.clone().oneshot(check(&api_key)).await.unwrap();
+    let body = read_allowed(resp).await;
+    assert_eq!(
+        body["allowed"], true,
+        "re-enabled app must introspect allowed again"
     );
 }

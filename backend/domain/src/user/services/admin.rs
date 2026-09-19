@@ -111,6 +111,23 @@ async fn require_user_in_realm(
     Ok(())
 }
 
+/// Compute the requested role ids that no `get_roles_by_ids` row matched.
+///
+/// `IN (...)` returns one row per distinct id, so compare against the
+/// deduplicated count — a duplicated id must not read as "missing" and
+/// produce an empty-name RoleNotFound error.
+fn missing_role_ids(roles: &[RoleEntity], role_ids: &[Uuid]) -> Vec<String> {
+    let unique_ids: std::collections::HashSet<Uuid> = role_ids.iter().copied().collect();
+    if roles.len() == unique_ids.len() {
+        return Vec::new();
+    }
+    let found: std::collections::HashSet<Uuid> = roles.iter().map(|r| r.id).collect();
+    unique_ids
+        .difference(&found)
+        .map(|id| id.to_string())
+        .collect()
+}
+
 /// Validate that every role id exists and belongs to `realm_id`.
 ///
 /// The `user_roles` schema only foreign-keys `role_id -> roles(id)`, so a
@@ -128,15 +145,8 @@ async fn require_roles_in_realm(
 
     let roles = role_policy_repository.get_roles_by_ids(role_ids).await?;
 
-    // `IN (...)` returns one row per distinct id, so compare against the
-    // deduplicated count to reject unknown ids (and tolerate duplicates).
-    let unique_ids: std::collections::HashSet<Uuid> = role_ids.iter().copied().collect();
-    if roles.len() != unique_ids.len() {
-        let found: std::collections::HashSet<Uuid> = roles.iter().map(|r| r.id).collect();
-        let missing: Vec<String> = unique_ids
-            .difference(&found)
-            .map(|id| id.to_string())
-            .collect();
+    let missing = missing_role_ids(&roles, role_ids);
+    if !missing.is_empty() {
         return Err(UserAdminError::RoleNotFound(missing.join(", ")));
     }
 
@@ -1374,15 +1384,8 @@ where
                 .get_roles_by_ids(&role_ids)
                 .await?;
 
-            // Check all roles were found
-            if roles.len() != role_ids.len() {
-                let found_ids: std::collections::HashSet<Uuid> =
-                    roles.iter().map(|r| r.id).collect();
-                let missing: Vec<String> = role_ids
-                    .iter()
-                    .filter(|id| !found_ids.contains(id))
-                    .map(|id| id.to_string())
-                    .collect();
+            let missing = missing_role_ids(&roles, &role_ids);
+            if !missing.is_empty() {
                 return Err(UserAdminError::RoleNotFound(missing.join(", ")));
             }
 

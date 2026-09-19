@@ -8,7 +8,6 @@
 
 **优先级**: P0
 
-> **待实现**：当前后端仅支持读取 Creem/Stripe 配置，创建/编辑/删除功能尚未实现。
 
 **【用户故事】**
 **作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
@@ -41,16 +40,13 @@ Given 我是 realm-1 的管理员
 When 我在支付平台管理页面点击 "Add Provider" 按钮
 And 我选择平台类型为 "Stripe"
 And 我填写配置信息：
-  | Environment       | test                  |
-  | Account ID        | acct_1234567890       |
   | API Public Key   | pk_test_51M...         |
   | API Secret Key   | sk_test_51M...         |
   | Webhook Secret   | whsec_...             |
-  | Webhook Endpoint | https://example.com/api/billing/realm-1/stripe/webhook |
 And 我提交表单
 Then 支付平台配置创建成功
 And 系统显示成功消息："Payment provider 'Stripe' configured successfully"
-And Webhook 端点已注册到 Stripe Dashboard
+And 系统展示按系统部署地址自动生成的 Webhook 接收地址（供我粘贴到 Stripe Dashboard，系统不代注册）
 ```
 
 **场景 3：创建 Stripe 配置（生产环境）**
@@ -58,29 +54,26 @@ And Webhook 端点已注册到 Stripe Dashboard
 Given 我是 realm-1 的管理员
 And 我已创建测试环境的 Stripe 配置
 When 我再次选择平台类型为 "Stripe"
-And 我选择 Environment 为 "production"
 And 我填写生产环境的 API 密钥（以 pk_live_、sk_live_ 开头）
 And 我提交表单
 Then 系统显示确认对话框："You are configuring production mode. This will process real payments."
 And 我确认后配置创建成功
 ```
 
-**场景 4：API Key 格式验证**
+**场景 4：API Key 非空验证**
 ```gherkin
 Given 我是 realm-1 的管理员
 When 我尝试创建 Stripe 配置
-And 我输入错误的 API Key 格式（不是以 pk_、sk_ 开头）
-Then 系统显示验证错误："Invalid API Key format"
+And 我将 API Secret Key 留空
+Then 系统显示验证错误
 And 配置创建失败
 ```
 
-**场景 5：Webhook URL 验证**
+**场景 5：Webhook 接收地址展示**
 ```gherkin
 Given 我是 realm-1 的管理员
-When 我尝试创建 Stripe 配置
-And 我输入无效的 Webhook URL（不是 http/https）
-Then 系统显示验证错误："Webhook URL must be a valid HTTP/HTTPS URL"
-And 配置创建失败
+When 我创建 Stripe 配置
+Then 系统展示按系统部署地址自动生成的 Webhook 接收地址（不作为用户输入项，无需校验）
 ```
 
 **场景 6：敏感信息安全存储**
@@ -116,19 +109,14 @@ And 配置创建失败
 **场景 1：查看所有支付平台配置**
 ```gherkin
 Given 我是 realm-1 的管理员
-And 已配置多个支付平台：
-  | Platform | Environment |
-  | Creem    | sandbox     |
-  | Stripe   | test        |
+And 已配置多个支付平台（Creem、Stripe）
 When 我访问支付平台管理页面
 Then 我看到支付平台配置列表
 And 列表包含以下列：
   | 列名               | 说明                   |
   | Platform           | 支付平台名称           |
-  | Environment        | 环境（sandbox/production） |
   | API Public Key    | API 公钥               |
   | API Secret Key    | API 密钥（脱敏）        |
-  | Webhook Endpoint  | Webhook 端点（如适用）  |
   | Last Updated      | 最后更新时间            |
   | Actions          | 操作（编辑、删除）        |
 And API Secret Key 显示脱敏格式（如 "sk_test_*******************"）
@@ -151,12 +139,10 @@ Then 我看到配置详情页面
 And 页面显示：
   | 字段               | 内容                       |
   | Platform           | Stripe                    |
-  | Environment        | test                      |
-  | Account ID        | acct_1234567890           |
   | API Public Key    | pk_test_51M...             |
   | API Secret Key    | sk_test_******************* |
   | Webhook Secret    | whsec_*******************  |
-  | Webhook Endpoint  | https://example.com/...    |
+  | Webhook 接收地址   | 系统按部署地址自动生成展示  |
   | Created At        | 2026-03-20 10:00:00 UTC  |
   | Updated At        | 2026-03-20 10:00:00 UTC  |
 ```
@@ -167,7 +153,6 @@ And 页面显示：
 
 **优先级**: P1
 
-> **待实现**：当前后端仅支持读取 Creem/Stripe 配置，编辑功能尚未实现。
 
 **【用户故事】**
 **作为**：Realm Admin
@@ -202,27 +187,24 @@ And 原有的 Secret Key 保持不变
 And 非敏感字段更新为新值
 ```
 
-**场景 2：更新 Webhook Endpoint**
+**场景 2：Webhook 接收地址说明**
 ```gherkin
 Given 我是 realm-1 的管理员
 And 已配置 Stripe Webhook
-When 我更新 Webhook Endpoint URL
-And 我保存更改
-Then 系统提示更新 Stripe Dashboard 的 Webhook 配置
-And 我看到确认对话框："Please update your Stripe Dashboard webhook endpoint to the new URL"
+When 我查看编辑页面
+Then 系统展示按部署地址自动生成的 Webhook 接收地址（非编辑项；部署地址变化时需同步更新 Stripe Dashboard）
 ```
 
-**场景 3：切换环境（test -> production）**
+**场景 3：替换为生产密钥**
 ```gherkin
 Given 我是 realm-1 的管理员
-And 当前 Stripe 配置为 test 环境
-When 我将 Environment 更改为 "production"
-And 我更新 API 密钥为生产密钥（以 pk_live_、sk_live_ 开头）
+And 当前 Stripe 配置使用测试密钥
+When 我更新 API 密钥为生产密钥（以 pk_live_、sk_live_ 开头）
 And 我保存更改
 Then 系统显示警告对话框："Switching to production mode will process real payments"
 When 我确认
-Then 配置更新为生产环境
-And 所有支付将使用 Stripe 生产环境
+Then 配置更新为生产密钥
+And 所有支付将使用 Stripe 生产环境（密钥本身决定环境，系统不解析前缀、无独立环境字段）
 ```
 
 **场景 4：不允许修改平台类型**
@@ -298,6 +280,8 @@ Then 配置被删除
 ### 故事 5：查看支付平台使用统计 [US-PV-005]
 
 **优先级**: P2
+
+> **延后项**：Active Subs、Avg Payment Time 指标不随首版交付（见 [billing-statistics PRD](/docs/prd/billing/billing-statistics.md) §2.2 已知差异）。
 
 **【用户故事】**
 **作为**：Realm Admin

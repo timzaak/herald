@@ -57,10 +57,29 @@ use crate::shared_fulfillment::fulfill_provider_event;
 use crate::webhook_subscription_helpers::{
     ResolvedEntitlement, SyncSubscriptionInput, resolve_entitlement_mapping, sync_subscription,
 };
+use herald_core::domain::billing::subscription_history_service::SubscriptionHistoryService;
 
 /// `provider_status` recorded when fulfillment fails after a verified
 /// receipt; the submit response echoes it as `failure_reason` verbatim.
 const FULFILLMENT_FAILED_STATUS: &str = "fulfillment_failed";
+
+/// `provider_status` recorded when the Google acknowledge/consume call fails
+/// after the attempt exists. The attempt rolls back to Failed (from Pending)
+/// so a resubmit re-runs it via the dead-zone recovery instead of replaying
+/// "pending" forever.
+const GOOGLE_ACK_FAILED_STATUS: &str = "google_ack_failed";
+
+/// `provider_status` recorded when a recovery re-run flips an abandoned
+/// Pending attempt (its submission died between attempt creation and the
+/// terminal marking) to Failed.
+const ABANDONED_PENDING_STATUS: &str = "abandoned_pending";
+
+/// In-flight lease window for the receipt dedup row. A crashed submission's
+/// row becomes recoverable once the lease it wrote at insert time is older
+/// than this. Generous on purpose — the leased window only spans local DB
+/// writes (provider verification happens before the insert), while expiry
+/// costs the user a bounded wait before resubmission recovery unlocks.
+const IAP_DEDUP_LEASE_STALE_SECS: i64 = 60;
 
 // ============================================================================
 // DTOs
@@ -312,7 +331,7 @@ async fn record_idempotent_payment_event(
     event_type: String,
     payload: serde_json::Value,
 ) {
-    let _ = state
+    if let Err(e) = state
         .billing_repository
         .create_payment_event(PaymentEvent {
             id: Uuid::now_v7(),
@@ -326,7 +345,19 @@ async fn record_idempotent_payment_event(
             processing_started_at: Some(Utc::now()),
             created_at: Utc::now(),
         })
-        .await;
+        .await
+    {
+        // Unique violations are the benign duplicate-insert case; anything
+        // else is logged — never silently discarded.
+        if !crate::webhook_common::is_unique_violation_msg(&e.to_string()) {
+            tracing::error!(
+                external_event_id = %external_event_id,
+                provider = %provider,
+                error = %e,
+                "Failed to record idempotent payment_event"
+            );
+        }
+    }
 }
 
 /// Best-effort IAP operation audit (PRD support-iap.md §5.2: all IAP purchase /
@@ -383,11 +414,14 @@ async fn apple_event_already_processed(
     realm_id: &str,
     synthetic_event_id: &str,
 ) -> Result<bool, CoreError> {
+    // Processed-aware: an unprocessed row is a prior failed/pending attempt
+    // that the retry sweep must re-run, not a tombstone to skip (mirrors the
+    // Stripe/Creem contract).
     let already = state
         .billing_repository
         .find_payment_event_by_external_id(realm_id, synthetic_event_id, "apple")
         .await?
-        .is_some();
+        .is_some_and(|event| event.processed);
     if already {
         tracing::info!(
             realm_id = %realm_id,
@@ -396,6 +430,36 @@ async fn apple_event_already_processed(
         );
     }
     Ok(already)
+}
+
+/// Race-close probe shared by the receipt and notification entrances: a
+/// REFUND/REVOKE synthetic payment event (keyed `apple:{otid}:{type}`,
+/// pending or processed) already recorded for this transaction means it was
+/// refunded/revoked and must not (re)fulfill. Returns the matched synthetic
+/// id so the caller can log it.
+async fn apple_refund_or_revoke_recorded(
+    state: &AppState,
+    realm_id: &str,
+    original_transaction_id: &str,
+) -> Result<Option<String>, CoreError> {
+    for notification_type in [
+        herald_infra_iap::apple::models::NotificationTypeV2::Refund,
+        herald_infra_iap::apple::models::NotificationTypeV2::Revoke,
+    ] {
+        let synthetic_event_id = format!(
+            "apple:{original_transaction_id}:{}",
+            apple_notification_type_str(&notification_type)
+        );
+        if state
+            .billing_repository
+            .find_payment_event_by_external_id(realm_id, &synthetic_event_id, "apple")
+            .await?
+            .is_some()
+        {
+            return Ok(Some(synthetic_event_id));
+        }
+    }
+    Ok(None)
 }
 
 // ============================================================================
@@ -512,6 +576,16 @@ pub async fn submit_iap_receipt(
                 }));
             }
 
+            // A signed revocation_date means Apple already refunded/revoked
+            // this transaction: the signature stays valid after the refund,
+            // but the money is gone - the receipt must never fulfill
+            // (audit run-1: apple-transaction-revocation-unchecked).
+            if txn.revocation_date.is_some() {
+                return Err(ApiError::unprocessable_entity(
+                    "verification_failed: transaction already refunded or revoked".to_string(),
+                ));
+            }
+
             // Product id sanity: the verified transaction's productId must
             // match what the client claimed (defence against submitting a
             // receipt for product A against mapping B).
@@ -600,192 +674,351 @@ pub async fn submit_iap_receipt(
         }
     };
 
-    // Step 5: idempotency. If a payment_event already exists for this
-    // external id + provider, return the existing attempt's status without
-    // re-fulfilling (US-IAP-003 scenario 4).
+    // Apple race close: a REFUND/REVOKE notification that arrived before this
+    // submission leaves a synthetic event (pending or processed) keyed on the
+    // originalTransactionId - the still-signed receipt must not fulfill
+    // behind the refund's back. The JWS itself may predate the refund
+    // (revocation_date None), so the revocation gate above alone cannot catch
+    // this ordering.
+    if input.provider == "apple"
+        && apple_refund_or_revoke_recorded(&state, &realm_id, &external_txn_id)
+            .await
+            .map_err(|e| core_error_to_api_error(e, "iap refund-race lookup"))?
+            .is_some()
+    {
+        return Err(ApiError::unprocessable_entity(
+            "verification_failed: transaction already refunded or revoked".to_string(),
+        ));
+    }
+
+    // Step 5: idempotency, WeChat-inbox mode. The dedup row is inserted
+    // BEFORE any fulfillment and the UNIQUE(realm_id, external_event_id,
+    // payment_provider) constraint - not an unlocked probe - decides single
+    // execution: two concurrent submissions of the same receipt cannot both
+    // fulfill (audit run-1: iap-receipt-dedup-after-fulfillment). The insert
+    // also takes an in-flight lease (processing_started_at = now):
+    // - a processed row replays the existing attempt's status;
+    // - an unprocessed row whose prior submission FAILED (or died — released
+    //   or stale lease) is recovered by re-running on it (see
+    //   resolve_iap_dedup_conflict), so no failure between this insert and
+    //   the attempt's terminal marking can strand a paid receipt;
+    // - an unprocessed row with a fresh lease is a concurrent in-flight
+    //   submission and answers 409 instead of double-fulfilling.
     if let Some(existing) = state
         .billing_repository
         .find_payment_event_by_external_id(&realm_id, &external_txn_id, &input.provider)
         .await
         .map_err(|e| core_error_to_api_error(e, "iap receipt idempotency lookup"))?
+        .filter(|existing| existing.processed)
     {
         return Ok(Json(
             iap_response_for_existing_event(&state, &realm_id, &input.provider, &existing).await?,
         ));
     }
 
-    // Google consume dead-zone guard. Ack/consume runs BEFORE fulfillment so a
-    // user granted points can never be auto-refunded by Google for an
-    // unacknowledged purchase. The flip side: consume can succeed while
-    // fulfillment fails, leaving no payment_event (it is only recorded on the
-    // Ok branch), so a plain resubmit used to die on consumptionState=1 with
-    // no recovery. Distinguish the two consumptionState=1 shapes: a prior
-    // Herald attempt bound to this provider reference with Failed status is
-    // our own consume-then-fulfillment-failure — recover by skipping the
-    // (already-done) consume and re-running fulfillment. Anything else (no
-    // prior attempt, or a non-Failed one) keeps the 422 already_consumed
-    // rejection: the consume happened outside this flow and re-fulfilling
-    // would double-grant.
-    if google_already_consumed {
-        let recoverable = state
-            .payment_attempt_service
-            .get_payment_attempt_by_provider_reference(&input.provider, &external_txn_id)
-            .await
-            .map_err(|e| core_error_to_api_error(e, "iap prior attempt lookup"))?
-            .filter(|prior| prior.realm_id == realm_id)
-            .is_some_and(|prior| prior.status == PaymentAttemptStatus::Failed);
-        if !recoverable {
-            return Err(iap_error_to_api_error(IapError::AlreadyConsumed));
-        }
-        tracing::warn!(
-            realm_id = %realm_id,
-            user_id = %user_id,
-            external_txn_id = %external_txn_id,
-            "Google consumable dead-zone recovery: prior attempt failed after consume — re-fulfilling without re-consuming"
-        );
-    }
-
-    // Step 6: create the IAP payment attempt (Pending; provider_reference =
-    // external_txn_id). Reuses resolve_target + row creation, skips
-    let target_type = input
-        .target_type
-        .parse::<PurchasableTarget>()
-        .map_err(|e| ApiError::bad_request(format!("invalid target_type: {e}")))?;
-    let attempt = state
-        .purchase_service
-        .create_iap_payment_attempt(CreateIapAttemptInput {
+    let billing_type_str = billing_type.as_str().to_string();
+    let dedup_event_id = match state
+        .billing_repository
+        .create_payment_event(PaymentEvent {
+            id: Uuid::now_v7(),
             realm_id: realm_id.clone(),
-            user_id,
+            external_event_id: external_txn_id.clone(),
             payment_provider: input.provider.clone(),
-            target_type,
-            target_id: input.target_id,
-            provider_reference: external_txn_id.clone(),
-            metadata: None,
+            event_type: format!("iap_{billing_type_str}"),
+            subscription_id: None,
+            payload: serde_json::json!({
+                "provider": input.provider,
+                "productId": input.product_id,
+                "targetId": input.target_id,
+            }),
+            processed: false,
+            // In-flight lease: concurrent duplicates that hit the unique
+            // conflict below answer 409 while it is fresh. Every failure
+            // exit after this point releases it (pipeline wrapper below);
+            // a crash mid-flight leaves it to expire after
+            // IAP_DEDUP_LEASE_STALE_SECS.
+            processing_started_at: Some(Utc::now()),
+            created_at: Utc::now(),
         })
         .await
-        .map_err(|e| core_error_to_api_error(e, "iap create attempt"))?;
-
-    // Step 7: fulfillment transaction. complete_succeeded marks the attempt
-    // Succeeded and fulfils (one_time → TopupCredit, recurring → Subscription).
-    // A failure here rolls the attempt back to Failed. The dead-zone
-    // recovery above already consumed the product in its failed prior attempt,
-    // so the consume call is skipped there (re-consuming is both unnecessary
-    // and rejected by Google).
-    if let Some((creds, developer, auth)) = google_ready.as_ref()
-        && !google_already_consumed
     {
-        let is_consumable_points_pack = mapping_rule_value(&state, &realm_id, resolved.mapping.id)
-            .await
-            .map_err(|e| core_error_to_api_error(e, "iap mapping rules"))?
-            > 0;
-        google_ack_or_consume_in_tx(
-            developer,
-            auth,
-            &creds.package_name,
-            &input,
-            &billing_type,
-            is_consumable_points_pack,
-        )
-        .await
-        .map_err(iap_error_to_api_error)?;
-    }
-
-    let billing_type_str = billing_type.as_str().to_string();
-    let fulfill_result = fulfill_provider_event(
-        &state,
-        &realm_id,
-        attempt.id,
-        &input.provider,
-        "succeeded",
-        external_txn_id.clone(),
-        Utc::now(),
-        Some(billing_type),
-    )
-    .await;
-
-    let status = match fulfill_result {
-        Ok(()) => {
-            // Step 7 cont.: record payment_event for idempotency. Best-effort:
-            // a duplicate-insert here is benign (the unique constraint guards
-            // it; a later resubmit returns the existing attempt).
-            record_idempotent_payment_event(
+        Ok(saved) => saved.id,
+        Err(CoreError::DatabaseError(ref msg))
+            if crate::webhook_common::is_unique_violation_msg(msg) =>
+        {
+            // Another submission already claimed this receipt. Load the row
+            // and decide between replay, recovery, and in-flight.
+            let existing = state
+                .billing_repository
+                .find_payment_event_by_external_id(&realm_id, &external_txn_id, &input.provider)
+                .await
+                .map_err(|e| core_error_to_api_error(e, "iap receipt idempotency lookup"))?
+                .ok_or_else(|| {
+                    ApiError::internal("iap dedup row vanished after unique conflict".to_string())
+                })?;
+            if existing.processed {
+                return Ok(Json(
+                    iap_response_for_existing_event(&state, &realm_id, &input.provider, &existing)
+                        .await?,
+                ));
+            }
+            match resolve_iap_dedup_conflict(
                 &state,
                 &realm_id,
-                &external_txn_id,
                 &input.provider,
-                format!("iap_{billing_type_str}"),
-                serde_json::json!({
-                    "provider": input.provider,
-                    "productId": input.product_id,
-                    "targetId": input.target_id,
-                }),
+                &external_txn_id,
+                &existing,
             )
-            .await;
-            "succeeded"
-        }
-        Err(e) => {
-            // The attempt was already marked Succeeded inside
-            // complete_succeeded_payment_attempt: the user has paid (and for a
-            // Google consumable the product was consumed) but holds no
-            // entitlement. Roll it back to Failed so a resubmit meets the
-            // dead-zone recovery precondition (prior Failed attempt) instead
-            // of a permanent 422 already_consumed — the exact paid-but-never-
-            // fulfillable dead zone US-IAP-006 forbids.
-            if let Err(mark_err) = state
-                .payment_attempt_service
-                .mark_failed_for_async_recovery(
-                    &realm_id,
-                    attempt.id,
-                    FULFILLMENT_FAILED_STATUS.to_string(),
-                    Utc::now(),
-                )
-                .await
+            .await?
             {
-                tracing::error!(
-                    realm_id = %realm_id,
-                    attempt_id = %attempt.id,
-                    provider = %input.provider,
-                    error = %mark_err,
-                    "IAP fulfillment failed AND the Failed rollback failed — resubmit may hit already_consumed"
-                );
+                IapDedupConflictResolution::Replay(response) => return Ok(Json(response)),
+                IapDedupConflictResolution::Recover(event_id) => {
+                    tracing::warn!(
+                        realm_id = %realm_id,
+                        external_txn_id = %external_txn_id,
+                        provider = %input.provider,
+                        "IAP receipt resubmission: recovering the prior submission's dedup row"
+                    );
+                    event_id
+                }
+                IapDedupConflictResolution::InFlight => {
+                    return Err(ApiError::conflict(
+                        "another submission of this receipt is in progress".to_string(),
+                    ));
+                }
+            }
+        }
+        Err(e) => return Err(core_error_to_api_error(e, "iap receipt dedup insert")),
+    };
+
+    // Steps 6-7 run under the dedup row's lease. Every failure exit below —
+    // and the rolled-back-fulfillment "failed" response — releases the lease
+    // so the next resubmission recovers immediately instead of waiting out
+    // IAP_DEDUP_LEASE_STALE_SECS; a crash mid-flight leaves the lease to
+    // expire on its own.
+    let result: Result<Json<IapReceiptResponse>, ApiError> = async {
+        // Google consume dead-zone guard. Ack/consume runs BEFORE fulfillment so a
+        // user granted points can never be auto-refunded by Google for an
+        // unacknowledged purchase. The flip side: consume can succeed while
+        // fulfillment fails, leaving no payment_event (it is only recorded on the
+        // Ok branch), so a plain resubmit used to die on consumptionState=1 with
+        // no recovery. Distinguish the two consumptionState=1 shapes: a prior
+        // Herald attempt bound to this provider reference with Failed status is
+        // our own consume-then-fulfillment-failure — recover by skipping the
+        // (already-done) consume and re-running fulfillment. Anything else (no
+        // prior attempt, or a non-Failed one) keeps the 422 already_consumed
+        // rejection: the consume happened outside this flow and re-fulfilling
+        // would double-grant.
+        if google_already_consumed {
+            let recoverable = state
+                .payment_attempt_service
+                .get_payment_attempt_by_provider_reference(&input.provider, &external_txn_id)
+                .await
+                .map_err(|e| core_error_to_api_error(e, "iap prior attempt lookup"))?
+                .filter(|prior| prior.realm_id == realm_id)
+                .is_some_and(|prior| prior.status == PaymentAttemptStatus::Failed);
+            if !recoverable {
+                return Err(iap_error_to_api_error(IapError::AlreadyConsumed));
             }
             tracing::warn!(
                 realm_id = %realm_id,
-                attempt_id = %attempt.id,
-                provider = %input.provider,
-                error = %e,
-                "IAP fulfillment failed -- attempt rolled back to Failed"
+                user_id = %user_id,
+                external_txn_id = %external_txn_id,
+                "Google consumable dead-zone recovery: prior attempt failed after consume — re-fulfilling without re-consuming"
             );
-            "failed"
         }
-    };
 
-    record_iap_audit(
-        &state,
-        &realm_id,
-        AuditAction::IapReceiptSubmit,
-        Some(user_id.to_string()),
-        Some(ActorType::User),
-        attempt.id.to_string(),
-        serde_json::json!({
-            "provider": input.provider,
-            "productId": input.product_id,
-            "billingType": billing_type_str,
-            "status": status,
-        }),
-    )
+        // Step 6: create the IAP payment attempt (Pending; provider_reference =
+        // external_txn_id). Reuses resolve_target + row creation, skips
+        let target_type = input
+            .target_type
+            .parse::<PurchasableTarget>()
+            .map_err(|e| ApiError::bad_request(format!("invalid target_type: {e}")))?;
+        let attempt = state
+            .purchase_service
+            .create_iap_payment_attempt(CreateIapAttemptInput {
+                realm_id: realm_id.clone(),
+                user_id,
+                payment_provider: input.provider.clone(),
+                target_type,
+                target_id: input.target_id,
+                provider_reference: external_txn_id.clone(),
+                metadata: None,
+            })
+            .await
+            .map_err(|e| core_error_to_api_error(e, "iap create attempt"))?;
+
+        // Step 7: fulfillment transaction. complete_succeeded marks the attempt
+        // Succeeded and fulfils (one_time → TopupCredit, recurring → Subscription).
+        // A failure here rolls the attempt back to Failed. The dead-zone
+        // recovery above already consumed the product in its failed prior attempt,
+        // so the consume call is skipped there (re-consuming is both unnecessary
+        // and rejected by Google).
+        if let Some((creds, developer, auth)) = google_ready.as_ref()
+            && !google_already_consumed
+        {
+            let is_consumable_points_pack = mapping_rule_value(&state, &realm_id, resolved.mapping.id)
+                .await
+                .map_err(|e| core_error_to_api_error(e, "iap mapping rules"))?
+                > 0;
+            if let Err(e) = google_ack_or_consume_in_tx(
+                developer,
+                auth,
+                &creds.package_name,
+                &input,
+                &billing_type,
+                is_consumable_points_pack,
+            )
+            .await
+            {
+                // A transient Developer API failure must not leave the attempt
+                // Pending: the dedup conflict branch only re-runs Failed
+                // attempts, so a Pending attempt makes every resubmission
+                // replay "pending" forever while the user has paid (review
+                // 20260919 finding 2). The attempt is still Pending here (the
+                // Succeeded marking happens inside fulfill_provider_event
+                // below), so flip it to Failed — the resubmit dead-zone
+                // recovery then re-runs it.
+                if let Err(mark_err) = state
+                    .payment_attempt_service
+                    .mark_payment_failed(
+                        &realm_id,
+                        attempt.id,
+                        GOOGLE_ACK_FAILED_STATUS.to_string(),
+                        Utc::now(),
+                    )
+                    .await
+                {
+            tracing::error!(
+                realm_id = %realm_id,
+                attempt_id = %attempt.id,
+                provider = input.provider,
+                error = %mark_err,
+                "IAP google ack/consume failed AND the Pending→Failed rollback failed — resubmission may replay pending until the lease expires"
+            );
+                }
+                return Err(iap_error_to_api_error(e));
+            }
+        }
+
+        let fulfill_result = fulfill_provider_event(
+            &state,
+            &realm_id,
+            attempt.id,
+            &input.provider,
+            "succeeded",
+            external_txn_id.clone(),
+            Utc::now(),
+            Some(billing_type),
+        )
+        .await;
+
+        let status = match fulfill_result {
+            Ok(()) => {
+                // Step 7 cont.: the dedup row inserted in step 5 becomes the
+                // permanent idempotency record. A failure here must not fail the
+                // paid-and-fulfilled response - the row stays unprocessed and the
+                // resubmit conflict branch replays the Succeeded attempt.
+                if let Err(e) = state
+                    .billing_repository
+                    .mark_payment_event_processed(dedup_event_id)
+                    .await
+                {
+                    tracing::error!(
+                        realm_id = %realm_id,
+                        external_txn_id = %external_txn_id,
+                        provider = input.provider,
+                        error = %e,
+                        "IAP receipt fulfilled but marking payment_event processed failed - retry sweep will re-run and replay"
+                    );
+                }
+                "succeeded"
+            }
+            Err(e) => {
+                // The attempt was already marked Succeeded inside
+                // complete_succeeded_payment_attempt: the user has paid (and for a
+                // Google consumable the product was consumed) but holds no
+                // entitlement. Roll it back to Failed so a resubmit meets the
+                // dead-zone recovery precondition (prior Failed attempt) instead
+                // of a permanent 422 already_consumed — the exact paid-but-never-
+                // fulfillable dead zone US-IAP-006 forbids.
+                if let Err(mark_err) = state
+                    .payment_attempt_service
+                    .mark_failed_for_async_recovery(
+                        &realm_id,
+                        attempt.id,
+                        FULFILLMENT_FAILED_STATUS.to_string(),
+                        Utc::now(),
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        realm_id = %realm_id,
+                        attempt_id = %attempt.id,
+                        provider = %input.provider,
+                        error = %mark_err,
+                        "IAP fulfillment failed AND the Failed rollback failed — resubmit may hit already_consumed"
+                    );
+                }
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    attempt_id = %attempt.id,
+                    provider = %input.provider,
+                    error = %e,
+                    "IAP fulfillment failed -- attempt rolled back to Failed"
+                );
+                "failed"
+            }
+        };
+
+        record_iap_audit(
+            &state,
+            &realm_id,
+            AuditAction::IapReceiptSubmit,
+            Some(user_id.to_string()),
+            Some(ActorType::User),
+            attempt.id.to_string(),
+            serde_json::json!({
+                "provider": input.provider,
+                "productId": input.product_id,
+                "billingType": billing_type_str,
+                "status": status,
+            }),
+        )
+        .await;
+
+        Ok(Json(IapReceiptResponse {
+            attempt_id: attempt.id,
+            status: status.to_string(),
+            entitlement_key: Some(resolved.entitlement_key.clone()),
+            billing_type: Some(billing_type_str),
+            // Verification failures return 422 before this point; the only
+            // failure reachable here is the fulfillment rollback above, whose
+            // recorded provider_status is "fulfillment_failed".
+            failure_reason: (status == "failed").then(|| FULFILLMENT_FAILED_STATUS.to_string()),
+        }))
+    }
     .await;
 
-    Ok(Json(IapReceiptResponse {
-        attempt_id: attempt.id,
-        status: status.to_string(),
-        entitlement_key: Some(resolved.entitlement_key.clone()),
-        billing_type: Some(billing_type_str),
-        // Verification failures return 422 before this point; the only
-        // failure reachable here is the fulfillment rollback above, whose
-        // recorded provider_status is "fulfillment_failed".
-        failure_reason: (status == "failed").then(|| FULFILLMENT_FAILED_STATUS.to_string()),
-    }))
+    let release_lease = match &result {
+        Ok(Json(response)) => response.status == "failed",
+        Err(_) => true,
+    };
+    if release_lease
+        && let Err(e) = state
+            .billing_repository
+            .release_payment_event_lease(dedup_event_id)
+            .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            external_txn_id = %external_txn_id,
+            provider = input.provider,
+            error = %e,
+            "IAP receipt submission failed but the dedup lease release failed — recovery may answer 409 until the lease expires"
+        );
+    }
+    result
 }
 
 /// Google acknowledge (recurring/non_renewing) / consume-or-acknowledge
@@ -921,6 +1154,123 @@ async fn iap_response_for_existing_event(
                 .unwrap_or_else(|| "payment_failed".to_string())
         }),
     })
+}
+
+/// How a receipt resubmission proceeds after hitting the dedup-row unique
+/// conflict.
+enum IapDedupConflictResolution {
+    /// The prior submission reached a state worth reporting — answer with its
+    /// attempt status instead of double-fulfilling.
+    Replay(IapReceiptResponse),
+    /// The prior submission failed before (or during) fulfillment — re-run on
+    /// the existing dedup row (the caller uses its id; the lease was already
+    /// re-claimed here).
+    Recover(Uuid),
+    /// A concurrent submission holds a fresh lease — reject.
+    InFlight,
+}
+
+fn iap_dedup_lease_is_stale(event: &PaymentEvent) -> bool {
+    event.processing_started_at.is_none_or(|started| {
+        started <= Utc::now() - chrono::Duration::seconds(IAP_DEDUP_LEASE_STALE_SECS)
+    })
+}
+
+/// Decide the unique-conflict branch of a receipt resubmission against the
+/// row a prior submission left (`existing` is always unprocessed — processed
+/// rows replay before the insert is ever attempted):
+///
+/// - prior attempt `Failed` → recovery re-run. The prior submission's failure
+///   exit released the lease, so the claim succeeds immediately; if it did
+///   not (release failed / crash), the claim still enforces staleness.
+/// - prior attempt `Pending`/`RequiresAction` with a stale lease → the prior
+///   submission died between attempt creation and its terminal marking
+///   (crash window): flip the orphan attempt to Failed, then recover. A
+///   fresh lease means a submission is genuinely in-flight — replay it.
+/// - no prior attempt + released/stale lease → the prior submission died
+///   between the dedup insert and its attempt creation (invalid target_type,
+///   transient DB failure, crash) — dead-zone row recovery (review
+///   20260919 finding 1). A fresh lease is a concurrent in-flight
+///   submission.
+/// - any other prior attempt state → replay its status.
+///
+/// The claim is a single conditional UPDATE, so of two concurrent
+/// resubmissions at most one wins the recovery re-run.
+async fn resolve_iap_dedup_conflict(
+    state: &AppState,
+    realm_id: &str,
+    provider: &str,
+    external_txn_id: &str,
+    existing: &PaymentEvent,
+) -> Result<IapDedupConflictResolution, ApiError> {
+    let prior_attempt = state
+        .payment_attempt_service
+        .get_payment_attempt_by_provider_reference(provider, external_txn_id)
+        .await
+        .map_err(|e| core_error_to_api_error(e, "iap prior attempt lookup"))?
+        .filter(|prior| prior.realm_id == realm_id);
+
+    let abandon_attempt_id = match prior_attempt {
+        // Dead row: the prior submission never created its attempt.
+        None => None,
+        // Prior submission failed after claiming the row - re-run.
+        Some(prior) if prior.status == PaymentAttemptStatus::Failed => None,
+        // Abandoned in-flight: the prior submission died between attempt
+        // creation and its terminal marking. Only recoverable once the lease
+        // is stale; a fresh lease is a live submission mid-flight.
+        Some(prior)
+            if matches!(
+                prior.status,
+                PaymentAttemptStatus::Pending | PaymentAttemptStatus::RequiresAction
+            ) && iap_dedup_lease_is_stale(existing) =>
+        {
+            Some(prior.id)
+        }
+        // In-flight (fresh lease) or fulfilled-but-unmarked: replay its state.
+        Some(_) => {
+            return Ok(IapDedupConflictResolution::Replay(
+                iap_response_for_existing_event(state, realm_id, provider, existing).await?,
+            ));
+        }
+    };
+
+    // Claim the row's lease atomically: NULL (released by the prior
+    // submission's failure exit) or stale leases win; a fresh lease loses to
+    // the concurrent submission that holds it.
+    if !state
+        .billing_repository
+        .claim_payment_event_for_processing(existing.id, IAP_DEDUP_LEASE_STALE_SECS)
+        .await
+        .map_err(|e| core_error_to_api_error(e, "iap dedup lease claim"))?
+    {
+        return Ok(IapDedupConflictResolution::InFlight);
+    }
+
+    if let Some(attempt_id) = abandon_attempt_id {
+        // Flip the orphaned Pending attempt to a clean terminal Failed — its
+        // fulfillment never committed, so nothing is lost, and the re-run (or
+        // any later replay) sees a consistent state.
+        if let Err(e) = state
+            .payment_attempt_service
+            .mark_payment_failed(
+                realm_id,
+                attempt_id,
+                ABANDONED_PENDING_STATUS.to_string(),
+                Utc::now(),
+            )
+            .await
+        {
+            tracing::error!(
+                realm_id = %realm_id,
+                attempt_id = %attempt_id,
+                provider = provider,
+                error = %e,
+                "IAP recovery: stale Pending attempt could not be flipped to Failed — the re-run proceeds; the orphan stays Pending"
+            );
+        }
+    }
+
+    Ok(IapDedupConflictResolution::Recover(existing.id))
 }
 
 // ============================================================================
@@ -1095,6 +1445,44 @@ pub async fn process_apple_notification_decoded(
         // through to the first-purchase path below (which idempotency-skips
         // already-processed originals).
         _ => {}
+    }
+
+    // A signed revocation_date means the transaction was refunded/revoked:
+    // the first-purchase path must never fulfill it. REFUND/REVOKE types
+    // already routed to the revoke path above; any other type carrying a
+    // revocation_date is still a dead purchase (audit run-1:
+    // apple-transaction-revocation-unchecked).
+    if txn.revocation_date.is_some() {
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            "apple notification carries a revocation_date -- refusing first-purchase fulfillment"
+        );
+        return Err(CoreError::Forbidden(
+            "apple transaction refunded/revoked: refusing first-purchase fulfillment".to_string(),
+        ));
+    }
+
+    // Race close, notification path (mirror of the client receipt gate in
+    // submit_iap_receipt): a REFUND/REVOKE notification that was delivered
+    // while this purchase notification sat in Apple's retry queue left a
+    // synthetic event keyed `apple:{otid}:{type}` (pending or processed). The
+    // JWS may predate the refund (revocation_date None) and the bare-key
+    // idempotency check below cannot see the synthetic key — without this
+    // gate the retried purchase would fulfill behind the refund's back
+    // (review 20260919 finding 3).
+    if let Some(synthetic_event_id) =
+        apple_refund_or_revoke_recorded(state, realm_id, &original_transaction_id).await?
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            synthetic_event_id = %synthetic_event_id,
+            "apple notification: REFUND/REVOKE already recorded for this transaction -- refusing first-purchase fulfillment"
+        );
+        return Err(CoreError::Forbidden(
+            "apple transaction refunded/revoked: refusing first-purchase fulfillment".to_string(),
+        ));
     }
 
     // Idempotency: payment_event keyed by originalTransactionId.
@@ -1277,22 +1665,52 @@ async fn process_apple_refund_or_revoke(
                 original_transaction_id = %original_transaction_id,
                 notification_type = %notification_type_str,
                 "apple REFUND/REVOKE: no payment_attempt found for originalTransactionId — \
-                 cannot revoke; recording event to prevent retry storms"
+                 leaving a PENDING retryable event; the retry sweep re-runs the revoke \
+                 once the attempt appears"
             );
-            record_idempotent_payment_event(
-                state,
-                realm_id,
-                &synthetic_event_id,
-                "apple",
-                format!("apple_{notification_type_str}"),
-                serde_json::json!({
-                    "notificationType": notification_type_str,
-                    "productId": product_id,
-                    "outcome": "no_attempt_found",
-                }),
-            )
-            .await;
-            return Ok(());
+            // NOT a permanent processed tombstone: a refund racing ahead of
+            // the receipt submission must stay live, because the still-signed
+            // receipt can fulfill afterwards (its JWS may predate the refund)
+            // and the old processed event permanently swallowed the clawback
+            // (audit run-1: apple-transaction-revocation-unchecked). The row
+            // stays processed=false so the PaymentEventRetryJob re-runs it;
+            // the Err keeps the failure visible to the caller's logs.
+            // The payload carries the decoded notification identity
+            // (originalTransactionId / notificationType / productId) so the
+            // retry sweep's reprocess entry can re-run the revoke from this
+            // row alone — the live webhook always answers Apple 200, so no
+            // provider redelivery will ever bring the JWS back.
+            let pending = state
+                .billing_repository
+                .create_payment_event(PaymentEvent {
+                    id: Uuid::now_v7(),
+                    realm_id: realm_id.to_string(),
+                    external_event_id: synthetic_event_id.clone(),
+                    payment_provider: "apple".to_string(),
+                    event_type: format!("apple_{notification_type_str}"),
+                    subscription_id: None,
+                    payload: serde_json::json!({
+                        "notificationType": notification_type_str,
+                        "productId": product_id,
+                        "originalTransactionId": original_transaction_id,
+                        "outcome": "no_attempt_found_pending_retry",
+                    }),
+                    processed: false,
+                    processing_started_at: None,
+                    created_at: Utc::now(),
+                })
+                .await;
+            match pending {
+                Ok(_) => {}
+                // A concurrent delivery already inserted the pending row.
+                Err(CoreError::DatabaseError(ref msg))
+                    if crate::webhook_common::is_unique_violation_msg(msg) => {}
+                Err(e) => return Err(e),
+            }
+            return Err(CoreError::InternalServerError(
+                "apple REFUND/REVOKE arrived before the purchase attempt; event left pending for retry"
+                    .to_string(),
+            ));
         }
     };
 
@@ -1339,23 +1757,16 @@ async fn process_apple_refund_or_revoke(
                 .billing_repository
                 .find_by_external_subscription_id(original_transaction_id, "apple")
                 .await?;
-            if let Some(mut sub) = subscription {
-                // Capture identity before `sub` is moved into update_subscription.
-                let sub_id = sub.id;
-                let sub_user_id = sub.user_id;
-                if sub.status != SubscriptionStatus::Expired {
-                    sub.status = SubscriptionStatus::Expired;
-                    sub.synced_at = Some(Utc::now());
-                    sub.updated_at = Utc::now();
-                    if let Err(e) = state.billing_repository.update_subscription(sub).await {
-                        tracing::warn!(
-                            realm_id = %realm_id,
-                            original_transaction_id = %original_transaction_id,
-                            error = %e,
-                            "apple REFUND/REVOKE: failed to set non-renewing subscription Expired (best-effort)"
-                        );
-                    }
-                }
+            if let Some(sub) = subscription {
+                let (sub_id, sub_user_id) = expire_non_renewing_subscription(
+                    state,
+                    realm_id,
+                    "apple",
+                    &notification_type_str,
+                    original_transaction_id,
+                    sub,
+                )
+                .await;
                 // Revoke the subscription's payment roles regardless of the
                 // update outcome (source_id = subscription.id).
                 crate::webhook_common::revoke_payment_roles_for_source(
@@ -1402,20 +1813,42 @@ async fn process_apple_refund_or_revoke(
         }
     }
 
-    // Record the synthetic payment_event so a replay is deduped.
-    record_idempotent_payment_event(
-        state,
-        realm_id,
-        &synthetic_event_id,
-        "apple",
-        format!("apple_{notification_type_str}"),
-        serde_json::json!({
-            "notificationType": notification_type_str,
-            "productId": product_id,
-            "originalTransactionId": original_transaction_id,
-        }),
-    )
-    .await;
+    // Record the synthetic payment_event so a replay is deduped. A pending
+    // row from a prior no-attempt delivery (left for the retry sweep) is
+    // promoted in place instead of colliding with a fresh insert.
+    if let Some(pending) = state
+        .billing_repository
+        .find_payment_event_by_external_id(realm_id, &synthetic_event_id, "apple")
+        .await?
+    {
+        if !pending.processed
+            && let Err(e) = state
+                .billing_repository
+                .mark_payment_event_processed(pending.id)
+                .await
+        {
+            tracing::error!(
+                realm_id = %realm_id,
+                external_id = %synthetic_event_id,
+                error = %e,
+                "apple REFUND/REVOKE revoke succeeded but marking the pending event processed failed"
+            );
+        }
+    } else {
+        record_idempotent_payment_event(
+            state,
+            realm_id,
+            &synthetic_event_id,
+            "apple",
+            format!("apple_{notification_type_str}"),
+            serde_json::json!({
+                "notificationType": notification_type_str,
+                "productId": product_id,
+                "originalTransactionId": original_transaction_id,
+            }),
+        )
+        .await;
+    }
 
     record_iap_audit(
         state,
@@ -2144,20 +2577,79 @@ pub async fn reprocess_apple_event(
     payload: Value,
     _event_type: String,
 ) -> Result<(), CoreError> {
-    let signed_payload = payload
-        .get("signedPayload")
+    if let Some(signed_payload) = payload.get("signedPayload").and_then(|v| v.as_str()) {
+        // Delegate to the live-notification domain path. process_apple_notification
+        // already: loads Apple creds, verifies the JWS, resolves the entitlement
+        // mapping (fail loud on no_mapping), checks payment_event idempotency on
+        // originalTransactionId, and fulfils via fulfill_provider_event. A
+        // duplicate replay (event already processed) short-circuits inside it
+        // without error.
+        return process_apple_notification(&state, &realm_id, signed_payload).await;
+    }
+
+    // Retry-sweep shape: a `no_attempt_found_pending_retry` row is a
+    // REFUND/REVOKE notification that arrived before its purchase attempt.
+    // It carries the decoded notification identity instead of the raw JWS
+    // (the live webhook always answers Apple 200, so the JWS will never be
+    // redelivered), so re-run the revoke directly from those fields. Once
+    // the user's receipt submission (or a converged retry of the purchase
+    // notification) has created the attempt, this sweep is what finally
+    // claws the refund back (review 20260919 finding 4); while no attempt
+    // exists the call re-inserts the pending row (unique-swallowed) and
+    // errors, keeping the row retryable.
+    let original_transaction_id = payload
+        .get("originalTransactionId")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| {
             CoreError::BadRequest("apple reprocess payload missing signedPayload field".to_string())
         })?;
+    let notification_type_str = payload
+        .get("notificationType")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            CoreError::BadRequest(
+                "apple reprocess payload missing notificationType field".to_string(),
+            )
+        })?;
+    let product_id = payload
+        .get("productId")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            CoreError::BadRequest("apple reprocess payload missing productId field".to_string())
+        })?;
 
-    // Delegate to the live-notification domain path. process_apple_notification
-    // already: loads Apple creds, verifies the JWS, resolves the entitlement
-    // mapping (fail loud on no_mapping), checks payment_event idempotency on
-    // originalTransactionId, and fulfils via fulfill_provider_event. A
-    // duplicate replay (event already processed) short-circuits inside it
-    // without error.
-    process_apple_notification(&state, &realm_id, signed_payload).await
+    // The stored notificationType is the serde JSON form of the enum
+    // (e.g. "\"REFUND\""), so it parses back verbatim.
+    let notification_type = serde_json::from_str::<
+        herald_infra_iap::apple::models::NotificationTypeV2,
+    >(notification_type_str)
+    .map_err(|e| {
+        CoreError::BadRequest(format!(
+            "apple reprocess payload has unparseable notificationType: {e}"
+        ))
+    })?;
+    let resolved = resolve_entitlement_mapping(&state, &realm_id, "apple", product_id, None, None)
+        .await
+        .map_err(|e| CoreError::BadRequest(e.to_string()))?;
+    let billing_type = resolved.mapping.billing_type.clone().ok_or_else(|| {
+        CoreError::BadRequest(format!(
+            "apple mapping '{}' has no billing_type",
+            resolved.mapping.id
+        ))
+    })?;
+
+    process_apple_refund_or_revoke(
+        &state,
+        &realm_id,
+        original_transaction_id,
+        &billing_type,
+        &notification_type,
+        product_id,
+    )
+    .await
 }
 
 /// Build the idempotency key for a Google replay event.
@@ -2552,6 +3044,61 @@ async fn reprocess_google_one_time_revoke(
     Ok(())
 }
 
+/// pay_model PRD §4.2 (US-NR-002 / US-NR-005): a revoked non-renewing
+/// subscription must transition to Expired, and the change must be preserved
+/// in subscription history built from the pre-update state. Both writes are
+/// best-effort; returns the subscription's (id, user_id) so callers revoke
+/// payment roles by the subscription source regardless of the update outcome.
+async fn expire_non_renewing_subscription(
+    state: &AppState,
+    realm_id: &str,
+    provider: &str,
+    event_label: &str,
+    external_ref: &str,
+    subscription: herald_core::domain::billing::entities::Subscription,
+) -> (Uuid, Uuid) {
+    let subscription_id = subscription.id;
+    let subscription_user_id = subscription.user_id;
+    if subscription.status == SubscriptionStatus::Expired {
+        tracing::info!(
+            realm_id = %realm_id,
+            subscription_id = %subscription_id,
+            provider = %provider,
+            "non-renewing revoke: subscription already Expired"
+        );
+        return (subscription_id, subscription_user_id);
+    }
+    let history_event = SubscriptionHistoryService::create_subscription_expired_event(
+        &subscription,
+        Some(format!("iap:{provider}:{event_label}")),
+    );
+    let mut sub = subscription;
+    sub.status = SubscriptionStatus::Expired;
+    sub.synced_at = Some(Utc::now());
+    sub.updated_at = Utc::now();
+    if let Err(e) = state.billing_repository.update_subscription(sub).await {
+        tracing::warn!(
+            realm_id = %realm_id,
+            external_ref = %external_ref,
+            error = %e,
+            "non-renewing revoke: failed to set subscription Expired (best-effort)"
+        );
+    }
+    if let Err(e) = state
+        .billing_repository
+        .save_history_event(history_event)
+        .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            external_ref = %external_ref,
+            error = %e,
+            "non-renewing revoke: failed to record Expired history event (best-effort)"
+        );
+    }
+    (subscription_id, subscription_user_id)
+}
+
 /// Google non-renewing revocation (EXPIRED from polling, or voided/refund):
 /// set the subscription to Expired and revoke its payment roles. Idempotent.
 async fn reprocess_google_non_renewing_revoke(
@@ -2578,28 +3125,15 @@ async fn reprocess_google_non_renewing_revoke(
         }
     };
 
-    // Capture identity before the subscription may be moved into update_subscription.
-    let subscription_id = subscription.id;
-    let subscription_user_id = subscription.user_id;
-    if subscription.status != SubscriptionStatus::Expired {
-        let mut sub = subscription;
-        sub.status = SubscriptionStatus::Expired;
-        sub.synced_at = Some(Utc::now());
-        sub.updated_at = Utc::now();
-        if let Err(e) = state.billing_repository.update_subscription(sub).await {
-            tracing::warn!(
-                realm_id = %realm_id,
-                error = %e,
-                "google non-renewing revoke: failed to set subscription Expired (best-effort)"
-            );
-        }
-    } else {
-        tracing::info!(
-            realm_id = %realm_id,
-            subscription_id = %subscription_id,
-            "google non-renewing revoke: subscription already Expired"
-        );
-    }
+    let (subscription_id, subscription_user_id) = expire_non_renewing_subscription(
+        state,
+        realm_id,
+        "google",
+        event_type,
+        purchase_token,
+        subscription,
+    )
+    .await;
 
     // Revoke the subscription's payment roles (source_id = subscription.id).
     crate::webhook_common::revoke_payment_roles_for_source(
@@ -2730,6 +3264,9 @@ fn iap_error_to_api_error(e: IapError) -> ApiError {
             ApiError::unprocessable_entity("verification_failed".to_string())
         }
         IapError::AlreadyConsumed => ApiError::unprocessable_entity("already_consumed".to_string()),
+        IapError::InvalidPathSegment(_) => {
+            ApiError::unprocessable_entity("verification_failed".to_string())
+        }
         IapError::ServiceAccountAuth(_) | IapError::Transport(_) | IapError::Json(_) => {
             ApiError::internal(e.to_string())
         }
@@ -2744,9 +3281,10 @@ fn iap_error_to_core_error(e: IapError) -> CoreError {
         IapError::OwnershipMismatch { user_id } => {
             CoreError::Conflict(format!("ownership_mismatch: {user_id}"))
         }
-        IapError::AppleVerification(_) | IapError::GoogleApi { .. } | IapError::AlreadyConsumed => {
-            CoreError::BadRequest(e.to_string())
-        }
+        IapError::AppleVerification(_)
+        | IapError::GoogleApi { .. }
+        | IapError::AlreadyConsumed
+        | IapError::InvalidPathSegment(_) => CoreError::BadRequest(e.to_string()),
         IapError::ServiceAccountAuth(_) | IapError::Transport(_) | IapError::Json(_) => {
             CoreError::InternalServerError(e.to_string())
         }

@@ -26,6 +26,27 @@ pub struct GoogleDeveloperClient {
     base: String,
 }
 
+/// Percent-encode a value interpolated into a single outbound URL path
+/// segment. Receipt tokens are free-form caller input: without encoding, a
+/// '/' or '..' rewrites the request path (traversal out of the purchases
+/// subtree), '?' injects query parameters, and '#' truncates — all against
+/// the fixed Google host while carrying the realm's service-account Bearer
+/// token.
+///
+/// A value that IS a lone dot segment ('.' / '..') is rejected instead of
+/// encoded: WHATWG URL parsing folds dot segments — including their `%2E`
+/// spellings — so escaping cannot prevent the fold into a neighboring
+/// resource path, and no real store identifier has that shape (review
+/// 20260919, path_segment dot finding).
+fn path_segment(raw: &str) -> Result<String, IapError> {
+    if raw == "." || raw == ".." {
+        return Err(IapError::InvalidPathSegment(raw.to_string()));
+    }
+    // urlencoding::encode escapes exactly the non-unreserved bytes
+    // (everything but alphanumerics and `-._~`) as uppercase `%XX`.
+    Ok(urlencoding::encode(raw).into_owned())
+}
+
 impl GoogleDeveloperClient {
     /// Build a client over Herald's shared `reqwest::Client` (rustls).
     pub fn new(http: reqwest::Client) -> Self {
@@ -49,8 +70,10 @@ impl GoogleDeveloperClient {
     ) -> Result<SubscriptionPurchaseV2, IapError> {
         let access_token = auth.access_token(&self.http, PLAY_DEV_SCOPE).await?;
         let url = format!(
-            "{}/{package_name}/purchases/subscriptionsv2/tokens/{token}",
-            self.base
+            "{}/{}/purchases/subscriptionsv2/tokens/{}",
+            self.base,
+            path_segment(package_name)?,
+            path_segment(token)?
         );
         let resp = self.http.get(&url).bearer_auth(access_token).send().await?;
         decode_response(resp).await
@@ -66,8 +89,11 @@ impl GoogleDeveloperClient {
     ) -> Result<ProductPurchase, IapError> {
         let access_token = auth.access_token(&self.http, PLAY_DEV_SCOPE).await?;
         let url = format!(
-            "{}/{package_name}/purchases/products/{product_id}/tokens/{token}",
-            self.base
+            "{}/{}/purchases/products/{}/tokens/{}",
+            self.base,
+            path_segment(package_name)?,
+            path_segment(product_id)?,
+            path_segment(token)?
         );
         let resp = self.http.get(&url).bearer_auth(access_token).send().await?;
         decode_response(resp).await
@@ -84,8 +110,10 @@ impl GoogleDeveloperClient {
         self.acknowledge_or_consume(
             auth,
             &format!(
-                "{}/{package_name}/purchases/subscriptions/tokens/{token}:acknowledge",
-                self.base
+                "{}/{}/purchases/subscriptions/tokens/{}:acknowledge",
+                self.base,
+                path_segment(package_name)?,
+                path_segment(token)?
             ),
             &EmptyBody,
         )
@@ -103,8 +131,11 @@ impl GoogleDeveloperClient {
         self.acknowledge_or_consume(
             auth,
             &format!(
-                "{}/{package_name}/purchases/products/{product_id}/tokens/{token}:acknowledge",
-                self.base
+                "{}/{}/purchases/products/{}/tokens/{}:acknowledge",
+                self.base,
+                path_segment(package_name)?,
+                path_segment(product_id)?,
+                path_segment(token)?
             ),
             &EmptyBody,
         )
@@ -122,8 +153,11 @@ impl GoogleDeveloperClient {
         self.acknowledge_or_consume(
             auth,
             &format!(
-                "{}/{package_name}/purchases/products/{product_id}/tokens/{token}:consume",
-                self.base
+                "{}/{}/purchases/products/{}/tokens/{}:consume",
+                self.base,
+                path_segment(package_name)?,
+                path_segment(product_id)?,
+                path_segment(token)?
             ),
             &EmptyBody,
         )
@@ -565,5 +599,95 @@ mod tests {
             matches!(result, Err(IapError::GoogleApi { status: 503, .. })),
             "5xx from Developer API must map to GoogleApi{{status=503}}, got {result:?}"
         );
+    }
+
+    // Intent (audit run-1: unencoded-purchase-token-interpolation-into-
+    // google-api-url-path): the receipt token is free-form caller input sent
+    // to this client before any provider validation. A token carrying
+    // '/', '..', '?' or '#' must not rewrite the outbound request path/query
+    // — it must travel percent-encoded inside ONE path segment. The mock
+    // asserts the exact encoded path is hit; old code produced
+    // /com.herald.app/purchases/products/p/tokens/a/b (path traversal), and
+    // wiremock's mock (registered on the encoded path) would not match.
+    #[tokio::test]
+    async fn hostile_receipt_token_stays_encoded_in_one_path_segment() {
+        let server = MockServer::start().await;
+        mount_token_stub(&server).await;
+
+        // Permissive stub: assert on the recorded wire path below rather than
+        // a fixed matcher (the url crate normalizes %-encodings of unreserved
+        // chars like '.' back to raw, so an exact-path matcher is brittle).
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "consumptionState": 0, "acknowledgementState": 0 }),
+            ))
+            .mount(&server)
+            .await;
+
+        let http = http_client();
+        let client = GoogleDeveloperClient::with_base_url(http, server.uri());
+        let auth = GoogleServiceAccountAuth::with_token_uri(
+            "svc@herald-test.iam.gserviceaccount.com".to_string(),
+            fresh_rsa_pem(),
+            format!("{}/token", server.uri()),
+        );
+
+        let product = client
+            .get_product(&auth, "com.herald.app", "p/rod.uct", "a/b?c#d..")
+            .await
+            .expect("request must succeed against the permissive stub");
+        assert_eq!(product.consumption_state, Some(0));
+
+        // The wire path carries the hostile token percent-encoded inside ONE
+        // segment: every '/' stays %2F (no traversal out of the purchases
+        // subtree), '?' stays %3F, '#' stays %23. Old code sent /a/b?c#d..
+        // raw: extra path segments plus an injected (empty) query.
+        let requests = server.received_requests().await.unwrap();
+        let api_request = requests
+            .iter()
+            .find(|r| r.url.path().contains("/purchases/products/"))
+            .expect("developer API request recorded");
+        let path = api_request.url.path();
+        assert!(
+            path.contains("a%2Fb%3Fc%23d"),
+            "token must stay percent-encoded in a single segment, wire path: {path}"
+        );
+        assert!(
+            !path.contains("/a/b"),
+            "raw '/' from the token must never reach the wire path, got: {path}"
+        );
+        assert_eq!(
+            path.matches('/').count(),
+            6,
+            "exactly the six structural segments, wire path: {path}"
+        );
+        assert!(
+            api_request.url.query().is_none(),
+            "no query may be injected through the token"
+        );
+    }
+
+    // Intent (review 20260919, path_segment dot finding): a value that is a
+    // lone dot segment cannot be ADDRESSED safely at all — WHATWG URL
+    // parsing folds '.', '..' and even their '%2E' spellings into a
+    // neighboring resource path, so the old pass-through '.' let a crafted
+    // token hit e.g. /purchases/products/{product}/tokens (the collection)
+    // instead of the token resource. No real store identifier has that
+    // shape: reject.
+    #[test]
+    fn lone_dot_segments_are_rejected_not_encoded() {
+        assert!(matches!(
+            path_segment("."),
+            Err(IapError::InvalidPathSegment(v)) if v == "."
+        ));
+        assert!(matches!(
+            path_segment(".."),
+            Err(IapError::InvalidPathSegment(v)) if v == ".."
+        ));
+        // Dots INSIDE a longer identifier are fine (package/product names).
+        assert_eq!(path_segment("com.herald.app").unwrap(), "com.herald.app");
+        // A %2e-looking input is double-escaped and stays one literal
+        // segment (not a dot segment on the wire).
+        assert_eq!(path_segment("%2e%2e").unwrap(), "%252e%252e");
     }
 }

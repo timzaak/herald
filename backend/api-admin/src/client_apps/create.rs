@@ -73,7 +73,7 @@ pub async fn create_client_app(
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Conflict(msg) => {
                 tracing::error!("Client app conflict: {}", msg);
-                ApiError::bad_request(msg)
+                ApiError::conflict(msg)
             }
             herald_core::domain::common::entities::app_errors::CoreError::BadRequest(msg) => {
                 tracing::error!("Bad request: {}", msg);

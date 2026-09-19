@@ -40,9 +40,10 @@ pub struct PermissionCheckRequest {
     /// request body contract (`api-ext::permission::PermissionCheckRequest`
     /// is `#[serde(rename_all = "camelCase")]` on `access_token`).
     pub access_token: String,
-    /// Required by the backend: a missing/empty `rules` array is a 400, so
-    /// the field is non-optional here. (The backend body has no `clientId`
-    /// field — the client identity travels in the `X-API-Key` header.)
+    /// Required by the backend: a missing/empty `rules` array is a 400
+    /// `rules_required`, so the field is non-optional here. (The backend body
+    /// has no `clientId` field — the client identity travels in the
+    /// `X-API-Key` header.)
     pub rules: Vec<Rule>,
 }
 

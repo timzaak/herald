@@ -1460,9 +1460,11 @@ mod tests {
         );
 
         let calls = get_calls(&call_log);
+        // The synthetic event id embeds the transition discriminator
+        // (`{object_id}:{event_type}`), so match on the object id instead.
         let tx_call = calls
             .iter()
-            .find(|c| c.payload["id"] == "tx_camelcase_001")
+            .find(|c| c.payload["object"]["id"] == "tx_camelcase_001")
             .expect("Expected reprocess_event call for tx_camelcase_001");
 
         let payload = &tx_call.payload;
@@ -1499,6 +1501,117 @@ mod tests {
         assert!(
             payload["object"]["order"].get("order_id").is_none(),
             "Order object should not contain snake_case 'order_id'"
+        );
+    }
+
+    // =========================================================================
+    // Test 16 (audit run-1: creem-object-id-compensation-dedup-collision):
+    // synthetic compensation event ids must embed the transition
+    // =========================================================================
+
+    // The Creem sweep rebuilds events whose identity is a stable provider
+    // OBJECT id while the event type varies with the object's CURRENT state.
+    // payment_event dedup keys on external_event_id alone, so a bare object
+    // id would let the first observation permanently suppress every later
+    // transition (expired/canceled/refund/dispute) of the same object. The
+    // synthetic id must be `{object_id}:{event_type}` so distinct transitions
+    // dedup only against themselves.
+    #[test_context(CompensationTestContext)]
+    #[tokio::test]
+    async fn test_creem_compensation_event_ids_embed_transition(ctx: &mut CompensationTestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let pool = &ctx._app_state.pool;
+
+        let mock_server = MockServer::start().await;
+        insert_realm_creem_config(pool, &realm_id, "ck_test_id_collision").await;
+        insert_realm_base_url(pool, &realm_id, "creem", &mock_server.uri()).await;
+
+        Mock::given(method("GET"))
+            .and(path("/v1/transactions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [], "pagination": { "total_records": 0, "total_pages": 0, "current_page": 1, "next_page": null, "prev_page": null }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // One object id observed under two different states across sweeps.
+        let sub_body = |status: &str| {
+            serde_json::json!({
+                "data": [
+                    {
+                        "id": "sub_id_collision_001",
+                        "status": status,
+                        "customer": { "email": "user@example.com" },
+                        "product": { "id": "prod_001", "name": "Pro Plan", "price": 2500, "currency": "USD", "billing_type": "recurring", "billing_period": "monthly" },
+                        "canceled_at": "2026-06-09T00:00:00Z",
+                        "current_period_start_date": "2026-05-09T00:00:00Z",
+                        "current_period_end_date": "2026-06-09T00:00:00Z",
+                        "next_transaction_date": null,
+                        "last_transaction_date": "2026-05-09T00:00:00Z",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-06-09T00:00:00Z"
+                    }
+                ],
+                "pagination": { "total_records": 1, "total_pages": 1, "current_page": 1, "next_page": null, "prev_page": null }
+            })
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/v1/subscriptions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(sub_body("active")))
+            .mount(&mock_server)
+            .await;
+
+        let processor = MockProcessor::new();
+        let call_log = processor.call_log();
+        let job = build_job(ctx, &processor);
+        job.run().await.expect("first sweep");
+
+        let calls = get_calls(&call_log);
+        let sub_calls: Vec<_> = calls
+            .iter()
+            .filter(|c| c.event_type.starts_with("subscription."))
+            .collect();
+        assert!(!sub_calls.is_empty(), "active sweep must dispatch");
+        assert_eq!(
+            sub_calls[0].payload["id"],
+            serde_json::json!("sub_id_collision_001:subscription.active"),
+            "the synthetic event id must embed the transition (old code: bare object id)"
+        );
+        // The object id stays intact for the handler's own parsing.
+        assert_eq!(
+            sub_calls[0].payload["object"]["id"],
+            serde_json::json!("sub_id_collision_001")
+        );
+
+        // Second sweep observes the SAME object in a different state
+        // (reset the server, then re-mount both endpoints: the transactions
+        // phase must still succeed for the realm sweep to continue).
+        mock_server.reset().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/transactions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [], "pagination": { "total_records": 0, "total_pages": 0, "current_page": 1, "next_page": null, "prev_page": null }
+            })))
+            .mount(&mock_server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/subscriptions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(sub_body("canceled")))
+            .mount(&mock_server)
+            .await;
+        job.run().await.expect("second sweep");
+
+        let calls = get_calls(&call_log);
+        let canceled_calls: Vec<_> = calls
+            .iter()
+            .filter(|c| {
+                c.payload["id"] == serde_json::json!("sub_id_collision_001:subscription.canceled")
+            })
+            .collect();
+        assert!(
+            !canceled_calls.is_empty(),
+            "the canceled transition must dispatch under its own synthetic id"
         );
     }
 }

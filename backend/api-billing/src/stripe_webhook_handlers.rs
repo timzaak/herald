@@ -29,7 +29,9 @@ use herald_core::domain::billing::{
     SubscriptionHistoryService, SubscriptionStatus, detect_change_type,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
-use herald_core::domain::payment_attempt::{PaymentAttemptStatus, RecordRenewalAttemptInput};
+use herald_core::domain::payment_attempt::{
+    PaymentAttempt, PaymentAttemptRepository, PaymentAttemptStatus, RecordRenewalAttemptInput,
+};
 use herald_core::domain::points::IdempotencyResult;
 use herald_core::domain::points::entities::{
     PointsRevocationRecord, PointsTransaction, RevocationType, TransactionType,
@@ -112,7 +114,20 @@ struct StripeChargeRefundedPayload {
     refund: Option<StripeRefundObject>,
     user_id: Uuid,
     subscription_id: Option<Uuid>,
-    refund_type: String,
+    /// Charge metadata `refundType`, set only by programmatic refunds. `None`
+    /// (Stripe Dashboard refunds) must fall through to resolution-based
+    /// routing — defaulting it to "subscription" at parse time would make the
+    /// default arm unreachable.
+    refund_type: Option<String>,
+    /// Charge's PaymentIntent id (pi_*). The stored provider_reference of a
+    /// fulfilled one-time attempt — the charge id (ch_*) never matches it.
+    payment_intent: Option<String>,
+    /// Charge's Stripe subscription id (sub_*) — present on every
+    /// subscription-mode charge, unlike Herald metadata.
+    stripe_subscription_id: Option<String>,
+    /// Attempt id copied onto the charge from checkout/intent metadata, when
+    /// the provider propagated it.
+    attempt_id: Option<Uuid>,
 }
 
 struct StripeInvoicePaidPayload {
@@ -685,8 +700,16 @@ fn parse_charge_refunded_payload(event: &Value) -> Result<StripeChargeRefundedPa
         )),
         refund_type: event["data"]["object"]["metadata"]["refundType"]
             .as_str()
-            .unwrap_or("subscription")
-            .to_string(),
+            .map(str::to_string),
+        payment_intent: event["data"]["object"]["payment_intent"]
+            .as_str()
+            .map(str::to_string),
+        stripe_subscription_id: event["data"]["object"]["subscription"]
+            .as_str()
+            .map(str::to_string),
+        attempt_id: parse_attempt_id(
+            &event["data"]["object"]["metadata"][metadata_keys::ATTEMPT_ID],
+        ),
     })
 }
 
@@ -2483,7 +2506,7 @@ async fn handle_charge_refunded(
         realm_id = %realm_id,
         charge_id = %payload.charge_id,
         amount = payload.amount_refunded,
-        refund_type = %payload.refund_type,
+        refund_type = ?payload.refund_type,
         user_id = %payload.user_id,
         event_id = %event_id,
         "Processing refund - revoking points"
@@ -2494,149 +2517,232 @@ async fn handle_charge_refunded(
     // is the bucket the original grant targeted:
     //   - topup (one-time): captured payment rule snapshots
     //   - subscription: source-derived distribution results
-    let subscription = if let Some(subscription_id) = payload.subscription_id {
-        app_state
+    // Resolution order: the Herald metadata subscription id (programmatic
+    // refunds self-describe their target), then the charge's own
+    // `subscription` field — a Stripe Dashboard refund carries no Herald
+    // metadata, but every subscription-mode charge names its subscription.
+    let mut subscription = match payload.subscription_id {
+        Some(subscription_id) => {
+            app_state
+                .billing_repository
+                .find_subscription_by_id(subscription_id)
+                .await?
+        }
+        None => None,
+    };
+    if subscription.is_none()
+        && let Some(stripe_subscription_id) = payload.stripe_subscription_id.as_deref()
+    {
+        subscription = app_state
             .billing_repository
-            .find_subscription_by_id(subscription_id)
+            .find_by_external_subscription_id(stripe_subscription_id, "stripe")
             .await?
-    } else {
-        None
+            .filter(|sub| sub.realm_id == realm_id);
+    }
+
+    // Resolve the originating one-time payment_attempt snapshot. The charge
+    // id (ch_*) is NOT the stored provider reference — Herald stores the
+    // checkout session id (cs_*) up-front and rewrites it to the
+    // PaymentIntent id (pi_*) at fulfillment — so resolve through, in order:
+    // the attempt id copied onto the charge metadata, the charge's
+    // PaymentIntent, then the charge id itself (rows seeded under the legacy
+    // direct-charge reference).
+    let mut topup_attempt: Option<PaymentAttempt> = None;
+    let attempt_lookup_error = |e: CoreError| {
+        tracing::error!(
+            realm_id = %realm_id,
+            charge_id = %payload.charge_id,
+            error = %e,
+            "Failed to look up payment_attempt for refund bucket resolution"
+        );
+        CoreError::InternalServerError(format!(
+            "Failed to resolve bucket for refund {}: {e}",
+            payload.charge_id
+        ))
+    };
+    if let Some(attempt_id) = payload.attempt_id {
+        topup_attempt = app_state
+            .payment_attempt_repository
+            .find_payment_attempt_by_id_only(attempt_id)
+            .await
+            .map_err(attempt_lookup_error)?;
+    }
+    if topup_attempt.is_none() {
+        for reference in [
+            payload.payment_intent.as_deref(),
+            Some(payload.charge_id.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            topup_attempt = app_state
+                .payment_attempt_service
+                .get_payment_attempt_by_provider_reference("stripe", reference)
+                .await
+                .map_err(attempt_lookup_error)?;
+            if topup_attempt.is_some() {
+                break;
+            }
+        }
+    }
+
+    // Route the refund. Explicit `refundType` charge metadata (programmatic
+    // refunds) keeps its authority; a Dashboard-initiated refund carries none
+    // and the historical default ("subscription") hard-errored because those
+    // charges also lack the Herald subscription metadata. Default instead to
+    // whichever side actually resolves: a subscription record → subscription
+    // cancellation; a resolvable one-time purchase attempt → topup clawback;
+    // neither → keep the honest loud failure in the subscription branch.
+    let route_topup = match payload.refund_type.as_deref() {
+        Some("topup") => true,
+        Some("subscription") => false,
+        _ => {
+            if subscription.is_some() {
+                false
+            } else {
+                match topup_attempt.as_ref() {
+                    None => false,
+                    // A failed mapping load must not fold into `false` — the
+                    // refund would be misrouted into the subscription branch
+                    // and 400 with "Cannot resolve bucket" while the actual
+                    // DB error goes unlogged (review 20260919, route_topup
+                    // finding). Fail loud like the attempt lookups above so
+                    // the provider retry / sweep re-runs it.
+                    Some(attempt) => app_state
+                        .billing_repository
+                        .find_entitlement_mapping_by_id(attempt.target_id)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(
+                                realm_id = %realm_id,
+                                charge_id = %payload.charge_id,
+                                error = %e,
+                                "Failed to load entitlement mapping for refund routing"
+                            );
+                            CoreError::InternalServerError(format!(
+                                "Failed to resolve bucket for refund {}: {e}",
+                                payload.charge_id
+                            ))
+                        })?
+                        .is_some_and(|mapping| mapping.billing_type == Some(BillingType::OneTime)),
+                }
+            }
+        }
     };
 
-    match payload.refund_type.as_str() {
-        "topup" => {
-            // Look up the originating payment_attempt snapshot for the routing
-            // Bucket (Stripe charge_id is stored as the provider reference).
-            // Fail loud when the snapshot is missing or has no bucket.
-            let attempt = app_state
-                .payment_attempt_service
-                .get_payment_attempt_by_provider_reference("stripe", &payload.charge_id)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        realm_id = %realm_id,
-                        charge_id = %payload.charge_id,
-                        error = %e,
-                        "Failed to look up payment_attempt for refund bucket resolution"
-                    );
-                    CoreError::InternalServerError(format!(
-                        "Failed to resolve bucket for refund {}: {e}",
-                        payload.charge_id
-                    ))
-                })?
-                .ok_or_else(|| {
-                    CoreError::BadRequest(format!(
-                        "Cannot resolve bucket for refund: no payment_attempt for charge_id {}",
-                        payload.charge_id
-                    ))
-                })?;
-            // The provider-reference lookup is realm-free; a refund signed for
-            // this realm must not revoke against another realm's attempt.
-            if attempt.realm_id != realm_id {
-                return Err(CoreError::BadRequest(format!(
-                    "Stripe refund realm mismatch for charge_id {}",
-                    payload.charge_id
-                )));
-            }
-            // Revocation input is THIS event's refund (`refunds.data[0]`):
-            // its id is the persistent dedup unit and its amount the
-            // incremental share. `amount_refunded` is the cumulative provider
-            // figure — using it as the per-refund input double-revokes on
-            // every later partial refund of the same charge.
-            let refund = payload.refund.as_ref().ok_or_else(|| {
-                CoreError::BadRequest("Missing refunds data in charge.refunded payload".to_string())
-            })?;
-            // The gate denominator is the local attempt snapshot by design; a
-            // divergence from the provider's charge amount silently skews the
-            // full-refund gate (or 400s the refund cap forever) — surface it
-            // instead of failing silently.
-            if let Some(charge_amount) = payload.charge_amount
-                && charge_amount != attempt.amount
-            {
-                tracing::warn!(
-                    realm_id = %realm_id,
-                    charge_id = %payload.charge_id,
-                    charge_amount,
-                    attempt_amount = attempt.amount,
-                    "Stripe charge amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
-                );
-            }
-            let outcome = app_state
-                .points_service
-                .revoke_topup_refund(TopupRefundRevokeRequest {
-                    realm_id,
-                    user_id: payload.user_id,
-                    payment_attempt_id: attempt.id,
-                    payment_provider: "stripe",
-                    refund_id: &refund.id,
-                    refund_amount: refund.amount,
-                    original_payment_amount: attempt.amount,
-                    provider_cumulative_refunded: Some(payload.amount_refunded),
-                })
-                .await?;
-
-            // Full-refund gate: a partial refund (any share, any count) keeps
-            // the payment-granted permanent roles; only a refund that brings
-            // the cumulative total to the original payment amount revokes
-            // them. Runs on duplicate re-delivery too: the revoke is
-            // idempotent (NotFound is a no-op; only source='payment' rows)
-            // and the call itself is best-effort, so re-running it is the
-            // only self-heal path when the first attempt failed transiently —
-            // the persistent dedup row above guards the points revocation.
-            if outcome.fully_refunded {
-                revoke_payment_roles_for_attempt(
-                    &app_state,
-                    realm_id,
-                    payload.user_id,
-                    &attempt.id.to_string(),
-                )
-                .await;
-            }
-
-            info!(
+    if route_topup {
+        // Fail loud when the snapshot is missing or has no bucket.
+        let attempt = topup_attempt.ok_or_else(|| {
+            CoreError::BadRequest(format!(
+                "Cannot resolve bucket for refund: no payment_attempt for charge_id {}",
+                payload.charge_id
+            ))
+        })?;
+        // The lookups above are realm-free; a refund signed for this realm
+        // must not revoke against another realm's attempt.
+        if attempt.realm_id != realm_id {
+            return Err(CoreError::BadRequest(format!(
+                "Stripe refund realm mismatch for charge_id {}",
+                payload.charge_id
+            )));
+        }
+        // Revocation input is THIS event's refund (`refunds.data[0]`):
+        // its id is the persistent dedup unit and its amount the
+        // incremental share. `amount_refunded` is the cumulative provider
+        // figure — using it as the per-refund input double-revokes on
+        // every later partial refund of the same charge.
+        let refund = payload.refund.as_ref().ok_or_else(|| {
+            CoreError::BadRequest("Missing refunds data in charge.refunded payload".to_string())
+        })?;
+        // The gate denominator is the local attempt snapshot by design; a
+        // divergence from the provider's charge amount silently skews the
+        // full-refund gate (or 400s the refund cap forever) — surface it
+        // instead of failing silently.
+        if let Some(charge_amount) = payload.charge_amount
+            && charge_amount != attempt.amount
+        {
+            tracing::warn!(
                 realm_id = %realm_id,
-                user_id = %payload.user_id,
                 charge_id = %payload.charge_id,
-                refund_id = %refund.id,
-                refund_amount = refund.amount,
-                cumulative_refunded = payload.amount_refunded,
-                duplicate = outcome.duplicate,
-                fully_refunded = outcome.fully_refunded,
-                total_revoked = outcome.revoked.total_revoked,
-                "Topup refund - proportionally revoked topup credits"
+                charge_amount,
+                attempt_amount = attempt.amount,
+                "Stripe charge amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
             );
         }
-        _ => {
-            // subscription's active quota entitlement by `source_id =
-            // `revoke_subscription_unused` ledger-row reclaim is retired under
-            // the window quota model. Route through the subscription source. Fail
-            // loud when no subscription could be resolved for the refund.
-            let subscription = subscription.as_ref().ok_or_else(|| {
-                CoreError::BadRequest(format!(
-                    "Cannot resolve bucket for subscription refund: no subscription for charge_id {}",
-                    payload.charge_id
-                ))
-            })?;
-            let _output = app_state
-                .subscription_service
-                .handle_subscription_cancel(
-                    payload.user_id,
-                    realm_id,
-                    subscription.id,
-                    CancelMode::ImmediateCancel,
-                    None,
-                    None,
-                )
-                .await?;
+        let outcome = app_state
+            .points_service
+            .revoke_topup_refund(TopupRefundRevokeRequest {
+                realm_id,
+                user_id: payload.user_id,
+                payment_attempt_id: attempt.id,
+                payment_provider: "stripe",
+                refund_id: &refund.id,
+                refund_amount: refund.amount,
+                original_payment_amount: attempt.amount,
+                provider_cumulative_refunded: Some(payload.amount_refunded),
+            })
+            .await?;
 
-            info!(
-                realm_id = %realm_id,
-                user_id = %payload.user_id,
-                charge_id = %payload.charge_id,
-                subscription_id = %subscription.id,
-                "Subscription refund - revoked subscription quota entitlement"
-            );
+        // Full-refund gate: a partial refund (any share, any count) keeps
+        // the payment-granted permanent roles; only a refund that brings
+        // the cumulative total to the original payment amount revokes
+        // them. Runs on duplicate re-delivery too: the revoke is
+        // idempotent (NotFound is a no-op; only source='payment' rows)
+        // and the call itself is best-effort, so re-running it is the
+        // only self-heal path when the first attempt failed transiently —
+        // the persistent dedup row above guards the points revocation.
+        if outcome.fully_refunded {
+            revoke_payment_roles_for_attempt(
+                &app_state,
+                realm_id,
+                payload.user_id,
+                &attempt.id.to_string(),
+            )
+            .await;
         }
+
+        info!(
+            realm_id = %realm_id,
+            user_id = %payload.user_id,
+            charge_id = %payload.charge_id,
+            refund_id = %refund.id,
+            refund_amount = refund.amount,
+            cumulative_refunded = payload.amount_refunded,
+            duplicate = outcome.duplicate,
+            fully_refunded = outcome.fully_refunded,
+            total_revoked = outcome.revoked.total_revoked,
+            "Topup refund - proportionally revoked topup credits"
+        );
+    } else {
+        // subscription's active quota entitlement by `source_id =
+        // `revoke_subscription_unused` ledger-row reclaim is retired under
+        // the window quota model. Route through the subscription source. Fail
+        // loud when no subscription could be resolved for the refund.
+        let subscription = subscription.as_ref().ok_or_else(|| {
+            CoreError::BadRequest(format!(
+                "Cannot resolve bucket for subscription refund: no subscription for charge_id {}",
+                payload.charge_id
+            ))
+        })?;
+        let _output = app_state
+            .subscription_service
+            .handle_subscription_cancel(
+                payload.user_id,
+                realm_id,
+                subscription.id,
+                CancelMode::ImmediateCancel,
+                None,
+                None,
+            )
+            .await?;
+
+        info!(
+            realm_id = %realm_id,
+            user_id = %payload.user_id,
+            charge_id = %payload.charge_id,
+            subscription_id = %subscription.id,
+            "Subscription refund - revoked subscription quota entitlement"
+        );
     }
 
     if let Some(subscription) = subscription {
@@ -2646,7 +2752,7 @@ async fn handle_charge_refunded(
                 "provider": "stripe",
                 "chargeId": payload.charge_id,
                 "amountRefunded": payload.amount_refunded,
-                "refundType": payload.refund_type,
+                "refundType": payload.refund_type.as_deref(),
             }),
             Some(ACTOR_WEBHOOK.to_string()),
         );

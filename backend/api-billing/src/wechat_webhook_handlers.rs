@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::{
     ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
@@ -28,6 +29,7 @@ use herald_core::domain::audit::{
 };
 use herald_core::domain::billing::{BillingRepository, PaymentEvent};
 use herald_core::domain::common::entities::app_errors::CoreError;
+use herald_core::domain::security_constants::WECHAT_WEBHOOK_IP_RATE_LIMIT;
 use herald_core::infrastructure::wechatpay::get_wechat_client_for_realm;
 use herald_infra_wechatpay::{EncryptedResource, WechatPayError};
 
@@ -84,9 +86,29 @@ struct WechatNotification {
 pub async fn handle_wechat_webhook(
     State(app_state): State<AppState>,
     Path(realm_id): Path<String>,
+    ClientIp(client_ip): ClientIp,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> WebhookResult {
+    // Anonymous ingress bound before any outbound work: signature
+    // verification (and a possible platform-cert download) happens after
+    // this gate, so unauthenticated floods must not reach the WeChat client.
+    rate_limit_hit(
+        &app_state,
+        format!("wechat:webhook:ip:{}:{}", client_ip, realm_id),
+        WECHAT_WEBHOOK_IP_RATE_LIMIT.0,
+        WECHAT_WEBHOOK_IP_RATE_LIMIT.1,
+    )
+    .await
+    .map_err(|e| {
+        // WeChat protocol shape on throttle: 429 FAIL so the provider backs
+        // off and retries later.
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(WechatWebhookResponse::fail(e.to_string())),
+        )
+    })?;
+
     let result = process_wechat_callback(&app_state, &realm_id, &headers, &body).await;
     match result {
         Ok(()) => Ok((StatusCode::OK, Json(WechatWebhookResponse::success()))),
@@ -310,29 +332,64 @@ async fn process_decided(
         .await
     {
         Ok(Some(found)) => found,
-        Ok(None) => {
-            audit_wechat_payment_event(
-                app_state,
-                realm_id,
-                event_id,
-                AuditAction::PaymentWebhook,
-                AuditResult::Failure,
-                webhook_audit_details(
-                    event_id,
-                    &decrypted.out_trade_no,
-                    &[("reason", serde_json::json!("attempt_not_found"))],
-                ),
-            )
-            .await;
-            return Err(CoreError::BadRequest(format!(
-                "WeChat callback: no attempt for out_trade_no {}",
-                decrypted.out_trade_no
-            )));
-        }
         Err(e) => {
+            // A transient DB failure is not an attempt_not_found: falling
+            // into the miss branch would answer 400 FAIL for a real payment
+            // and write a misleading failure audit while the actual error
+            // goes unlogged (review 20260919 finding 8). Surface it as an
+            // internal error so the provider retries / the retry sweep
+            // re-runs the event.
             return Err(CoreError::InternalServerError(format!(
                 "Failed to load WeChat payment attempt: {e}"
             )));
+        }
+        // Fulfillment rewrites the attempt's provider_reference from
+        // `out_trade_no` to the platform `transaction_id`. In the
+        // "fulfilled but not yet marked processed" window (crash between the
+        // two, or a compensation replay racing the marker) the out_trade_no
+        // probe misses and used to hard-fail the replay forever. Fall back to
+        // the transaction_id — the post-fulfillment reference — before
+        // declaring the attempt missing.
+        Ok(None) => {
+            let by_transaction_id = match &decrypted.transaction_id {
+                Some(transaction_id) => {
+                    app_state
+                        .payment_attempt_service
+                        .get_payment_attempt_by_provider_reference("wechat", transaction_id)
+                        .await?
+                }
+                None => None,
+            };
+            match by_transaction_id {
+                Some(found) => {
+                    tracing::info!(
+                        realm_id = %realm_id,
+                        event_id = %event_id,
+                        out_trade_no = %decrypted.out_trade_no,
+                        "WeChat callback: resolved attempt by transaction_id after fulfillment rewrote the reference"
+                    );
+                    found
+                }
+                None => {
+                    audit_wechat_payment_event(
+                        app_state,
+                        realm_id,
+                        event_id,
+                        AuditAction::PaymentWebhook,
+                        AuditResult::Failure,
+                        webhook_audit_details(
+                            event_id,
+                            &decrypted.out_trade_no,
+                            &[("reason", serde_json::json!("attempt_not_found"))],
+                        ),
+                    )
+                    .await;
+                    return Err(CoreError::BadRequest(format!(
+                        "WeChat callback: no attempt for out_trade_no {}",
+                        decrypted.out_trade_no
+                    )));
+                }
+            }
         }
     };
 

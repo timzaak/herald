@@ -91,6 +91,13 @@ pub mod stripe_webhook_patch_scenarios;
 // Covers: subscription lifecycle events, dispute.created
 pub mod creem_webhook_patch_scenarios;
 
+// Creem unprocessed-event retry scenario tests (audit run-1:
+// creem-webhook-unprocessed-event-acked-and-tombstoned)
+// Covers: failed first delivery stays retryable — processed-aware duplicate
+//         check + reprocess/retry-job reuse of unprocessed rows, with the
+//         Stripe handler as positive control
+pub mod creem_unprocessed_retry_scenarios;
+
 // Webhook compensation job scenario tests
 // User Story: US-WC-001, US-WC-002
 pub mod webhook_compensation_scenarios;

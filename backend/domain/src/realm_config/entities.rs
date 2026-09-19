@@ -559,7 +559,11 @@ impl AsRef<str> for ConfigType {
 pub struct UpsertRealmConfigRequest {
     /// Configuration type (totp, turnstile, registration, white_label)
     ///
-    /// See ConfigType documentation for details on each type
+    /// See ConfigType documentation for details on each type. Note:
+    /// `white_label` (and `custom_domain`) are read-only through this generic
+    /// endpoint — the runtime rejects those writes; manage them through the
+    /// dedicated white-label draft/publish/restore and custom-domain
+    /// endpoints.
     #[schema(example = "totp")]
     #[serde(rename = "configType")]
     pub config_type: ConfigType,
@@ -567,7 +571,8 @@ pub struct UpsertRealmConfigRequest {
     /// Configuration key (specific to each config_type)
     ///
     /// **TOTP**: `settings` (fixed key, stores JSON object with enabled/force_enabled)
-    /// **WhiteLabel**: `settings`, `draft`, `previous_settings` (stores camelCase JSON object)
+    /// **WhiteLabel**: keys are listed for read completeness only — writes go
+    /// through the dedicated white-label lifecycle endpoints, not this request
     /// **Turnstile**: `site_key`, `secret_key`
     /// **Registration**: `allowed_domains`, `require_email_verification`
     #[schema(example = "settings")]

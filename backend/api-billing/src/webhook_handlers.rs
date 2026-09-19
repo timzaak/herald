@@ -1853,6 +1853,17 @@ async fn handle_refund_created(
                             payload.refund_id, external_subscription_id
                         ))
                     })?;
+            // The lookup is realm-free (provider ids are globally unique per
+            // provider account); a refund signed for this realm must never
+            // cancel another realm's subscription — handle_subscription_cancel
+            // keys its revokes on the passed realm_id, so a foreign
+            // subscription would consume the refund while the owning realm's
+            // revoke silently no-ops (mirrors the sync_subscription guard).
+            if subscription.realm_id != realm_id {
+                return Err(CoreError::Forbidden(format!(
+                    "Creem refund for subscription {external_subscription_id} does not belong to realm {realm_id}"
+                )));
+            }
 
             let _output = app_state
                 .subscription_service
@@ -2223,6 +2234,69 @@ async fn process_creem_event_once(
     }
 }
 
+/// Outcome of the Creem payment_event dedup lookup (see
+/// get_or_create_creem_payment_event).
+enum CreemEventDedup {
+    /// A processed row already exists — duplicate delivery.
+    AlreadyProcessed,
+    /// A concurrent delivery won the insert race.
+    ConcurrentInsert,
+    /// A prior attempt failed (processed=false) — retry on its row.
+    RetryExisting(PaymentEvent),
+    /// Fresh row inserted for this delivery.
+    Created(PaymentEvent),
+}
+
+/// Find-or-create the Creem payment_event dedup row with the processed-aware
+/// contract shared by the live webhook and the compensation path: a
+/// processed row is a tombstone (the caller answers OK), an unprocessed row
+/// is a prior failed attempt retried on its own row so the
+/// PaymentEventRetryJob backoff governs persistent failures, and losing the
+/// insert's unique-constraint race means a concurrent delivery already owns
+/// the event.
+async fn get_or_create_creem_payment_event(
+    app_state: &AppState,
+    realm_id: &str,
+    event: &Value,
+    event_id: &str,
+    event_type: &str,
+) -> Result<CreemEventDedup, CoreError> {
+    if let Some(existing) = app_state
+        .billing_repository
+        .find_payment_event_by_external_id(realm_id, event_id, "creem")
+        .await?
+    {
+        if existing.processed {
+            return Ok(CreemEventDedup::AlreadyProcessed);
+        }
+        return Ok(CreemEventDedup::RetryExisting(existing));
+    }
+    match app_state
+        .billing_repository
+        .create_payment_event(PaymentEvent {
+            id: Uuid::now_v7(),
+            realm_id: realm_id.to_string(),
+            external_event_id: event_id.to_string(),
+            payment_provider: "creem".to_string(),
+            event_type: event_type.to_string(),
+            subscription_id: None,
+            payload: event.clone(),
+            processed: false,
+            processing_started_at: None,
+            created_at: Utc::now(),
+        })
+        .await
+    {
+        Ok(saved) => Ok(CreemEventDedup::Created(saved)),
+        Err(CoreError::DatabaseError(ref msg))
+            if crate::webhook_common::is_unique_violation_msg(msg) =>
+        {
+            Ok(CreemEventDedup::ConcurrentInsert)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Handle Creem webhook events
 ///
 /// Verifies signature, checks idempotency, routes to appropriate handler,
@@ -2303,43 +2377,25 @@ pub async fn handle_creem_webhook(
         .ok_or_else(|| CoreError::BadRequest("Missing eventType".to_string()))?
         .to_string();
 
-    let new_payment_event = PaymentEvent {
-        id: Uuid::now_v7(),
-        realm_id: realm_id.clone(),
-        external_event_id: event_id.clone(),
-        payment_provider: "creem".to_string(),
-        event_type: event_type.clone(),
-        subscription_id: None,
-        payload: event.clone(),
-        processed: false,
-        processing_started_at: None,
-        created_at: Utc::now(),
-    };
-
-    if app_state
-        .billing_repository
-        .find_payment_event_by_external_id(&realm_id, &event_id, "creem")
-        .await?
-        .is_some()
+    let saved_event = match get_or_create_creem_payment_event(
+        &app_state,
+        &realm_id,
+        &event,
+        &event_id,
+        &event_type,
+    )
+    .await?
     {
-        info!(
-            realm_id = %realm_id,
-            event_id = %event_id,
-            event_type = %event_type,
-            "Duplicate webhook event - returning OK"
-        );
-        return Ok(StatusCode::OK);
-    }
-
-    let saved_event = match app_state
-        .billing_repository
-        .create_payment_event(new_payment_event)
-        .await
-    {
-        Ok(saved_event) => saved_event,
-        Err(CoreError::DatabaseError(msg))
-            if msg.contains("unique constraint") || msg.contains("duplicate key") =>
-        {
+        CreemEventDedup::AlreadyProcessed => {
+            info!(
+                realm_id = %realm_id,
+                event_id = %event_id,
+                event_type = %event_type,
+                "Duplicate webhook event - returning OK"
+            );
+            return Ok(StatusCode::OK);
+        }
+        CreemEventDedup::ConcurrentInsert => {
             info!(
                 realm_id = %realm_id,
                 event_id = %event_id,
@@ -2348,7 +2404,17 @@ pub async fn handle_creem_webhook(
             );
             return Ok(StatusCode::OK);
         }
-        Err(e) => return Err(e),
+        CreemEventDedup::RetryExisting(existing) => {
+            // Previous attempt failed (processed=false): retry by reusing this row
+            info!(
+                realm_id = %realm_id,
+                event_id = %event_id,
+                event_type = %event_type,
+                "Retrying unprocessed webhook event"
+            );
+            existing
+        }
+        CreemEventDedup::Created(saved) => saved,
     };
 
     let idempotency_key = format!("creem_{}", event_id);
@@ -2450,62 +2516,42 @@ pub(crate) async fn reprocess_creem_event(
 ) -> Result<(), CoreError> {
     let event_id = parse_event_id(event)?;
 
-    if let Some(existing) = app_state
-        .billing_repository
-        .find_payment_event_by_external_id(realm_id, &event_id, "creem")
-        .await?
-    {
-        if existing.processed {
-            info!(
-                realm_id = %realm_id,
-                event_id = %event_id,
-                event_type = %event_type,
-                "Creem compensation: event already processed, skipping"
-            );
-            return Ok(());
-        }
-        // Exists but not processed -- inconsistent state, do not reprocess
-        error!(
-            realm_id = %realm_id,
-            event_id = %event_id,
-            event_type = %event_type,
-            "Creem compensation: event exists but processed=false, skipping inconsistent event"
-        );
-        return Ok(());
-    }
-
-    let new_payment_event = PaymentEvent {
-        id: Uuid::now_v7(),
-        realm_id: realm_id.to_string(),
-        external_event_id: event_id.clone(),
-        payment_provider: "creem".to_string(),
-        event_type: event_type.to_string(),
-        subscription_id: None,
-        payload: event.clone(),
-        processed: false,
-        processing_started_at: None,
-        created_at: Utc::now(),
-    };
-
-    let saved_event = match app_state
-        .billing_repository
-        .create_payment_event(new_payment_event)
-        .await
-    {
-        Ok(event) => event,
-        Err(CoreError::DatabaseError(ref msg))
-            if msg.contains("unique constraint") || msg.contains("duplicate key") =>
+    let saved_event =
+        match get_or_create_creem_payment_event(&app_state, realm_id, event, &event_id, event_type)
+            .await?
         {
-            info!(
-                realm_id = %realm_id,
-                event_id = %event_id,
-                event_type = %event_type,
-                "Creem compensation: concurrent insert detected, event already handled"
-            );
-            return Ok(());
-        }
-        Err(e) => return Err(e),
-    };
+            CreemEventDedup::AlreadyProcessed => {
+                info!(
+                    realm_id = %realm_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    "Creem compensation: event already processed, skipping"
+                );
+                return Ok(());
+            }
+            CreemEventDedup::ConcurrentInsert => {
+                info!(
+                    realm_id = %realm_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    "Creem compensation: concurrent insert detected, event already handled"
+                );
+                return Ok(());
+            }
+            CreemEventDedup::RetryExisting(existing) => {
+                // Exists but not processed: previous attempt failed — retry by
+                // reusing this row so the PaymentEventRetryJob backoff (not a
+                // silent Ok(())) governs persistent failures.
+                info!(
+                    realm_id = %realm_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    "Creem compensation: retrying unprocessed event"
+                );
+                existing
+            }
+            CreemEventDedup::Created(saved) => saved,
+        };
 
     // Synthetic idempotency key (not used for Redis, only passed to handlers)
     let idempotency_key = format!("compensation_creem_{}", event_id);

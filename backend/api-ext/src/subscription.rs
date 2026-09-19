@@ -99,25 +99,27 @@ pub async fn get_subscription(
         "Subscription query requested"
     );
 
-    // 1. Verify client app exists and check realm isolation
+    // 1. Resolve the target client app scoped to the API key's own realm:
+    //    an unknown UUID and another tenant's UUID are both 404. The old
+    //    global-lookup-then-realm-check ordering answered 403 for foreign
+    //    UUIDs and 404 for unknown ones — a cross-tenant client-app
+    //    existence oracle available to any key in any realm.
     let client_app_lookup = ClientAppLookup::new(state.pool.clone());
     let client_app_realm_id: String = match client_app_lookup
-        .verify_client_app_exists(client_app_id)
+        .find_realm_by_uuid_scoped(client_app_id, &api_key_realm_id)
         .await
     {
-        Ok(realm_id) => realm_id,
+        Ok(Some(realm_id)) => realm_id,
+        Ok(None) => {
+            tracing::warn!(
+                api_key_realm_id = %api_key_realm_id,
+                client_app_id = %client_app_id,
+                "Subscription query for a client app outside the key's realm (or unknown)"
+            );
+            return json_error(StatusCode::NOT_FOUND, ErrorCode::ClientAppNotFound);
+        }
         Err(e) => return e,
     };
-
-    // 2. Check realm isolation
-    if !identity.has_access_to_realm(&client_app_realm_id) {
-        tracing::warn!(
-            api_key_realm_id = %api_key_realm_id,
-            client_app_realm_id = %client_app_realm_id,
-            "Cross-realm access attempt blocked"
-        );
-        return json_error(StatusCode::FORBIDDEN, ErrorCode::CrossRealmAccessForbidden);
-    }
 
     if let Err(resp) =
         require_principal_permission(&state, &identity, &client_app_realm_id, "billing", "view")

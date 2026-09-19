@@ -158,7 +158,7 @@ pub async fn rate_limit(
 ) -> Result<(), ApiError> {
     // Production always enforces; non-production environments may skip for
     // local testing unless the call site opted in via `enforce_in_dev`.
-    if state.app_env != "production" && !config.enforce_in_dev {
+    if !herald_core::config::is_production(&state.app_env) && !config.enforce_in_dev {
         return Ok(());
     }
 

@@ -17,7 +17,7 @@ use herald_api_base::application::http::state::AppState;
     tag = "audit",
     params(
         ("realmId" = String, Path, description = "Realm ID"),
-        ("category" = Option<String>, Query, description = "Filter by audit category (e.g. user_management, rbac, realm_management, auth)"),
+        ("category" = Option<String>, Query, description = "Filter by audit category (user_management, rbac, realm_management, auth, billing, oauth, compliance)"),
         ("action" = Option<String>, Query, description = "Filter by action (e.g. user.create, auth.login)"),
         ("actorId" = Option<String>, Query, description = "Filter by actor ID"),
         ("startTime" = Option<String>, Query, description = "Start time (ISO 8601 / RFC 3339)"),
@@ -57,25 +57,34 @@ pub async fn list_audit_events(
         .transpose()
         .map_err(|_| ApiError::bad_request("Invalid audit action"))?;
 
-    let parse_query_time = |value: Option<&str>| {
-        value
-            .and_then(|s| {
-                DateTime::parse_from_rfc3339(s)
-                    .or_else(|_| DateTime::parse_from_rfc3339(&s.replace(' ', "+")))
-                    .ok()
-            })
-            .map(|dt| dt.to_utc())
-            .or_else(|| {
-                value.and_then(|s| {
+    // An unparseable startTime/endTime silently degrades to "no filter",
+    // returning the full unfiltered history the caller narrowed on purpose —
+    // reject it instead, matching the category/action handling above.
+    let parse_query_time =
+        |value: Option<&str>| -> Result<Option<DateTime<chrono::Utc>>, ApiError> {
+            match value {
+                None => Ok(None),
+                Some(s) => {
+                    if let Ok(dt) = DateTime::parse_from_rfc3339(s)
+                        .or_else(|_| DateTime::parse_from_rfc3339(&s.replace(' ', "+")))
+                    {
+                        return Ok(Some(dt.to_utc()));
+                    }
                     NaiveDate::parse_from_str(s, "%Y-%m-%d")
                         .ok()
                         .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
-                })
-            })
-    };
+                        .map(Some)
+                        .ok_or_else(|| {
+                            ApiError::bad_request(
+                                "Invalid time filter: expected RFC 3339 datetime or YYYY-MM-DD date",
+                            )
+                        })
+                }
+            }
+        };
 
-    let start_time = parse_query_time(params.start_time.as_deref());
-    let end_time = parse_query_time(params.end_time.as_deref());
+    let start_time = parse_query_time(params.start_time.as_deref())?;
+    let end_time = parse_query_time(params.end_time.as_deref())?;
 
     let filters = AuditEventFilters {
         category,

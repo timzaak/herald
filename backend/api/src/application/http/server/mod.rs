@@ -84,6 +84,20 @@ fn extract_realm_id_from_path(path: &str) -> Option<&str> {
     if parts.get(2) == Some(&"user") {
         return None;
     }
+    // Realm-less /api/auth sub-routes: refresh/switch-client derive the realm
+    // from the Bearer token; logout/status have none. Without this arm the 4th
+    // segment ("logout", "status", "browser-token") is misread as a realm id
+    // that matches no Client App row, so third-party origins get no CORS
+    // headers on exactly the js-sdk session endpoints. /api/auth/{realmId}/…
+    // login routes are unaffected: their 4th segment is a real realm id.
+    if parts.get(2) == Some(&"auth")
+        && matches!(
+            parts.get(3),
+            Some(&"browser-token") | Some(&"logout") | Some(&"status")
+        )
+    {
+        return None;
+    }
     // /api/<prefix>/{realmId}/... -> realm is the 3rd segment
     parts.get(3).copied()
 }
@@ -124,6 +138,25 @@ mod cors_origin_tests {
         );
         assert_eq!(extract_realm_id_from_path("/api/permission/check"), None);
         assert_eq!(extract_realm_id_from_path("/api/auth"), None);
+        // Realm-less /api/auth sub-routes (js-sdk session endpoints): the 4th
+        // path segment is a route word, not a realm id — misreading it as one
+        // would make the CORS snapshot lookup miss every Client App row and
+        // silently break cross-origin refresh/logout/status.
+        assert_eq!(
+            extract_realm_id_from_path("/api/auth/browser-token/refresh"),
+            None
+        );
+        assert_eq!(
+            extract_realm_id_from_path("/api/auth/browser-token/switch-client"),
+            None
+        );
+        assert_eq!(extract_realm_id_from_path("/api/auth/logout"), None);
+        assert_eq!(extract_realm_id_from_path("/api/auth/status"), None);
+        // Realm-carrying /api/auth login routes keep resolving the realm.
+        assert_eq!(
+            extract_realm_id_from_path("/api/auth/acme/login"),
+            Some("acme")
+        );
         // Personal-center routes carry the realm in the Bearer token, not the
         // URL, so they must be realm-less for CORS — otherwise the third path
         // segment ("profile", "change-password", …) would be misread as a
@@ -302,7 +335,6 @@ pub struct HealthCheckResponse {
             herald_core::domain::realm_config::CustomDomainConfig,
             herald_core::domain::realm_config::CustomDomainStatus,
             public_config::PublicConfigResponse,
-            public_config::ResolveCustomDomainQuery,
             public_config::ResolveCustomDomainResponse,
             public_config::PublicWhiteLabelConfig,
             public_config::RegistrationConfig,

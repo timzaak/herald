@@ -5,6 +5,28 @@
 //! literal `openid` token; any other scope tokens are carried through
 //! verbatim and never parsed, validated, or rejected.
 
+/// Append the authorization `code` and `state` pair to a downstream redirect
+/// URI as properly percent-encoded query parameters.
+///
+/// `state` is client-controlled (it round-trips through the browser), so raw
+/// string concatenation lets `&`/`#`/`%` inside it truncate or rewrite the
+/// query. Every login entrance that hands a code back to the OAuth
+/// redirect_uri must build the URL through here.
+pub fn append_code_and_state(redirect_uri: &str, code: &str, state: &str) -> String {
+    match url::Url::parse(redirect_uri) {
+        Ok(mut url) => {
+            url.query_pairs_mut()
+                .append_pair("code", code)
+                .append_pair("state", state);
+            url.into()
+        }
+        // The redirect_uri was validated at /authorize time, so this arm is
+        // unreachable in practice; keep the legacy concatenation rather than
+        // failing the whole login on a defensive path.
+        Err(_) => format!("{redirect_uri}?code={code}&state={state}"),
+    }
+}
+
 /// Whether a space-delimited scope string requests the `openid` scope.
 /// OIDC scope tokens are case-sensitive: `OPENID` or `openidprofile` do not
 /// count.

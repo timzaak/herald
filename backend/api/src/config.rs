@@ -240,7 +240,7 @@ impl ApiConfig {
     }
 
     pub fn validate_security(&self) -> anyhow::Result<()> {
-        if self.server.app_env != "production" {
+        if !herald_core::config::is_production(&self.server.app_env) {
             return Ok(());
         }
 
@@ -415,5 +415,59 @@ cname_target = "custom.localhost"
 "#;
         let cfg: ApiConfig = toml::from_str(toml).unwrap();
         assert!(cfg.validate_security().is_ok());
+    }
+
+    /// User Story: Technical invariant — the production-only security gates
+    /// key on the shared `is_production` predicate, which recognizes the
+    /// "prod" alias exactly like the Turnstile test-secret gate.
+    /// Covers: audit run-1 `config.app-env-exact-string-predicate-prod-alias`.
+    ///
+    /// WHY: every gate used to compare the exact string `app_env ==
+    /// "production"`, so a deployment spelled "prod" silently skipped secret
+    /// validation, the first-boot admin password requirement, base_url
+    /// rejection, rate limiting and OAuth redirect HTTPS enforcement — while
+    /// the Turnstile gate alone treated it as production. Pin both spellings
+    /// (and case-insensitivity) so the gates can never diverge again.
+    #[test]
+    fn config_prod_alias_triggers_production_gates() {
+        let toml_template = |app_env: &str| {
+            format!(
+                r#"
+[database]
+url = "postgres://test:test@localhost/test"
+
+[redis]
+
+[server]
+app_env = "{app_env}"
+
+[frontend]
+
+[custom_domain]
+ask_key = "change-me-in-production"
+"#
+            )
+        };
+
+        // The alias spelling must trip the same placeholder-secret rejection
+        // as the canonical "production" (old code: Ok for "prod").
+        for app_env in ["production", "prod", "PROD"] {
+            let cfg: ApiConfig =
+                toml::from_str(&toml_template(app_env)).expect("valid TOML parses");
+            assert!(
+                cfg.validate_security().is_err(),
+                "app_env='{app_env}' must run the production secret gates"
+            );
+        }
+
+        // Non-production values still skip the gates (dev stays dev).
+        for app_env in ["development", "test", ""] {
+            let cfg: ApiConfig =
+                toml::from_str(&toml_template(app_env)).expect("valid TOML parses");
+            assert!(
+                cfg.validate_security().is_ok(),
+                "app_env='{app_env}' must not run the production gates"
+            );
+        }
     }
 }

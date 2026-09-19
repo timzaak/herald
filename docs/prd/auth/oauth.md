@@ -12,7 +12,7 @@
 ### 1.1 故事引用
 
 **Realm Admin:**
-- `[US-RA-008]` 配置 Realm 设置 (P0) — 来源 `docs/user-stories/core/realm-admin.md`
+- 配置 OAuth Provider（Realm 设置的一部分，P0；无专属故事，配置入口随 Realm 设置交付）
   - 角色：Realm Admin
   - 摘要：配置 OAuth Provider，启用第三方登录
 

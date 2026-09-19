@@ -6,7 +6,8 @@ pub mod value_objects;
 
 pub use entities::ClientApp;
 pub use validation::{
-    normalize_origins, validate_origin, validate_redirect_uri, validate_redirect_uris,
+    normalize_origins, validate_icon_url, validate_origin, validate_redirect_uri,
+    validate_redirect_uris,
 };
 
 pub const ADMIN_WEB_CONSOLE_CLIENT_ID: &str = "admin-web-console";

@@ -199,6 +199,52 @@ pub async fn record_permission_denied_audit(
     }
 }
 
+/// Principal state of the Client App a browser token was issued to.
+#[derive(Debug)]
+pub enum TokenClientAppLookup {
+    /// The Client App row exists and is enabled; carries its `client_id`.
+    Active { client_id: String },
+    /// No row for `(client_app_id, realm_id)` — the app was deleted.
+    Missing,
+    /// The row exists but `enabled = false`. Disabling a Client App does not
+    /// revoke its token families, so live tokens must be re-checked here.
+    Disabled,
+}
+
+/// Load the Client App a browser token belongs to and classify its principal
+/// state.
+///
+/// Single source for the recheck that governs the same credential on every
+/// Bearer route (`identity_middleware::authenticate_bearer`) and on the ext
+/// permission check's introspection path — the two must reject the same
+/// tokens, so the lookup lives here instead of being mirrored at each site.
+pub async fn lookup_token_client_app(
+    state: &AppState,
+    client_app_id: Uuid,
+    realm_id: &str,
+) -> Result<TokenClientAppLookup, ApiError> {
+    let row: Option<(bool, String)> =
+        sqlx::query_as("SELECT enabled, client_id FROM client_app WHERE id = $1 AND realm_id = $2")
+            .bind(client_app_id)
+            .bind(realm_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    %error,
+                    client_app_id = %client_app_id,
+                    realm_id = %realm_id,
+                    "Browser token Client App lookup failed"
+                );
+                ApiError::internal("Internal server error")
+            })?;
+    Ok(match row {
+        Some((true, client_id)) => TokenClientAppLookup::Active { client_id },
+        Some((false, _)) => TokenClientAppLookup::Disabled,
+        None => TokenClientAppLookup::Missing,
+    })
+}
+
 pub fn require_token_scope(
     identity: &Identity,
     credential_context: &TokenCredentialContext,

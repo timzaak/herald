@@ -149,7 +149,7 @@ fn reject_production_provider_base_url(
     config_type: &ConfigType,
     config_key: &str,
 ) -> Result<(), ApiError> {
-    if app_env == "production"
+    if herald_core::config::is_production(app_env)
         && config_key == "base_url"
         && matches!(
             config_type,

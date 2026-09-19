@@ -22,6 +22,16 @@ pub struct TurnstileConfig {
     pub secret: String,
 }
 
+/// Production-environment predicate shared by every production-only security
+/// gate (secret validation, first-boot admin password, payment-provider
+/// base_url rejection, OAuth redirect HTTPS enforcement, rate limiting).
+/// "prod" is recognized case-insensitively as an alias — the same alias set
+/// the Turnstile test-secret gate uses — so a deployment spelling the value
+/// "prod" cannot silently skip those gates.
+pub fn is_production(app_env: &str) -> bool {
+    app_env.eq_ignore_ascii_case("production") || app_env.eq_ignore_ascii_case("prod")
+}
+
 impl AppConfig {
     /// Loads application configuration from a file
     ///

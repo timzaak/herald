@@ -462,6 +462,7 @@ impl<R: InvoiceRepository> InvoiceService<R> {
                 realm_id: realm_id.to_string(),
                 invoice_id,
                 target_status: InvoiceStatus::Issued,
+                expected_current_status: detail.invoice.status,
                 actor_user_id,
                 actor_type,
                 void_reason: None,
@@ -504,6 +505,7 @@ impl<R: InvoiceRepository> InvoiceService<R> {
                 realm_id: realm_id.to_string(),
                 invoice_id,
                 target_status: InvoiceStatus::Void,
+                expected_current_status: detail.invoice.status,
                 actor_user_id,
                 actor_type,
                 void_reason,
@@ -542,6 +544,7 @@ impl<R: InvoiceRepository> InvoiceService<R> {
                 realm_id: realm_id.to_string(),
                 invoice_id,
                 target_status: InvoiceStatus::Paid,
+                expected_current_status: detail.invoice.status,
                 actor_user_id,
                 actor_type,
                 void_reason: None,
@@ -572,6 +575,10 @@ impl<R: InvoiceRepository> InvoiceService<R> {
                     realm_id: invoice.realm_id.clone(),
                     invoice_id: invoice.id,
                     target_status: InvoiceStatus::Overdue,
+                    // Candidates were listed as status='issued'; guard every
+                    // write on that state so a concurrently committed
+                    // Paid/Void can never be overwritten.
+                    expected_current_status: InvoiceStatus::Issued,
                     actor_user_id: None,
                     actor_type: ActorType::System,
                     void_reason: None,
@@ -582,6 +589,10 @@ impl<R: InvoiceRepository> InvoiceService<R> {
 
             match result {
                 Ok(_) => marked += 1,
+                // Conflict means the invoice changed state after listing
+                // (e.g. it was paid): skip it, exactly like the sibling
+                // payment-attempt expiry sweep.
+                Err(CoreError::Conflict(_)) => continue,
                 Err(_) => errors += 1,
             }
         }

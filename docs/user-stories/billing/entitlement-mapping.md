@@ -173,22 +173,16 @@ And 订阅投影状态不变
 **场景 1：首次订阅积分发放**
 ```gherkin
 Given 用户 user-1 在 realm-1 首次订阅 entitlement "pro-plan"
-And provider sync 缓存中 "pro-plan" 的积分策略为：
-  | Points Per Period | 1000 |
-  | Grant On Subscribe | Yes  |
-  | Validity Days     | 30   |
+And "pro-plan" 的映射配置了积分分发规则（规则集合模型：目标积分账户 + 固定发放 1000 积分、有效期 30 天、订阅触发）
 When 系统处理订阅激活事件
-Then user-1 获得 1000 积分，有效期 30 天
+Then user-1 在规则指定的目标账户获得 1000 积分，有效期 30 天
 And 积分发放记录与 entitlement_key "pro-plan" 关联
 ```
 
 **场景 2：续费积分发放**
 ```gherkin
 Given 用户 user-1 已订阅 entitlement "pro-plan"
-And "pro-plan" 的续费积分策略为：
-  | Points Per Period | 500  |
-  | Max Periods       | 12   |
-  | Grant Period Type | monthly |
+And "pro-plan" 的映射为续费触发配置了固定发放 500 积分的分发规则
 When 系统处理续费事件
 Then user-1 获得 500 积分
 And 续费发放次数 +1
@@ -197,7 +191,7 @@ And 续费发放次数 +1
 **场景 3：Entitlement 无积分策略**
 ```gherkin
 Given 用户订阅 entitlement "basic-plan"
-And "basic-plan" 在 provider sync 缓存中无积分策略配置
+And "basic-plan" 的映射未配置任何积分分发规则
 When 系统处理订阅激活事件
 Then 系统跳过积分发放
 And 记录诊断："No points policy found for entitlement 'basic-plan'"

@@ -29,6 +29,21 @@ impl GitHubOAuthProvider {
             .header("Accept", "application/vnd.github+json")
             .build()
     }
+
+    /// Verified flag for the /user profile email, derived from the matching
+    /// /user/emails entry. The profile email is a user-selectable public
+    /// presentation field with no verification proof of its own, so an entry
+    /// that is missing or unverified MUST fail closed — never assert a proof
+    /// the provider did not give. (A failed /user/emails fetch never reaches
+    /// this function: the caller propagates it as a loud error instead of
+    /// silently misclassifying the login as "email not verified" — review
+    /// 20260919 finding 7.)
+    fn profile_email_verified(emails: &[GitHubEmail], profile_email: &str) -> bool {
+        emails
+            .iter()
+            .find(|e| e.email.eq_ignore_ascii_case(profile_email))
+            .is_some_and(|e| e.verified)
+    }
 }
 
 #[allow(dead_code)]
@@ -139,33 +154,44 @@ impl OAuthProviderHandler for GitHubOAuthProvider {
                 CoreError::InternalServerError(format!("Failed to parse user info: {}", e))
             })?;
 
+            // Both branches need /user/emails: the /user `email` attribute is
+            // the account's PUBLIC profile email — a user-selectable
+            // presentation field that carries no verification proof of its
+            // own, so the flag must come from the matching /user/emails
+            // entry (a fetched list without a verified match fails closed,
+            // verified=false); with no profile email the address itself is
+            // selected from the list. A FAILED fetch, however, is a loud
+            // error — an OAuth app whose scope list omits user:email (GitHub
+            // answers a deliberate 404) or a transient failure would
+            // otherwise silently downgrade every login to "email not
+            // verified" with no trace of the real cause (review 20260919
+            // finding 7).
+            let emails_response = http_client
+                .request(Self::authenticated_request(
+                    Self::USER_EMAILS_URL,
+                    access_token,
+                ))
+                .await?;
+
+            if !emails_response.is_success() {
+                let status_code = emails_response.status_code;
+                let response_body = emails_response.body_as_string().unwrap_or_default();
+                return Err(CoreError::InternalServerError(format!(
+                    "Failed to get user emails from GitHub: status={}, body={}",
+                    status_code, response_body
+                )));
+            }
+
+            let response_body = emails_response.body_as_string()?;
+            let emails: Vec<GitHubEmail> = serde_json::from_str(&response_body).map_err(|e| {
+                CoreError::InternalServerError(format!("Failed to parse emails: {}", e))
+            })?;
+
             // Get email if not provided in user info
             let (email, verified) = if let Some(email) = github_user.email {
-                (email, true) // Email from user API is primary email
+                let verified = Self::profile_email_verified(&emails, email.as_str());
+                (email, verified)
             } else {
-                // Fetch emails separately
-                let emails_response = http_client
-                    .request(Self::authenticated_request(
-                        Self::USER_EMAILS_URL,
-                        access_token,
-                    ))
-                    .await?;
-
-                if !emails_response.is_success() {
-                    let status_code = emails_response.status_code;
-                    let response_body = emails_response.body_as_string().unwrap_or_default();
-                    return Err(CoreError::InternalServerError(format!(
-                        "Failed to get user emails from GitHub: status={}, body={}",
-                        status_code, response_body
-                    )));
-                }
-
-                let response_body = emails_response.body_as_string()?;
-                let emails: Vec<GitHubEmail> =
-                    serde_json::from_str(&response_body).map_err(|e| {
-                        CoreError::InternalServerError(format!("Failed to parse emails: {}", e))
-                    })?;
-
                 let primary_email = emails.iter().find(|e| e.primary).or_else(|| emails.first());
 
                 match primary_email {
@@ -185,5 +211,45 @@ impl OAuthProviderHandler for GitHubOAuthProvider {
                 open_id: Some(github_user.id.to_string()),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn email_entry(address: &str, verified: bool) -> GitHubEmail {
+        GitHubEmail {
+            email: address.to_string(),
+            primary: false,
+            verified,
+        }
+    }
+
+    // Intent (audit run-1: user-api-public-email-hardcoded-verified): the
+    // /user profile email is a public, user-selectable field — the verified
+    // flag must be derived from the matching /user/emails entry, not asserted
+    // from the mere presence of the attribute. find_or_create_user_by_email
+    // trusts this flag as the sole gate for logging into an existing account
+    // matched by email, so a fabricated true converts a profile-field spoof
+    // into account takeover.
+    #[test]
+    fn github_profile_email_verified_requires_verified_emails_entry() {
+        let profile = "public@example.com";
+
+        // Matching entry, provider-verified → true.
+        let list = vec![
+            email_entry(profile, true),
+            email_entry("other@example.com", false),
+        ];
+        assert!(GitHubOAuthProvider::profile_email_verified(&list, profile));
+
+        // Matching entry exists but is NOT verified → false.
+        let list = vec![email_entry(profile, false)];
+        assert!(!GitHubOAuthProvider::profile_email_verified(&list, profile));
+
+        // No entry matches the profile email (spoofed/foreign address) → false.
+        let list = vec![email_entry("real@example.com", true)];
+        assert!(!GitHubOAuthProvider::profile_email_verified(&list, profile));
     }
 }

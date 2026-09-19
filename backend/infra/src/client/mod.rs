@@ -102,7 +102,13 @@ impl ClientRepository for PostgresClientRepository {
             updated_at: sea_orm::Set(now.into()),
         };
 
-        let result = active_model.insert(&*self.db).await?;
+        // A duplicate (realm_id, client_id) hits the UNIQUE constraint; map
+        // it to Conflict instead of letting the generic DbErr → DatabaseError
+        // conversion surface a 500 for a caller-input problem.
+        let result = active_model
+            .insert(&*self.db)
+            .await
+            .map_err(|e| unique_violation_or(e, "client_app_realm_client_idx"))?;
         Self::to_domain(&result)
     }
 
@@ -305,4 +311,28 @@ impl ClientRepository for PostgresClientRepository {
         active_model.update(&*self.db).await?;
         Ok(())
     }
+}
+
+/// Map a `client_app` insert failure to Conflict when it is the
+/// `(realm_id, client_id)` unique constraint, otherwise pass the error
+/// through unchanged. Detection mirrors the legal repository: SQLSTATE 23505
+/// when the driver exposes it, constraint-name/duplicate-key message
+/// fallback otherwise.
+fn unique_violation_or(error: sea_orm::DbErr, constraint: &str) -> CoreError {
+    let runtime = match &error {
+        sea_orm::DbErr::Query(r) | sea_orm::DbErr::Exec(r) | sea_orm::DbErr::Conn(r) => r,
+        _ => return CoreError::from(error),
+    };
+    let is_unique = match runtime {
+        sea_orm::RuntimeErr::SqlxError(sqlx::error::Error::Database(db)) => {
+            db.code().as_deref() == Some("23505")
+        }
+        _ => false,
+    };
+    if is_unique || error.to_string().contains(constraint) {
+        return CoreError::Conflict(
+            "A client app with this client_id already exists in the realm".to_string(),
+        );
+    }
+    CoreError::from(error)
 }

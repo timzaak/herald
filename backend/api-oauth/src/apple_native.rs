@@ -99,7 +99,10 @@ pub struct AppleNativeCodeResponse {
         (status = 200, description = "Downstream-authorization-code mode: redirect URI returned for Code+PKCE exchange", body = AppleNativeCodeResponse),
         (status = 400, description = "Bad request (validation error or missing/invalid downstream state)", body = ErrorResponse),
         (status = 401, description = "Unauthorized (identityToken signature/issuer/audience/expiry validation failed)", body = ErrorResponse),
+        (status = 403, description = "Forbidden (provider email not verified)", body = ErrorResponse),
         (status = 404, description = "Apple provider not configured or not enabled", body = ErrorResponse),
+        (status = 409, description = "Conflict (auto-registration not enabled or email domain not allowed)", body = ErrorResponse),
+        (status = 429, description = "Rate limited", body = ErrorResponse),
         (status = 503, description = "Upstream service unavailable (Apple JWKS unreachable)", body = ErrorResponse)
     )
 )]

@@ -493,3 +493,98 @@ async fn dream_check_custom_domain_save_and_clear_are_audited(ctx: &mut TestCont
         "both domain ownership changes must be auditable"
     );
 }
+
+/// 回归（审计 run-1：custom-domain-claim.no-reserved-host-guard）：部署自有
+/// 主机不可被租户 claim —— SPA 主机（[frontend].url，即 AppState
+/// public_base_url）与 CNAME target 是平台基础设施，localhost 一律拒绝。
+/// claim 流程没有任何 DNS 控制证明，这道静态守卫是部署自有主机名的唯一
+/// 保护；一旦被 claim，平台主机上的 SPA 域解析/白标/OIDC issuer 会被重定
+/// 向到攻击者 realm。旧代码：claim 直接成功并写入 enabled=true 映射行。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn custom_domain_update_rejects_reserved_hostnames(ctx: &mut TestContext) {
+    let (admin_token, admin_user_id) =
+        create_admin_session_with_user(ctx, "custom-domain-reserved@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+
+    let app = ctx.create_unified_test_router_with_state(|s| {
+        // Deployment-owned values — normally from [frontend].url and
+        // [custom_domain].cname_target; the default test state serves the
+        // frontend at localhost:8080 and leaves the CNAME target empty.
+        s.public_base_url = "https://console.herald-deploy.example".to_string();
+        s.custom_domain_cname_target = "https://cname.herald-deploy.example".to_string();
+    });
+
+    // The SPA frontend host is deployment-owned.
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "console.herald-deploy.example" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // localhost is rejected outright.
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "localhost" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // The SPA frontend host ([frontend].url → public_base_url host) is
+    // deployment-owned; the test state serves it at localhost:8080.
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "localhost:8080" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // The Herald CNAME target is deployment-owned.
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "cname.herald-deploy.example" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // No rejected claim may leave a live mapping row behind.
+    assert_eq!(
+        count_mappings(ctx, &ctx._realm_id).await,
+        0,
+        "rejected claims must not write host→realm mappings"
+    );
+
+    // Positive control: an ordinary tenant hostname still claims cleanly.
+    let resp = app
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "tenant-owned.example.com" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(count_mappings(ctx, &ctx._realm_id).await, 1);
+}

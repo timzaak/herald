@@ -1,5 +1,6 @@
 use crate::application::http::common::auth_utils::{
-    require_admin_console_credential, require_first_party_credential,
+    TokenClientAppLookup, lookup_token_client_app, require_admin_console_credential,
+    require_first_party_credential,
 };
 use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
@@ -57,21 +58,14 @@ pub async fn authenticate_bearer(
         })?
         .ok_or_else(|| ApiError::unauthorized("invalid bearer token"))?;
 
-    let client = sqlx::query_as::<_, (bool, String)>(
-        "SELECT enabled, client_id FROM client_app WHERE id = $1 AND realm_id = $2",
-    )
-    .bind(token_data.client_app_id)
-    .bind(&token_data.realm_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(%error, "Browser token Client App lookup failed");
-        ApiError::internal("Internal server error")
-    })?
-    .ok_or_else(|| ApiError::unauthorized("invalid bearer token"))?;
-    if !client.0 {
-        return Err(ApiError::unauthorized("invalid bearer token"));
-    }
+    let client_id =
+        match lookup_token_client_app(state, token_data.client_app_id, &token_data.realm_id).await?
+        {
+            TokenClientAppLookup::Active { client_id } => client_id,
+            TokenClientAppLookup::Missing | TokenClientAppLookup::Disabled => {
+                return Err(ApiError::unauthorized("invalid bearer token"));
+            }
+        };
 
     let user_id = Uuid::parse_str(&token_data.user_id)
         .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
@@ -101,7 +95,7 @@ pub async fn authenticate_bearer(
 
     let credential_context = TokenCredentialContext {
         client_app_id: token_data.client_app_id,
-        client_id: client.1,
+        client_id,
         family_id: token_data.family_id,
         credential_class: token_data.credential_class,
         allowed_scopes: token_data.allowed_scopes,

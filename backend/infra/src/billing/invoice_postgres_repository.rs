@@ -833,6 +833,17 @@ impl InvoiceRepository for PostgresInvoiceRepository {
 
         let current = row_to_invoice(current)?;
 
+        // The row is locked by the FOR UPDATE read above, so comparing here is
+        // atomic with the UPDATE below: a concurrently committed state (e.g.
+        // Paid/Void) can no longer be overwritten by a stale-caller write.
+        if current.status != input.expected_current_status {
+            return Err(CoreError::Conflict(format!(
+                "Invoice no longer in status '{}'; refusing transition to '{}'",
+                input.expected_current_status.as_str(),
+                input.target_status.as_str()
+            )));
+        }
+
         let (
             status_str,
             issued_at_set,

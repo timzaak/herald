@@ -319,7 +319,14 @@ impl WebhookCompensationJob {
                 }
 
                 let event_type = Self::creem_event_type_from_transaction(tx);
-                let event_id = tx.id.clone();
+                // The synthetic event id embeds the transition discriminator
+                // (`{object_id}:{event_type}`): payment_event dedup is keyed on
+                // external_event_id alone, so a bare object id would let the
+                // first observation of an object permanently suppress every
+                // later state transition of the same object (audit run-1:
+                // creem-object-id-compensation-dedup-collision). The object id
+                // itself stays in object.id for the handler's parsing.
+                let event_id = format!("{}:{}", tx.id, event_type);
 
                 // Build subscription/customer with camelCase keys explicitly,
                 // since Serialize on CreemTransactionSub/Customer uses snake_case
@@ -338,7 +345,7 @@ impl WebhookCompensationJob {
                     .map(|o| serde_json::json!({ "orderId": o.order_id }));
 
                 let payload = serde_json::json!({
-                    "id": tx.id,
+                    "id": event_id,
                     "eventType": event_type,
                     "object": {
                         "id": tx.id,
@@ -397,7 +404,10 @@ impl WebhookCompensationJob {
                 }
 
                 let event_type = format!("subscription.{}", sub.status);
-                let event_id = sub.id.clone();
+                // Same transition-discriminator scheme as transactions (see
+                // the comment above): distinct states of one subscription
+                // object must not dedup against each other.
+                let event_id = format!("{}:{}", sub.id, event_type);
 
                 // Skip unknown subscription statuses -- the handler's catch-all branch
                 // would silently return a placeholder, inflating compensated count.
@@ -412,7 +422,7 @@ impl WebhookCompensationJob {
                 }
 
                 let payload = serde_json::json!({
-                    "id": sub.id,
+                    "id": event_id,
                     "eventType": event_type,
                     "object": {
                         "id": sub.id,

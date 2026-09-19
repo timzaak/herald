@@ -1163,4 +1163,107 @@ mod tests {
             "Expected 400 when applying invoice with nonexistent payment_attempt_id"
         );
     }
+
+    // -------------------------------------------------------------------------
+    // 回归（审计 run-1：external_sync_invoice_exists:first-key-short-circuit）
+    // -------------------------------------------------------------------------
+
+    /// 双 key（paymentAttemptId + subscriptionId）申请发票时，重复守卫必须
+    /// 同时检查两个归属键：webhook 写入的外部发票挂在订阅键上（attempt 为
+    /// NULL），旧代码的 if/else-if 首键短路只查 attempt 键，导致同一资源的
+    /// 外部发票被重复开票绕过 409。同样，provider 解析需同时考虑订阅的
+    /// provider（Stripe 订阅不得被附挂的非 Stripe attempt 掩蔽——此处用
+    /// wechat/wechat 组合单独钉死重复守卫本身）。
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn test_apply_invoice_two_id_checks_both_attribution_keys(ctx: &mut InvoiceTestContext) {
+        let app = ctx.create_unified_test_router();
+        let realm_id = ctx._realm_id.clone();
+
+        let admin_token =
+            setup_billing_admin_session(ctx, "invoice-user-2key-admin@test.com").await;
+        setup_seller_config(&app, &admin_token, &realm_id).await;
+
+        let (user_token, user_id) =
+            create_regular_user_session(ctx, "invoice-user-2key@test.com").await;
+
+        // A wechat-owned subscription that already carries a webhook-written
+        // external_sync invoice attributed to the SUBSCRIPTION key only
+        // (payment_attempt_id NULL — the shape handle_stripe_invoice_event
+        // writes).
+        let subscription_id = create_test_subscription(ctx, &realm_id, user_id).await;
+        sqlx::query(
+            "INSERT INTO invoice (
+                id, realm_id, invoice_number, source, account_id,
+                status, currency, subtotal, total,
+                amount_refunded, amount_remaining,
+                billing_name, seller_name,
+                provider, payment_provider, external_invoice_id,
+                subscription_id,
+                due_date, paid_at, issued_at
+            ) VALUES (
+                $1, $2, $3, 'external_sync', $4,
+                'paid', 'usd', 5000, 5000,
+                0, 5000,
+                'Ext Billing', 'Ext Seller',
+                'wechat', 'wechat', $5,
+                $6,
+                NULL, NOW(), NOW()
+            )",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(format!("INV-2KEY-{}", Uuid::now_v7().simple()))
+        .bind(user_id)
+        .bind(format!("ext_inv_{}", Uuid::now_v7().simple()))
+        .bind(subscription_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed external_sync invoice on the subscription key");
+
+        // The user applies with BOTH keys: an owned Succeeded wechat attempt
+        // (old first branch) AND the subscription holding the external invoice
+        // (old else-if branch, never reached). The guard must see the
+        // subscription-keyed invoice and 409 (old code: 201 duplicate).
+        let payment_attempt_id = create_test_payment_attempt(ctx, &realm_id, user_id).await;
+        let payload = json!({
+            "paymentAttemptId": payment_attempt_id.to_string(),
+            "subscriptionId": subscription_id.to_string(),
+            "currency": "USD",
+            "billingName": "Two Key",
+            "billingEmail": "twokey@test.com",
+            "billingAddress": "1 Dup Lane",
+            "billingPhone": "+1-555-0100",
+            "billingTaxId": "TAX-2KEY",
+            "dueDate": "2099-12-31",
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/user/bill/invoices")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {}", user_token))
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = parse_body(response.into_body()).await;
+        assert_eq!(
+            status,
+            StatusCode::CONFLICT,
+            "a two-id apply must see the subscription-keyed external invoice, got: {body}"
+        );
+        assert!(
+            body["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("externally-synced")),
+            "expected the duplicate-guard conflict, got: {body}"
+        );
+    }
 }

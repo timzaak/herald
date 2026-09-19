@@ -469,6 +469,10 @@ pub struct InvoiceStatusTransition {
     pub realm_id: String,
     pub invoice_id: Uuid,
     pub target_status: InvoiceStatus,
+    /// Status the caller validated (or the sweep listed). The repository
+    /// guards the write on it so a concurrently committed state (e.g.
+    /// Paid/Void) can never be overwritten.
+    pub expected_current_status: InvoiceStatus,
     pub actor_user_id: Option<Uuid>,
     pub actor_type: ActorType,
     /// Reason required for void transition.

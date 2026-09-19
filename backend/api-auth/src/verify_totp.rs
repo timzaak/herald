@@ -12,7 +12,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use herald_api_base::application::http::auth::util::{
-    ClientIp, epoch_seconds, rate_limit_hit, user_agent_from_headers,
+    ClientIp, rate_limit_hit, user_agent_from_headers,
 };
 use herald_api_base::application::http::server::api_entities::ApiError;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -24,8 +24,8 @@ use herald_core::domain::audit::{
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
 use herald_core::domain::security_constants::{
-    OAUTH_STATE_TTL_SECONDS, TOTP_LOCKOUT_SECONDS, TOTP_MAX_FAILURES, TOTP_VERIFY_IP_RATE_LIMIT,
-    TOTP_VERIFY_USER_RATE_LIMIT,
+    DEFAULT_OAUTH_CODE_TTL_SECONDS, TOTP_LOCKOUT_SECONDS, TOTP_MAX_FAILURES,
+    TOTP_VERIFY_IP_RATE_LIMIT, TOTP_VERIFY_USER_RATE_LIMIT,
 };
 use herald_core::domain::user::ports::UserRepository;
 use herald_core::domain::user_totp::{
@@ -302,11 +302,7 @@ pub async fn handle_verify_totp(
 
     // Check for replay attacks: track last used code (only for TOTP codes)
     let last_code_data: Option<String> = if req.code.is_some() {
-        let last_code_key = format!("totp:last_code:{}", temp_session.user_id);
-        conn.get(&last_code_key).await.map_err(|e| {
-            tracing::error!("Failed to get last TOTP code from Redis: {}", e);
-            ApiError::internal("Redis operation error".to_string())
-        })?
+        crate::totp_replay::load_last_code(&mut conn, &temp_session.user_id).await?
     } else {
         None
     };
@@ -324,17 +320,12 @@ pub async fn handle_verify_totp(
     match verification_result {
         TotpVerificationResultWithBackup::Valid => {
             // Store this code as the last used code with current timestamp
-            let last_code_key = format!("totp:last_code:{}", temp_session.user_id);
-            let code_data = format!("{}:{}", req.code.unwrap(), epoch_seconds());
-            let _: () = conn.set(&last_code_key, code_data).await.map_err(|e| {
-                tracing::error!("Failed to store last TOTP code in Redis: {}", e);
-                ApiError::internal("Redis operation error".to_string())
-            })?;
-            // Expire the tracking after 2 minutes (4 time steps)
-            let _: () = conn.expire(&last_code_key, 120).await.map_err(|e| {
-                tracing::error!("Failed to set expiry on last TOTP code: {}", e);
-                ApiError::internal("Redis operation error".to_string())
-            })?;
+            crate::totp_replay::record_last_code(
+                &mut conn,
+                &temp_session.user_id,
+                req.code.as_deref().unwrap(),
+            )
+            .await?;
         }
         TotpVerificationResultWithBackup::BackupCodeUsed(code_id) => {
             // Mark backup code as used
@@ -524,14 +515,15 @@ pub async fn handle_verify_totp(
         );
 
         let _: () = conn
-            .set_ex(&code_key, code_value, OAUTH_STATE_TTL_SECONDS)
+            .set_ex(&code_key, code_value, DEFAULT_OAUTH_CODE_TTL_SECONDS)
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to store OAuth authorization code");
                 ApiError::internal("Redis operation error".to_string())
             })?;
 
-        let redirect_to = format!("{}?code={}&state={}", redirect_uri, auth_code, state_param);
+        let redirect_to =
+            crate::oauth_oidc::append_code_and_state(redirect_uri, &auth_code, state_param);
 
         tracing::debug!("OAuth authorization code generated via TOTP verification");
 

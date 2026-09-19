@@ -218,29 +218,22 @@ async fn external_sync_invoice_exists(
     payment_attempt_id: Option<Uuid>,
     subscription_id: Option<Uuid>,
 ) -> Result<bool, ApiError> {
-    if let Some(pa_id) = payment_attempt_id {
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM invoice
-                 WHERE realm_id = $1 AND source = 'external_sync' AND payment_attempt_id = $2)",
-        )
-        .bind(realm_id)
-        .bind(pa_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
-    } else if let Some(sub_id) = subscription_id {
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM invoice
-                 WHERE realm_id = $1 AND source = 'external_sync' AND subscription_id = $2)",
-        )
-        .bind(realm_id)
-        .bind(sub_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
-    } else {
-        Ok(false)
-    }
+    // Both attributions are checked — no first-key short-circuit (audit
+    // run-1: first-key-short-circuit): a webhook-written external invoice sits
+    // on the subscription key with a NULL attempt, so a two-id apply that
+    // carries only the attempt key in the old first branch would slip past
+    // the duplicate guard. NULL binds never match.
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM invoice
+             WHERE realm_id = $1 AND source = 'external_sync'
+               AND (payment_attempt_id = $2 OR subscription_id = $3))",
+    )
+    .bind(realm_id)
+    .bind(payment_attempt_id)
+    .bind(subscription_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))
 }
 
 /// Check Creem MoR guard and invoice policy for manual invoice creation.
@@ -253,7 +246,11 @@ async fn validate_invoice_creation_policy(
     payment_attempt_id: Option<Uuid>,
     subscription_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
-    let mut payment_provider: Option<String> = if let Some(pa_id) = payment_attempt_id {
+    // Provider routing considers BOTH attached resources (audit run-1:
+    // first-key-short-circuit): a two-id apply must not mask a Stripe
+    // subscription by attaching an owned non-Stripe payment attempt, nor
+    // smuggle a Creem/MoR resource past the guard through the other key.
+    let attempt_provider: Option<String> = if let Some(pa_id) = payment_attempt_id {
         sqlx::query_scalar(
             "SELECT payment_provider FROM payment_attempts WHERE id = $1 AND realm_id = $2",
         )
@@ -266,11 +263,8 @@ async fn validate_invoice_creation_policy(
     } else {
         None
     };
-
-    if payment_provider.is_none()
-        && let Some(sub_id) = subscription_id
-    {
-        payment_provider = sqlx::query_scalar(
+    let subscription_provider: Option<String> = if let Some(sub_id) = subscription_id {
+        sqlx::query_scalar(
             "SELECT payment_provider FROM subscription WHERE id = $1 AND realm_id = $2",
         )
         .bind(sub_id)
@@ -278,16 +272,23 @@ async fn validate_invoice_creation_policy(
         .fetch_optional(&state.pool)
         .await
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-        .flatten();
-    }
+        .flatten()
+    } else {
+        None
+    };
 
-    validate_not_mor_provider(payment_provider.as_deref()).map_err(|error| {
-        ApiError::with_error_code(
-            StatusCode::BAD_REQUEST,
-            "mor_provider_invoice_blocked",
-            error.to_string(),
-        )
-    })?;
+    for provider in [
+        attempt_provider.as_deref(),
+        subscription_provider.as_deref(),
+    ] {
+        validate_not_mor_provider(provider).map_err(|error| {
+            ApiError::with_error_code(
+                StatusCode::BAD_REQUEST,
+                "mor_provider_invoice_blocked",
+                error.to_string(),
+            )
+        })?;
+    }
 
     let policy_config = get_invoice_policy(state, realm_id).await?;
     validate_invoice_policy_allows_creation(&policy_config)?;
@@ -300,7 +301,8 @@ async fn validate_invoice_creation_policy(
     // provider whose external-invoice capability is switched OFF degrades to
     // manual fallback and stays writable (§4.3).
     if policy_config.policy == "provider_first"
-        && payment_provider.as_deref() == Some("stripe")
+        && (attempt_provider.as_deref() == Some("stripe")
+            || subscription_provider.as_deref() == Some("stripe"))
         && external_invoice_capability_enabled(&policy_config, "stripe")
     {
         return Err(ApiError::conflict(
@@ -984,6 +986,7 @@ pub async fn issue_invoice(
             realm_id: realm_id.clone(),
             invoice_id,
             target_status: InvoiceStatus::Issued,
+            expected_current_status: detail.invoice.status,
             actor_user_id,
             actor_type: ActorType::User,
             void_reason: None,
@@ -1076,6 +1079,7 @@ pub async fn void_invoice(
             realm_id: realm_id.clone(),
             invoice_id,
             target_status: InvoiceStatus::Void,
+            expected_current_status: detail.invoice.status,
             actor_user_id,
             actor_type: ActorType::User,
             void_reason: request.void_reason,
@@ -1146,6 +1150,7 @@ pub async fn mark_paid(
             realm_id: realm_id.clone(),
             invoice_id,
             target_status: InvoiceStatus::Paid,
+            expected_current_status: detail.invoice.status,
             actor_user_id,
             actor_type: ActorType::User,
             void_reason: None,

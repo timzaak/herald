@@ -94,7 +94,7 @@ pub struct UserItem {
     pub id: String,
     pub email: String,
     pub nickname: Option<String>,
-    /// Numeric status: 1=normal, 0=disabled (plus legacy values if present).
+    /// Numeric status: 0=wait_verified, 1=normal, 2=forbidden, 3=deleted.
     pub status: i32,
     pub created_at: String,
 }

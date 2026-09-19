@@ -26,8 +26,8 @@ mod tests {
     };
     use crate::tests::helpers::webhook_helpers::{
         assert_webhook_success, build_refund_created_event_with_user,
-        build_stripe_charge_refunded_topup_event, generate_test_event_id,
-        send_stripe_webhook_with_signature, send_webhook_with_signature,
+        build_stripe_charge_refunded_dashboard_event, build_stripe_charge_refunded_topup_event,
+        generate_test_event_id, send_stripe_webhook_with_signature, send_webhook_with_signature,
     };
     use crate::tests::schema_test_context::SchemaTestContext;
     use axum::http::StatusCode;
@@ -234,6 +234,79 @@ mod tests {
             5000,
             "anchor: wallet holds exactly half the grant after refunding half the payment"
         );
+    }
+
+    /// P1-1/P1-2 regression: a Stripe Dashboard-initiated refund carries no
+    /// `refundType` metadata, and the stored provider_reference of a
+    /// fulfilled one-time attempt is the PaymentIntent id (pi_*) — the charge
+    /// id (ch_*) never matches it. The handler must resolve the attempt via
+    /// the charge's `payment_intent`, route into the topup clawback by the
+    /// resolved one-time purchase, and revoke proportionally — instead of
+    /// defaulting into the subscription branch's hard 400 while Stripe
+    /// retries the delivery forever.
+    #[test_context(SchemaTestContext)]
+    #[tokio::test]
+    async fn test_us_rp001_stripe_dashboard_refund_resolves_attempt_via_payment_intent(
+        ctx: &mut SchemaTestContext,
+    ) {
+        let app = ctx.create_unified_test_router();
+        let webhook_secret = "whsec_ri_dash_stripe";
+        let realm_id = ctx._realm_id.clone();
+
+        setup_stripe_config(ctx, &realm_id, "sk_test_ri_dash", webhook_secret).await;
+
+        let user_id = create_test_user(ctx, &realm_id, "ri-dash-stripe@test.com").await;
+        create_points_wallet(ctx, user_id, &realm_id).await;
+
+        let mapping_id = create_stripe_one_time_mapping_with_role(
+            ctx,
+            &realm_id,
+            "ri-dash-stripe",
+            Some(10000),
+            &[],
+        )
+        .await;
+        // The stored reference of a FULFILLED hosted/PaymentIntent one-time
+        // attempt is the PaymentIntent id, not the charge id.
+        let payment_intent_id = format!("pi_ri_dash_{}", Uuid::now_v7());
+        let charge_id = format!("ch_ri_dash_{}", Uuid::now_v7());
+        let attempt_id = create_stripe_succeeded_attempt(
+            ctx,
+            &realm_id,
+            user_id,
+            mapping_id,
+            &payment_intent_id,
+            1000,
+        )
+        .await;
+        let ledger_id = seed_fulfilled_topup_ledger_for_attempt(
+            ctx, &realm_id, user_id, attempt_id, 10000, None,
+        )
+        .await;
+
+        // Dashboard-style refund: no refundType marker, charge names its PI.
+        let event = build_stripe_charge_refunded_dashboard_event(
+            &generate_test_event_id(),
+            &realm_id,
+            user_id,
+            &charge_id,
+            Some(&payment_intent_id),
+            1000,
+            400,
+            &format!("re_ri_dash_{}", Uuid::now_v7()),
+            400,
+        );
+        let response =
+            send_stripe_webhook_with_signature(&app, &realm_id, event, webhook_secret).await;
+        assert_webhook_success(&response);
+
+        let ledger = get_ledger_by_id(ctx, ledger_id).await;
+        assert_eq!(
+            ledger.revoked_amount, 4000,
+            "400/1000 dashboard refund revokes 4000 via the payment_intent-resolved attempt"
+        );
+        assert_eq!(ledger.remaining_amount, 6000);
+        assert_eq!(get_topup_balance(ctx, user_id, &realm_id).await, 6000);
     }
 
     /// Creem anchor: the same 300 + 200 flow via Creem. Creem payloads
@@ -1182,5 +1255,123 @@ mod tests {
             "nothing revoked on the rejected payload"
         );
         assert_eq!(ledger.remaining_amount, 10000);
+    }
+
+    /// 回归（审计 run-1：creem-refund-subscription-realm-unchecked）：订阅退款
+    /// 臂按 (external_subscription_id, provider) 无域解析目标订阅，未校验
+    /// sub.realm_id == 路径 realm —— handle_subscription_cancel 以传入的
+    /// realm_id 为键执行撤销，他域订阅会得到零行撤销却被当作成功、事件在
+    /// 接收域被标记 processed：钱已退、所属域的配额/角色永不追回（PRD 4.1
+    /// 称之为 P0）。修复：镜像 sync_subscription 的 Forbidden 守卫。
+    #[test_context(SchemaTestContext)]
+    #[tokio::test]
+    async fn test_creem_subscription_refund_foreign_realm_subscription_rejected(
+        ctx: &mut SchemaTestContext,
+    ) {
+        let realm_a = ctx._realm_id.clone();
+        let user_id = create_test_user(ctx, &realm_a, "ri-sfr-a@test.com").await;
+        ctx.with_creem_config(&realm_a, None, None, None).await;
+
+        // Realm B owns the subscription; the refund is delivered to realm A.
+        let realm_b = format!("ri-sfr-b-{}", Uuid::now_v7().simple());
+        sqlx::query("INSERT INTO realm (id, name) VALUES ($1, 'ri-sfr-realm-b')")
+            .bind(&realm_b)
+            .execute(&ctx._app_state.pool)
+            .await
+            .unwrap();
+        let owner_b = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account (id, realm_id, email, password, status)
+             VALUES ($1, $2, $3, '$2a$12$dummy_password_hash', 1)",
+        )
+        .bind(owner_b)
+        .bind(&realm_b)
+        .bind(format!("ri-sfr-owner-{}@test.com", Uuid::now_v7().simple()))
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+        let external_sub = format!("sub_ri_sfr_{}", Uuid::now_v7().simple());
+        sqlx::query(
+            "INSERT INTO subscription
+                (id, realm_id, user_id, external_subscription_id, external_product_id,
+                 payment_provider, status, entitlement_key, synced_at,
+                 current_period_start, current_period_end, cancel_at_period_end,
+                 cancel_at, created_at, updated_at, billing_type)
+             VALUES ($1, $2, $3, $4, 'prod.ri.sfr',
+                     'creem', 'active', 'pro', NOW(),
+                     NOW(), NOW() + INTERVAL '5 days', false,
+                     NULL, NOW(), NOW(), 'recurring')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_b)
+        .bind(owner_b)
+        .bind(&external_sub)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+
+        // The refund pre-branch resolves the originating attempt by
+        // payment_id unconditionally (fail-loud 400 without a snapshot), so
+        // seed an attempt in realm A owned by the payload user.
+        let payment_id = format!("payment_ri_sfr_{}", Uuid::now_v7().simple());
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference, provider_status,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'creem', 'entitlement_mapping', $4,
+                     1000, 'usd', 'Succeeded', $5, 'succeeded',
+                     NOW() + INTERVAL '1 hour', NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_a)
+        .bind(user_id)
+        .bind(Uuid::now_v7())
+        .bind(&payment_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+
+        let app = ctx.create_unified_test_router();
+        let event = json!({
+            "id": generate_test_event_id(),
+            "eventType": "refund.created",
+            "data": {
+                "object": {
+                    "id": format!("refund_ri_sfr_{}", Uuid::now_v7().simple()),
+                    "paymentId": payment_id,
+                    "subscriptionId": external_sub,
+                    "amount": 500,
+                    "originalAmount": 1000,
+                    "currency": "USD",
+                    "reason": "customer_request",
+                    "metadata": {
+                        "userId": user_id.to_string(),
+                        "refundType": "subscription"
+                    }
+                }
+            },
+            "metadata": { "realmId": realm_a }
+        });
+        let response =
+            send_webhook_with_signature(&app, &realm_a, event, "test_webhook_secret").await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "a refund signed for realm A must not cancel realm B's subscription"
+        );
+
+        // Realm B's subscription must be untouched (old code: silently canceled).
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM subscription WHERE external_subscription_id = $1 AND payment_provider = 'creem'",
+        )
+        .bind(&external_sub)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            status, "active",
+            "the owning realm's subscription must stay active"
+        );
     }
 }

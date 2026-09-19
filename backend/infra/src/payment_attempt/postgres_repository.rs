@@ -326,6 +326,11 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
         let result = payment_attempt_entity::Entity::find()
             .filter(payment_attempt_entity::Column::PaymentProvider.eq(provider))
             .filter(payment_attempt_entity::Column::ProviderReference.eq(reference))
+            // Recovery re-runs (dead-zone / failed-attempt) insert a second
+            // attempt under the same provider_reference; the newest row is the
+            // live one, and an unordered LIMIT 1 could answer with the stale
+            // failed attempt.
+            .order_by_desc(payment_attempt_entity::Column::CreatedAt)
             .one(self.db.as_ref())
             .await
             .map_err(|e| {

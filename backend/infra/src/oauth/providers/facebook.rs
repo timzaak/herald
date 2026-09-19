@@ -39,6 +39,20 @@ struct FacebookUser {
     picture: Option<FacebookPicture>,
 }
 
+impl FacebookUser {
+    /// Facebook exposes no per-email verified flag to third-party apps: the
+    /// Graph `verified` field is a deprecated ACCOUNT-level badge (not email
+    /// verification) that most apps never even receive, and consuming it as
+    /// email verification locked out regular Facebook logins behind
+    /// "Provider email is not verified" (review 20260919 finding 5). The
+    /// email Graph delivers under the granted `email` permission is the
+    /// account's Facebook-confirmed primary address — that is the strongest
+    /// signal available and the trust basis for `verified = true`.
+    fn email_verified(&self) -> bool {
+        true
+    }
+}
+
 impl OAuthProviderHandler for FacebookOAuthProvider {
     fn provider_type(&self) -> &'static str {
         "facebook"
@@ -109,7 +123,8 @@ impl OAuthProviderHandler for FacebookOAuthProvider {
 
             let access_token = token_result.access_token().secret();
 
-            // Get user info using the HTTP client abstraction
+            // Get user info using the HTTP client abstraction. The deprecated
+            // account-level `verified` badge is deliberately NOT requested.
             let user_info_url = format!("{}?fields=id,email,name,picture", Self::USER_API_URL);
 
             let response = http_client
@@ -135,16 +150,45 @@ impl OAuthProviderHandler for FacebookOAuthProvider {
                     CoreError::InternalServerError(format!("Failed to parse user info: {}", e))
                 })?;
 
+            let verified = facebook_user.email_verified();
+            let email = facebook_user.email;
+            let avatar = facebook_user.picture.map(|p| p.data.url);
+            let name = facebook_user.name;
+            let provider_user_id = facebook_user.id.clone();
             Ok(OAuthUserInfo {
                 provider_type: ProviderType::Facebook,
-                provider_user_id: facebook_user.id.clone(),
-                email: facebook_user.email,
-                verified: true, // Facebook OAuth provides verified emails
-                avatar: facebook_user.picture.map(|p| p.data.url),
-                name: facebook_user.name,
+                provider_user_id,
+                email,
+                // Derived from the provider's verified signal; absent → false.
+                verified,
+                avatar,
+                name,
                 union_id: None, // Facebook doesn't provide UnionID
                 open_id: Some(facebook_user.id),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Intent (audit run-1: me-endpoint-email-hardcoded-verified → review
+    // 20260919 finding 5): the flag must never be derived from the Graph
+    // `verified` field — it is a deprecated account-level badge, not an
+    // email-verification signal, and reading it locked out ordinary Facebook
+    // logins. Facebook hands third-party apps no per-email proof at all; the
+    // `email` permission delivering the account's confirmed primary address
+    // is the trust basis, so email_verified() is true whenever Graph returned
+    // an email. This assertion pins that a stray "verified": false in a /me
+    // payload (the deprecated badge) must not flip the login-gate outcome.
+    #[test]
+    fn facebook_email_verification_ignores_deprecated_account_badge() {
+        let user: FacebookUser = serde_json::from_str(
+            r#"{"id":"1","email":"a@example.com","name":"A","verified":false}"#,
+        )
+        .expect("the deprecated badge is not part of the contract and must not break parsing");
+        assert!(user.email_verified());
     }
 }

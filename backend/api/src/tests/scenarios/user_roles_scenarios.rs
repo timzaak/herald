@@ -382,3 +382,104 @@ async fn test_scenario_user_roles_hides_cross_realm_role_references(ctx: &mut Sc
         "cross-realm role name must not leak into the self-service role list, got: {roles:?}"
     );
 }
+
+// ============================================================================
+// Regression (audit run-1: manual-grant client-id provenance)
+// ============================================================================
+
+/// POST /api/permission/users/{id}/roles 与 PUT /api/users/{realmId}/{userId}/roles
+/// 是同一逻辑"手工授予"的两个授权写入面。manual 行的唯一键不含 client_id
+/// （0001_core.sql idx_user_roles_principal_role_manual），PUT replace 的文档
+/// 契约是"替换全部角色"——所以 POST 写入的授予必须能被 PUT 替换撤销，且重授
+/// 同一角色不能撞唯一键 500。旧代码：POST 写 client_id=''（Identity::client_id()
+/// 对 User 恒为空串），PUT 的 DELETE 只删 client_id='admin-web-console' 的 manual
+/// 行 → 显式降权后角色仍然生效（运行时权限检查器不按 client_id 过滤），重授
+/// 同角色 500。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_permission_post_grant_is_revocable_by_put_replace(
+    ctx: &mut SchemaTestContext,
+) {
+    let (token, admin_user_id) = create_admin_session_with_user(ctx, "prov-admin", 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+
+    let user_id = create_simple_test_user(ctx, "provenance-user@example.com").await;
+    let app = ctx.create_unified_test_router();
+
+    let role_r = create_role(ctx, &ctx._realm_id, &token, "prov-role-r", "Role R").await;
+    let role_b = create_role(ctx, &ctx._realm_id, &token, "prov-role-b", "Role B").await;
+
+    // 权限模块 POST 面授予 R —— 必须记录与其他管理面一致的 admin-console 溯源
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/permission/users/{}/roles", user_id))
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::from(json!({ "roleIds": [role_r] }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    let stored_client_id: Option<String> = sqlx::query_scalar(
+        "SELECT client_id FROM user_roles \
+         WHERE user_id = $1 AND role_id = $2 AND source = 'manual'",
+    )
+    .bind(user_id)
+    .bind(role_r)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored_client_id.as_deref(),
+        Some("admin-web-console"),
+        "permission-module POST must write the same manual-grant provenance as every other admin surface"
+    );
+
+    // 用户模块 PUT 面替换角色集：R → B
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/users/{}/{}/roles", ctx._realm_id, user_id))
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::from(json!({ "roleIds": [role_b] }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "PUT replace must succeed");
+
+    // 替换后角色列表不得再含 R（运行时权限检查器读的是同一批行）
+    let req = Request::builder()
+        .method("GET")
+        .uri(format!("/api/permission/users/{}/roles", user_id))
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp_json: serde_json::Value = response_json(resp).await;
+    let ids: Vec<serde_json::Value> = resp_json["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].clone())
+        .collect();
+    assert!(
+        !ids.contains(&serde_json::json!(role_r)),
+        "PUT replace must revoke the POST-granted role, got {ids:?}"
+    );
+    assert!(ids.contains(&serde_json::json!(role_b)));
+
+    // 重授 R 必须干净地 201，而不是撞 manual 唯一键 500
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/permission/users/{}/roles", user_id))
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::from(json!({ "roleIds": [role_r] }).to_string()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "re-granting the replaced role must not collide with a surviving row"
+    );
+}

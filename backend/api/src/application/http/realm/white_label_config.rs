@@ -458,13 +458,18 @@ pub async fn handle_restore_white_label_config(
     )
     .await;
 
+    // Restore only swaps the published/previous pair; an untouched draft
+    // survives it and must still be reported (the admin UI otherwise drops
+    // the draft badge after a restore until the next GET).
+    let draft = load_config(&state, identity.clone(), realm_id.clone(), DRAFT_KEY).await?;
+
     Ok(Json(WhiteLabelLifecycleResponse {
         message: "Previous white-label configuration restored".to_string(),
         published: previous,
-        draft: None,
+        draft: draft.as_ref().map(|entry| entry.config.clone()),
         has_previous: true,
         published_updated_at: Some(restored.updated_at.to_rfc3339()),
-        draft_updated_at: None,
+        draft_updated_at: draft.map(|entry| entry.updated_at),
     }))
 }
 

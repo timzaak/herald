@@ -19,7 +19,8 @@ export interface Rule {
 export interface PermissionCheckRequest {
   /** Browser access token issued by `/api/auth/{realmId}/login`. */
   accessToken: string
-  /** Required by the backend: a missing/empty `rules` array is a 400. */
+  /** Required by the backend: a missing/empty `rules` array is a 400
+   * `rules_required`. */
   rules: Rule[]
 }
 

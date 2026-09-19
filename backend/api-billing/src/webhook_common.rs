@@ -5,6 +5,14 @@ use herald_core::domain::purchase::metadata_keys;
 use serde_json::Value;
 use uuid::Uuid;
 
+/// Substring detector for Postgres unique-constraint rejections surfaced as
+/// `CoreError::DatabaseError` text (or its `to_string` form). The provider
+/// dedup insert races classify their benign-conflict branch with this
+/// predicate; case-sensitive to match Postgres' lowercase error text.
+pub fn is_unique_violation_msg(msg: &str) -> bool {
+    msg.contains("unique constraint") || msg.contains("duplicate key")
+}
+
 pub async fn captured_bucket_ids(
     app_state: &herald_api_base::application::http::state::AppState,
     attempt: &PaymentAttempt,

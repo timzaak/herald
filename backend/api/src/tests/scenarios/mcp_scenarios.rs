@@ -147,7 +147,16 @@ async fn grant_api_key_permission(
          VALUES ($1, $2, $3, $4, $5, false)",
     )
     .bind(role_uuid)
-    .bind(format!("mcp-test-role-{}-{}", resource, action))
+    // Unique suffix: roles.name has a per-(realm, client_id) unique key, and a
+    // single test may seed the same permission for more than one API key. The
+    // suffix uses the UUIDv7 random tail — the leading chars encode the
+    // timestamp and collide for same-millisecond generations.
+    .bind(format!(
+        "mcp-test-role-{}-{}-{}",
+        resource,
+        action,
+        &role_uuid.to_string()[24..]
+    ))
     .bind(format!("MCP test role for {}.{}", resource, action))
     .bind(&ctx._realm_id)
     .bind(&ctx._client_id)
@@ -971,4 +980,134 @@ async fn mcp_rate_limit_returns_429_after_sixty_requests(ctx: &mut TestContext) 
         429,
         "a different key must have an independent budget"
     );
+}
+
+// =============================================================================
+// Scenario 21 (audit run-1: list_points_transactions/missing-client-app-scope):
+// client-app-bound keys must not bulk-read other apps' or unattributed rows
+// =============================================================================
+
+// The MCP tool layer is the only RBAC defense on /mcp. A key bound to a
+// non-admin-api client app must see only that app's attributed transactions;
+// unattributed realm-level rows (admin/SDK grants) stay readable only by
+// unbound keys — the same boundary the ext transaction reads enforce. Old
+// behavior: TransactionFilters.client_app_id stayed None, so a bound key
+// bulk-read every row in the realm.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn mcp_points_transactions_client_app_scope(ctx: &mut TestContext) {
+    let url = spawn_mcp_server(ctx).await;
+    let user_id = create_test_user(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        "mcp-tx-scope@test.com",
+    )
+    .await;
+    let wallet_id = create_test_points_wallet(&ctx._app_state.pool, user_id, 1000).await;
+
+    // Two ordinary client apps: A is the key's binding, B is another app.
+    let app_a = uuid::Uuid::now_v7();
+    let app_b = uuid::Uuid::now_v7();
+    for (id, name) in [(app_a, "mcp-scope-app-a"), (app_b, "mcp-scope-app-b")] {
+        sqlx::query(
+            "INSERT INTO client_app (id, realm_id, client_id, name, redirect_uris, enabled, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, '[]'::jsonb, true, NOW(), NOW())",
+        )
+        .bind(id)
+        .bind(&ctx._realm_id)
+        .bind(name)
+        .bind(name)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to create client app");
+    }
+
+    // Three transactions: attributed to A, attributed to B, unattributed.
+    create_test_transaction(
+        &ctx._app_state.pool,
+        wallet_id,
+        user_id,
+        "recharge",
+        100,
+        1100,
+        Some("app-a grant"),
+        Some(app_a),
+    )
+    .await;
+    create_test_transaction(
+        &ctx._app_state.pool,
+        wallet_id,
+        user_id,
+        "recharge",
+        200,
+        1300,
+        Some("app-b grant"),
+        Some(app_b),
+    )
+    .await;
+    create_test_transaction(
+        &ctx._app_state.pool,
+        wallet_id,
+        user_id,
+        "recharge",
+        50,
+        1350,
+        Some("realm-level grant"),
+        None,
+    )
+    .await;
+
+    // Bind the key to app A.
+    let (api_key, entity) = create_test_api_key(ctx, "mcp-tx-scope-a", true, None).await;
+    sqlx::query("UPDATE client_api_keys SET client_app_id = $1 WHERE id = $2")
+        .bind(app_a)
+        .bind(&entity.id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to bind API key to app A");
+    grant_api_key_permission(ctx, &entity.id, "points", "view").await;
+
+    let mut client = connect_mcp(&url, &api_key).await.expect("connect");
+    let result = call_tool(
+        &client,
+        "list_points_transactions",
+        serde_json::json!({ "userId": user_id.to_string() }),
+    )
+    .await;
+    assert_eq!(
+        result.is_error,
+        Some(false),
+        "bound-key list must succeed: {}",
+        result_text(&result)
+    );
+    let body = result_json(&result);
+    let txs = body["transactions"].as_array().expect("transactions array");
+    assert_eq!(
+        txs.len(),
+        1,
+        "app-A-bound key must see only app A's row (B's and unattributed rows absent): {body}"
+    );
+    assert_eq!(
+        txs[0]["amount"].as_i64(),
+        Some(100),
+        "the surviving row is app A's"
+    );
+    let _ = client.close().await;
+
+    // Parity anchor: an unbound realm-level key still sees all three rows.
+    let (realm_key, realm_entity) =
+        create_test_api_key(ctx, "mcp-tx-scope-realm", true, None).await;
+    grant_api_key_permission(ctx, &realm_entity.id, "points", "view").await;
+    let mut realm_client = connect_mcp(&url, &realm_key).await.expect("connect");
+    let result = call_tool(
+        &realm_client,
+        "list_points_transactions",
+        serde_json::json!({ "userId": user_id.to_string() }),
+    )
+    .await;
+    assert_eq!(result.is_error, Some(false));
+    let body = result_json(&result);
+    let txs = body["transactions"].as_array().expect("transactions array");
+    assert_eq!(txs.len(), 3, "unbound key reads realm-wide: {body}");
+    let _ = realm_client.close().await;
 }

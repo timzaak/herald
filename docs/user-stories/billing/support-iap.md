@@ -121,7 +121,6 @@ And 持有有效的 jwsRepresentation
 When App 通过既有 api-billing 浏览器路由（Bearer token + PurchaseInitiate scope）提交该凭证
 Then Herald 用自管的 Apple Root CA 对 JWS 做 x5c + ES256 本地验签（无需回调 Apple）
 And 验签通过后按商品类型履约（订阅 / 积分）
-And Google 订阅 acknowledge / 消耗型 consume 在履约成功后立即执行
 And 返回该 attempt 的当前状态给 App
 ```
 
@@ -132,7 +131,7 @@ And 持有有效的 purchaseToken
 When App 通过既有 api-billing 浏览器路由提交该凭证
 Then Herald 调 Google 服务端 API 回查真实状态
 And 校验通过且状态为已购买后按商品类型履约
-And 履约成功后立即 acknowledge（订阅）或 consume（消耗型），3 天内完成
+And 订阅 acknowledge（订阅）/ consume（消耗型）在履约事务前执行（ack-first，3 天内完成；顺序取舍与 consume 后履约失败的死区恢复见 PRD §4.1 确认截止规则）
 And 返回该 attempt 的当前状态给 App
 ```
 
@@ -142,7 +141,7 @@ Given App 提交的凭证验签失败、API 回查不通过或不属于当前用
 When Herald 完成校验
 Then Herald 拒绝履约
 And 返回明确的失败原因（凭证无效 / 归属不符 / 已消耗）
-And 该支付尝试保持待处理状态，等待平台通知（Apple）/ 定时拉取（Google）或人工介入
+And 校验失败不产生支付尝试记录，由客户端修正凭证后重新提交
 ```
 
 **场景 4：与平台通知 / 定时拉取幂等一致**
@@ -258,7 +257,7 @@ When 对账任务向 Apple App Store Server API 拉取通知历史与订阅状�
 And 发现本地未履约的成功交易或滞后的状态变更
 Then 复用与正常服务端通知相同的领域处理与幂等机制完成履约 / 状态转换
 And 单个 Realm / 交易 / 平台 API 失败不阻塞其他对象
-And 输出对账统计（拉取数、缺失数、成功数、失败数）
+And 输出对账统计（拉取数、回放数、成功数、失败数；不维护独立的笼统"缺失数"——可恢复缺失以回放数体现，状态漂移以 drift detected 诊断体现）
 ```
 
 **场景 2：API 配额与重放窗口约束**

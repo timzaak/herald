@@ -590,7 +590,8 @@ pub async fn login(
 
         tracing::debug!("OAuth authorization code generated");
 
-        let redirect_to = format!("{}?code={}&state={}", redirect_uri, auth_code, state_param);
+        let redirect_to =
+            crate::oauth_oidc::append_code_and_state(redirect_uri, &auth_code, state_param);
 
         return Ok(Json(LoginResponse {
             message: "ok".to_string(),

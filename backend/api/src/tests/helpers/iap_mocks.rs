@@ -373,6 +373,28 @@ impl GooglePlayMockServer {
             .await;
     }
 
+    /// One-shot variant of [`mount_subscription_acknowledge_failure`]: the
+    /// FIRST acknowledge call fails 500, later calls fall through to any
+    /// previously mounted success stub (wiremock drops an exhausted
+    /// `up_to_n_times` mock from matching). Highest priority so the one-shot
+    /// wins over same-path mocks regardless of mount order. Used to simulate
+    /// a transient acknowledge outage that heals before the user resubmits.
+    pub async fn mount_subscription_acknowledge_failure_once(
+        &self,
+        package_name: &str,
+        token: &str,
+    ) {
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/{package_name}/purchases/subscriptions/tokens/{token}:acknowledge"
+            )))
+            .respond_with(ResponseTemplate::new(500).set_body_string("backend unavailable"))
+            .with_priority(1)
+            .up_to_n_times(1)
+            .mount(&self.server)
+            .await;
+    }
+
     // ---- products.get ----
 
     /// Mount a successful `products.get` for a consumable one_time product.

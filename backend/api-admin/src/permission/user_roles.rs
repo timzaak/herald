@@ -30,6 +30,7 @@ use herald_core::domain::audit::{
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::authorization::principal_types;
+use herald_core::domain::client::ADMIN_WEB_CONSOLE_CLIENT_ID;
 use herald_core::entity::{account, role_policies, roles, user_roles};
 
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -254,7 +255,13 @@ pub async fn assign_roles_to_user(
             realm_id: ActiveValue::Set(realm_id.clone()),
             user_id: ActiveValue::Set(Some(user_id)),
             role_id: ActiveValue::Set(*role_id),
-            client_id: ActiveValue::Set(Some(identity.client_id())),
+            // Provenance must match the other admin-console manual-grant
+            // surfaces (users-module PUT/create-user, realm bootstrap):
+            // Identity::client_id() is "" for the Identity::User callers that
+            // reach this handler, and the manual-row unique index ignores
+            // client_id — a divergent value would survive PUT role-replace
+            // revocation (which deletes ALL manual rows) and collide on re-grant.
+            client_id: ActiveValue::Set(Some(ADMIN_WEB_CONSOLE_CLIENT_ID.to_string())),
             principal_type: ActiveValue::Set(principal_types::USER.to_string()),
             principal_id: ActiveValue::Set(user_id.to_string()),
             // Admin-assign path is a manual grant (no payment

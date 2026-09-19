@@ -357,3 +357,46 @@ async fn custom_domain_resolve_returns_404_for_unregistered_host(ctx: &mut TestC
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// ============================================================================
+/// Public resolve endpoint — `?host=` override is gone (audit run-1:
+/// public_config.rs:resolve_custom_domain:unauthenticated-host-to-realm-oracle)
+/// ============================================================================
+//
+// The resolve endpoint exists so a SPA already served on a published custom
+// domain can discover its realm id; it must resolve ONLY the host the request
+// actually arrived on. An arbitrary `?host=` query override turned it into an
+// unauthenticated host-to-realm enumeration oracle — the exact disclosure the
+// shared-secret ask endpoint exists to prevent. Regression: a request whose
+// real Host header is unregistered must 404 even when `?host=` names a
+// registered hostname (old code: 200 + realm disclosure).
+#[test_context(TestContext)]
+#[tokio::test]
+async fn custom_domain_resolve_ignores_host_query_override(ctx: &mut TestContext) {
+    let registered = "login.registered-override-example.com";
+    insert_custom_domain_mapping(ctx, &ctx._realm_id, registered, true).await;
+
+    let app = ctx.create_unified_test_router();
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("{RESOLVE_PATH}?host={registered}"))
+        // The request's actual host is unregistered — the only host the
+        // endpoint may resolve.
+        .header("host", "unregistered.resolve-override-example.com")
+        .header("x-forwarded-proto", "https")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "?host= must not override the request Host: no arbitrary-host oracle"
+    );
+
+    // Positive control: the same registered host resolved via its own Host
+    // header still succeeds (the SPA bootstrap path is intact).
+    let response = app.oneshot(resolve_request(registered)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = crate::tests::response_json(response).await;
+    assert_eq!(body["realmId"], ctx._realm_id);
+}

@@ -17,6 +17,7 @@ pub mod registration_status;
 pub mod reset_password;
 pub mod signup;
 pub mod status;
+mod totp_replay;
 pub mod turnstile_status;
 pub mod user_passkey;
 pub mod user_totp;

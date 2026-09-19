@@ -6,7 +6,7 @@ use crate::client::{
     entities::ClientApp,
     is_builtin_first_party_client, normalize_origins,
     ports::{ClientRepository, ClientService},
-    validate_redirect_uri, validate_redirect_uris,
+    validate_icon_url, validate_redirect_uri, validate_redirect_uris,
     value_objects::{CreateClientAppRequest, UpdateClientAppRequest},
 };
 
@@ -87,6 +87,23 @@ where
             ));
         }
 
+        // Field-level guards mirror the admin request validators so the ext
+        // endpoint (which has no Valid<> layer) enforces the same bounds.
+        if request.name.trim().is_empty() || request.name.len() > 100 {
+            return Err(CoreError::BadRequest(
+                "Client app name must be 1-100 characters".to_string(),
+            ));
+        }
+        if request
+            .description
+            .as_ref()
+            .is_some_and(|description| description.len() > 500)
+        {
+            return Err(CoreError::BadRequest(
+                "Client app description must be at most 500 characters".to_string(),
+            ));
+        }
+
         // Validate redirect URIs if provided
         if let Some(ref redirect_uris) = request.redirect_uris {
             let skip_empty =
@@ -98,6 +115,7 @@ where
         if let Some(origins) = request.allowed_origins.take() {
             request.allowed_origins = Some(normalize_origins(&origins)?);
         }
+        validate_icon_url(request.icon_url.as_ref())?;
         for return_url in [
             &request.email_verify_return_url,
             &request.password_reset_return_url,
@@ -239,6 +257,7 @@ where
         if let Some(origins) = request.allowed_origins.take() {
             request.allowed_origins = Some(normalize_origins(&origins)?);
         }
+        validate_icon_url(request.icon_url.as_ref())?;
         for return_url in [
             &request.email_verify_return_url,
             &request.password_reset_return_url,

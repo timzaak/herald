@@ -21,29 +21,6 @@ impl ClientAppLookup {
         Self { pool }
     }
 
-    /// Find client app realm_id by UUID
-    ///
-    /// Used to verify realm isolation for external API requests.
-    pub async fn find_realm_by_uuid(
-        &self,
-        client_app_id: Uuid,
-    ) -> Result<Option<String>, Response> {
-        match sqlx::query_scalar::<_, String>("SELECT realm_id FROM client_app WHERE id = $1")
-            .bind(client_app_id)
-            .fetch_optional(&self.pool)
-            .await
-        {
-            Ok(realm_id) => Ok(realm_id),
-            Err(e) => {
-                tracing::error!("Failed to query client_app realm_id: {}", e);
-                Err(json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorCode::InternalError,
-                ))
-            }
-        }
-    }
-
     /// Find client app UUID by client_id and realm_id
     ///
     /// Used to convert external client_id strings to internal UUIDs.
@@ -96,16 +73,34 @@ impl ClientAppLookup {
         }
     }
 
-    /// Verify client app exists and return its realm_id
+    /// Resolve the client app's realm scoped to `realm_id`.
     ///
-    /// Returns 404 if client app not found.
-    pub async fn verify_client_app_exists(&self, client_app_id: Uuid) -> Result<String, Response> {
-        match self.find_realm_by_uuid(client_app_id).await? {
-            Some(realm_id) => Ok(realm_id),
-            None => Err(json_error(
-                StatusCode::NOT_FOUND,
-                ErrorCode::ClientAppNotFound,
-            )),
+    /// A UUID that does not exist in this realm — whether unknown globally or
+    /// belonging to another tenant — answers None, so callers can reply with a
+    /// single indistinguishable 404 instead of leaking cross-realm object
+    /// existence through a 403/404 split (a global lookup answering 404 first
+    /// turns the route into a cross-tenant membership oracle).
+    pub async fn find_realm_by_uuid_scoped(
+        &self,
+        client_app_id: Uuid,
+        realm_id: &str,
+    ) -> Result<Option<String>, Response> {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT realm_id FROM client_app WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(client_app_id)
+        .bind(realm_id)
+        .fetch_optional(&self.pool)
+        .await
+        {
+            Ok(realm_id) => Ok(realm_id),
+            Err(e) => {
+                tracing::error!("Failed to query client_app realm_id: {}", e);
+                Err(json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorCode::InternalError,
+                ))
+            }
         }
     }
 

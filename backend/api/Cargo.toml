@@ -70,6 +70,9 @@ redis = { workspace = true }
 bcrypt = { workspace = true }
 clap = { workspace = true }
 reqwest = { workspace = true }
+# Reserved-host extraction for the custom-domain claim guard
+# (custom_domain_config::host_of_configured_url). Same version api-auth uses.
+url = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # Phase 2 cpu profiling sampler. Unix-only — pprof relies on

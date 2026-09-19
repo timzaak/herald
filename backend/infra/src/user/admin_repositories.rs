@@ -418,18 +418,22 @@ impl UserRoleRepository for PostgresUserRoleRepository {
             UserAdminError::DatabaseError(format!("Failed to begin transaction: {}", e))
         })?;
 
-        // Delete existing MANUAL roles for this user in the realm/client context.
+        // Delete existing MANUAL roles for this user in the realm.
         // Payment-granted roles (source='payment') are preserved so that admin
         // re-assignment does not wipe entitlements acquired through purchases.
+        // The delete is NOT scoped by client_id: the manual-row uniqueness
+        // contract (0001_core.sql idx_user_roles_principal_role_manual) treats
+        // client_id as pure provenance, so scoping here would let rows written
+        // by another admin surface (e.g. a '' client_id) survive the replace
+        // and keep authorizing the revoked role.
         sqlx::query(
             r#"
             DELETE FROM user_roles
-            WHERE user_id = $1 AND realm_id = $2 AND client_id = $3 AND source = 'manual'
+            WHERE user_id = $1 AND realm_id = $2 AND source = 'manual'
             "#,
         )
         .bind(user_id)
         .bind(realm_id)
-        .bind(client_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| {

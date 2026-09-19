@@ -14,9 +14,11 @@ use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
-use validator::Validate;
 
 use crate::client_app_scope::{bound_client_identifier, is_admin_api_key};
+use herald_api_base::application::http::common::auth_utils::{
+    TokenClientAppLookup, lookup_token_client_app,
+};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
 
@@ -29,15 +31,26 @@ fn denied_response(error: Option<String>) -> Json<PermissionCheckResponse> {
     })
 }
 
+/// Structured 400 body for a missing/empty rules array (SDK-documented
+/// contract; mirrors the `grant_bucket_required` shape in points.rs).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RulesRequiredBody {
+    pub code: &'static str,
+    pub message: &'static str,
+}
+
 /// Permission check request
-#[derive(Debug, Deserialize, ToSchema, Validate)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionCheckRequest {
     /// User's browser access token.
     pub access_token: String,
 
-    /// Permission rules to check
-    pub rules: Vec<PermissionRule>,
+    /// Permission rules to check. Deserialized as `Option` so a missing or
+    /// empty array yields a structured 400 `rules_required` body instead of a
+    /// vacuous allowed=true (an empty rule set must not read as "all
+    /// granted"), matching the SDK-documented contract.
+    pub rules: Option<Vec<PermissionRule>>,
 }
 
 /// Single permission rule
@@ -102,17 +115,19 @@ pub async fn check_permission(
     Extension(identity): Extension<Identity>,
     Json(req): Json<PermissionCheckRequest>,
 ) -> Result<Json<PermissionCheckResponse>, ApiError> {
-    // Validate request
-    if let Err(errors) = req.validate() {
-        return Ok(denied_response(Some(format!(
-            "Validation error: {}",
-            errors
-        ))));
-    }
+    // A missing or empty rules array is a request-contract error, not a
+    // vacuous "all allowed": SDK callers that fail to populate rules must get
+    // a 400 `rules_required`, never allowed=true with the caller's user id.
+    let rules = req.rules.filter(|rules| !rules.is_empty()).ok_or_else(|| {
+        ApiError::bad_request_json(RulesRequiredBody {
+            code: "rules_required",
+            message: "Permission check requires a non-empty rules array",
+        })
+    })?;
 
     tracing::info!(
         access_token_length = req.access_token.len(),
-        rules_count = req.rules.len(),
+        rules_count = rules.len(),
         "Permission check requested"
     );
 
@@ -150,17 +165,33 @@ pub async fn check_permission(
         Ok(value) => value,
         Err(_) => return Ok(denied_response(Some("internal_error".to_string()))),
     };
-    let token_client_id: Option<String> = sqlx::query_scalar(
-        "SELECT client_id FROM client_app WHERE id = $1 AND realm_id = $2 AND enabled = true",
-    )
-    .bind(token_data.client_app_id)
-    .bind(&token_data.realm_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|error| {
-        tracing::error!(%error, "Failed to load token Client App");
-        ApiError::internal("Internal server error")
-    })?;
+    // The principal recheck runs through the same lookup identity_middleware
+    // uses on every /api/user/* Bearer route, so the two surfaces cannot
+    // drift: a disabled or deleted Client App row rejects the token outright —
+    // disabling a Client App does NOT revoke its token families, so live
+    // tokens would otherwise introspect allowed=true up to their TTL while
+    // every Bearer route refuses them. The enabled state must be evaluated
+    // for admin/unbound keys too, not only inside the bound-key comparison.
+    let token_client_id =
+        match lookup_token_client_app(&state, token_data.client_app_id, &token_data.realm_id)
+            .await?
+        {
+            TokenClientAppLookup::Active { client_id } => Some(client_id),
+            TokenClientAppLookup::Missing => {
+                tracing::warn!(
+                    token_client_app_id = %token_data.client_app_id,
+                    "Browser token Client App no longer exists"
+                );
+                return Ok(denied_response(Some("invalid_token".to_string())));
+            }
+            TokenClientAppLookup::Disabled => {
+                tracing::warn!(
+                    token_client_app_id = %token_data.client_app_id,
+                    "Browser token Client App is disabled"
+                );
+                return Ok(denied_response(Some("invalid_token".to_string())));
+            }
+        };
     if !admin_api_key && bound_client_id != token_client_id {
         tracing::warn!(
             api_key_id = %identity.id(),
@@ -179,7 +210,7 @@ pub async fn check_permission(
         }
     };
 
-    let _user = match state.user_repository.get_user_by_id(user_id).await {
+    let user = match state.user_repository.get_user_by_id(user_id).await {
         Ok(user) if user.realm_id == token_data.realm_id => user,
         Ok(_) => {
             tracing::warn!(
@@ -202,11 +233,25 @@ pub async fn check_permission(
         }
     };
 
+    // Defense in depth, mirroring identity_middleware: a Forbidden/Deleted
+    // user's token families are revoked on the normal status-transition path,
+    // but a direct-DB edit or a failed/lagged revocation must not leave the
+    // introspection endpoint answering allowed=true (with the userId) for a
+    // credential every Bearer route rejects. WaitVerified keeps access so
+    // users can complete email verification.
+    if user.status.is_disabled() {
+        tracing::warn!(
+            token_user_id = %token_data.user_id,
+            "Browser token user is disabled; refusing introspection"
+        );
+        return Ok(denied_response(Some("invalid_token".to_string())));
+    }
+
     // 3. Check all permission rules
     let permission_checker = &state.permission_checker;
 
     let mut all_allowed = true;
-    for rule in &req.rules {
+    for rule in &rules {
         match permission_checker
             .check_permission(
                 &token_data.realm_id,

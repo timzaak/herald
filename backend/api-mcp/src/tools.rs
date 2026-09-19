@@ -151,8 +151,8 @@ impl HeraldMcpService {
         description = "List or look up users in the Herald realm this API key \
         belongs to. Omit 'userId' to page through all users (optionally filtered by \
         exact 'email'); provide 'userId' (UUID) to fetch a single user's detail. \
-        Requires the users.view permission. User status codes: 1=normal, \
-        0=disabled/waiting verification."
+        Requires the users.view permission. User status codes: 0=wait_verified, \
+        1=normal, 2=forbidden, 3=deleted."
     )]
     async fn query_users(
         &self,
@@ -296,6 +296,13 @@ impl HeraldMcpService {
             self.ensure_user_exists(&identity, user_id).await?;
 
             let (page, page_size) = dto::normalize_page(input.page, input.page_size)?;
+            // Client-app narrowing parity with get_points_balance and the ext
+            // transaction reads (api-ext/src/points.rs): a key bound to a
+            // non-admin-api client app sees only transactions attributed to
+            // that app; unattributed realm-level rows stay restricted to
+            // unbound/admin-api keys (SQL equality on client_app_id also
+            // excludes NULL rows).
+            let (_scope, scoped_app_id) = self.balance_scope(&identity).await?;
             let filters = TransactionFilters {
                 user_id: Some(user_id),
                 transaction_type: input
@@ -313,6 +320,7 @@ impl HeraldMcpService {
                     .as_deref()
                     .map(|v| dto::parse_query_time("endTime", v))
                     .transpose()?,
+                client_app_id: scoped_app_id,
                 page: Some(page),
                 page_size: Some(page_size),
                 ..Default::default()

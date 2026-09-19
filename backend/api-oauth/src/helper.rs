@@ -14,7 +14,8 @@ use herald_core::domain::oauth::{
     value_objects::{OAuthConfig, OAuthUserInfo},
 };
 use herald_core::domain::security_constants::{
-    DEFAULT_JWT_EXPIRATION_SECONDS, OAUTH_STATE_TTL_SECONDS, OAUTH_STATE_VALIDATION_TIMEOUT_SECONDS,
+    DEFAULT_JWT_EXPIRATION_SECONDS, DEFAULT_OAUTH_CODE_TTL_SECONDS, OAUTH_STATE_TTL_SECONDS,
+    OAUTH_STATE_VALIDATION_TIMEOUT_SECONDS,
 };
 use herald_core::domain::user::{User, UserRepository, UserService};
 use herald_core::infrastructure::oauth::providers::{
@@ -370,16 +371,33 @@ pub async fn generate_oauth_auth_url(
         .await
         .map_err(|e| AuthError::InternalServerError(format!("Failed to store state: {}", e)))?;
 
-    // Build OAuth config for provider handler
+    // Build OAuth config for provider handler. The optional redirect_uri
+    // override must be EXACTLY the canonical callback URL ({origin}/api/
+    // oauth/{realmId}/{provider}/callback): the bundled frontend never sends
+    // the parameter, so any other value is a caller-chosen redirect target
+    // that would be persisted in the one-time flow state and reused for the
+    // provider authorize URL and the token exchange — an open-redirect /
+    // code-interception primitive against providers that accept
+    // unregistered redirect URIs.
+    let public_origin = realm_public_origin_for_oauth(state, &realm_id).await?;
+    let canonical_redirect = format!(
+        "{}/api/oauth/{}/{}/callback",
+        public_origin, realm_id, provider_type
+    );
     let redirect_uri_value = match redirect_uri {
-        Some(uri) => uri,
-        None => {
-            let public_origin = realm_public_origin_for_oauth(state, &realm_id).await?;
-            format!(
-                "{}/api/oauth/{}/{}/callback",
-                public_origin, realm_id, provider_type
-            )
+        Some(uri) if uri == canonical_redirect => uri,
+        Some(uri) => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                provider = %provider_type,
+                redirect_uri = %uri,
+                "OAuth login redirect_uri override does not match the canonical callback; rejecting"
+            );
+            return Err(AuthError::BadRequest(
+                "redirect_uri must match the canonical OAuth callback URL".to_string(),
+            ));
         }
+        None => canonical_redirect,
     };
 
     let oauth_config = OAuthConfig {
@@ -762,6 +780,23 @@ async fn find_or_create_user_by_email(
             Ok(user.id)
         }
         Err(herald_core::domain::common::entities::app_errors::CoreError::NotFound) => {
+            // Creating an account keyed by a provider-UNverified email is the
+            // same defect class as linking one (email squatting + cross-
+            // principal sharing once the real owner shows up) — the address
+            // was never confirmed by the provider. Same gate and same
+            // placeholder exception as the existing-account arm above, so all
+            // entrances (Apple native, Apple web redirect, provider callback)
+            // close together.
+            if !user_info.verified && !is_provider_owned_placeholder_email(user_info) {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    provider = %user_info.provider_type.as_str(),
+                    "Blocked OAuth auto-register: provider email not verified"
+                );
+                return Err(AuthError::Forbidden(
+                    "Provider email is not verified; cannot create an account with it".to_string(),
+                ));
+            }
             // Account creation is gated by the realm's registration policy.
             // Registration-disabled realms must not auto-provision accounts via
             // OAuth (mirrors the gate in email-otp/register handlers; PRD:
@@ -1067,7 +1102,11 @@ pub async fn issue_downstream_authorization_code(
         .set_ex::<String, String, ()>(
             format!("oauth:code:{auth_code}"),
             code_value,
-            OAUTH_STATE_TTL_SECONDS,
+            // The same /token endpoint consumes codes written by the
+            // password/TOTP/passkey entrances with this TTL; a shorter
+            // state-shaped TTL here made downstream-login codes expire twice
+            // as fast as every other code of the same kind.
+            DEFAULT_OAUTH_CODE_TTL_SECONDS,
         )
         .await
         .map_err(|e| {

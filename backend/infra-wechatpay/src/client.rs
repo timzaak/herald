@@ -27,6 +27,11 @@ const DEFAULT_BASE_URL: &str = "https://api.mch.weixin.qq.com";
 static SHARED_HTTP: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        // Bound every outbound call: the webhook path reaches this client
+        // BEFORE the inbound signature is verified, so an unresponsive
+        // upstream must not pin request handlers indefinitely.
+        .timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("default reqwest client construction cannot fail")
 });
@@ -165,8 +170,9 @@ impl WechatPayClient {
     }
 
     /// Resolve the platform public key for a callback: prefer the manual
-    /// override; otherwise use (downloading if missing/stale) the cached
-    /// certificate matching `serial`.
+    /// override; otherwise use the cached certificate matching `serial`,
+    /// re-fetching `/v3/certificates` (throttled per realm) when the serial
+    /// is unknown to the cache.
     pub async fn get_platform_public_key(
         &self,
         realm_id: &str,
@@ -177,18 +183,33 @@ impl WechatPayClient {
         }
         let now = Utc::now();
         if let Some(certs) = self.certs.get(realm_id).await
-            && let Some(found) = PlatformCertCache::find_fresh(&certs, serial, now)
+            && let Some(found) = PlatformCertCache::find_valid(&certs, serial, now)
         {
             return Ok(found.public_key_pem.clone());
+        }
+        // Unknown serial (or a cold cache): WeChat's integration contract is
+        // to re-fetch /v3/certificates — the platform rotates its signing
+        // certificate on its own schedule, and a rotation landing inside the
+        // 6h cache TTL must converge on the first new-serial callback instead
+        // of failing every callback until the TTL expires (review 20260919
+        // finding 6; the old always-reject negative cache is exactly what
+        // broke this). The per-realm refetch throttle keeps the flip side
+        // bounded: an anonymous flood of made-up serials cannot force a
+        // signed outbound download per request (audit run-1:
+        // wechat-callback-platform-cert-download-before-signature-verification-no-negative-cache).
+        if !self.certs.try_begin_refetch(realm_id).await {
+            return Err(WechatPayError::PlatformCertNotFound(serial.to_string()));
         }
         let downloaded = self.download_platform_certs().await?;
         let public_key = downloaded
             .iter()
             .find(|c| c.serial_no == serial)
-            .map(|c| c.public_key_pem.clone())
-            .ok_or_else(|| WechatPayError::PlatformCertNotFound(serial.to_string()))?;
+            .map(|c| c.public_key_pem.clone());
+        // Cache the downloaded set even when the caller's serial missed: it
+        // IS the provider's current authoritative set, and it makes later
+        // known-serial lookups cache-only.
         self.certs.insert(realm_id, downloaded).await;
-        Ok(public_key)
+        public_key.ok_or_else(|| WechatPayError::PlatformCertNotFound(serial.to_string()))
     }
 
     /// Verify a callback's request signature.
@@ -418,5 +439,208 @@ mod tests {
             WechatPayError::Api { status, .. } => assert_eq!(status, 401),
             other => panic!("expected Api error, got {other:?}"),
         }
+    }
+
+    // A /v3/certificates response body: one AEAD_AES_256_GCM-encrypted
+    // placeholder certificate entry per serial, decryptable by the client.
+    fn cert_body(key: &[u8], serials: &[&str]) -> String {
+        use aes_gcm::aead::{Aead, KeyInit, Payload};
+        use base64::Engine;
+        use base64::engine::general_purpose::STANDARD;
+
+        let cipher = aes_gcm::Aes256Gcm::new_from_slice(key).unwrap();
+        let ciphertext = STANDARD.encode(
+            cipher
+                .encrypt(
+                    aes_gcm::Nonce::from_slice(b"nonce1234567"),
+                    Payload {
+                        msg: b"-----BEGIN CERTIFICATE-----x-----END CERTIFICATE-----",
+                        aad: b"cert",
+                    },
+                )
+                .unwrap(),
+        );
+        let entries: Vec<String> = serials
+            .iter()
+            .map(|s| {
+                format!(
+                    "{{\"serial_no\":\"{s}\",\"effective_time\":\"2026-01-01T00:00:00+08:00\",\"expire_time\":\"2099-01-01T00:00:00+08:00\",\"encrypt_certificate\":{{\"algorithm\":\"AEAD_AES_256_GCM\",\"nonce\":\"nonce1234567\",\"associated_data\":\"cert\",\"ciphertext\":\"{ciphertext}\"}}}}"
+                )
+            })
+            .collect();
+        format!("[{}]", entries.join(","))
+    }
+
+    // Intent (audit run-1:
+    // wechat-callback-platform-cert-download-before-signature-verification-no-negative-cache):
+    // the anonymous webhook route resolves the platform key for a
+    // caller-supplied serial BEFORE the inbound signature is checked, so
+    // made-up serials must never force one signed outbound download per
+    // request. The first unknown-serial call downloads once (the refetch
+    // contract) and consumes the realm's throttle slot; later unknown serials
+    // inside the window are rejected by the gate. A download that misses the
+    // caller's serial must still populate the cache (the set IS the
+    // provider's current one). Old code: every unknown-serial request
+    // re-downloaded.
+    #[tokio::test]
+    async fn unknown_serial_against_fresh_cache_is_rejected_without_download() {
+        let key = b"0123456789abcdef0123456789abcdef";
+        let body = cert_body(key, &["S1"]);
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/certificates"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+
+        let client = WechatPayClient::new(test_config(server.uri())).unwrap();
+        let realm = format!(
+            "negcache-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Cold cache: the first unknown-serial call downloads once and — the
+        // fix — still caches the authoritative set despite the miss.
+        let err = client
+            .get_platform_public_key(&realm, "made-up-serial")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, WechatPayError::PlatformCertNotFound(_)),
+            "got {err:?}"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+        // Warm + fresh: a second unknown serial is answered from cache —
+        // zero further outbound downloads.
+        let err = client
+            .get_platform_public_key(&realm, "another-made-up-serial")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, WechatPayError::PlatformCertNotFound(_)),
+            "got {err:?}"
+        );
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            1,
+            "fresh cached set must reject unknown serials without re-downloading"
+        );
+
+        // The known serial still resolves from the warm cache.
+        let pem = client.get_platform_public_key(&realm, "S1").await.unwrap();
+        assert!(pem.contains("BEGIN CERTIFICATE"));
+    }
+
+    // Intent (review 20260919 finding 6): WeChat rotates its platform
+    // certificate on its own schedule — a rotation landing inside the 6h
+    // cache TTL makes callbacks arrive signed with a serial the cached set
+    // does not know. The old always-reject negative cache answered those
+    // with PlatformCertNotFound until the TTL expired, failing every
+    // callback in the rotation window; now the unknown serial refetches
+    // /v3/certificates (throttled), so the rotation converges as soon as the
+    // throttle window elapses.
+    #[tokio::test]
+    async fn rotated_serial_converges_after_refetch_throttle() {
+        let key = b"0123456789abcdef0123456789abcdef";
+        let server = MockServer::start().await;
+        let mock_pre_rotation = Mock::given(method("GET"))
+            .and(path("/v3/certificates"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(cert_body(key, &["S1"])))
+            .mount_as_scoped(&server)
+            .await;
+
+        // Same-module literal construction: the shared production cache's
+        // 5-minute throttle is not testable; this cache throttles per 100ms.
+        let client = WechatPayClient {
+            config: test_config(server.uri()),
+            http: SHARED_HTTP.clone(),
+            base_url: server.uri(),
+            certs: crate::platform_certs::PlatformCertCache::with_refetch_throttle(
+                std::time::Duration::from_millis(100),
+            ),
+            private_key: OnceCell::new(),
+        };
+        let realm = format!(
+            "rotation-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Warm the cache with the pre-rotation set.
+        let pem = client.get_platform_public_key(&realm, "S1").await.unwrap();
+        assert!(pem.contains("BEGIN CERTIFICATE"));
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+        // WeChat rotates: /v3/certificates now also returns S2.
+        drop(mock_pre_rotation);
+        Mock::given(method("GET"))
+            .and(path("/v3/certificates"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(cert_body(key, &["S1", "S2-rotated"])),
+            )
+            .mount(&server)
+            .await;
+
+        // Inside the throttle window the rotated serial is still rejected
+        // without a download (flood bound) ...
+        assert!(
+            client
+                .get_platform_public_key(&realm, "S2-rotated")
+                .await
+                .is_err()
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+        // ... and converges once the window elapses: the unknown serial
+        // refetches and resolves the rotated key.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let pem = client
+            .get_platform_public_key(&realm, "S2-rotated")
+            .await
+            .expect("rotated serial must resolve after the throttle window");
+        assert!(pem.contains("BEGIN CERTIFICATE"));
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    }
+
+    // Intent (audit run-1: SHARED_HTTP-no-request-timeout-wechat-outbound):
+    // every outbound call is deadline-bounded. The webhook path reaches this
+    // client BEFORE the inbound signature is verified, so an upstream that
+    // accepts the connection and stalls must fail in bounded time instead of
+    // pinning request handlers until the environment intervenes. Old code had
+    // no timeout at all and would hang this test's 30s bound.
+    #[tokio::test]
+    async fn stalled_upstream_fails_within_bounded_time() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            // Accept connections forever; never answer.
+            loop {
+                let _ = listener.accept().await;
+            }
+        });
+
+        let client = WechatPayClient::new(test_config(format!("http://{addr}"))).unwrap();
+        let started = std::time::Instant::now();
+        let bounded = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            client.download_platform_certs(),
+        )
+        .await;
+        let elapsed = started.elapsed();
+        assert!(
+            bounded.is_err() || bounded.unwrap().is_err(),
+            "a stalled upstream must produce an error, not a hang"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(30),
+            "outbound call must be bounded by the client timeout, took {elapsed:?}"
+        );
     }
 }

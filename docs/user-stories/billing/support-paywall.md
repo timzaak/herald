@@ -59,7 +59,7 @@ And 反之，清空 role 授予保留积分策略，商品变为「纯积分包�
 
 **场景 1：one-time 纯权益购买成功**
 ```gherkin
-Given 一个 billing_type=one_time 的 entitlement mapping 已配置 role 授予但未配置 points_per_period
+Given 一个 billing_type=one_time 的 entitlement mapping 已配置 role 授予但未配置积分分发规则（多钱包规则模型，无单点积分字段）
 When 用户完成该商品的支付
 Then 支付尝试记录为成功
 And 系统不报错、不发放积分

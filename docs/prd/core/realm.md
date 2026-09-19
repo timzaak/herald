@@ -127,7 +127,7 @@ Realm（域）是 Herald 系统中的多租户隔离单位，每个用户、客�
 - **查看 Realm 列表**：需要当前身份所在 Realm 的 `realm.view` 权限；Admin Realm 身份返回平台列表，其他 Realm 身份经结果过滤仅返回自身 Realm
 - **查看自己 Realm 详情**：无需权限（登录即可查看）
 - **切换 Realm**：认证身份与 Token 严格绑定单一 realm，访问目标 realm 时按「身份 realm == 目标 realm」等值校验，无用户-realm 关联切换检查（这是比「切换检查」更强的隔离）
-- **创建 Realm**：需要 Admin Realm 的 `realm.manage` 权限
+- **创建 Realm**（已登录管理员通道）：需要 Admin Realm 的 `realm.manage` 权限；未登录访客的自助公开开通通道见 [realm-create PRD](/docs/prd/core/realm-create.md)，不经本权限点
 - **查看其他 Realm**：需要 Admin Realm 的 `realm.manage` 权限（普通 Realm Admin 只能查看自己 Realm）
 - **编辑 Realm**：仅可编辑自己 Realm 的元数据，需要 `settings.manage` 权限（即使 Super Admin 也不能编辑其他 Realm 的元数据）
 - **删除 Realm**：不提供该功能（当前限制）

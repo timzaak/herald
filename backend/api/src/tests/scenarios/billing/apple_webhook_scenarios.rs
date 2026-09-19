@@ -1085,4 +1085,374 @@ mod tests {
             "replay must not resurrect the subscription"
         );
     }
+
+    // =========================================================================
+    // 回归（审计 run-1：infra-iap/apple-transaction-revocation-unchecked）
+    // =========================================================================
+
+    /// 带 revocation_date 的交易是已被 Apple 退款/撤销的死交易：签名在退款后
+    /// 依然有效，但钱已退回 —— 首购路径绝不能据此发货。旧代码从不读取该
+    /// 字段，退款后的收据仍可完成授予且无追回路径。
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_revoked_transaction_never_fulfills_first_purchase(ctx: &mut AppleWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        insert_apple_mapping(ctx, &realm_id, "prod.revoked", "recurring", None).await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"SUBSCRIBED","notificationUUID":"uuid-revoked-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-revoked-1","productId":"prod.revoked",
+                "revocationDate":1789999999000,"revocationReason":1}"#,
+        );
+
+        let outcome = process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await;
+
+        assert!(
+            outcome.is_err(),
+            "a revoked transaction must never fulfill (revocation_date present)"
+        );
+
+        // No fulfillment side effects: no purchase event, no attempt.
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'orig-revoked-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 0, "no purchase payment_event may be recorded");
+        let attempt_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_attempts \
+             WHERE realm_id = $1 AND provider_reference = 'orig-revoked-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(attempt_count, 0, "no payment_attempt may be created");
+    }
+
+    /// REFUND 先于任何 payment_attempt 到达时，不再写永久 processed 事件吞掉
+    /// 追回：事件保持 processed=false（挂起，由重试/对账收敛），且调用返回
+    /// Err 使失败可见。一旦 attempt 出现（用户补交收据/重试扫描再跑），
+    /// 同一通知重放必须真正执行追回并把事件翻转为 processed。
+    /// 旧代码：永久 tombstone + Ok(())，追回被永久吞掉。
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_refund_before_attempt_stays_pending_then_converges(
+        ctx: &mut AppleWebhookContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let mapping_id =
+            insert_apple_mapping(ctx, &realm_id, "prod.pending-refund", "recurring", None).await;
+        let user_id = seed_apple_owner_and_subscription(
+            ctx,
+            &realm_id,
+            "orig-pending-refund-1",
+            "prod.pending-refund",
+        )
+        .await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"REFUND","notificationUUID":"uuid-pending-refund-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-pending-refund-1","productId":"prod.pending-refund"}"#,
+        );
+
+        // First delivery: no attempt → pending event + Err (old: processed + Ok).
+        let outcome = process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await;
+        assert!(
+            outcome.is_err(),
+            "a REFUND with no attempt must surface as a retryable failure, not Ok"
+        );
+        let (processed,): (bool,) = sqlx::query_as(
+            "SELECT processed FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'apple:orig-pending-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("pending REFUND event must be recorded");
+        assert!(
+            !processed,
+            "the no-attempt REFUND event must stay unprocessed for the retry sweep"
+        );
+
+        // The attempt appears (receipt submission / reconciliation).
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference, provider_status,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'apple', 'entitlement_mapping', $4,
+                     999, 'usd', 'Succeeded', 'orig-pending-refund-1', 'succeeded',
+                     NOW() + INTERVAL '1 hour', NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed purchase attempt");
+
+        // The retry sweep replays the same notification → revoke runs and the
+        // pending event flips processed.
+        process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &notification,
+            &txn,
+        )
+        .await
+        .expect("replayed REFUND with the attempt present must revoke");
+
+        let (status,): (String,) = sqlx::query_as(
+            "SELECT status FROM subscription \
+             WHERE realm_id = $1 AND payment_provider = 'apple' \
+               AND external_subscription_id = 'orig-pending-refund-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            status, "canceled",
+            "the converged refund must cancel the subscription"
+        );
+        let (processed,): (bool,) = sqlx::query_as(
+            "SELECT processed FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'apple:orig-pending-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert!(
+            processed,
+            "the converged refund event must be marked processed"
+        );
+    }
+
+    /// Review 20260919 finding 3 — the notification-driven first-purchase
+    /// path must honour the refund race. A REFUND delivered while the
+    /// purchase notification sat in Apple's retry queue leaves the synthetic
+    /// `apple:{otid}:"REFUND"` event; the retried purchase (its JWS predates
+    /// the refund → revocation_date None, and the bare-key idempotency check
+    /// is blind to the synthetic key) used to create an attempt and fulfill
+    /// behind the refund's back. The client receipt path already gates this
+    /// (submit_iap_receipt); the notification path must too.
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_refund_before_purchase_notification_blocks_first_purchase(
+        ctx: &mut AppleWebhookContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        insert_apple_mapping(ctx, &realm_id, "prod.race-gate", "recurring", None).await;
+        seed_apple_owner_and_subscription(ctx, &realm_id, "orig-race-gate-1", "prod.race-gate")
+            .await;
+
+        // REFUND arrives first (no attempt yet) → pending synthetic row.
+        let refund = process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &decoded_notification(
+                r#"{"notificationType":"REFUND","notificationUUID":"uuid-race-1",
+                    "data":{"bundleId":"com.herald.test"}}"#,
+            ),
+            &decoded_transaction(
+                r#"{"originalTransactionId":"orig-race-gate-1","productId":"prod.race-gate"}"#,
+            ),
+        )
+        .await;
+        assert!(
+            refund.is_err(),
+            "a REFUND with no attempt must surface as a retryable failure, not Ok"
+        );
+
+        // The purchase notification retries — its JWS predates the refund.
+        let purchase = process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &decoded_notification(
+                r#"{"notificationType":"SUBSCRIBED","notificationUUID":"uuid-race-2",
+                    "data":{"bundleId":"com.herald.test"}}"#,
+            ),
+            &decoded_transaction(
+                r#"{"originalTransactionId":"orig-race-gate-1","productId":"prod.race-gate"}"#,
+            ),
+        )
+        .await;
+        assert!(
+            purchase.is_err(),
+            "first purchase behind a recorded refund must refuse to fulfill"
+        );
+
+        // And nothing was fulfilled: no purchase attempt was created.
+        let attempts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_attempts
+             WHERE realm_id = $1 AND provider_reference = 'orig-race-gate-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            attempts, 0,
+            "no attempt may be created behind the refund's back"
+        );
+    }
+
+    /// Review 20260919 finding 4 — the retry sweep
+    /// (PaymentEventRetryJob → reprocess_apple_event) must be able to re-run
+    /// the no-attempt REFUND row from its stored payload: the live webhook
+    /// always answers Apple 200, so no provider redelivery will ever bring
+    /// the JWS back. Before the attempt exists the reprocess stays a
+    /// retryable failure; once the attempt appears it runs the revoke and
+    /// flips the row processed. The old reprocess entry hard-required
+    /// signedPayload and burned the row in a BadRequest backoff loop.
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_retry_sweep_reprocesses_no_attempt_refund_row(ctx: &mut AppleWebhookContext) {
+        let realm_id = ctx._realm_id.clone();
+        let mapping_id =
+            insert_apple_mapping(ctx, &realm_id, "prod.sweep-refund", "recurring", None).await;
+        let user_id = seed_apple_owner_and_subscription(
+            ctx,
+            &realm_id,
+            "orig-sweep-refund-1",
+            "prod.sweep-refund",
+        )
+        .await;
+
+        // REFUND arrives with no attempt → pending synthetic row carrying the
+        // decoded notification identity for the sweep.
+        let outcome = process_apple_notification_decoded(
+            &ctx.app_state,
+            &realm_id,
+            &local_verifier(),
+            &decoded_notification(
+                r#"{"notificationType":"REFUND","notificationUUID":"uuid-sweep-1",
+                    "data":{"bundleId":"com.herald.test"}}"#,
+            ),
+            &decoded_transaction(
+                r#"{"originalTransactionId":"orig-sweep-refund-1","productId":"prod.sweep-refund"}"#,
+            ),
+        )
+        .await;
+        assert!(
+            outcome.is_err(),
+            "no-attempt REFUND stays a retryable failure"
+        );
+
+        let (payload, event_type): (serde_json::Value, String) = sqlx::query_as(
+            "SELECT payload, event_type FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'apple:orig-sweep-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("the pending REFUND row must exist");
+
+        // Sweep while no attempt exists: still a retryable failure, row stays
+        // unprocessed (NOT a BadRequest dead loop — the payload is understood).
+        let still_pending = herald_api_billing::iap_handlers::reprocess_apple_event(
+            (*ctx.app_state).clone(),
+            realm_id.clone(),
+            payload.clone(),
+            event_type.clone(),
+        )
+        .await;
+        assert!(
+            still_pending.is_err(),
+            "no attempt yet → the sweep must keep the row retryable, got {still_pending:?}"
+        );
+        let (processed,): (bool,) = sqlx::query_as(
+            "SELECT processed FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'apple:orig-sweep-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert!(
+            !processed,
+            "the row must stay pending while no attempt exists"
+        );
+
+        // The attempt appears (receipt submission / reconciliation).
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference, provider_status,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'apple', 'entitlement_mapping', $4,
+                     999, 'usd', 'Succeeded', 'orig-sweep-refund-1', 'succeeded',
+                     NOW() + INTERVAL '1 hour', NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed purchase attempt");
+
+        // Sweep again: the revoke runs from the stored payload alone and the
+        // row flips processed.
+        herald_api_billing::iap_handlers::reprocess_apple_event(
+            (*ctx.app_state).clone(),
+            realm_id.clone(),
+            payload,
+            event_type,
+        )
+        .await
+        .expect("the sweep must run the revoke once the attempt exists");
+
+        let (status,): (String,) = sqlx::query_as(
+            "SELECT status FROM subscription \
+             WHERE realm_id = $1 AND payment_provider = 'apple' \
+               AND external_subscription_id = 'orig-sweep-refund-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            status, "canceled",
+            "the swept refund must cancel the subscription"
+        );
+        let (processed,): (bool,) = sqlx::query_as(
+            "SELECT processed FROM payment_event \
+             WHERE realm_id = $1 AND external_event_id = 'apple:orig-sweep-refund-1:\"REFUND\"'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert!(processed, "the swept refund event must be marked processed");
+    }
 }

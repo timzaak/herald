@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+hex = { workspace = true }
+redis = { workspace = true }
+sha2 = { workspace = true }
 herald-api-base = { path = "../api-base" }
 herald-core = { path = "../core" }
 axum = { workspace = true }

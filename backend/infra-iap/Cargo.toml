@@ -18,6 +18,7 @@ jsonwebtoken = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 app-store-server-library = { workspace = true }
 http = { workspace = true }
+urlencoding = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

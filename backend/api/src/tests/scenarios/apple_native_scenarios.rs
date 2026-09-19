@@ -867,3 +867,55 @@ async fn apple_native_privaterelay_email_treated_as_real(ctx: &mut TestContext) 
         "privaterelay address must be stored as the real email, not a placeholder (DEC-005)"
     );
 }
+
+/// 回归（审计 run-1：find_or_create_user_by_email:
+/// unverified-email-account-creation）：Apple 原生登录携带 email 但
+/// `email_verified=false` 时，不得以该未验证邮箱自动建号 —— 未验证邮箱建号
+/// 构成邮箱抢注（真实持有者之后注册撞 UNIQUE 409）与跨主体账号共享
+/// （持有者后续以验证断言进入时按邮箱匹配到攻击者共建的账号）。三个入口
+/// （Apple native、Apple web redirect、通用 provider callback）共用
+/// find_or_create_user_by_email，此门在建号臂一并关闭。占位符邮箱
+/// （`{sub}@apple.placeholder`）不受影响（上一测试已钉）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn apple_native_unverified_email_rejected_no_account_created(ctx: &mut TestContext) {
+    enable_apple_provider(ctx).await;
+    enable_registration(ctx).await;
+    let jwks = spawn_apple_default_jwks().await;
+    let jwks_url = full_apple_jwks_url(&jwks.0.uri());
+
+    let apple_sub = format!("apple-unverified-{}", uuid::Uuid::now_v7());
+    let unverified_email = format!("apple-unverified-{}@test.com", uuid::Uuid::now_v7());
+    let id_token = mint_test_apple_id_token(&MintAppleIdTokenOpts {
+        sub: apple_sub.clone(),
+        email: Some(unverified_email.clone()),
+        email_verified: Some("false".to_string()),
+        ..Default::default()
+    });
+
+    let resp = post_apple_native(ctx, &jwks_url, &id_token, &ctx._client_id, None).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "unverified provider email must not auto-create an account"
+    );
+
+    // Neither the account nor the provider link may exist: the login had no
+    // lasting effect.
+    let account_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&ctx._realm_id)
+            .bind(&unverified_email)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        account_count, 0,
+        "no account may be keyed by the unverified email"
+    );
+    assert_eq!(
+        count_provider_links_by_open_id(ctx, &apple_sub).await,
+        0,
+        "no provider link may survive the rejected login"
+    );
+}

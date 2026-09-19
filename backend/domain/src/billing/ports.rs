@@ -64,6 +64,27 @@ pub trait BillingRepository: Send + Sync {
         id: Uuid,
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
+    /// Atomically claim a payment_event for a recovery re-run: the in-flight
+    /// lease (`processing_started_at`) must be absent (released by a failed
+    /// prior run) or older than `stale_after_secs` (the prior run died
+    /// mid-flight). Returns `true` when this caller won the claim — the lease
+    /// moves to now, so concurrent losers see a fresh lease and must not
+    /// double-run.
+    fn claim_payment_event_for_processing(
+        &self,
+        id: Uuid,
+        stale_after_secs: i64,
+    ) -> impl Future<Output = Result<bool, CoreError>> + Send;
+
+    /// Release the in-flight lease on a payment_event (NULL out
+    /// `processing_started_at`) after a failed run, so the next recovery
+    /// attempt can claim it immediately instead of waiting out the stale
+    /// window.
+    fn release_payment_event_lease(
+        &self,
+        id: Uuid,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
+
     /// Find subscription by client app ID
     fn find_subscription_by_client_app_id(
         &self,

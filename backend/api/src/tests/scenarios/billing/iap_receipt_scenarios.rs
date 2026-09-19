@@ -71,6 +71,50 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap_or(Value::Null)
     }
 
+    /// Standard Google subscription-purchase scaffolding for the dedup/lease
+    /// regressions: admin session, google recurring mapping, Developer-API
+    /// mock stubs (token + subscription get + acknowledge success) and the
+    /// realm's service-account config pointed at the mock. Tests layer
+    /// their own seeds and extra stubs on top.
+    #[allow(clippy::type_complexity)]
+    async fn setup_google_subscription_purchase(
+        ctx: &IapReceiptContext,
+        email: &str,
+        purchase_token: &str,
+    ) -> (String, String, Uuid, GooglePlayMockServer) {
+        let realm_id = ctx._realm_id.clone();
+        let (token, user_id_str) = create_admin_session_with_user(ctx, email, 1800).await;
+        let mapping_id =
+            insert_mapping(ctx, &realm_id, "google", "pro_monthly", "recurring", "pro").await;
+        let google_mock = GooglePlayMockServer::start().await;
+        google_mock.mount_token_stub().await;
+        google_mock
+            .mount_subscription_get_success(
+                "com.herald.app",
+                purchase_token,
+                "pro_monthly",
+                &user_id_str,
+            )
+            .await;
+        google_mock
+            .mount_subscription_acknowledge_success("com.herald.app", purchase_token)
+            .await;
+        let rsa_pem = fresh_rsa_pem();
+        let sa_json = build_service_account_json(
+            "svc@herald-test.iam.gserviceaccount.com",
+            std::str::from_utf8(&rsa_pem).unwrap(),
+        );
+        insert_google_realm_config(
+            &ctx.app_state.pool,
+            &realm_id,
+            "com.herald.app",
+            &sa_json,
+            Some(&google_mock.base_url()),
+        )
+        .await;
+        (token, user_id_str, mapping_id, google_mock)
+    }
+
     /// Insert a one_time (consumable) Apple / Google mapping directly into
     /// `provider_entitlement_mappings` and return its id.
     async fn insert_mapping(
@@ -830,21 +874,23 @@ mod tests {
             "ack failure must surface as 422 — attempt NOT marked succeeded"
         );
 
-        // No payment_event row must exist for this token — the handler aborts
-        // at the ack step (before the fulfill_provider_event + create_event
-        // tail), so the attempt is left non-succeeded and un-fulfilled.
-        let event_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM payment_event
-             WHERE payment_provider = 'google'
-               AND (external_event_id = $1 OR external_event_id LIKE '%' || $1 || '%')",
+        // Inbox-mode dedup contract (audit run-1:
+        // iap-receipt-dedup-after-fulfillment): the dedup row is inserted
+        // BEFORE fulfillment, so it EXISTS after the ack failure — but it
+        // must remain UNPROCESSED (retryable) rather than a processed
+        // tombstone: a resubmit re-runs through the dead-zone recovery, and
+        // the retry sweep must never treat the failed claim as done.
+        let (processed,): (bool,) = sqlx::query_as(
+            "SELECT processed FROM payment_event
+             WHERE payment_provider = 'google' AND external_event_id = $1",
         )
         .bind(purchase_token)
         .fetch_one(&ctx.app_state.pool)
         .await
-        .unwrap();
-        assert_eq!(
-            event_count, 0,
-            "no payment_event must be recorded when ack fails (rollback regression)"
+        .expect("the inbox dedup row must exist after a failed ack");
+        assert!(
+            !processed,
+            "a failed submission must leave its dedup row unprocessed (retryable)"
         );
     }
 
@@ -1162,5 +1208,322 @@ mod tests {
             "outside-Herald consume must stay rejected, body={body}"
         );
         assert_eq!(body["error"], "already_consumed");
+    }
+
+    /// Review 20260919 finding 1 — dead dedup-row recovery. The inbox-mode
+    /// dedup row is inserted BEFORE the attempt exists; a prior submission
+    /// that died between the insert and its attempt creation (transient DB
+    /// failure, invalid target_type, crash — the lease released by the
+    /// failure exit or long expired) used to leave the paid receipt
+    /// permanently unfulfillable: every resubmission hit the unique conflict
+    /// with prior_attempt=None and answered a 409 no retry could clear. The
+    /// conflict branch must instead claim the released row and re-run.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_dead_dedup_row_is_recovered_not_409(
+        ctx: &mut IapReceiptContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let purchase_token = "gplay-token-deadrow";
+        let (token, _user_id_str, mapping_id, _google_mock) =
+            setup_google_subscription_purchase(ctx, "iap-google-deadrow@test.com", purchase_token)
+                .await;
+
+        // The dead row: a prior submission claimed the dedup row but died
+        // before creating its attempt (lease NULL — released by its failure
+        // exit — and long since created).
+        sqlx::query(
+            "INSERT INTO payment_event
+                (id, realm_id, external_event_id, payment_provider, event_type,
+                 payload, processed, processing_started_at, created_at)
+             VALUES ($1, $2, $3, 'google', 'iap_recurring',
+                     '{}', false, NULL, NOW() - INTERVAL '10 minutes')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed dead dedup row");
+
+        let app = ctx.create_unified_test_router();
+        let response = app
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                json!({
+                    "provider": "google",
+                    "receipt": purchase_token,
+                    "productId": "pro_monthly",
+                    "targetType": "entitlement_mapping",
+                    "targetId": mapping_id,
+                    "productType": "recurring",
+                }),
+            ))
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = body_json(response).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "dead-row resubmission must recover, body={body}"
+        );
+        assert_eq!(body["status"], "succeeded");
+
+        // Recovery re-used the dead row (no second payment_event).
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_event
+             WHERE payment_provider = 'google' AND external_event_id = $1",
+        )
+        .bind(purchase_token)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1, "recovery must re-use the dead dedup row");
+    }
+
+    /// Review 20260919 finding 1 — the mutual-exclusion half. An unprocessed
+    /// row whose lease is FRESH is a concurrent submission sitting between
+    /// its dedup claim and the attempt creation; it must keep answering 409.
+    /// The conditional (lease-age-gated) claim is what keeps two concurrent
+    /// resubmissions from both recovering into a double fulfillment.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_fresh_dedup_lease_answers_409(ctx: &mut IapReceiptContext) {
+        let realm_id = ctx._realm_id.clone();
+        let purchase_token = "gplay-token-lease";
+        let (token, _user_id_str, mapping_id, _google_mock) =
+            setup_google_subscription_purchase(ctx, "iap-google-lease@test.com", purchase_token)
+                .await;
+
+        // The in-flight row: claimed moments ago, no attempt yet.
+        sqlx::query(
+            "INSERT INTO payment_event
+                (id, realm_id, external_event_id, payment_provider, event_type,
+                 payload, processed, processing_started_at, created_at)
+             VALUES ($1, $2, $3, 'google', 'iap_recurring',
+                     '{}', false, NOW(), NOW())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed in-flight dedup row");
+
+        let app = ctx.create_unified_test_router();
+        let response = app
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                json!({
+                    "provider": "google",
+                    "receipt": purchase_token,
+                    "productId": "pro_monthly",
+                    "targetType": "entitlement_mapping",
+                    "targetId": mapping_id,
+                    "productType": "recurring",
+                }),
+            ))
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = body_json(response).await;
+        assert_eq!(
+            status,
+            StatusCode::CONFLICT,
+            "a fresh lease means a concurrent submission is in flight, body={body}"
+        );
+
+        // And the in-flight submission must not have been fulfilled by the
+        // loser (no attempt was created on its behalf).
+        let attempts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_attempts WHERE provider_reference = $1",
+        )
+        .bind(purchase_token)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(attempts, 0, "the 409 loser must not fulfill anything");
+    }
+
+    /// Review 20260919 finding 2 — a transient Google acknowledge/consume
+    /// failure must roll the attempt back to Failed (from Pending) so a
+    /// resubmission re-runs it. The old code returned 422 leaving the
+    /// attempt Pending: every resubmission then replayed "pending" forever
+    /// (the conflict branch only re-runs Failed attempts) — a paid purchase
+    /// that never ships.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_ack_failure_resubmission_recovers(
+        ctx: &mut IapReceiptContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let purchase_token = "gplay-token-ackrec";
+        let (token, _user_id_str, mapping_id, google_mock) =
+            setup_google_subscription_purchase(ctx, "iap-google-ackrec@test.com", purchase_token)
+                .await;
+        // Mounted after the success stub: the one-shot failure (highest
+        // priority, single match) drives the first submission's 422; the
+        // exhausted mock stops matching, so the resubmit reaches the success
+        // stub — a transient outage that heals.
+        google_mock
+            .mount_subscription_acknowledge_failure_once("com.herald.app", purchase_token)
+            .await;
+
+        let body_json_req = json!({
+            "provider": "google",
+            "receipt": purchase_token,
+            "productId": "pro_monthly",
+            "targetType": "entitlement_mapping",
+            "targetId": mapping_id,
+            "productType": "recurring",
+        });
+
+        // First submission: the Developer API 500s the acknowledge.
+        let app = ctx.create_unified_test_router();
+        let r1 = app
+            .clone()
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                body_json_req.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(r1.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        // The fix: the attempt must be Failed (not stranded Pending).
+        let (attempt_status, provider_status): (String, Option<String>) = sqlx::query_as(
+            "SELECT status, provider_status FROM payment_attempts
+             WHERE realm_id = $1 AND provider_reference = $2",
+        )
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .expect("the attempt row must exist");
+        assert_eq!(
+            attempt_status, "Failed",
+            "an ack failure must roll the attempt back to Failed so the resubmit re-runs it"
+        );
+        assert_eq!(provider_status.as_deref(), Some("google_ack_failed"));
+
+        // The transient failure heals; the user resubmits and the recovery
+        // re-runs the whole submission.
+        let r2 = app
+            .oneshot(iap_receipt_request(&realm_id, &token, body_json_req))
+            .await
+            .unwrap();
+        let status = r2.status();
+        let body = body_json(r2).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "resubmission after a transient ack failure must recover, body={body}"
+        );
+        assert_eq!(body["status"], "succeeded");
+    }
+
+    /// Review 20260919 finding 2 — the crash-window half. A prior submission
+    /// died between attempt creation and its terminal marking, leaving the
+    /// attempt Pending under a long-expired lease. Replaying "pending"
+    /// forever is the stranded state; the conflict branch must flip the
+    /// orphan to Failed (abandoned_pending) and re-run on a fresh attempt.
+    #[test_context(IapReceiptContext)]
+    #[tokio::test]
+    async fn test_iap_receipt_google_stale_pending_attempt_abandoned_and_rerun(
+        ctx: &mut IapReceiptContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let purchase_token = "gplay-token-stalep";
+        let (token, user_id_str, mapping_id, _google_mock) =
+            setup_google_subscription_purchase(ctx, "iap-google-stalep@test.com", purchase_token)
+                .await;
+        let user_id: Uuid = user_id_str.parse().expect("user id is a uuid");
+
+        // The abandoned in-flight state: dedup row with a long-expired lease
+        // plus an orphan Pending attempt.
+        sqlx::query(
+            "INSERT INTO payment_event
+                (id, realm_id, external_event_id, payment_provider, event_type,
+                 payload, processed, processing_started_at, created_at)
+             VALUES ($1, $2, $3, 'google', 'iap_recurring',
+                     '{}', false, NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '10 minutes')",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed stale-lease dedup row");
+        let orphan_attempt_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference,
+                 expires_at, created_at, updated_at)
+             VALUES ($1, $2, $3, 'google', 'entitlement_mapping', $4,
+                     999, 'usd', 'Pending', $5,
+                     NOW() + INTERVAL '1 hour', NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '10 minutes')",
+        )
+        .bind(orphan_attempt_id)
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .bind(purchase_token)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed orphan pending attempt");
+
+        let app = ctx.create_unified_test_router();
+        let response = app
+            .oneshot(iap_receipt_request(
+                &realm_id,
+                &token,
+                json!({
+                    "provider": "google",
+                    "receipt": purchase_token,
+                    "productId": "pro_monthly",
+                    "targetType": "entitlement_mapping",
+                    "targetId": mapping_id,
+                    "productType": "recurring",
+                }),
+            ))
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = body_json(response).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "stale-Pending resubmission must recover, body={body}"
+        );
+        assert_eq!(body["status"], "succeeded");
+
+        // The orphan was flipped to a clean terminal Failed; the new attempt
+        // is the one that succeeded.
+        let (orphan_status, orphan_provider_status): (String, Option<String>) =
+            sqlx::query_as("SELECT status, provider_status FROM payment_attempts WHERE id = $1")
+                .bind(orphan_attempt_id)
+                .fetch_one(&ctx.app_state.pool)
+                .await
+                .unwrap();
+        assert_eq!(orphan_status, "Failed");
+        assert_eq!(orphan_provider_status.as_deref(), Some("abandoned_pending"));
+        let succeeded: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payment_attempts
+             WHERE realm_id = $1 AND provider_reference = $2 AND status = 'Succeeded'",
+        )
+        .bind(&realm_id)
+        .bind(purchase_token)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            succeeded, 1,
+            "the re-run must have created a succeeded attempt"
+        );
     }
 }

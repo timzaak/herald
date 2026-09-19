@@ -206,7 +206,7 @@
 **适用性**: 适用
 
 - 接口能力范围：积分账户目录管理类（管理员）、覆盖集与 Mapping 归属管理类、积分消费类（SDK，按应用跨池）、余额/历史查询类（按账户维度）、购买/订阅履约与生命周期回调类
-- 访问控制：积分账户目录与归属管理需 Realm Admin（`points.manage`）；SDK 消费需 API Key 授权并校验 `client_app_scope`；用户查询类仅允许查询本人按账户的数据
+- 访问控制：积分账户目录与归属管理需 Realm Admin（`points.manage`）；SDK 消费与发放均需 API Key Principal 持 `points.manage`（消费与发放同一权限点，另校验 `client_app_scope`；余额/交易查询仅需 `points.view`）；用户查询类仅允许查询本人按账户的数据
 - 消费授权双层校验：API Key 的 `client_app_scope` 为第一层授权，积分账户覆盖集为第二层池过滤；两者皆须通过
 - 发放显式路由：SDK/管理员主动发放类接口必须显式指定目标 `bucketId`（无默认值）；首次履约使用购买时的规则快照，续费使用 Mapping 当前规则集合，按各规则的目标账户路由；解析不到目标账户时 fail loud 拒绝入账
 - Realm 数据边界：所有接口严格遵守 Realm 隔离，防止跨 Realm 操作或消费

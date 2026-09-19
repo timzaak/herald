@@ -4,10 +4,12 @@ use utoipa::ToSchema;
 use validator::Validate;
 
 use axum_valid::Valid;
+use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::client::ports::ClientService;
+use herald_core::domain::security_constants::TURNSTILE_STATUS_IP_RATE_LIMIT;
 
 #[derive(Serialize, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -50,8 +52,20 @@ pub struct TurnstileStatusResponse {
 pub async fn get_turnstile_status(
     Path(realm_id): Path<String>,
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Valid(Query(payload)): Valid<Query<TurnstileStatusRequest>>,
 ) -> Result<ApiResult<TurnstileStatusResponse>, ApiError> {
+    // Per-IP cap, mirroring the sibling anonymous public GETs (OIDC
+    // discovery / JWKS): this endpoint answers before any authentication and
+    // must not be probed at scale.
+    rate_limit_hit(
+        &state,
+        format!("rl:turnstile-status:ip:{ip}"),
+        TURNSTILE_STATUS_IP_RATE_LIMIT.0,
+        TURNSTILE_STATUS_IP_RATE_LIMIT.1,
+    )
+    .await?;
+
     let client_app = state
         .service
         .client_service()
@@ -59,7 +73,10 @@ pub async fn get_turnstile_status(
         .await
         .map_err(|_| ApiError::unauthorized("Invalid clientId"))?;
     if !client_app.enabled {
-        return Err(ApiError::unauthorized("Client app is disabled"));
+        // Indistinguishable from the not-found branch: distinct bodies would
+        // give an anonymous caller a client-app existence / disable-state
+        // enumeration oracle (audit run-1: turnstile_status oracle).
+        return Err(ApiError::unauthorized("Invalid clientId"));
     }
 
     Ok(ApiResult::ok(TurnstileStatusResponse {

@@ -281,9 +281,7 @@ pub async fn verify_turnstile_for_client_app(
     // 生产环境若仍配置该测试 secret 则一律拒绝——否则人机校验会静默失效
     // （app_env 默认即 "production"，见 config::default_app_env）。
     if secret.trim() == "1x0000000000000000000000000000000AA" {
-        if state.app_env.eq_ignore_ascii_case("production")
-            || state.app_env.eq_ignore_ascii_case("prod")
-        {
+        if herald_core::config::is_production(&state.app_env) {
             tracing::error!(
                 client_id = %client_app.client_id,
                 "Turnstile test secret is configured in a production environment — rejecting"

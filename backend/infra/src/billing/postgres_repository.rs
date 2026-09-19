@@ -705,9 +705,12 @@ impl PostgresBillingRepository {
         .await
         .map_err(|e| CoreError::DatabaseError(format!("Failed to count holders: {}", e)))?;
 
-        let has_rule_or_quota_references: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM points_distribution_rules WHERE bucket_id = $1) \
-             OR EXISTS (SELECT 1 FROM points_quota_entitlements WHERE bucket_id = $1)",
+        // Distribution rules / quota entitlements referencing the bucket also
+        // block the delete; counted (not EXISTS) so the 409 body can tell the
+        // caller WHICH dimension blocks it.
+        let rule_references: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM points_distribution_rules WHERE bucket_id = $1) \
+               + (SELECT COUNT(*) FROM points_quota_entitlements WHERE bucket_id = $1)",
         )
         .bind(bucket_id)
         .fetch_one(&mut *tx)
@@ -733,7 +736,7 @@ impl PostgresBillingRepository {
 
         if active_subscriptions > 0
             || holders_with_balance > 0
-            || has_rule_or_quota_references
+            || rule_references > 0
             || history_references > 0
         {
             // Roll back before surfacing the structured error.
@@ -742,6 +745,7 @@ impl PostgresBillingRepository {
                 bucket_id,
                 active_subscriptions,
                 holders_with_balance,
+                rule_references,
                 history_references,
             });
         }
@@ -1505,6 +1509,42 @@ impl BillingRepository for PostgresBillingRepository {
         active_model.processed = Set(true);
 
         active_model.update(&self.db).await?;
+        Ok(())
+    }
+
+    async fn claim_payment_event_for_processing(
+        &self,
+        id: Uuid,
+        stale_after_secs: i64,
+    ) -> Result<bool, CoreError> {
+        let now: sea_orm::prelude::DateTimeWithTimeZone = chrono::Utc::now().into();
+        let cutoff: sea_orm::prelude::DateTimeWithTimeZone =
+            (chrono::Utc::now() - chrono::Duration::seconds(stale_after_secs)).into();
+        let result = payment_event::Entity::update_many()
+            .col_expr(
+                payment_event::Column::ProcessingStartedAt,
+                sea_orm::sea_query::Expr::value(now),
+            )
+            .filter(payment_event::Column::Id.eq(id))
+            .filter(
+                sea_orm::sea_query::Condition::any()
+                    .add(payment_event::Column::ProcessingStartedAt.is_null())
+                    .add(payment_event::Column::ProcessingStartedAt.lte(cutoff)),
+            )
+            .exec(&self.db)
+            .await?;
+        Ok(result.rows_affected == 1)
+    }
+
+    async fn release_payment_event_lease(&self, id: Uuid) -> Result<(), CoreError> {
+        payment_event::Entity::update_many()
+            .col_expr(
+                payment_event::Column::ProcessingStartedAt,
+                sea_orm::sea_query::Expr::value(None::<sea_orm::prelude::DateTimeWithTimeZone>),
+            )
+            .filter(payment_event::Column::Id.eq(id))
+            .exec(&self.db)
+            .await?;
         Ok(())
     }
 

@@ -116,6 +116,7 @@ mod tests {
             realm_id: realm_id.clone(),
             invoice_id: created.id,
             target_status: InvoiceStatus::Issued,
+            expected_current_status: InvoiceStatus::Draft,
             actor_user_id: None,
             actor_type: ActorType::User,
             void_reason: None,
@@ -218,6 +219,7 @@ mod tests {
                     realm_id: realm_id.clone(),
                     invoice_id: created.id,
                     target_status: InvoiceStatus::Issued,
+                    expected_current_status: InvoiceStatus::Draft,
                     actor_user_id: None,
                     actor_type: ActorType::User,
                     void_reason: None,
@@ -232,6 +234,7 @@ mod tests {
                         realm_id: realm_id.clone(),
                         invoice_id: created.id,
                         target_status: InvoiceStatus::Paid,
+                        expected_current_status: InvoiceStatus::Issued,
                         actor_user_id: None,
                         actor_type: ActorType::User,
                         void_reason: None,
@@ -245,6 +248,7 @@ mod tests {
                         realm_id: realm_id.clone(),
                         invoice_id: created.id,
                         target_status: InvoiceStatus::Void,
+                        expected_current_status: InvoiceStatus::Issued,
                         actor_user_id: None,
                         actor_type: ActorType::User,
                         void_reason: case.void_reason.map(|s| s.to_string()),
@@ -301,6 +305,7 @@ mod tests {
             realm_id: realm_id.clone(),
             invoice_id: created.id,
             target_status: InvoiceStatus::Issued,
+            expected_current_status: InvoiceStatus::Draft,
             actor_user_id: None,
             actor_type: ActorType::User,
             void_reason: None,
@@ -379,6 +384,7 @@ mod tests {
                 realm_id: realm_id.clone(),
                 invoice_id: created.id,
                 target_status: InvoiceStatus::Issued,
+                expected_current_status: InvoiceStatus::Draft,
                 actor_user_id: None,
                 actor_type: ActorType::User,
                 void_reason: None,
@@ -399,6 +405,7 @@ mod tests {
             realm_id: realm_id.clone(),
             invoice_id: future_inv.id,
             target_status: InvoiceStatus::Issued,
+            expected_current_status: InvoiceStatus::Draft,
             actor_user_id: None,
             actor_type: ActorType::User,
             void_reason: None,
@@ -479,6 +486,7 @@ mod tests {
             realm_id: realm_id.clone(),
             invoice_id: created.id,
             target_status: InvoiceStatus::Issued,
+            expected_current_status: InvoiceStatus::Draft,
             actor_user_id: None,
             actor_type: ActorType::User,
             void_reason: None,
@@ -536,6 +544,109 @@ mod tests {
         assert_eq!(
             overdue_events_after_run1, overdue_events_after_run2,
             "Second run should not add duplicate overdue history entries"
+        );
+    }
+
+    // =========================================================================
+    // Regression (audit run-1: mark-overdue-by-system-missing-status-precondition)
+    // =========================================================================
+
+    /// Paid/Void 是发票终态：overdue 扫描列出候选（status='issued'）与逐行
+    /// UPDATE 之间的 check-then-act 窗口里，一张已并发提交为 paid 的发票
+    /// 绝不能被系统改写成 overdue。回归：以扫描的期望状态（issued）对一张
+    /// 已 paid 的发票执行 overdue 写入必须 Conflict（旧代码直接覆盖成功），
+    /// 且终态之后 void 也必须被拒。
+    #[test_context(InvoiceTestContext)]
+    #[tokio::test]
+    async fn test_overdue_write_rejected_after_paid_terminal_state(ctx: &mut InvoiceTestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let account_id = ensure_test_account(ctx, &realm_id).await;
+        let repo = ctx.app_state.invoice_repository.clone();
+
+        // Create + issue an invoice with a past due_date (sweep candidate).
+        let past_date = (Utc::now() - Duration::days(5)).date_naive();
+        let input = build_new_invoice(&realm_id, account_id, past_date);
+        let created = repo.create_invoice(input).await.unwrap();
+        repo.transition_status(InvoiceStatusTransition {
+            realm_id: realm_id.clone(),
+            invoice_id: created.id,
+            target_status: InvoiceStatus::Issued,
+            expected_current_status: InvoiceStatus::Draft,
+            actor_user_id: None,
+            actor_type: ActorType::User,
+            void_reason: None,
+            issue_date: None,
+            paid_at: None,
+        })
+        .await
+        .unwrap();
+
+        // The candidate gets paid between the sweep listing and its write.
+        repo.transition_status(InvoiceStatusTransition {
+            realm_id: realm_id.clone(),
+            invoice_id: created.id,
+            target_status: InvoiceStatus::Paid,
+            expected_current_status: InvoiceStatus::Issued,
+            actor_user_id: None,
+            actor_type: ActorType::User,
+            void_reason: None,
+            issue_date: None,
+            paid_at: None,
+        })
+        .await
+        .unwrap();
+
+        // The sweep's write carries the stale expectation (listed as issued)
+        // and must be refused, not overwrite the terminal paid state.
+        let stale = repo
+            .transition_status(InvoiceStatusTransition {
+                realm_id: realm_id.clone(),
+                invoice_id: created.id,
+                target_status: InvoiceStatus::Overdue,
+                expected_current_status: InvoiceStatus::Issued,
+                actor_user_id: None,
+                actor_type: ActorType::System,
+                void_reason: None,
+                issue_date: None,
+                paid_at: None,
+            })
+            .await;
+        assert!(
+            matches!(
+                stale,
+                Err(herald_core::domain::common::entities::app_errors::CoreError::Conflict(_))
+            ),
+            "overdue write against a paid invoice must Conflict, got {stale:?}"
+        );
+
+        // Terminal state holds: the invoice is still paid, and a later void
+        // with the stale issued expectation is refused too.
+        let detail = repo
+            .find_with_items(&realm_id, created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.invoice.status, InvoiceStatus::Paid);
+
+        let void_attempt = repo
+            .transition_status(InvoiceStatusTransition {
+                realm_id: realm_id.clone(),
+                invoice_id: created.id,
+                target_status: InvoiceStatus::Void,
+                expected_current_status: InvoiceStatus::Issued,
+                actor_user_id: None,
+                actor_type: ActorType::User,
+                void_reason: Some("late void".to_string()),
+                issue_date: None,
+                paid_at: None,
+            })
+            .await;
+        assert!(
+            matches!(
+                void_attempt,
+                Err(herald_core::domain::common::entities::app_errors::CoreError::Conflict(_))
+            ),
+            "void write against a paid invoice must Conflict, got {void_attempt:?}"
         );
     }
 }

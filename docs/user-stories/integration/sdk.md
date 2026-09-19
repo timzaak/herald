@@ -191,18 +191,29 @@ Then 返回权限不足错误
 ```gherkin
 Given SDK 已使用 API Key 初始化，且具备积分发放权限
 And 指定的用户存在于目标 Realm
+And 目标 Realm 中已存在一个启用的积分 Bucket
 When 调用 SDK 向该用户发放 100 积分
+And 指定发放目标为该积分 Bucket
 And 设置发放原因为 "Level up bonus"
 And 设置有效期为 30 天
 Then 返回发放成功
-And 用户的积分余额增加 100
+And 该 Bucket 内用户的积分余额增加 100
 And 该批积分将在 30 天后过期
+```
+
+**场景 1b：未指定积分 Bucket 被拒**
+```gherkin
+Given SDK 已使用 API Key 初始化，且具备积分发放权限
+And 指定的用户存在于目标 Realm
+When 调用 SDK 向该用户发放积分但未指定目标积分 Bucket
+Then 返回参数校验错误（错误码 grant_bucket_required）
+And 提示每笔发放必须指定目标积分 Bucket
 ```
 
 **场景 2：发放积分不设置有效期（永久有效）**
 ```gherkin
 Given SDK 已使用 API Key 初始化，且具备积分发放权限
-When 调用 SDK 向用户发放积分
+When 调用 SDK 向用户发放积分并指定目标积分 Bucket
 And 不设置有效期
 Then 返回发放成功
 And 该批积分永久有效

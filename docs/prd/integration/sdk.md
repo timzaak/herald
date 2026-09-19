@@ -25,7 +25,7 @@
 
 - **[US-TP-017]** 通过 SDK 发放积分，优先级 P0，来源 `docs/user-stories/integration/sdk.md`
   - 角色：Third-Party App
-  - 摘要：通过 SDK 向指定用户发放积分（可设有效期），数量须为正且不超过 1,000,000
+  - 摘要：通过 SDK 向指定用户发放积分（必须指定目标 Credit Bucket，可设有效期），数量须为正且不超过 1,000,000
 
 ### 1.2 优先级汇总
 
@@ -43,7 +43,7 @@
 - SDK 新增 Realm 管理方法：创建、查询列表、查询详情
 - SDK 新增用户管理方法：创建、查询列表、查询详情
 - SDK 新增 Client App 管理方法：创建、查询列表、查询详情
-- SDK 积分发放方法：向指定用户显式发放积分（可设发放原因与有效期；数量为 1 ~ 1,000,000）
+- SDK 积分发放方法：向指定用户显式发放积分，必须指定目标 Credit Bucket（`bucketId` 必填，缺失或非法返回 400 `grant_bucket_required`）；可设发放原因与有效期；数量为 1 ~ 1,000,000
 - 后端 api-ext 模块新增对应的外部 API 端点
 - SDK 方法保持与现有风格一致：基于 reqwest、使用 API Key 认证、统一的错误处理
 - 新增资源管理端点要求 API Key Principal 具备对应 RBAC 权限
@@ -78,7 +78,7 @@
 - **Realm 管理**：创建、查询列表、查询详情
 - **用户管理**：创建、查询列表、查询详情（P0）
 - **Client App 管理**：创建、查询列表、查询详情
-- **积分发放**：向指定用户显式发放积分（P0，数量 1 ~ 1,000,000）
+- **积分发放**：向指定用户显式发放积分（P0，必须指定目标 Credit Bucket，数量 1 ~ 1,000,000）
 - **与现有 SDK 风格一致**：共享 Client 实例、统一错误类型、API Key 认证
 - **统一 Principal 权限语义**：API Key 代表第三方服务端机器凭据；API Key 自身作为 Principal 参与授权，能力由角色/权限决定，资源边界由 Realm 隔离决定
 
@@ -125,8 +125,9 @@
 
 4. **积分发放** -- US-TP-017（P0）
    - 向指定用户发放积分，可设置发放原因与有效期（不设置为永久有效）
+   - 必须指定目标 Credit Bucket（`bucketId`）：缺失或非法返回 400 `grant_bucket_required`（多钱包模型下每笔发放必须落到显式 Bucket）
    - 数量校验：必须为正数且不超过 1,000,000，越界返回参数校验错误（`invalid_amount`）
-   - 发放需要 API Key Principal 具备积分发放权限；跨 Realm 目标用户被拒绝
+   - 发放需要 API Key Principal 具备 `points.manage` 权限（与 SDK 消费同一权限点）；跨 Realm 目标用户被拒绝
 
 ### 5.2 验收目标
 

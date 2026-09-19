@@ -17,11 +17,11 @@ use crate::models::PlatformCert;
 use crate::models::{EncryptedCert, RawPlatformCertEntry};
 use crate::signing::decrypt_aes_gcm;
 
-/// Refresh a cached certificate set when it is within this long of expiry.
-const REFRESH_THRESHOLD_MINUTES: i64 = 30;
 /// Upper bound on how long a cached certificate set is trusted without
 /// re-checking expiry (defensive; WeChat certs are typically valid ~12 months).
 const CACHE_TTL_SECONDS: u64 = 6 * 3600;
+/// Default per-realm throttle on unknown-serial `/v3/certificates` refetches.
+const DEFAULT_REFETCH_THROTTLE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// In-memory cache of downloaded platform certificates, keyed by realm id.
 /// Cheap to clone (Arc inner); the process-wide default is shared across all
@@ -29,13 +29,31 @@ const CACHE_TTL_SECONDS: u64 = 6 * 3600;
 #[derive(Clone)]
 pub struct PlatformCertCache {
     inner: Cache<String, Arc<Vec<PlatformCert>>>,
+    /// Per-realm "a refetch ran recently" gates. WeChat's integration
+    /// contract requires re-fetching `/v3/certificates` on an unknown serial
+    /// (the platform rotates certificates on its own schedule), but an
+    /// anonymous webhook flood with made-up serials must not turn that into
+    /// one signed outbound download per request — the gate bounds it to one
+    /// download per throttle window per realm.
+    refetch_gates: Cache<String, ()>,
 }
 
 impl PlatformCertCache {
     pub fn new() -> Self {
+        Self::with_refetch_throttle(DEFAULT_REFETCH_THROTTLE)
+    }
+
+    /// Same cache semantics with a shortened unknown-serial refetch throttle,
+    /// so rotation convergence is testable without waiting out the
+    /// production window.
+    pub(crate) fn with_refetch_throttle(refetch_throttle: std::time::Duration) -> Self {
         Self {
             inner: Cache::builder()
                 .time_to_live(std::time::Duration::from_secs(CACHE_TTL_SECONDS))
+                .max_capacity(10_000)
+                .build(),
+            refetch_gates: Cache::builder()
+                .time_to_live(refetch_throttle)
                 .max_capacity(10_000)
                 .build(),
         }
@@ -51,18 +69,34 @@ impl PlatformCertCache {
             .await;
     }
 
-    /// Return the cached certificate matching `serial` only if it exists and is
-    /// not within the refresh threshold of expiry. Used to decide whether a
-    /// re-download is needed before verifying a callback.
-    pub fn find_fresh<'a>(
+    /// Claim the realm's unknown-serial refetch slot: `true` when no refetch
+    /// ran within the throttle window (this call claims the slot), `false`
+    /// while a recent refetch's gate is still live. Best-effort mutual
+    /// exclusion — concurrent callers may both win the race, which only
+    /// means a bounded handful of downloads, never one per request.
+    pub async fn try_begin_refetch(&self, realm_id: &str) -> bool {
+        if self.refetch_gates.get(realm_id).await.is_some() {
+            return false;
+        }
+        self.refetch_gates.insert(realm_id.to_string(), ()).await;
+        true
+    }
+
+    /// Return the cached certificate matching `serial` if it is still inside
+    /// its validity window. A certificate close to expiry REMAINS USABLE for
+    /// callback verification: during WeChat's rotation overlap the old
+    /// serial's callbacks must still verify against the cached key — only
+    /// set-refresh decisions (the refetch throttle) care about freshness,
+    /// never the usability of an individual still-valid key (review
+    /// 20260919 finding 6).
+    pub fn find_valid<'a>(
         certs: &'a [PlatformCert],
         serial: &str,
         now: DateTime<Utc>,
     ) -> Option<&'a PlatformCert> {
-        certs.iter().find(|c| {
-            c.serial_no == serial
-                && !c.expiring_within(now, chrono::Duration::minutes(REFRESH_THRESHOLD_MINUTES))
-        })
+        certs
+            .iter()
+            .find(|c| c.serial_no == serial && c.expire_time > now)
     }
 }
 
@@ -162,21 +196,51 @@ mod tests {
         assert!(certs[0].public_key_pem.contains("BEGIN CERTIFICATE"));
     }
 
+    // Intent (review 20260919 finding 6): a platform certificate stays USABLE
+    // for callback verification until it actually expires — during WeChat's
+    // rotation overlap the old serial's callbacks must verify against the
+    // cached key. The old find_fresh refused certificates within 30 minutes
+    // of expiry, rejecting callbacks whose correct key was sitting in the
+    // cache.
     #[test]
-    fn find_fresh_skips_expiring() {
+    fn find_valid_uses_certificates_until_expiry() {
         let now = Utc::now();
-        let fresh = PlatformCert {
-            serial_no: "fresh".into(),
-            public_key_pem: "k".into(),
-            expire_time: now + chrono::Duration::days(30),
-        };
-        let expiring = PlatformCert {
-            serial_no: "expiring".into(),
+        let close_to_expiry = PlatformCert {
+            serial_no: "overlapping".into(),
             public_key_pem: "k".into(),
             expire_time: now + chrono::Duration::minutes(5),
         };
-        let certs = vec![fresh.clone(), expiring];
-        assert!(PlatformCertCache::find_fresh(&certs, "expiring", now).is_none());
-        assert!(PlatformCertCache::find_fresh(&certs, "fresh", now).is_some());
+        let expired = PlatformCert {
+            serial_no: "expired".into(),
+            public_key_pem: "k".into(),
+            expire_time: now - chrono::Duration::minutes(1),
+        };
+        let certs = vec![close_to_expiry, expired];
+        assert!(PlatformCertCache::find_valid(&certs, "overlapping", now).is_some());
+        assert!(PlatformCertCache::find_valid(&certs, "expired", now).is_none());
+        assert!(PlatformCertCache::find_valid(&certs, "absent", now).is_none());
+    }
+
+    // Intent: an unknown serial must trigger at most one /v3/certificates
+    // refetch per realm per throttle window — WeChat's rotation contract
+    // requires the refetch, the throttle keeps made-up-serial floods from
+    // turning it into one signed outbound download per request.
+    #[tokio::test]
+    async fn refetch_throttle_gates_repeat_refetches() {
+        let cache = PlatformCertCache::with_refetch_throttle(std::time::Duration::from_millis(50));
+        assert!(cache.try_begin_refetch("realm").await);
+        assert!(
+            !cache.try_begin_refetch("realm").await,
+            "within the window a second refetch is rejected from the gate"
+        );
+        assert!(
+            cache.try_begin_refetch("other-realm").await,
+            "the gate is per realm"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        assert!(
+            cache.try_begin_refetch("realm").await,
+            "after the window the gate clears so a rotation can converge"
+        );
     }
 }

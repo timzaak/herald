@@ -264,6 +264,9 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 | `past_due` | 支付逾期 | 续费支付失败 |
 | `disputed` | 争议中 | 客户发起拒付（chargeback） |
 | `paused` | 暂停订阅 | 订阅被暂停 |
+| `entitlement_changed` | 非定向权益变更 | 订阅继续但映射的 entitlement_key 变化 |
+| `scheduled_cancel` | 预定周期末取消 | 取消请求在当前周期末生效（取消前仍有访问权） |
+| `refunded` | 退款 | 收到退款事件；记录退款上下文，不改变订阅状态（撤销走取消/过期路径） |
 
 **异常场景**：
 - 删除有活跃订阅的支付平台配置：拒绝操作并提示活跃订阅数量
@@ -310,7 +313,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 - 创建订阅：用户在第三方应用选择套餐 -> 重定向到支付页面 -> 完成支付 -> Webhook 通知 -> 创建订阅记录
 - 升级订阅：升降级编排（含按比例计费）由支付平台处理，Herald 不提供套餐化升降级；webhook 感知升级后立即撤销旧积分发放并执行新映射的升级规则
 - 降级订阅：Herald 仅更新订阅映射，不改变当前周期发放，待下次续费事件按新映射执行
-- 取消订阅：当前计费周期结束生效
+- 取消订阅：立即取消或周期末取消（`canceled` / `scheduled_cancel`），由 Provider webhook 事件决定（见 §4.2 用户自助取消）
 
 **Webhook 事件处理**：
 - 支持 Creem 的 checkout.completed、subscription.active/trialing/paid/paused/canceled/expired/update/scheduled_cancel、subscription.past_due、dispute.created、refund.created 事件

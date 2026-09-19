@@ -223,7 +223,7 @@ pub async fn build_app_state_with_migrations(
     migrations.run(pg_pool).await?;
     info!("Database migrations completed");
 
-    if config.server.app_env == "production" {
+    if herald_core::config::is_production(&config.server.app_env) {
         let override_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM realm_config
              WHERE enabled = true

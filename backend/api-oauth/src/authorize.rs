@@ -181,7 +181,7 @@ pub async fn oauth_authorize(
     // Enforce HTTPS in production. Local OAuth clients use localhost HTTP in dev/demo.
     herald_core::domain::client::validation::validate_redirect_uri(
         &params.redirect_uri,
-        state.app_env != "production",
+        !herald_core::config::is_production(&state.app_env),
     )
     .map_err(|e| ApiError::bad_request(format!("Invalid redirect_uri: {}", e)))?;
 

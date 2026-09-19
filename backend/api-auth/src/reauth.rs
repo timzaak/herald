@@ -20,7 +20,7 @@ use herald_core::domain::security_constants::{
 use herald_core::domain::user_passkey::{
     PasskeyLoginState, UserPasskeyRepository, UserPasskeyService,
 };
-use herald_core::domain::user_totp::{UserTotpRepository, UserTotpService};
+use herald_core::domain::user_totp::{TotpVerificationResult, UserTotpRepository, UserTotpService};
 use herald_core::infrastructure::authentication::{
     REAUTH_TTL_SECONDS, ReauthConsumeError, RedisReauthStore,
 };
@@ -252,8 +252,32 @@ pub async fn verify_reauth(
                 .filter(|config| config.enabled)
                 .ok_or_else(invalid_factor)?;
             let secret = UserTotpService::decrypt_secret(&config.secret_hash)?;
-            if !UserTotpService::verify_totp(&secret, &code)? {
-                return Err(ApiError::unauthorized("Invalid reauthentication factor"));
+            // Step-up must enforce the same one-time TOTP semantics as the
+            // login ceremony: the totp:last_code:{user} record is shared with
+            // verify-totp, so a code consumed at login (or at a previous
+            // reauth) is rejected here and vice versa, and previous-step codes
+            // are rejected as expired.
+            let mut conn = state
+                .redis_manager
+                .get()
+                .await
+                .map_err(|_| ApiError::internal("Redis operation error".to_string()))?;
+            let last_code_data = crate::totp_replay::load_last_code(&mut conn, &user.id).await?;
+            match UserTotpService::verify_totp_with_replay_protection(
+                &secret,
+                &code,
+                last_code_data.as_deref(),
+            )? {
+                TotpVerificationResult::Valid => {
+                    crate::totp_replay::record_last_code(&mut conn, &user.id, &code).await?;
+                }
+                TotpVerificationResult::Replay => {
+                    tracing::warn!(user_id = %user.id, "TOTP code reuse detected at reauth");
+                    return Err(ApiError::unauthorized("Invalid reauthentication factor"));
+                }
+                TotpVerificationResult::Expired => {
+                    return Err(ApiError::unauthorized("Invalid reauthentication factor"));
+                }
             }
         }
         ReauthCredential::Passkey {

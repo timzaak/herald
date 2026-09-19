@@ -333,6 +333,102 @@ async fn test_scenario_login_uses_client_app_turnstile(ctx: &mut TestContext) {
     set_turnstile(ctx, false, None, None).await;
 }
 
+/// 回归（审计 run-1：turnstile_status:get_turnstile_status:
+/// anonymous-clientapp-enumeration-oracle）：匿名三态中"存在但禁用"与
+/// "不存在"两个 401 的响应体必须完全一致（否则构成 client-app 存在性/
+/// 禁用态枚举预言），且端点必须有 per-IP 限流（对齐 discovery/JWKS）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_turnstile_status_uniform_401_and_rate_limited(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+    let probe_ip = format!("10.77.{}.{}", uuid::Uuid::now_v7().as_u128() % 200, 7);
+
+    let disabled_client_id = uuid::Uuid::now_v7().simple().to_string();
+    sqlx::query(
+        "INSERT INTO client_app (id, realm_id, client_id, name, enabled, turnstile_enabled, created_at, updated_at)
+         VALUES ($1, $2, $3, 'uniform-401-disabled', false, false, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(&ctx._realm_id)
+    .bind(&disabled_client_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .unwrap();
+
+    let status_uri = |client_id: &str| {
+        format!(
+            "/api/auth/{}/turnstile/status?clientId={}",
+            ctx._realm_id, client_id
+        )
+    };
+
+    // Disabled app vs unknown app: identical 401 bodies (old code: distinct
+    // "Client app is disabled" / "Invalid clientId" messages).
+    let resp_disabled = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(status_uri(&disabled_client_id))
+                .header("x-forwarded-for", &probe_ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_disabled.status(), StatusCode::UNAUTHORIZED);
+    let disabled_body: serde_json::Value = crate::tests::response_json(resp_disabled).await;
+
+    let resp_unknown = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(status_uri("no-such-client-id-xyz"))
+                .header("x-forwarded-for", &probe_ip)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_unknown.status(), StatusCode::UNAUTHORIZED);
+    let unknown_body: serde_json::Value = crate::tests::response_json(resp_unknown).await;
+
+    assert_eq!(
+        disabled_body, unknown_body,
+        "the two 401 bodies must be indistinguishable"
+    );
+
+    // Per-IP rate limit: a fresh IP hammered past the cap gets 429. The
+    // throttle only enforces outside dev/test (same rule as the discovery /
+    // JWKS siblings), so hammer through a production-env state clone.
+    let hammer_ip = format!("10.88.{}.{}", uuid::Uuid::now_v7().as_u128() % 200, 9);
+    let prod_app = ctx.create_unified_test_router_with_state(|s| {
+        s.app_env = "production".to_string();
+    });
+    let mut last_status = StatusCode::OK;
+    for _ in 0..31 {
+        let resp = prod_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(status_uri(&disabled_client_id))
+                    .header("x-forwarded-for", &hammer_ip)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        last_status = resp.status();
+    }
+    assert_eq!(
+        last_status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the 31st request from one IP must be throttled"
+    );
+}
+
 /// Covers: Design §3.4 / §5.3 / §6.1 / §6.3 — `/register` honours Client App
 /// Turnstile (skipped when not configured, enforced when enabled).
 #[test_context(TestContext)]

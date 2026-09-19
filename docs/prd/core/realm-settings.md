@@ -11,10 +11,6 @@
 
 ### 1.1 故事引用
 
-- `[US-RA-008]` 配置 Realm 设置 (P0)，来源 `docs/user-stories/core/realm-admin.md`
-  - 角色：Realm Admin
-  - 摘要：作为 Realm Admin，配置 Realm 设置（注册策略、OAuth Provider、邮件服务），管理本 Realm 的安全和访问控制
-
 - `[US-RA-013]` 配置 Realm 邮件服务 (P0)，来源 `docs/user-stories/core/realm-admin.md`
   - 角色：Realm Admin
   - 摘要：配置邮件发送方式（Resend API 或 SMTP），让本 Realm 独立发送系统邮件

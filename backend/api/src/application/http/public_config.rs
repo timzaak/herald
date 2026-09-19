@@ -1,7 +1,7 @@
 // Public configuration endpoint for realm settings
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
@@ -79,12 +79,6 @@ pub struct PublicConfigResponse {
     pub registration: RegistrationConfig,
     pub oauth_providers: Vec<OAuthProviderInfo>,
     pub white_label: PublicWhiteLabelConfig,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ResolveCustomDomainQuery {
-    /// Optional hostname override. When omitted, the request `Host` header is used.
-    pub host: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -176,9 +170,6 @@ pub async fn get_public_config(
     get,
     path = "/api/public-config/custom-domain/resolve",
     tag = "system",
-    params(
-        ("host" = Option<String>, Query, description = "Optional hostname override; defaults to request Host header")
-    ),
     responses(
         (status = 200, description = "Custom domain resolved", body = ResolveCustomDomainResponse),
         (status = 404, description = "Custom domain not found", body = ErrorResponse),
@@ -186,24 +177,22 @@ pub async fn get_public_config(
     )
 )]
 pub async fn resolve_custom_domain(
-    Query(query): Query<ResolveCustomDomainQuery>,
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<ApiResult<ResolveCustomDomainResponse>, ApiError> {
-    let raw_host = query
-        .host
-        .or_else(|| {
-            headers
-                .get(axum::http::header::HOST)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string)
-        })
+    // Bind the lookup to the host the request actually arrived on. There is
+    // deliberately no `?host=` override: arbitrary host-to-realm probing of
+    // the custom-domain registry is available only through the shared-secret
+    // ask endpoint.
+    let raw_host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
         .ok_or_else(|| ApiError::not_found("Custom domain not found"))?;
 
     let host_without_port = raw_host
         .split_once(':')
         .map(|(host, _)| host)
-        .unwrap_or(raw_host.as_str());
+        .unwrap_or(raw_host);
     let host = normalize_custom_domain_host(host_without_port)
         .ok_or_else(|| ApiError::not_found("Custom domain not found"))?;
 

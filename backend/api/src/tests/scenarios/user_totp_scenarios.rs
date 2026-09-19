@@ -170,16 +170,23 @@ async fn complete_totp_login(
     Ok((session_token, verify_body))
 }
 
-/// Generate expired TOTP code (using 31 seconds ago timestamp)
-fn generate_expired_totp_code(secret: &str) -> String {
+/// TOTP code for a timestamp `offset_secs` from now. All variants below
+/// share the 30s-step, 6-digit, SHA-256 profile — one generator keeps the
+/// test codes locked to the production parameters.
+fn totp_code_at(secret: &str, offset_secs: i64) -> String {
     let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
         .expect("Failed to decode secret");
-    let expired_time = std::time::SystemTime::now()
+    let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs()
-        - 31;
-    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, expired_time)
+        .as_secs() as i64
+        + offset_secs;
+    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, time as u64)
+}
+
+/// Generate expired TOTP code (using 31 seconds ago timestamp)
+fn generate_expired_totp_code(secret: &str) -> String {
+    totp_code_at(secret, -31)
 }
 
 /// Setup Realm TOTP configuration
@@ -230,13 +237,7 @@ async fn setup_realm_totp_config(ctx: &TestContext, enabled: bool, force_enabled
 
 /// Generate TOTP code from secret
 fn generate_totp_code(secret: &str) -> String {
-    let secret_bytes = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret)
-        .expect("Failed to decode secret");
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
+    totp_code_at(secret, 0)
 }
 
 /// ============================================================================
@@ -2459,4 +2460,159 @@ async fn dream_check_totp_threshold_starts_full_lockout(ctx: &mut TestContext) {
         ttl >= 890,
         "fifth failure must start a full 900-second lockout, got {ttl}"
     );
+}
+
+/// 用 TOTP 因子调用 reauth/verify，返回原始响应（供负向断言）。
+async fn attempt_reauth_verify_totp(
+    ctx: &TestContext,
+    session_token: &str,
+    target_operation: &str,
+    totp_code: &str,
+) -> axum::response::Response {
+    let app = ctx.create_unified_test_router();
+    let payload = json!({
+        "targetOperation": target_operation,
+        "factor": "totp",
+        "totpCode": totp_code,
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/user/reauth/verify")
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("x-forwarded-for", "3.3.3.3")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    app.oneshot(req).await.unwrap()
+}
+
+/// 生成"下一时间步"的 TOTP 码（now+30s）。防重放匹配器接受 current+next
+/// 两步，所以该码合法；与立即重算当前码（同一步 → 与已消费码同串）不同，
+/// 它必然是全新验证码。
+fn generate_next_totp_code(secret: &str) -> String {
+    totp_code_at(secret, 30)
+}
+
+/// 回归（US：reauth TOTP 步进必须与登录仪式共享一次性语义）：
+/// step-up 是凭证管理操作的第二道门，一个验证码在所有仪式中必须只能消费一次 ——
+/// 登录 verify-totp 已消费的验证码不能再在 reauth 换取 ticket，同一验证码也不能
+/// 连续换取两个不同 TargetOperation 的 ticket。否则会话劫持者只需观察到一个验证码
+/// 即可种植自己的 passkey，把临时劫持升级为持久接管。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_totp_reauth_one_time_code_binding(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    unsafe {
+        std::env::set_var("TOTP_SECRET_KEY", "test_key_32_bytes_long_1234567890");
+    }
+
+    // Setup: 创建用户并启用 TOTP
+    let email = "totp_reauth_replay@cas.com";
+    let password = "password123";
+    create_test_user(ctx, email, password).await;
+    setup_realm_totp_config(ctx, true, false).await;
+
+    let login_payload = json!({
+        "clientId": ctx._client_id,
+        "email": email,
+        "password": password,
+        "turnstileToken": "dummy"
+    });
+    let login_request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/login", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "3.3.3.3")
+        .body(Body::from(login_payload.to_string()))
+        .unwrap();
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
+    let (_response, login_token) = crate::tests::extract_bearer_token(login_response).await;
+    let login_token = login_token.expect("Login should return accessToken");
+
+    let reauth_token = obtain_reauth_token(ctx, &login_token, "bind_authenticator", password).await;
+    let enable_request = Request::builder()
+        .method("POST")
+        .uri("/api/user/totp")
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {}", login_token))
+        .body(Body::from(
+            json!({ "reauth_token": reauth_token }).to_string(),
+        ))
+        .unwrap();
+    let enable_response = app.clone().oneshot(enable_request).await.unwrap();
+    assert_eq!(enable_response.status(), StatusCode::OK);
+    let enable_body_bytes = axum::body::to_bytes(enable_response.into_body(), usize::MAX)
+        .await
+        .expect("Failed to read response body");
+    let enable_body: serde_json::Value =
+        serde_json::from_slice(&enable_body_bytes).expect("Failed to parse JSON");
+    let secret = enable_body["secret"].as_str().unwrap();
+    let enable_temp_token = enable_body["tempToken"].as_str().unwrap();
+
+    let verify_request = Request::builder()
+        .method("POST")
+        .uri("/api/user/totp/verify")
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {}", login_token))
+        .body(Body::from(
+            json!({ "tempToken": enable_temp_token, "code": generate_totp_code(secret) })
+                .to_string(),
+        ))
+        .unwrap();
+    let verify_response = app.clone().oneshot(verify_request).await.unwrap();
+    assert_eq!(verify_response.status(), StatusCode::OK);
+    println!("[Setup] ✓ TOTP 已启用");
+
+    // Step 1: 重新登录，在 verify-totp 仪式消费一个验证码 C0
+    let (temp_token, _) = create_temp_totp_session(ctx, email, password).await;
+    let c0 = generate_totp_code(secret);
+    let result = complete_totp_login(ctx, &ctx._realm_id, &temp_token, Some(&c0), None).await;
+    assert!(result.is_ok(), "TOTP login should succeed with fresh code");
+    let (session_token, _) = result.unwrap();
+    println!("[Step 1] ✓ 登录仪式已消费验证码 C0={}", c0);
+
+    // Step 2: 登录已消费的 C0 不得再通过 reauth 步进（旧代码 ±1 窗口内会放行）
+    let resp = attempt_reauth_verify_totp(ctx, &session_token, "delete_account", &c0).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "a code consumed at login/verify-totp must not pass reauth step-up"
+    );
+    println!("[Step 2] ✓ 登录已消费的验证码在 reauth 被拒绝");
+
+    // Step 3: 全新验证码 C1 第一次换取 ticket 必须成功。C1 取"下一时间步"的
+    // 码：与 C0 立即再生成会得到同一字符串（同一 30s 步进），而防重放匹配器
+    // 接受 current+next 两步，next-step 码既在窗口内又必然不同于 C0。
+    let c1 = generate_next_totp_code(secret);
+    let resp = attempt_reauth_verify_totp(ctx, &session_token, "bind_authenticator", &c1).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "fresh code must still mint a reauth ticket"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert!(
+        body["reauthToken"].as_str().is_some(),
+        "successful step-up should return reauthToken"
+    );
+    println!("[Step 3] ✓ 全新验证码换取 ticket 成功");
+
+    // Step 4: 同一验证码 C1 不得再换第二个不同 TargetOperation 的 ticket
+    let resp = attempt_reauth_verify_totp(ctx, &session_token, "delete_account", &c1).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "the same code must not mint a second ticket for another target"
+    );
+    println!("[Step 4] ✓ 同一验证码第二次提交被拒绝");
+
+    sqlx::query("DELETE FROM account WHERE email = $1")
+        .bind(email)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+
+    println!("\n✅ User Story 完成：reauth TOTP 一次性验证码绑定");
 }

@@ -448,6 +448,8 @@ And 我可以看到谁在何时修改了配置
 
 **优先级**: P1
 
+> **延后项**：本故事主体（免费用户发放 / 转化漏斗指标）不随首版交付（见 [billing-statistics PRD](/docs/prd/billing/billing-statistics.md) §2.2 已知差异）。
+
 **【用户故事】**
 **作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：查看免费用户的积分统计数据

@@ -60,11 +60,20 @@ impl PaymentEventRetryJob {
         // NULL next_retry_at = eligible for immediate retry (design §7 risk note
         // for the nullable BE-D01 column). A row with a future next_retry_at is
         // still cooling down after a prior failure.
+        //
+        // `iap_%` rows are the client receipt-submission dedup rows (event_type
+        // `iap_one_time` / `iap_recurring` / `iap_non_renewing`): their payload
+        // carries no provider-replayable data (no signedPayload / purchaseToken),
+        // so reprocessing them is impossible by construction. Their recovery is
+        // user-resubmission-driven — the submit handler's conflict branch re-runs
+        // failed/dead rows — and sweeping them would only produce an eternal
+        // BadRequest backoff loop.
         let rows: Vec<(Uuid, String, String, String, serde_json::Value)> = sqlx::query_as(
             r#"
             SELECT id, realm_id, payment_provider, event_type, payload
             FROM payment_event
             WHERE processed = false
+              AND event_type NOT LIKE 'iap\_%'
               AND (next_retry_at IS NULL OR next_retry_at <= NOW())
             ORDER BY created_at
             LIMIT $1

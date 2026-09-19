@@ -255,8 +255,8 @@ fn email_not_registered_conflict(message: &str) -> ApiError {
     request_body = EmailOtpSendRequest,
     responses(
         (status = 200, description = "Verification code sent (or enumeration-resistant 200).", body = EmailOtpSendResponse),
-        (status = 400, description = "OTP login not enabled for realm / bad request", body = ErrorResponse),
-        (status = 401, description = "Client App disabled / Turnstile verification failed", body = ErrorResponse),
+        (status = 400, description = "OTP login not enabled for realm / Client App disabled / bad request", body = ErrorResponse),
+        (status = 401, description = "Turnstile verification failed", body = ErrorResponse),
         (status = 409, description = "Consent required (auto-register) or email not registered (auto-register off)", body = EmailOtpConflictResponse),
         (status = 429, description = "Rate limited", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse),
@@ -535,8 +535,9 @@ pub async fn verify(
             tracing::error!(error = %e, "Failed to claim OTP code from Redis");
             ApiError::internal("Redis operation error".to_string())
         })?;
-    let stored_json =
-        stored_raw.ok_or_else(|| ApiError::unauthorized("验证码已失效，请重新发送".to_string()))?;
+    let stored_json = stored_raw.ok_or_else(|| {
+        ApiError::unauthorized("Verification code expired, please request a new one".to_string())
+    })?;
     let stored: StoredOtp = serde_json::from_str(&stored_json).map_err(|e| {
         tracing::error!(error = %e, "Failed to parse stored OTP JSON");
         ApiError::internal("Redis operation error".to_string())
@@ -618,7 +619,9 @@ pub async fn verify(
             "invalid_code",
         )
         .await;
-        return Err(ApiError::unauthorized("验证码错误或已失效".to_string()));
+        return Err(ApiError::unauthorized(
+            "Invalid or expired verification code".to_string(),
+        ));
     }
 
     // 7. Match → the claim already consumed the code; drop the counter and
@@ -753,7 +756,7 @@ pub async fn verify(
             "disabled_account",
         )
         .await;
-        return Err(ApiError::unauthorized("账号已被禁用".to_string()));
+        return Err(ApiError::unauthorized("Account is disabled".to_string()));
     }
 
     // 9.5 Second-factor gate (PRD email-otp-login.md §4.1: OTP login must not

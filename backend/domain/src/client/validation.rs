@@ -45,6 +45,29 @@ pub fn normalize_origins(origins: &[String]) -> Result<Vec<String>, CoreError> {
     Ok(normalized)
 }
 
+/// Validates a Client App icon URL.
+///
+/// The icon is rendered in first-party and custom-UI pages, so an arbitrary
+/// scheme like `javascript:` is a stored XSS vector, not a cosmetic value.
+/// `None`/empty keeps the icon unset; any value must be an absolute http(s)
+/// URL.
+pub fn validate_icon_url(url: Option<&String>) -> Result<(), CoreError> {
+    let Some(url) = url else {
+        return Ok(());
+    };
+    if url.is_empty() {
+        return Ok(());
+    }
+    let parsed =
+        Url::parse(url).map_err(|_| CoreError::BadRequest(format!("Invalid icon URL: {url}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(CoreError::BadRequest(
+            "Icon URL must be an absolute http(s) URL".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validates a redirect URI according to security requirements
 ///
 /// # Rules

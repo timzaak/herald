@@ -58,7 +58,7 @@ pub async fn init_admin_user(pool: &PgPool, app_env: &str) -> anyhow::Result<()>
         let admin_password = match env::var("ADMIN_PASSWORD") {
             Ok(pw) => pw,
             Err(_) => {
-                if app_env == "production" {
+                if crate::config::is_production(app_env) {
                     anyhow::bail!(
                         "ADMIN_PASSWORD environment variable is required in production. \
                          Refusing to use default password."
