@@ -44,7 +44,17 @@ local function idempotency_acquire_lock(keys, args)\n\
     end\n\
 end\n\
 \n\
+local function idempotency_claim_failed_retry(keys, args)\n\
+    if redis.call('GET', keys[1]) == args[2] then\n\
+        redis.call('SETEX', keys[1], args[1], args[3])\n\
+        return 1\n\
+    else\n\
+        return 0\n\
+    end\n\
+end\n\
+\n\
 redis.register_function('idempotency_acquire_lock', idempotency_acquire_lock)\n\
+redis.register_function('idempotency_claim_failed_retry', idempotency_claim_failed_retry)\n\
 ";
 
 /// Load the idempotency Redis Function library.
@@ -165,6 +175,40 @@ impl IdempotencyStore for RedisIdempotencyStore {
             let result = result == 1;
 
             Ok(result)
+        }
+    }
+
+    fn claim_failed_for_retry(
+        &self,
+        cache_key: &str,
+    ) -> impl Future<Output = Result<bool, CoreError>> + Send {
+        let redis = self.redis.clone();
+        let cache_key = cache_key.to_string();
+
+        async move {
+            let mut conn = redis.get().await.map_err(|e| {
+                CoreError::DatabaseError(format!("Failed to get Redis connection: {}", e))
+            })?;
+
+            // Atomic failed→processing compare-and-set via the same Redis
+            // Function library as the initial lock: the GET and the SETEX are
+            // one FCALL, so of two concurrent retries only the one that still
+            // observes "failed" flips the marker and proceeds.
+            let status_key = format!("{}:status", cache_key);
+            let result: i32 = redis::cmd("FCALL")
+                .arg("idempotency_claim_failed_retry")
+                .arg(1) // number of keys
+                .arg(&status_key)
+                .arg(LOCK_TTL.as_secs())
+                .arg(IdempotencyStatus::Failed.as_str())
+                .arg(IdempotencyStatus::Processing.as_str())
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| {
+                    CoreError::DatabaseError(format!("Failed to claim failed retry: {}", e))
+                })?;
+
+            Ok(result == 1)
         }
     }
 

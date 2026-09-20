@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use herald_api_base::application::http::common::auth_utils::require_token_scope;
+use herald_api_base::application::http::common::auth_utils::{
+    TokenClientAppLookup, lookup_token_client_app, require_token_scope,
+};
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{
@@ -98,6 +100,29 @@ pub async fn check_permission(
         return Err(ApiError::forbidden(
             "Access denied: can only check a token that belongs to you",
         ));
+    }
+
+    // Live recheck of the probed token's principal through the same lookup
+    // every Bearer route (identity_middleware) and the ext introspection use:
+    // disabling or deleting a Client App does NOT revoke its token families,
+    // so a still-live Redis token of a disabled/deleted app would otherwise
+    // introspect allowed=true on this surface while every Bearer route
+    // answers 401 and /api/ext/permission/check answers invalid_token
+    // (audit run-2: probed-token-introspection-skips-client-app-live-recheck).
+    // The drifted state arises on a revocation failure in the designed
+    // post-persist window, a partial revoke, or a direct-DB edit.
+    match lookup_token_client_app(&state, token_data.client_app_id, &token_data.realm_id).await? {
+        TokenClientAppLookup::Active { .. } => {}
+        TokenClientAppLookup::Disabled | TokenClientAppLookup::Missing => {
+            tracing::warn!(
+                token_client_app_id = %token_data.client_app_id,
+                "Probed browser token's Client App is disabled or deleted — introspection denies"
+            );
+            return Ok(ApiResult::ok(PermissionCheckResponse {
+                allowed: false,
+                user_id: None,
+            }));
+        }
     }
 
     let rules = match payload.rules {

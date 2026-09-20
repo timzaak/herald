@@ -847,6 +847,22 @@ fn build_apple_client(
     };
 
     let signing_key = private_key_p8.as_bytes().to_vec();
+    // Label-independent client-side guard (review 20260920): this client
+    // sends App Store Connect-key-signed JWTs to the overridden base — a
+    // plaintext non-loopback base must not receive the realm's credentials.
+    if let Some(base) = realm
+        .apple_creds
+        .base_url
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        && let Err(error) =
+            herald_core::domain::common::entities::provider_url::validate_provider_base_url(base)
+    {
+        return Err(anyhow::anyhow!(
+            "invalid apple base_url for realm {}: {error}",
+            realm.realm_id
+        ));
+    }
     let client = match realm.apple_creds.base_url.as_ref() {
         Some(base) if !base.is_empty() => AppleServerApiClient::with_base_url(
             signing_key,
@@ -905,6 +921,23 @@ fn build_google_client(
     // present, both the Developer API client and the OAuth token endpoint are
     // rooted at the override (token URI = `{base}/token`); otherwise the
     // production Google endpoints are used (behaviour unchanged).
+    // Label-independent client-side guard (review 20260920): the service
+    // account's JWT assertion is POSTed to `{base}/token` and every
+    // Developer API call carries its bearer token — a plaintext non-loopback
+    // base must not receive the realm's credentials.
+    if let Some(base) = realm
+        .google_creds
+        .base_url
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        && let Err(error) =
+            herald_core::domain::common::entities::provider_url::validate_provider_base_url(base)
+    {
+        return Err(anyhow::anyhow!(
+            "invalid google base_url for realm {}: {error}",
+            realm.realm_id
+        ));
+    }
     let auth = match realm.google_creds.base_url.as_ref() {
         Some(base) if !base.is_empty() => GoogleServiceAccountAuth::with_token_uri(
             client_email,

@@ -37,6 +37,17 @@ pub trait IdempotencyStore: Send + Sync {
         request_data: &str,
     ) -> impl Future<Output = Result<bool, CoreError>> + Send;
 
+    /// Atomically transition a Failed status marker back to Processing for a
+    /// retry under the same key. Returns Ok(true) when this caller won the
+    /// transition, Ok(false) when the marker is not Failed (another retry is
+    /// already in flight, the record completed, or the marker is absent).
+    /// Without this the failed→retrying classification alone is not one-shot:
+    /// two concurrent retries would both read Failed and both re-execute.
+    fn claim_failed_for_retry(
+        &self,
+        cache_key: &str,
+    ) -> impl Future<Output = Result<bool, CoreError>> + Send;
+
     /// Save the result to the store
     fn save_to_cache(
         &self,
@@ -99,19 +110,93 @@ impl<S: IdempotencyStore> IdempotencyService<S> {
                 Ok(IdempotencyResult::New)
             }
             Ok(false) => {
-                // Key already exists, check status
+                // Key already exists, check status. The main key EXISTING
+                // means a request under this key already started — its state
+                // marker decides, and the marker's ABSENCE must never be
+                // classified as "new" (audit run-2:
+                // domain/points/idempotency/status-loss-failopen-double-consume):
+                // the marker is lost on a failed status write, a crash between
+                // fulfillment and save_result, or the 60s in-flight TTL
+                // expiring under a long request, and the main key's value
+                // still holds the raw request JSON until save_result runs.
+                // Re-classifying any of those as New re-executes a financial
+                // side effect whose outcome is unknown-or-completed.
                 let status = self.store.get_status_from_cache(&cache_key).await;
-                if status == Some(IdempotencyStatus::Processing) {
-                    // Currently being processed
-                    Err(CoreError::idempotency_processing())
-                } else {
-                    // Already completed (should have been caught by cache check)
-                    tracing::warn!(
-                        realm_id = %realm_id,
-                        idempotency_key = %idempotency_key,
-                        "Inconsistent cache state, treating as new request"
-                    );
-                    Ok(IdempotencyResult::New)
+                match status {
+                    Some(IdempotencyStatus::Processing) => {
+                        // Currently being processed
+                        Err(CoreError::idempotency_processing())
+                    }
+                    // An explicitly failed request may be retried under the
+                    // same key — no side effect landed for it. The
+                    // failed→processing transition is an atomic claim: the
+                    // loser of two concurrent redeliveries must not also
+                    // classify as New and re-execute the financial side
+                    // effect (review 20260920: failed-retry claim).
+                    Some(IdempotencyStatus::Failed) => {
+                        match self.store.claim_failed_for_retry(&cache_key).await {
+                            Ok(true) => {
+                                tracing::info!(
+                                    realm_id = %realm_id,
+                                    idempotency_key = %idempotency_key,
+                                    "Prior attempt under this idempotency key failed; retrying"
+                                );
+                                Ok(IdempotencyResult::New)
+                            }
+                            Ok(false) => {
+                                // Lost the claim — another retry is in
+                                // flight or the state moved on. Re-read and
+                                // reclassify instead of proceeding.
+                                match self.store.get_status_from_cache(&cache_key).await {
+                                    Some(IdempotencyStatus::Processing) => {
+                                        Err(CoreError::idempotency_processing())
+                                    }
+                                    other => {
+                                        tracing::warn!(
+                                            realm_id = %realm_id,
+                                            idempotency_key = %idempotency_key,
+                                            status = ?other,
+                                            "Idempotency retry lost the failed-claim race with an unknown outcome — refusing to re-execute"
+                                        );
+                                        Err(CoreError::Conflict(
+                                            "Prior request under this idempotency key has an unknown outcome"
+                                                .to_string(),
+                                        ))
+                                    }
+                                }
+                            }
+                            // Store failure: fail closed — re-classifying as
+                            // New without the claim would re-open the very
+                            // double-execution window this guard closes.
+                            Err(e) => {
+                                tracing::error!(
+                                    realm_id = %realm_id,
+                                    idempotency_key = %idempotency_key,
+                                    error = %e,
+                                    "Failed to claim failed idempotency key for retry"
+                                );
+                                Err(CoreError::Conflict(
+                                    "Prior request under this idempotency key has an unknown outcome"
+                                        .to_string(),
+                                ))
+                            }
+                        }
+                    }
+                    // Completed with an unreadable cached result, or marker
+                    // lost: fail closed — the client may retry after the
+                    // marker recovers or with a fresh key.
+                    other => {
+                        tracing::warn!(
+                            realm_id = %realm_id,
+                            idempotency_key = %idempotency_key,
+                            status = ?other,
+                            "Idempotency key exists with unknown/completed state marker — refusing to re-execute"
+                        );
+                        Err(CoreError::Conflict(
+                            "Prior request under this idempotency key has an unknown outcome"
+                                .to_string(),
+                        ))
+                    }
                 }
             }
             Err(e) => {
@@ -173,6 +258,16 @@ impl<S: IdempotencyStore> IdempotencyService<S> {
     // Helper methods
 
     fn cache_key(realm_id: &str, idempotency_key: &str) -> String {
-        format!("idempotency:{}:{}", realm_id, idempotency_key)
+        idempotency_record_key(realm_id, idempotency_key)
     }
+}
+
+/// Redis key of the main idempotency record for a (scope, key) pair.
+///
+/// Public so callers that guard around the record itself — e.g. the consume
+/// endpoint's fingerprint-horizon check, which must probe the exact record
+/// the service reads and writes — derive the key from the same single
+/// definition instead of re-spelling the format.
+pub fn idempotency_record_key(scope: &str, idempotency_key: &str) -> String {
+    format!("idempotency:{}:{}", scope, idempotency_key)
 }

@@ -23,6 +23,7 @@ use herald_core::domain::audit::{
 };
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
+use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::security_constants::{
     DEFAULT_OAUTH_CODE_TTL_SECONDS, TOTP_LOCKOUT_SECONDS, TOTP_MAX_FAILURES,
     TOTP_VERIFY_IP_RATE_LIMIT, TOTP_VERIFY_USER_RATE_LIMIT,
@@ -316,20 +317,87 @@ pub async fn handle_verify_totp(
         last_code_data.as_deref(),
     )?;
 
+    // Atomic ceremony claim: when the submitted credential is
+    // verification-shaped, the temp session itself is consumed (GETDEL)
+    // BEFORE the credential is spent. The claim — not the earlier read — is
+    // the one-time gate on the ceremony: of two concurrent completions
+    // sharing one temp token (same OR different still-valid code), only the
+    // claim winner can reach session issuance, and the loser's failure-path
+    // temp delete can no longer invalidate the winner's session mint.
+    if matches!(
+        verification_result,
+        TotpVerificationResultWithBackup::Valid
+            | TotpVerificationResultWithBackup::BackupCodeUsed(_)
+    ) {
+        let claimed_temp: Option<String> = redis::cmd("GETDEL")
+            .arg(&temp_key)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to consume temp token: {}", e);
+                ApiError::internal("Redis operation error".to_string())
+            })?;
+        if claimed_temp.is_none() {
+            record_totp_login_audit(
+                &state,
+                &temp_session,
+                &client_ip,
+                user_agent,
+                AuditResult::Failure,
+                Some("temp_token_consumed_concurrently"),
+            )
+            .await;
+            return Err(ApiError::unauthorized(
+                "Invalid or expired temporary token".to_string(),
+            ));
+        }
+    }
+
     // Handle verification result
+    let mut verification_result = verification_result;
     match verification_result {
         TotpVerificationResultWithBackup::Valid => {
-            // Store this code as the last used code with current timestamp
-            crate::totp_replay::record_last_code(
+            // One-time consumption is the atomic check-and-set below: two
+            // concurrent submissions of one still-valid code cannot both
+            // record it, so the racing loser is rejected as a replay instead
+            // of minting a second session.
+            match crate::totp_replay::consume_last_code(
                 &mut conn,
                 &temp_session.user_id,
                 req.code.as_deref().unwrap(),
             )
-            .await?;
+            .await?
+            {
+                crate::totp_replay::CodeConsume::Consumed => {}
+                crate::totp_replay::CodeConsume::Replay => {
+                    tracing::warn!(
+                        user_id = %temp_session.user_id,
+                        "TOTP code reuse detected (replay attack)"
+                    );
+                    verification_result = TotpVerificationResultWithBackup::Replay;
+                }
+            }
         }
         TotpVerificationResultWithBackup::BackupCodeUsed(code_id) => {
-            // Mark backup code as used
-            totp_repo.mark_backup_code_used(code_id).await?;
+            // Mark backup code as used. The claim is conditional on
+            // used = false, so a concurrent submission of the same backup
+            // code loses the claim and surfaces Conflict here. Any other
+            // error means the burn was never recorded — issuing a session
+            // would leave the one-time code replayable on the next
+            // submission, so the error must reject the login instead of
+            // being dropped.
+            match totp_repo.mark_backup_code_used(code_id).await {
+                Ok(_) => {}
+                Err(error @ CoreError::Conflict(_)) => {
+                    tracing::warn!(
+                        user_id = %temp_session.user_id,
+                        %error,
+                        "Backup code already consumed by a concurrent submission"
+                    );
+                    verification_result = TotpVerificationResultWithBackup::Expired;
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
         TotpVerificationResultWithBackup::Expired => {
             tracing::debug!(
@@ -390,11 +458,8 @@ pub async fn handle_verify_totp(
         return Err(ApiError::unauthorized(error_message));
     }
 
-    // 6. Delete temp token and failure count
-    let _: () = conn.del(&temp_key).await.map_err(|e| {
-        tracing::error!("Failed to delete temp token: {}", e);
-        ApiError::internal("Redis operation error".to_string())
-    })?;
+    // 6. The temp token was already claimed atomically (GETDEL) above for
+    // every verification-shaped result; clear the failure count.
     let _: () = conn.del(&fail_count_key).await.map_err(|e| {
         tracing::error!("Failed to delete fail count: {}", e);
         ApiError::internal("Redis operation error".to_string())

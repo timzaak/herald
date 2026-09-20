@@ -179,18 +179,26 @@ where
         expected_realm_id: &str,
     ) -> Result<UserPasskeyCredential, PasskeyError> {
         let key = reg_key(reg_token);
-        let payload = self
+        // Non-destructive ownership probe: the challenge is bound to the user
+        // who ran `begin_registration`, and a stolen reg_token must never
+        // plant an attacker credential on the owner's account. The challenge
+        // is left intact so the legitimate owner can still complete the
+        // ceremony.
+        let probe = self
             .load_challenge::<RegistrationChallengeState>(&key)
             .await?;
-        // Ownership must be verified BEFORE the credential is persisted: the
-        // challenge is bound to the user who ran `begin_registration`, and a
-        // stolen reg_token must never plant an attacker credential on the
-        // owner's account. The challenge is left intact so the legitimate
-        // owner can still complete the ceremony.
-        if payload.user_id != expected_user_id || payload.realm_id != expected_realm_id {
+        if probe.user_id != expected_user_id || probe.realm_id != expected_realm_id {
             return Err(PasskeyError::OwnerMismatch);
         }
-        self.challenge_store.delete(&key).await?;
+        // Atomic consume (GETDEL) — the one-time gate on the ceremony,
+        // mirroring finish_authentication: of two concurrent submissions
+        // sharing one reg_token, only the consume winner reaches the
+        // credential insert; the loser answers ChallengeExpired instead of
+        // racing the winner into the unique index. The payload content is
+        // immutable between probe and consume.
+        let payload = self
+            .consume_challenge::<RegistrationChallengeState>(&key)
+            .await?;
 
         let response: RegistrationResponse = serde_json::from_value(resp_json.clone())
             .map_err(|_| PasskeyError::VerificationFailed)?;
@@ -330,10 +338,13 @@ where
         key: &str,
         resp_json: &Value,
     ) -> Result<(UserPasskeyCredential, PasskeyLoginState), PasskeyError> {
+        // Atomic consume (GETDEL): the challenge read and delete are one
+        // operation, so two concurrent submissions of the same assertion
+        // cannot both verify against the same state — exactly one completes
+        // the login/2FA/reauth ceremony.
         let payload = self
-            .load_challenge::<AuthenticationChallengeState>(key)
+            .consume_challenge::<AuthenticationChallengeState>(key)
             .await?;
-        self.challenge_store.delete(key).await?;
 
         let response: AuthenticationResponse = serde_json::from_value(resp_json.clone())
             .map_err(|_| PasskeyError::VerificationFailed)?;
@@ -412,8 +423,32 @@ where
             .load(key)
             .await?
             .ok_or(PasskeyError::ChallengeExpired)?;
-        serde_json::from_slice(&payload).map_err(|_| PasskeyError::VerificationFailed)
+        decode_challenge_payload(&payload)
     }
+
+    /// Atomically load and delete a one-time challenge: the store's consume
+    /// (GETDEL) is the one-time gate, so the racing loser of two concurrent
+    /// submissions finds no state and fails with ChallengeExpired.
+    async fn consume_challenge<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<T, PasskeyError> {
+        let payload = self
+            .challenge_store
+            .consume(key)
+            .await?
+            .ok_or(PasskeyError::ChallengeExpired)?;
+        decode_challenge_payload(&payload)
+    }
+}
+
+/// Decode a stored challenge payload. A payload the store returned but that
+/// no longer parses is tampered or corrupt state — fail as VerificationFailed,
+/// not as an expired challenge.
+fn decode_challenge_payload<T: for<'de> Deserialize<'de>>(
+    payload: &[u8],
+) -> Result<T, PasskeyError> {
+    serde_json::from_slice(payload).map_err(|_| PasskeyError::VerificationFailed)
 }
 
 /// Reconstruct a `PasskeyCredential` (COSE key + counter) from a stored

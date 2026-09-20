@@ -36,6 +36,18 @@ impl PasskeyChallengeStore for RedisPasskeyChallengeStore {
         Ok(payload)
     }
 
+    async fn consume(&self, token: &str) -> Result<Option<Vec<u8>>, CoreError> {
+        let mut conn = self.get_connection().await?;
+
+        // GETDEL is atomic: of concurrent consumers of one challenge token,
+        // exactly one receives the payload and the rest receive None.
+        let payload: Option<Vec<u8>> = redis::cmd("GETDEL")
+            .arg(token)
+            .query_async(&mut conn)
+            .await?;
+        Ok(payload)
+    }
+
     async fn delete(&self, token: &str) -> Result<(), CoreError> {
         let mut conn = self.get_connection().await?;
 

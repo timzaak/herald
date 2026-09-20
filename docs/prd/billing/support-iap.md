@@ -156,7 +156,7 @@ IAP 渠道独有场景，来源 `docs/user-stories/billing/support-iap.md`：
 - 轮询发现的变更与客户端提交路径幂等一致，重复轮询不重复副作用
 
 **履约幂等规则**：
-- 以 Apple `originalTransactionId` / Google `purchaseToken` 为去重键；客户端提交与平台通知两条路径各履约一次、最终一致，重复通知或重复提交不重复发放
+- 以 Apple `originalTransactionId` / Google `purchaseToken` 为去重键；客户端提交与平台通知两条路径各履约一次、最终一致，重复通知或重复提交不重复发放。去重实现为"先插入、唯一约束裁决"的收件箱模式：收据提交与 Apple 通知路径都在履约前插入 `payment_event`（带在途租约），并发重复投递由唯一约束裁决为恰好一次履约，败者按幂等语义跳过（通知路径记 `iap_apple_*` 事件类型，恢复由重投/收据重提交驱动，不进重试扫描）
 - 复用既有 `payment_event` 表的幂等约束（external_id = IAP 交易标识）
 
 **确认（acknowledge）截止规则**：

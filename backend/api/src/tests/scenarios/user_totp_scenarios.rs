@@ -18,7 +18,9 @@
 //
 // =============================================================================
 
-use crate::tests::helpers::auth_helpers::{attempt_reauth_verify, obtain_reauth_token};
+use crate::tests::helpers::auth_helpers::{
+    attempt_reauth_verify, enable_totp_for_session, obtain_reauth_token,
+};
 use crate::tests::helpers::test_setup_helpers::record_test_user_consent;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -2615,4 +2617,202 @@ async fn test_scenario_totp_reauth_one_time_code_binding(ctx: &mut TestContext) 
         .unwrap();
 
     println!("\n✅ User Story 完成：reauth TOTP 一次性验证码绑定");
+}
+
+/// 为并发一次性消费测试启用 TOTP：完成 setup+verify 仪式，返回
+/// (secret, backup_codes)。仪式本身走共享的 enable_totp_for_session
+/// （reauth → setup → verify），与正式启用流程完全一致。
+async fn enable_totp_for_concurrency_test(
+    ctx: &TestContext,
+    email: &str,
+    password: &str,
+) -> (String, Vec<String>) {
+    let app = ctx.create_unified_test_router();
+
+    let login_payload = json!({
+        "clientId": ctx._client_id,
+        "email": email,
+        "password": password,
+        "turnstileToken": "dummy"
+    });
+    let login_request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/login", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "3.3.3.3")
+        .body(Body::from(login_payload.to_string()))
+        .unwrap();
+    let login_response = app.oneshot(login_request).await.unwrap();
+    let (_response, login_token) = crate::tests::extract_bearer_token(login_response).await;
+    let login_token = login_token.expect("Login should return accessToken");
+
+    let (secret, backup_codes) = enable_totp_for_session(ctx, &login_token, password).await;
+    assert!(
+        !backup_codes.is_empty(),
+        "并发消费测试需要 backup codes 作为登录回落"
+    );
+    (secret, backup_codes)
+}
+
+/// 用给定的 temp_token + 凭证码发起一次 verify-totp，返回原始响应。
+async fn raw_verify_totp(
+    ctx: &TestContext,
+    temp_token: &str,
+    code: Option<&str>,
+    backup_code: Option<&str>,
+) -> axum::response::Response {
+    let app = ctx.create_unified_test_router();
+    let mut payload = json!({ "tempToken": temp_token });
+    if let Some(c) = code {
+        payload["code"] = json!(c);
+    }
+    if let Some(bc) = backup_code {
+        payload["backupCode"] = json!(bc);
+    }
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/login/verify-totp", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "4.4.4.4")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    app.oneshot(req).await.unwrap()
+}
+
+/// 回归（审计 run-2：totp-one-time-code-consumption-not-atomic）：
+/// 一次性 TOTP 码的消费必须是原子 check-and-set。旧代码 GET→verify→SET
+/// 三步分离，两个并发提交同一有效验证码都读到空记录、都通过校验、都
+/// 落 SET，各自铸造一个浏览器 token 族；totp:temp 的 GET/后置 DEL 同样
+/// 放两个请求通过仪式闸门。修复后：Lua 原子消费使并发败者判为重放
+/// （401），totp:temp 的 GETDEL 使仪式只能完成一次 —— 同一验证码+同一
+/// temp_token 恰好一次会话签发。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_totp_concurrent_same_code_single_acceptance(ctx: &mut TestContext) {
+    unsafe {
+        std::env::set_var("TOTP_SECRET_KEY", "test_key_32_bytes_long_1234567890");
+    }
+    let email = "totp_concurrent_same_code@cas.com";
+    let password = "password123";
+    create_test_user(ctx, email, password).await;
+    setup_realm_totp_config(ctx, true, false).await;
+    let (secret, _) = enable_totp_for_concurrency_test(ctx, email, password).await;
+
+    let (temp_token, _) = create_temp_totp_session(ctx, email, password).await;
+    let code = generate_totp_code(&secret);
+
+    let (resp_a, resp_b) = tokio::join!(
+        raw_verify_totp(ctx, &temp_token, Some(&code), None),
+        raw_verify_totp(ctx, &temp_token, Some(&code), None),
+    );
+    let (status_a, status_b) = (resp_a.status(), resp_b.status());
+    let mut successes = 0;
+    let mut rejections = 0;
+    for status in [status_a, status_b] {
+        if status == StatusCode::OK {
+            successes += 1;
+        } else if status == StatusCode::UNAUTHORIZED {
+            rejections += 1;
+        } else {
+            panic!("unexpected verify-totp status under concurrency: {status}");
+        }
+    }
+    assert_eq!(
+        (successes, rejections),
+        (1, 1),
+        "one still-valid TOTP code must be accepted exactly once under concurrent submission"
+    );
+
+    // 顺序重放同样被拒绝（原子消费的记录对后续提交可见）。
+    let resp = raw_verify_totp(ctx, &temp_token, Some(&code), None).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 回归（审计 run-2：totp-one-time-code-consumption-not-atomic，reauth 臂）：
+/// step-up 的 TOTP 消费与登录仪式共享 totp:last_code 记录，同样必须是原子
+/// 的 —— 两个并发的 reauth/verify（同一验证码、不同 targetOperation）在旧
+/// 代码下都读到空记录并各自签发 ticket。修复后恰好一个 ticket。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_totp_concurrent_reauth_single_ticket(ctx: &mut TestContext) {
+    unsafe {
+        std::env::set_var("TOTP_SECRET_KEY", "test_key_32_bytes_long_1234567890");
+    }
+    let email = "totp_concurrent_reauth@cas.com";
+    let password = "password123";
+    create_test_user(ctx, email, password).await;
+    setup_realm_totp_config(ctx, true, false).await;
+    let (secret, _) = enable_totp_for_concurrency_test(ctx, email, password).await;
+
+    // Complete one login ceremony to obtain a full browser session (reauth
+    // verifies carry a Bearer token, not the ceremony temp token).
+    let (temp_token, _) = create_temp_totp_session(ctx, email, password).await;
+    let consumed = generate_totp_code(&secret);
+    let (session_token, _) =
+        complete_totp_login(ctx, &ctx._realm_id, &temp_token, Some(&consumed), None)
+            .await
+            .expect("setup login should succeed");
+    let code = generate_next_totp_code(&secret);
+
+    let (resp_a, resp_b) = tokio::join!(
+        attempt_reauth_verify_totp(ctx, &session_token, "bind_authenticator", &code),
+        attempt_reauth_verify_totp(ctx, &session_token, "delete_account", &code),
+    );
+    let mut successes = 0;
+    let mut rejections = 0;
+    for status in [resp_a.status(), resp_b.status()] {
+        if status == StatusCode::OK {
+            successes += 1;
+        } else if status == StatusCode::UNAUTHORIZED {
+            rejections += 1;
+        } else {
+            panic!("unexpected reauth/verify status under concurrency: {status}");
+        }
+    }
+    assert_eq!(
+        (successes, rejections),
+        (1, 1),
+        "one TOTP code must mint exactly one reauth ticket under concurrent step-up"
+    );
+}
+
+/// 回归（审计 run-2：totp-one-time-code-consumption-not-atomic，备份码臂）：
+/// 备份码的一次性语义由 `used` 标志承载，旧代码在内存里过滤 unused 再做
+/// 无条件 UPDATE，两个并发提交同一备份码都通过、都完成登录。修复后
+/// mark_backup_code_used 是条件_claim（WHERE used = false），并发败者 401。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_totp_concurrent_backup_code_single_use(ctx: &mut TestContext) {
+    unsafe {
+        std::env::set_var("TOTP_SECRET_KEY", "test_key_32_bytes_long_1234567890");
+    }
+    let email = "totp_concurrent_backup@cas.com";
+    let password = "password123";
+    create_test_user(ctx, email, password).await;
+    setup_realm_totp_config(ctx, true, false).await;
+    let (_, backup_codes) = enable_totp_for_concurrency_test(ctx, email, password).await;
+    let backup_code = backup_codes[0].clone();
+
+    let (temp_token, _) = create_temp_totp_session(ctx, email, password).await;
+
+    let (resp_a, resp_b) = tokio::join!(
+        raw_verify_totp(ctx, &temp_token, None, Some(&backup_code)),
+        raw_verify_totp(ctx, &temp_token, None, Some(&backup_code)),
+    );
+    let mut successes = 0;
+    let mut rejections = 0;
+    for status in [resp_a.status(), resp_b.status()] {
+        if status == StatusCode::OK {
+            successes += 1;
+        } else if status == StatusCode::UNAUTHORIZED {
+            rejections += 1;
+        } else {
+            panic!("unexpected verify-totp status under concurrency: {status}");
+        }
+    }
+    assert_eq!(
+        (successes, rejections),
+        (1, 1),
+        "one backup code must complete exactly one login under concurrent submission"
+    );
 }

@@ -81,7 +81,7 @@ HTTP 服务器和日志配置。
 | `log_level` | string | `info` | `info` | 否 | 日志级别（trace/debug/info/warn/error） |
 | `app_env` | string | `production` | `production` | 否 | 运行环境标识 |
 
-`app_env` 目前是一个标识字段，代码中不直接用它做分支逻辑。`bind_address` 用 `0.0.0.0` 表示监听所有网卡。
+`app_env` 是闭合集合的三态开关，不是自由文本：`production`/`prod` 启用全部生产安全闸门（密钥校验、首启管理员密码要求、支付渠道 `base_url` 覆盖拒绝、限流、OAuth 回调 HTTPS 强制、Turnstile 测试密钥拒绝），`demo`/`development`/`dev`/`test` 关闭这些闸门。任何其他拼写（笔误、尾随空白、`staging`）都会在启动时被拒绝——未识别的取值会静默地让部署在全部闸门关闭的状态下运行。`bind_address` 用 `0.0.0.0` 表示监听所有网卡。
 
 ```toml
 [server]

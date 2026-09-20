@@ -32,6 +32,22 @@ pub fn is_production(app_env: &str) -> bool {
     app_env.eq_ignore_ascii_case("production") || app_env.eq_ignore_ascii_case("prod")
 }
 
+/// Recognized `app_env` spellings. `is_production` and every
+/// production-gated behavior are tri-state on this string: a value outside
+/// this set silently classifies the deployment as non-production and
+/// disables the production-only security gates (secret validation,
+/// first-boot admin password, provider base_url rejection, rate limiting,
+/// OAuth redirect HTTPS enforcement, Turnstile test-secret rejection) — so
+/// an unrecognized spelling (a typo, a trailing space, "staging") must fail
+/// startup instead of failing every gate open (audit run-2:
+/// config.app-env-unrecognized-value-fail-open-gates).
+pub fn is_recognized_app_env(app_env: &str) -> bool {
+    const RECOGNIZED: [&str; 6] = ["production", "prod", "demo", "development", "dev", "test"];
+    RECOGNIZED
+        .iter()
+        .any(|value| app_env.eq_ignore_ascii_case(value))
+}
+
 impl AppConfig {
     /// Loads application configuration from a file
     ///

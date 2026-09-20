@@ -81,7 +81,7 @@ HTTP server and logging settings.
 | `log_level` | string | `info` | `info` | No | Log level (trace/debug/info/warn/error) |
 | `app_env` | string | `production` | `production` | No | Runtime environment identifier |
 
-`app_env` is currently a label only -- the codebase does not branch on it. Using `0.0.0.0` for `bind_address` means listening on all network interfaces.
+`app_env` is a closed-set tri-state switch, NOT a free-form label: `production`/`prod` enable the production-only security gates (secret validation, first-boot admin password requirement, payment-provider `base_url` override rejection, rate limiting, OAuth redirect HTTPS enforcement, Turnstile test-secret rejection), while `demo`/`development`/`dev`/`test` disable them. Any other spelling (a typo, trailing whitespace, `staging`) is REJECTED at startup — an unrecognized value would otherwise silently run the deployment with every gate disabled. Using `0.0.0.0` for `bind_address` means listening on all network interfaces.
 
 ```toml
 [server]

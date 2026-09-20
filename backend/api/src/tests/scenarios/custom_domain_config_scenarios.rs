@@ -588,3 +588,90 @@ async fn custom_domain_update_rejects_reserved_hostnames(ctx: &mut TestContext) 
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(count_mappings(ctx, &ctx._realm_id).await, 1);
 }
+
+/// 回归（审计 run-2：custom-domain-claim 保留主机守卫规范化不对称）：操作员
+/// 把 [frontend].url / [custom_domain].cname_target 写成 FQDN 尾点形式
+/// （"https://app.example.com./"）时，保留侧提取出带点主机而 claim 侧存储
+/// 与读侧解析都用无点形式，精确比较永远不相等 → 部署自有主机可被租户
+/// claim，平台主机上的域解析/白标/OIDC issuer 被重定向到攻击者 realm。
+/// 修复：保留侧用与 claim/读侧相同的规范化（去一个尾点 + 小写）；非空但
+/// 无法解析出主机的部署 URL 一律失败关闭（禁用 claim），而不是静默不保留。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn custom_domain_update_rejects_dotted_and_unparseable_reserved_config(
+    ctx: &mut TestContext,
+) {
+    let (admin_token, admin_user_id) =
+        create_admin_session_with_user(ctx, "custom-domain-dotted@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &admin_user_id).await;
+
+    // FQDN-spelled [frontend].url: the dotless claim of the same host must be
+    // rejected — the reserved side canonicalizes to the dotless identity now.
+    let app = ctx.create_unified_test_router_with_state(|s| {
+        s.public_base_url = "https://app.example.com./".to_string();
+        s.custom_domain_cname_target = "cname.herald-deploy.example.".to_string();
+    });
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "app.example.com" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a dotted [frontend].url spelling must still reserve its host"
+    );
+
+    // FQDN-spelled cname_target (scheme-less): same dotless reservation.
+    let resp = app
+        .clone()
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "cname.herald-deploy.example" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a dotted cname_target spelling must still reserve its host"
+    );
+    assert_eq!(
+        count_mappings(ctx, &ctx._realm_id).await,
+        0,
+        "rejected claims must not write host→realm mappings"
+    );
+
+    // Fail closed: a non-empty but unparseable [frontend].url denotes
+    // deployment-owned names we cannot identify — claims are disabled until
+    // the operator fixes the configuration, even for ordinary tenant hosts.
+    let app = ctx.create_unified_test_router_with_state(|s| {
+        s.public_base_url = "https://app .example.com/".to_string();
+    });
+    let resp = app
+        .oneshot(authed_request(
+            "PUT",
+            custom_domain_uri(&ctx._realm_id, ""),
+            &admin_token,
+            Some(json!({ "hostname": "tenant-owned.example.com" })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "an unparseable non-empty deployment URL must disable claims entirely"
+    );
+    assert_eq!(
+        count_mappings(ctx, &ctx._realm_id).await,
+        0,
+        "fail-closed state must not write host→realm mappings"
+    );
+}

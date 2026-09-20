@@ -70,7 +70,7 @@
 
 > **已交付更新**：按自定义域名生成的链接已覆盖 OAuth 回调与全部身份邮件/设备码链接面——`realm_public_origin_for_oauth` 优先返回生效的自定义域名，authorize/callback 的默认 `redirect_uri` 按其拼接；注册验证邮件链接、邮箱验证、更换邮箱、找回/重置密码与设备码授权页链接（`realm_public_url_parts`/`realm_public_url`）同样优先落在生效的自定义域名上。OAuth 回调 URL 属 IdP 注册的安全敏感字段，已从未来范围移出。
 >
-> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve?host=<hostname>` 是一个公开、无认证的查询端点，附带按访问事实自报告 CNAME/TLS 展示状态（当请求 Host 与解析结果一致且经 https 访问时，顺带将映射的 cname_verified / tls_ready 展示状态置为 true；此为 tls_ready 置位的唯一途径，不影响授权判定与路由），供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig，不改变后端路由匹配或 path 解析方式。`host` 查询参数可省略：省略时回退使用请求的 `Host` 头（去端口后按域名规范化规则归一），参数与 Host 头均缺时返回 404——即部署在自定义域名下的 SPA 不带参数直接调用该端点即可解析自身所在 realm。它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
+> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve` 是一个公开、无认证的查询端点，仅以请求自身的 `Host` 头（去端口后按域名规范化规则归一）为查表键——不存在 `?host=` 覆盖参数（已移除：任意 host→realm 探测只能走共享密钥保护的 Caddy ask 端点），Host 头缺失或未命中返回 404。展示状态的自报告路径受信：仅当请求的套接字对端属于部署配置的 `trusted_proxies`（操作者声明的 TLS 终接 ingress）且其转发的 `X-Forwarded-Proto: https` 时，才顺带将映射的 `cname_verified` / `tls_ready` 展示状态置为 true（直连或未受信对端伪造的转发头不生效；此为 tls_ready 置位的唯一途径，不影响授权判定与路由）。响应体按 Host 选择（租户维度），固定携带 `Cache-Control: no-store` 与 `Vary: Host`，防止 URL 键控的共享缓存跨 Host 回放他租户配置。供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig；它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
 
 ### 2.4 依赖项
 

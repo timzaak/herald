@@ -66,6 +66,11 @@ struct RenderedEmail {
 // ResendClient (HTTP-based, wraps existing Resend API logic)
 // ---------------------------------------------------------------------------
 
+/// Wall-clock bound for one outbound email delivery (Resend HTTP or the full
+/// SMTP dialogue). Generous for slow-but-alive providers, finite for silent
+/// ones.
+const EMAIL_SEND_TIMEOUT_SECS: u64 = 30;
+
 #[derive(Clone)]
 pub struct ResendClient {
     token: String,
@@ -83,12 +88,20 @@ struct SendEmailRequest<'a> {
 }
 
 impl ResendClient {
-    pub fn new(token: String, from: String) -> Self {
-        Self {
-            token,
-            from,
-            http: reqwest::Client::new(),
-        }
+    pub fn new(token: String, from: String) -> anyhow::Result<Self> {
+        // Bounded outbound call (audit run-2:
+        // unbounded-outbound-email-send-timeout): every send is awaited
+        // inline in an anonymous request handler, and a connected-but-
+        // silent upstream would park the handler future indefinitely —
+        // every other realm-configured outbound channel in the codebase
+        // is explicitly time-bounded. A builder failure must propagate,
+        // not silently fall back to an unbounded `Client::new()`.
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(EMAIL_SEND_TIMEOUT_SECS))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to build Resend HTTP client: {e}"))?;
+        Ok(Self { token, from, http })
     }
 }
 
@@ -211,8 +224,25 @@ impl EmailProvider for SmtpEmailProvider {
                 .build(),
         };
 
-        mailer.send(email).await?;
-        Ok(())
+        // Outer bound on the whole SMTP dialogue (connect + TLS + AUTH +
+        // DATA): lettre's transport has no built-in request deadline, and the
+        // send is awaited inline in a request handler — a silent upstream
+        // must not park the handler indefinitely (audit run-2:
+        // unbounded-outbound-email-send-timeout).
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(EMAIL_SEND_TIMEOUT_SECS),
+            mailer.send(email),
+        )
+        .await
+        {
+            Ok(result) => {
+                result?;
+                Ok(())
+            }
+            Err(_) => Err(anyhow::anyhow!(
+                "SMTP send timed out after {EMAIL_SEND_TIMEOUT_SECS}s"
+            )),
+        }
     }
 }
 
@@ -274,7 +304,7 @@ impl EmailConfig {
                 Ok(EmailProviderKind::Resend(ResendClient::new(
                     api_key.to_string(),
                     self.from_address.clone(),
-                )))
+                )?))
             }
             "smtp" => {
                 let host = self

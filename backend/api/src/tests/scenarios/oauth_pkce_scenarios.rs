@@ -18,7 +18,8 @@
 // =============================================================================
 
 use crate::tests::helpers::auth_helpers::{
-    create_admin_session_with_user, generate_totp_code, grant_realm_admin_role, obtain_reauth_token,
+    create_admin_session_with_user, enable_totp_for_session, generate_totp_code,
+    grant_realm_admin_role,
 };
 use crate::tests::helpers::oauth_pkce_helpers::*;
 use crate::tests::helpers::test_setup_helpers::{create_test_user, login_user};
@@ -87,61 +88,9 @@ async fn enable_totp_for_user(
     session_token: &str,
     password: &str,
 ) -> String {
-    let app = ctx.create_unified_test_router();
-
-    // TOTP setup is a high-assurance operation: exchange the password for a
-    // single-use reauth ticket (targetOperation = bind_authenticator) first.
-    let reauth_token =
-        obtain_reauth_token(ctx, session_token, "bind_authenticator", password).await;
-
-    // Start TOTP setup
-    let enable_request = axum::http::Request::builder()
-        .method("POST")
-        .uri("/api/user/totp")
-        .header("content-type", "application/json")
-        .header("authorization", format!("Bearer {}", session_token))
-        .body(axum::body::Body::from(
-            serde_json::json!({ "reauth_token": reauth_token }).to_string(),
-        ))
-        .unwrap();
-
-    let enable_response = app.clone().oneshot(enable_request).await.unwrap();
-    assert_eq!(enable_response.status(), StatusCode::OK);
-
-    let enable_body: Value = response_json(enable_response).await;
-    let secret = enable_body["secret"]
-        .as_str()
-        .expect("Secret should exist")
-        .to_string();
-    let temp_token = enable_body["tempToken"]
-        .as_str()
-        .expect("Temp token should exist")
-        .to_string();
-
-    // Verify TOTP to complete setup
-    let totp_code = generate_totp_code(&secret);
-    let verify_request = axum::http::Request::builder()
-        .method("POST")
-        .uri("/api/user/totp/verify")
-        .header("content-type", "application/json")
-        .header("authorization", format!("Bearer {}", session_token))
-        .body(axum::body::Body::from(
-            serde_json::json!({
-                "tempToken": temp_token,
-                "code": totp_code,
-            })
-            .to_string(),
-        ))
-        .unwrap();
-
-    let verify_response = app.oneshot(verify_request).await.unwrap();
-    assert_eq!(
-        verify_response.status(),
-        StatusCode::OK,
-        "TOTP verify should succeed"
-    );
-
-    secret
+    enable_totp_for_session(ctx, session_token, password)
+        .await
+        .0
 }
 
 // =============================================================================
@@ -1388,4 +1337,99 @@ async fn test_scenario_oauth_pkce_code_expired_rejected(ctx: &mut SchemaTestCont
         "Error should mention expired/invalid authorization code, got: {}",
         error_msg
     );
+}
+
+/// 回归（审计 run-2：oauth-state-seeding-unbounded-state-and-code-challenge）：
+/// authorize 曾只对 scope/nonce 设 4096 字节上限 —— state 直接成为 Redis
+/// 键名、code_challenge 原样进入存储值，未认证调用者可将攻击者体量的
+/// 字节写入共享 Redis（300s TTL）。修复后：state 与 code_challenge 同样
+/// 受 OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES 限制，超限 400。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_oauth_pkce_oversized_state_and_challenge_rejected(
+    ctx: &mut SchemaTestContext,
+) {
+    let realm_id = ctx._realm_id.clone();
+    let admin_token = setup_admin_session(ctx, "pkce-oversized@test.com").await;
+
+    let redirect_uri = "https://oversizedapp.com/callback";
+    let create_response = create_client_app_with_redirect_uris(
+        ctx,
+        &realm_id,
+        &admin_token,
+        "pkce-oversized-app",
+        "PKCE Oversized App",
+        &[redirect_uri],
+    )
+    .await;
+    assert_eq!(create_response.status(), 201);
+
+    let code_verifier = generate_code_verifier();
+    let code_challenge = compute_code_challenge(&code_verifier);
+    let app = ctx.create_unified_test_router();
+
+    let authorize_uri = |state: &str, challenge: &str| {
+        format!(
+            "/api/oauth/{}/authorize?client_id={}&redirect_uri={}&state={}&response_type=code&code_challenge={}&code_challenge_method=S256",
+            realm_id,
+            urlencoding::encode("pkce-oversized-app"),
+            urlencoding::encode(redirect_uri),
+            urlencoding::encode(state),
+            urlencoding::encode(challenge),
+        )
+    };
+
+    // 8KB state（超过 4096 上限）：必须 400，而不是成为 300s 的 Redis 键。
+    let oversized_state = "s".repeat(8192);
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri(authorize_uri(&oversized_state, &code_challenge))
+                .header("x-forwarded-for", "5.5.5.5")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "an oversized state must be rejected, not seeded into Redis"
+    );
+
+    // 6KB code_challenge（超过 4096 上限）：同样 400。
+    let oversized_challenge = "c".repeat(6000);
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri(authorize_uri(&generate_state(), &oversized_challenge))
+                .header("x-forwarded-for", "5.5.5.6")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::BAD_REQUEST,
+        "an oversized code_challenge must be rejected"
+    );
+
+    // 对照：正常大小参数仍然 302 进入登录页。
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri(authorize_uri(&generate_state(), &code_challenge))
+                .header("x-forwarded-for", "5.5.5.7")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::FOUND);
 }

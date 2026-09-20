@@ -50,17 +50,14 @@ use herald_core::domain::security_constants::{
 use herald_core::domain::user::entities::User;
 use herald_core::domain::user::ports::{UserRepository, UserService};
 use herald_core::domain::user::value_objects::CreateUserRequest;
-use herald_core::domain::user_passkey::UserPasskeyRepository;
 use herald_core::domain::user_totp::UserTotpRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
-use herald_core::infrastructure::user_passkey::PostgresUserPasskeyRepository;
 use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
 use crate::login::{LoginResponse, ensure_oauth_redirect_fields};
 use crate::mailflow;
-use crate::passkey_rp::resolve_passkey_rp;
 
 const LDAP_PLACEHOLDER_EMAIL_DOMAIN: &str = "ldap.placeholder";
 
@@ -103,12 +100,37 @@ pub struct LdapStatusResponse {
 
 /// Outcome of the DN → email → JIT matching chain (DEC-008). Matched and
 /// JIT-provisioned accounts are treated identically downstream, so they
-/// share one variant.
+/// share one variant; the carried match level is recorded on the login
+/// audit row so owners can review which chain step resolved the account —
+/// in particular every level-2 directory-email match into an existing local
+/// account (the DEC-008 trust basis) stays visible in the audit trail.
 enum LdapUserResolution {
-    Resolved(User),
+    Resolved(User, LdapMatchLevel),
     /// JIT branch: consent must be expressed before any account is created
     /// (US-LD-002 scenario 5). No account row exists when this is returned.
     ConsentRequired(Vec<LegalAgreementSummary>),
+}
+
+/// Which step of the DEC-008 matching chain resolved the login.
+#[derive(Clone, Copy)]
+enum LdapMatchLevel {
+    /// Level 1: existing (realm, "ldap", DN) link row.
+    DnLink,
+    /// Level 2: directory-maintained mail attribute matched an existing
+    /// local account and the DN link was (re)bound to it.
+    DirectoryEmail,
+    /// Level 3: JIT-provisioned a new account for this login.
+    JitProvisioned,
+}
+
+impl LdapMatchLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::DnLink => "dn_link",
+            Self::DirectoryEmail => "directory_email",
+            Self::JitProvisioned => "jit_provisioned",
+        }
+    }
 }
 
 /// Enterprise (LDAP) directory login.
@@ -245,7 +267,7 @@ pub async fn ldap_login(
         find_or_provision_ldap_user(&state, &realm_id, &ldap_user, payload.agreements.as_deref())
             .await?;
 
-    let user = match resolution {
+    let (user, match_level) = match resolution {
         LdapUserResolution::ConsentRequired(summaries) => {
             // No account was created; the front-end collects consent and
             // re-submits (directory re-authenticates) with `agreements`.
@@ -264,7 +286,7 @@ pub async fn ldap_login(
             })
             .into_response());
         }
-        LdapUserResolution::Resolved(user) => user,
+        LdapUserResolution::Resolved(user, match_level) => (user, match_level),
     };
 
     // 6. Disabled accounts are rejected even though directory credentials
@@ -304,31 +326,18 @@ pub async fn ldap_login(
         .map(|config| config.enabled)
         .unwrap_or(false);
 
-    let passkey_repo = PostgresUserPasskeyRepository::new(state.db.clone());
-    let has_passkey = match resolve_passkey_rp(
+    // Shared second-factor probe (see `login_second_factor_has_passkey`):
+    // configuration failures stay tolerated so LDAP login never depends on
+    // global passkey RP config; caller-input failures (a crafted Origin
+    // header) fail CLOSED through the realm-wide credential check.
+    let has_passkey = crate::passkey_rp::login_second_factor_has_passkey(
         &state,
         &user.realm_id,
+        user.id,
         &headers,
         Some(client_app.id),
     )
-    .await
-    {
-        Ok(relying_party) => !passkey_repo
-            .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
-            .await?
-            .is_empty(),
-        Err(error) => {
-            // Tolerant probe: password login must not depend on global
-            // passkey RP config; neither must LDAP login (mirror login.rs).
-            tracing::debug!(
-                user_id = %user.id,
-                realm_id = %user.realm_id,
-                error = %error,
-                "Passkey RP resolution failed during LDAP second-factor probe; passkey will not be offered"
-            );
-            false
-        }
-    };
+    .await?;
 
     let mut second_factors = Vec::new();
     if has_totp {
@@ -385,6 +394,7 @@ pub async fn ldap_login(
                 result: AuditResult::Success,
                 details: Some(serde_json::json!({
                     "method": "ldap",
+                    "resolution": match_level.as_str(),
                     "client_id": payload.client_id,
                     "totp_required": has_totp,
                     "passkey_required": has_passkey,
@@ -558,6 +568,7 @@ pub async fn ldap_login(
                 result: AuditResult::Success,
                 details: Some(serde_json::json!({
                     "method": "ldap",
+                    "resolution": match_level.as_str(),
                     "client_id": payload.client_id,
                     "oauth": true,
                 })),
@@ -609,6 +620,7 @@ pub async fn ldap_login(
             result: AuditResult::Success,
             details: Some(serde_json::json!({
                 "method": "ldap",
+                "resolution": match_level.as_str(),
                 "client_id": payload.client_id,
             })),
             ip_address: Some(ip.clone()),
@@ -695,7 +707,10 @@ async fn find_or_provision_ldap_user(
                     );
                     return Err(ApiError::internal("Internal server error".to_string()));
                 }
-                return Ok((LdapUserResolution::Resolved(user), Some(link)));
+                return Ok((
+                    (LdapUserResolution::Resolved(user, LdapMatchLevel::DnLink)),
+                    Some(link),
+                ));
             }
             // Dangling link (no user_id): fall through to email/provision;
             // `ensure_ldap_provider_linked` re-binds it afterwards.
@@ -734,7 +749,12 @@ async fn resolve_by_email_or_provision(
             .get_user_by_email(realm_id, &email)
             .await
         {
-            Ok(user) => return Ok(LdapUserResolution::Resolved(user)),
+            Ok(user) => {
+                return Ok(LdapUserResolution::Resolved(
+                    user,
+                    LdapMatchLevel::DirectoryEmail,
+                ));
+            }
             Err(CoreError::NotFound) => {}
             Err(e) => {
                 tracing::error!(
@@ -870,7 +890,10 @@ async fn resolve_by_email_or_provision(
             );
             ApiError::internal("Internal server error".to_string())
         })?;
-    Ok(LdapUserResolution::Resolved(user))
+    Ok(LdapUserResolution::Resolved(
+        user,
+        LdapMatchLevel::JitProvisioned,
+    ))
 }
 
 /// Idempotently bind the directory identity to the account: create the

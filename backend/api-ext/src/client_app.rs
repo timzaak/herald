@@ -341,7 +341,14 @@ pub async fn get_client_app(
             );
             Json(client_app_to_response(client_app, false)).into_response()
         }
-        Err(herald_core::domain::common::entities::app_errors::CoreError::NotFound) => {
+        // Cross-realm rows must be indistinguishable from unknown ids on the
+        // ext surface: the domain's post-fetch realm check answers Forbidden
+        // ("client belongs to a different realm") while an unknown id answers
+        // 404, and the 403/404 split is a cross-tenant existence oracle
+        // (audit run-2: cross-realm-existence-oracle-fetch-then-realm-check).
+        // Collapsed here — the admin surface keeps its distinct 403.
+        Err(herald_core::domain::common::entities::app_errors::CoreError::NotFound)
+        | Err(herald_core::domain::common::entities::app_errors::CoreError::Forbidden(_)) => {
             json_error(StatusCode::NOT_FOUND, ErrorCode::ClientAppNotFound)
         }
         Err(e) => {

@@ -410,6 +410,41 @@ impl InvoiceRepository for PostgresInvoiceRepository {
 
         let mut tx = self.db.get_postgres_connection_pool().begin().await?;
 
+        // Authoritative duplicate-coverage guard (audit run-2:
+        // external_sync_invoice_exists-non-atomic-check-then-insert). The
+        // handlers' pre-check is advisory only — a webhook-driven
+        // upsert_external_invoice for the same attribution could commit
+        // between that check and this insert. The advisory lock serializes
+        // this insert against the external writer (which takes the same
+        // lock), and the EXISTS re-check inside the locked transaction
+        // decides on a committed snapshot. Standalone manual invoices with
+        // no resource attribution take neither lock nor check.
+        if input.payment_attempt_id.is_some() || input.subscription_id.is_some() {
+            lock_invoice_attribution_tx(
+                &mut tx,
+                &input.realm_id,
+                input.payment_attempt_id,
+                input.subscription_id,
+            )
+            .await?;
+            let covered: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM invoice
+                     WHERE realm_id = $1 AND source = 'external_sync'
+                       AND (payment_attempt_id = $2 OR subscription_id = $3))",
+            )
+            .bind(&input.realm_id)
+            .bind(input.payment_attempt_id)
+            .bind(input.subscription_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| CoreError::DatabaseError(format!("Failed invoice coverage check: {e}")))?;
+            if covered {
+                return Err(CoreError::Conflict(
+                    "An externally-synced invoice already exists for this resource".to_string(),
+                ));
+            }
+        }
+
         let year = now.year();
         let invoice_number =
             Self::reserve_invoice_number_tx(&mut tx, &input.realm_id, year).await?;
@@ -1162,6 +1197,65 @@ impl InvoiceRepository for PostgresInvoiceRepository {
             cols = INVOICE_COLUMNS_READ
         );
 
+        // Authoritative coexistence guard for the insert path (audit run-2:
+        // external_sync_invoice_exists-non-atomic-check-then-insert). Run in
+        // one transaction under the SAME attribution advisory lock the manual
+        // create path takes, so a manual invoice cannot commit between this
+        // writer's check and its insert either. Only the would-INSERT path is
+        // gated: when an external row already exists for the conflict keys the
+        // ON CONFLICT branch is an UPDATE of that row and runs untouched.
+        let mut tx = self.db.get_postgres_connection_pool().begin().await?;
+        if data.payment_attempt_id.is_some() || data.subscription_id.is_some() {
+            lock_invoice_attribution_tx(
+                &mut tx,
+                &data.realm_id,
+                data.payment_attempt_id,
+                data.subscription_id,
+            )
+            .await?;
+            let existing_external: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM invoice
+                     WHERE realm_id = $1 AND source = 'external_sync'
+                       AND (external_invoice_id = $2 OR external_order_id = $3))",
+            )
+            .bind(&data.realm_id)
+            .bind(&data.external_invoice_id)
+            .bind(&data.external_order_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| CoreError::DatabaseError(format!("Failed invoice coverage check: {e}")))?;
+            if !existing_external {
+                let manual_row = sqlx::query_as::<_, InvoiceRow>(&format!(
+                    "SELECT {cols} FROM invoice
+                     WHERE realm_id = $1
+                       AND source IN ('admin_manual', 'user_application')
+                       AND (payment_attempt_id = $2 OR subscription_id = $3)
+                     LIMIT 1",
+                    cols = INVOICE_COLUMNS_READ
+                ))
+                .bind(&data.realm_id)
+                .bind(data.payment_attempt_id)
+                .bind(data.subscription_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| {
+                    CoreError::DatabaseError(format!("Failed invoice coverage check: {e}"))
+                })?;
+                if let Some(manual) = manual_row {
+                    tracing::warn!(
+                        realm_id = %data.realm_id,
+                        payment_attempt_id = ?data.payment_attempt_id,
+                        subscription_id = ?data.subscription_id,
+                        "external invoice sync skipped: a manual invoice already covers this resource"
+                    );
+                    tx.commit().await.map_err(|e| {
+                        CoreError::DatabaseError(format!("Failed to commit invoice guard: {e}"))
+                    })?;
+                    return row_to_invoice(manual);
+                }
+            }
+        }
+
         let row = sqlx::query_as::<_, InvoiceRow>(&sql)
             .bind(id) // $1  id
             .bind(&data.realm_id) // $2  realm_id
@@ -1189,11 +1283,15 @@ impl InvoiceRepository for PostgresInvoiceRepository {
             .bind(data.payment_attempt_id) // $24 payment_attempt_id
             .bind(now) // $25 created_at
             .bind(now) // $26 updated_at
-            .fetch_one(self.db.get_postgres_connection_pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(|e| {
                 CoreError::DatabaseError(format!("Failed to upsert external invoice: {}", e))
             })?;
+
+        tx.commit().await.map_err(|e| {
+            CoreError::DatabaseError(format!("Failed to commit external invoice upsert: {}", e))
+        })?;
 
         row_to_invoice(row)
     }
@@ -1222,6 +1320,58 @@ impl InvoiceRepository for PostgresInvoiceRepository {
 // ---------------------------------------------------------------------------
 // Shared helper for invoice number counter
 // ---------------------------------------------------------------------------
+
+/// Attribution lock keys for the invoice coverage advisory lock (realm + one
+/// key per PRESENT attribution id), shared by the manual `create_invoice` path
+/// and the webhook-driven `upsert_external_invoice` path (audit run-2:
+/// external_sync_invoice_exists-non-atomic-check-then-insert).
+///
+/// The coverage checks on both writers match
+/// `payment_attempt_id = X OR subscription_id = Y`, so the lock partition must
+/// be per-attribution-id: any two writers sharing ONE attribution id — e.g. a
+/// manual (None, S) and an external (A, S) for the same subscription — must
+/// contend on a shared key. A single AND-composed key would partition those
+/// two apart and let both pass their uncommitted-snapshot checks. Keys are
+/// returned in a fixed order (attempt before subscription) so concurrent
+/// multi-attribution writers cannot deadlock.
+fn invoice_attribution_lock_keys(
+    realm_id: &str,
+    payment_attempt_id: Option<Uuid>,
+    subscription_id: Option<Uuid>,
+) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(id) = payment_attempt_id {
+        keys.push(format!("invoice-coverage:{realm_id}:attempt:{id}"));
+    }
+    if let Some(id) = subscription_id {
+        keys.push(format!("invoice-coverage:{realm_id}:subscription:{id}"));
+    }
+    keys
+}
+
+/// Take the invoice-coverage advisory locks on `tx` for every attribution id
+/// the writer carries. Both invoice writers run their duplicate-coverage
+/// checks under these locks so a manual invoice and a webhook-driven external
+/// invoice for a shared attribution decide on snapshots that cannot interleave
+/// — the mutual exclusion exists only because BOTH sides call this one
+/// function.
+async fn lock_invoice_attribution_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    realm_id: &str,
+    payment_attempt_id: Option<Uuid>,
+    subscription_id: Option<Uuid>,
+) -> Result<(), CoreError> {
+    for lock_key in invoice_attribution_lock_keys(realm_id, payment_attempt_id, subscription_id) {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&lock_key)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| {
+                CoreError::DatabaseError(format!("Failed to lock invoice attribution: {e}"))
+            })?;
+    }
+    Ok(())
+}
 
 impl PostgresInvoiceRepository {
     /// Reserve the next invoice number within an existing transaction.

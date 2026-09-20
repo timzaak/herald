@@ -2,7 +2,9 @@
 // User Passkey API Scenarios
 // =============================================================================
 
-use crate::tests::helpers::auth_helpers::{generate_totp_code, obtain_reauth_token};
+use crate::tests::helpers::auth_helpers::{
+    enable_totp_for_session, generate_totp_code, obtain_reauth_token,
+};
 use crate::tests::helpers::passkey_authenticator::Es256Authenticator;
 use crate::tests::helpers::passkey_flow_helpers::{
     RP_ORIGIN, begin_registration, clear_passkey_user_rate_limit, register_one_passkey,
@@ -299,42 +301,9 @@ async fn finish_second_factor(
 }
 
 async fn enable_totp_via_http(ctx: &TestContext, session_token: &str) -> String {
-    let reauth_token =
-        obtain_reauth_token(ctx, session_token, "bind_authenticator", PASSWORD).await;
-    let payload = json!({ "reauth_token": reauth_token });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/user/totp")
-        .header("content-type", "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
-        .body(Body::from(payload.to_string()))
-        .unwrap();
-    let response = ctx.create_unified_test_router().oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response_body(response).await;
-    let secret = body["secret"]
-        .as_str()
-        .expect("secret should be present")
-        .to_string();
-    let code = generate_totp_code(&secret);
-    let verify_payload = json!({
-        "tempToken": body["tempToken"].as_str().unwrap(),
-        "code": code
-    });
-    let verify_req = Request::builder()
-        .method("POST")
-        .uri("/api/user/totp/verify")
-        .header("content-type", "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
-        .body(Body::from(verify_payload.to_string()))
-        .unwrap();
-    let verify_response = ctx
-        .create_unified_test_router()
-        .oneshot(verify_req)
+    enable_totp_for_session(ctx, session_token, PASSWORD)
         .await
-        .unwrap();
-    assert_eq!(verify_response.status(), StatusCode::OK);
-    secret
+        .0
 }
 
 async fn create_other_realm(ctx: &TestContext, realm_id: &str) {
@@ -935,4 +904,209 @@ async fn test_password_totp_login_backward_compat_after_second_factors_field(
         token.is_some(),
         "TOTP-only verification should issue accessToken"
     );
+}
+
+/// 回归（审计 run-2：passkey-challenge-consumption-not-atomic）：
+/// passkey 断言的一次性由 challenge 的消费承载。旧代码 GET→DEL 分离，两个
+/// 并发提交同一断言都读到同一份 ceremony 状态、都通过确定性验证、都完成
+/// 登录/2FA/reauth 仪式。修复后 finish_authentication 以 GETDEL 原子消费
+/// challenge —— 同一断言恰好完成一次仪式，败者 401。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_passkey_duplicate_concurrent_assertion_completes_once(ctx: &mut TestContext) {
+    setup_passkey_env();
+    setup_realm_passkey_config(ctx, &ctx._realm_id, true).await;
+    let email = "passkey-concurrent-2fa@test.com";
+    let user_id = create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+    let mut authenticator = softtoken();
+    register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        Some("Concurrent Key"),
+        &mut authenticator,
+    )
+    .await;
+
+    let login_response = password_login(ctx, email, PASSWORD).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+    let login_body = response_body(login_response).await;
+    assert_eq!(
+        login_body["secondFactors"],
+        json!(["passkey"]),
+        "passkey-only second factor must require the ceremony"
+    );
+    let temp_token = login_body["tempToken"].as_str().unwrap().to_string();
+
+    let (options, auth_token) = begin_second_factor(ctx, &temp_token).await;
+    // ONE assertion, submitted twice concurrently — the replay shape.
+    let assertion = authenticator.authenticate(&options, RP_ORIGIN);
+    let payload = json!({
+        "tempToken": temp_token,
+        "authToken": auth_token,
+        "assertion": assertion
+    })
+    .to_string();
+
+    let make_req = || {
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/auth/{}/login/passkey/2fa/verify",
+                ctx._realm_id
+            ))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "12.12.12.12")
+            .body(Body::from(payload.clone()))
+            .unwrap()
+    };
+    let (resp_a, resp_b) = tokio::join!(
+        async {
+            ctx.create_unified_test_router()
+                .oneshot(make_req())
+                .await
+                .unwrap()
+        },
+        async {
+            ctx.create_unified_test_router()
+                .oneshot(make_req())
+                .await
+                .unwrap()
+        },
+    );
+    let mut successes = 0;
+    let mut rejections = 0;
+    for status in [resp_a.status(), resp_b.status()] {
+        if status == StatusCode::OK {
+            successes += 1;
+        } else if status == StatusCode::UNAUTHORIZED {
+            rejections += 1;
+        } else {
+            panic!("unexpected 2FA verify status under concurrency: {status}");
+        }
+    }
+    assert_eq!(
+        (successes, rejections),
+        (1, 1),
+        "one passkey assertion must complete the ceremony exactly once"
+    );
+
+    // 顺序重放同样失败：challenge 已被原子消费。
+    let replay = ctx
+        .create_unified_test_router()
+        .oneshot(make_req())
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 回归（审计 run-2：passkey-second-factor-probe-fails-open-on-rp-resolution）：
+/// 登录的二因素探测曾把任何 RP 解析失败当作 has_passkey=false —— 包括由
+/// 请求 Origin 头触发的 bad_request —— 于是对 passkey-2FA-only 账户，攻击者
+/// 只需带一个未映射的 Origin 头即可让密码登录跳过第二因素直接签发会话。
+/// 修复后：请求侧解析失败改走 realm 级凭据检查（fail closed），伪造 Origin
+/// 仍要求完成 2FA 仪式；对照：无 Origin 头与 TOTP-only 用户同样必须完成仪式。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_password_login_crafted_origin_cannot_drop_passkey_second_factor(
+    ctx: &mut TestContext,
+) {
+    setup_passkey_env();
+    setup_realm_passkey_config(ctx, &ctx._realm_id, true).await;
+    let email = "passkey-probe-origin@test.com";
+    let user_id = create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+    let mut authenticator = softtoken();
+    register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        Some("Probe Key"),
+        &mut authenticator,
+    )
+    .await;
+
+    let login_with_origin = |origin: Option<&str>| {
+        let payload = json!({
+            "clientId": ctx._client_id,
+            "email": email,
+            "password": PASSWORD,
+            "turnstileToken": "dummy"
+        });
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(format!("/api/auth/{}/login", ctx._realm_id))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "13.13.13.13");
+        if let Some(origin) = origin {
+            builder = builder.header("origin", origin);
+        }
+        builder.body(Body::from(payload.to_string())).unwrap()
+    };
+
+    // Crafted unmapped Origin: the second factor must still be required —
+    // the response must NOT carry a browser token family.
+    let resp = ctx
+        .create_unified_test_router()
+        .oneshot(login_with_origin(Some("https://unmapped.example")))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_body(resp).await;
+    assert_eq!(
+        body["secondFactors"],
+        json!(["passkey"]),
+        "a crafted Origin header must not drop the passkey second factor"
+    );
+    assert!(
+        body["accessToken"].is_null(),
+        "no session may be issued while the second-factor ceremony is pending"
+    );
+    assert!(
+        body["tempToken"].as_str().is_some(),
+        "the 2FA ceremony must be reachable for the legitimate user"
+    );
+
+    // Control: no Origin header — same ceremony requirement.
+    let resp = ctx
+        .create_unified_test_router()
+        .oneshot(login_with_origin(None))
+        .await
+        .unwrap();
+    let body = response_body(resp).await;
+    assert_eq!(body["secondFactors"], json!(["passkey"]));
+    assert!(body["accessToken"].is_null());
+
+    // Control: a TOTP-only user under the same crafted Origin still faces the
+    // ceremony (OTP login must not bypass an existing second factor either).
+    let totp_email = "totp-probe-origin@test.com";
+    create_test_user(ctx, totp_email, PASSWORD).await;
+    setup_realm_totp_config(ctx, true, false).await;
+    let totp_session = create_session(ctx, totp_email, PASSWORD).await;
+    let _secret = enable_totp_via_http(ctx, &totp_session).await;
+    let payload = json!({
+        "clientId": ctx._client_id,
+        "email": totp_email,
+        "password": PASSWORD,
+        "turnstileToken": "dummy"
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/login", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "13.13.13.13")
+        .header("origin", "https://unmapped.example")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let resp = ctx.create_unified_test_router().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_body(resp).await;
+    assert_eq!(
+        body["requiresTotp"], true,
+        "a crafted Origin must not drop the TOTP ceremony either"
+    );
+    assert!(body["accessToken"].is_null());
 }

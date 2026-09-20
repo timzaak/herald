@@ -48,7 +48,21 @@ impl ConfiguredProviderProductApi {
     pub fn new(pool: PgPool) -> Self {
         Self {
             pool,
-            http: reqwest::Client::new(),
+            // Codebase-standard bounded outbound client (audit run-2:
+            // unbounded-outbound-provider-sync-client-no-timeout): the sync
+            // handler issues up to 101 sequential provider fetches awaited
+            // inline — a timeout-less client lets a stalled upstream pin the
+            // admin request indefinitely. Redirects are refused like every
+            // other provider client. The builder carries only static options,
+            // so a failure means the TLS backend itself is broken — fail
+            // loudly instead of silently falling back to an unbounded,
+            // redirect-following `Client::new()` that carries credentials.
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("failed to build provider product sync HTTP client"),
         }
     }
 

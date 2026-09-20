@@ -13,6 +13,17 @@ pub trait UserPasskeyRepository: Send + Sync {
         rp_id: &str,
     ) -> impl Future<Output = Result<Vec<UserPasskeyCredential>, CoreError>> + Send;
 
+    /// Realm-wide credential presence, independent of any relying-party
+    /// scoping. Used by the login second-factor probe when the request's RP
+    /// cannot be resolved from caller input: the "is a second factor
+    /// required" decision must hold for every credential the user holds in
+    /// the realm, not only those under the (attacker-influenced) request RP.
+    fn has_any_for_user(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> impl Future<Output = Result<bool, CoreError>> + Send;
+
     fn find_by_credential_id(
         &self,
         realm_id: &str,
@@ -109,6 +120,15 @@ pub trait PasskeyChallengeStore: Send + Sync {
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
     fn load(&self, token: &str) -> impl Future<Output = Result<Option<Vec<u8>>, CoreError>> + Send;
+
+    /// Atomically load and delete a challenge (GETDEL semantics): exactly one
+    /// concurrent caller receives the payload, every racing caller gets None.
+    /// One-time authentication ceremonies must consume through this method so
+    /// a replayed assertion can never be verified twice.
+    fn consume(
+        &self,
+        token: &str,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, CoreError>> + Send;
 
     fn delete(&self, token: &str) -> impl Future<Output = Result<(), CoreError>> + Send;
 }

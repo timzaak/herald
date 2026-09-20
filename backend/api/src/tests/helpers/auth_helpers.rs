@@ -41,6 +41,85 @@ pub fn generate_totp_code(secret: &str) -> String {
     totp_lite::totp_custom::<Sha256>(30, 6, &secret_bytes, current_time)
 }
 
+/// Drive the full enable-TOTP ceremony over HTTP for an already-authenticated
+/// session — reauth (bind_authenticator) → setup → verify — exactly as a real
+/// user does, returning `(secret, backup_codes)`. Shared by the passkey,
+/// OAuth-PKCE and TOTP scenario suites so the ceremony is defined once.
+///
+/// `backup_codes` is best-effort: callers that need a backup-code login
+/// fallback assert non-emptiness themselves.
+pub async fn enable_totp_for_session(
+    ctx: &TestContext,
+    session_token: &str,
+    password: &str,
+) -> (String, Vec<String>) {
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    let app = ctx.create_unified_test_router();
+
+    // TOTP setup is a high-assurance operation: exchange the password for a
+    // single-use reauth ticket first.
+    let reauth_token =
+        obtain_reauth_token(ctx, session_token, "bind_authenticator", password).await;
+
+    let enable_request = Request::builder()
+        .method("POST")
+        .uri("/api/user/totp")
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
+        .body(Body::from(
+            json!({ "reauth_token": reauth_token }).to_string(),
+        ))
+        .unwrap();
+    let enable_response = app.clone().oneshot(enable_request).await.unwrap();
+    assert_eq!(enable_response.status(), axum::http::StatusCode::OK);
+    let enable_body: serde_json::Value = crate::tests::response_json(enable_response).await;
+    let secret = enable_body["secret"]
+        .as_str()
+        .expect("TOTP setup should return secret")
+        .to_string();
+    let backup_codes: Vec<String> = enable_body["backupCodes"]
+        .as_array()
+        .map(|codes| {
+            codes
+                .iter()
+                .map(|code| {
+                    code.as_str()
+                        .expect("backup code should be a string")
+                        .to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let verify_request = Request::builder()
+        .method("POST")
+        .uri("/api/user/totp/verify")
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {session_token}"))
+        .body(Body::from(
+            json!({
+                "tempToken": enable_body["tempToken"]
+                    .as_str()
+                    .expect("TOTP setup should return tempToken"),
+                "code": generate_totp_code(&secret),
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let verify_response = app.oneshot(verify_request).await.unwrap();
+    assert_eq!(
+        verify_response.status(),
+        axum::http::StatusCode::OK,
+        "TOTP verify should succeed"
+    );
+
+    (secret, backup_codes)
+}
+
 /// ============================================================================
 /// 会话管理
 /// ============================================================================

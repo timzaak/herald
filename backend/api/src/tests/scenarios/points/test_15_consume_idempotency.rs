@@ -476,3 +476,242 @@ async fn test_scenario_consume_idempotency_same_key_different_payload_conflicts(
     .expect("Failed to count transactions");
     assert_eq!(txn_count, 1, "exactly one consume may take effect");
 }
+
+// ============================================================================
+// 审计 run-2 回归：幂等状态丢失的失败关闭与时域违规
+// ============================================================================
+
+/// SCAN 出与给定幂等键相关的全部 Redis 键（主记录 / :status / reqfp 指纹）。
+/// scope 由 realm 与 API key 身份组成，测试直接按模式扫描避免重建命名。
+async fn scan_idempotency_keys(ctx: &TestContext, pattern: &str) -> Vec<String> {
+    let mut conn = ctx._app_state.redis_manager.get().await.unwrap();
+    let mut cursor: u64 = 0;
+    let mut found = Vec::new();
+    loop {
+        let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+            .arg("COUNT")
+            .arg(100)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        found.extend(keys);
+        if next == 0 {
+            break;
+        }
+        cursor = next;
+    }
+    found
+}
+
+/// 回归（审计 run-2：domain/points/idempotency/status-loss-failopen-double-consume）：
+/// check_or_create 曾把"主键存在但状态标记非 Processing"当作新请求（fail
+/// open）—— 状态键丢失（60s TTL 到期、写入失败、进程崩溃）后，字节相同的
+/// 重放会再次扣减。修复后：主键存在 + 状态未知/已完成 → 409 失败关闭；
+/// 正常缓存重放（状态键完好）不受影响。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_consume_idempotency_status_loss_fails_closed(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    let user_id = create_test_user(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        "user15-statusloss@example.com",
+    )
+    .await;
+    let _wallet_id = create_test_points_wallet(&ctx._app_state.pool, user_id, 5000).await;
+    let client_app_id = create_test_client_app(&ctx._app_state.pool, &ctx._realm_id).await;
+    let api_key = create_test_api_key(&ctx._app_state.pool, &ctx._realm_id, client_app_id).await;
+
+    let idempotency_key = format!("req-statusloss-{}", Uuid::now_v7());
+    let request = |amount: i64| {
+        build_consume_request(
+            &ctx._realm_id,
+            &api_key,
+            &user_id.to_string(),
+            &client_app_id.to_string(),
+            amount,
+            "AI API call",
+            Some(&idempotency_key),
+        )
+    };
+
+    // 首次消费成功。
+    let response = app.clone().oneshot(request(100)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 正向对照：状态键完好时，同键重放返回缓存结果。
+    let replay = app.clone().oneshot(request(100)).await.unwrap();
+    assert_eq!(
+        replay.status(),
+        StatusCode::OK,
+        "cached replay must keep working"
+    );
+
+    // 模拟完成标记丢失（60s TTL 到期 / 写入失败 / save_result 前崩溃）：
+    // 主键回退为请求 JSON（完成结果从未写入），并删除 :status 键 ——
+    // get_from_cache 因此不可解析，判定落到 lock/status 分类上。
+    let main_keys = scan_idempotency_keys(ctx, &format!("idempotency:*:{}", idempotency_key)).await;
+    let main_key = main_keys
+        .iter()
+        .find(|k| !k.ends_with(":status") && !k.contains(":reqfp:"))
+        .expect("the main idempotency record should exist");
+    let status_keys =
+        scan_idempotency_keys(ctx, &format!("idempotency:*:{}:status", idempotency_key)).await;
+    assert!(
+        !status_keys.is_empty(),
+        "the :status sibling key should exist"
+    );
+    let mut conn = ctx._app_state.redis_manager.get().await.unwrap();
+    use redis::AsyncCommands;
+    let main_ttl: i64 = conn.ttl(main_key).await.unwrap();
+    let _: () = conn
+        .set_ex(
+            main_key.as_str(),
+            r#"{"userId":"mid-flight","amount":100}"#,
+            main_ttl.max(1) as u64,
+        )
+        .await
+        .unwrap();
+    let _: () = conn.del(&status_keys).await.unwrap();
+
+    // 字节相同的重放必须失败关闭（旧代码：重新执行 → 第二次扣减）。
+    let after_loss = app.clone().oneshot(request(100)).await.unwrap();
+    assert_eq!(
+        after_loss.status(),
+        StatusCode::CONFLICT,
+        "a lost state marker must fail closed instead of re-executing"
+    );
+
+    // 账本仍只有一笔 consume。
+    let (txn_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM points_transactions WHERE user_id = $1 AND type = 'consume'",
+    )
+    .bind(user_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(txn_count, 1, "no second deduction may land");
+}
+
+/// 回归（审计 run-2：consume-idempotency-fingerprint-horizon-gap）：
+/// 指纹 TTL（请求起点 24h+1h）与缓存记录 TTL（完成时点 24h）的覆盖前提
+/// 曾无强制 —— 完成滞后超过 1h 时指纹先亡，异载重放会以新 amount 回放旧
+/// 交易（捏造金额）。修复后：ext 路由有 60s 请求上限（前提强制），且指纹
+/// 层防御性地把"缓存记录比指纹活得久"判为时域违规 → 409。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_consume_idempotency_fingerprint_horizon_violation_conflicts(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+
+    let user_id = create_test_user(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        "user15-horizon@example.com",
+    )
+    .await;
+    let _wallet_id = create_test_points_wallet(&ctx._app_state.pool, user_id, 5000).await;
+    let client_app_id = create_test_client_app(&ctx._app_state.pool, &ctx._realm_id).await;
+    let api_key = create_test_api_key(&ctx._app_state.pool, &ctx._realm_id, client_app_id).await;
+
+    let idempotency_key = format!("req-horizon-{}", Uuid::now_v7());
+    let request = |amount: i64| {
+        build_consume_request(
+            &ctx._realm_id,
+            &api_key,
+            &user_id.to_string(),
+            &client_app_id.to_string(),
+            amount,
+            "AI API call",
+            Some(&idempotency_key),
+        )
+    };
+
+    let response = app.clone().oneshot(request(100)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // 模拟指纹先于缓存记录过期：删除 reqfp 键，主键（已完成事务）存活。
+    let fp_keys =
+        scan_idempotency_keys(ctx, &format!("idempotency:reqfp:*:{}", idempotency_key)).await;
+    assert!(!fp_keys.is_empty(), "the fingerprint key should exist");
+    let mut conn = ctx._app_state.redis_manager.get().await.unwrap();
+    use redis::AsyncCommands;
+    let _: () = conn.del(&fp_keys).await.unwrap();
+
+    // 异载重放：不得以 200 + 新 amount 回放旧交易，必须 409。
+    let replay = app.oneshot(request(200)).await.unwrap();
+    assert_eq!(
+        replay.status(),
+        StatusCode::CONFLICT,
+        "a replay whose fingerprint horizon was violated must conflict, not fabricate an amount"
+    );
+
+    let (txn_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM points_transactions WHERE user_id = $1 AND type = 'consume'",
+    )
+    .bind(user_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(txn_count, 1, "no second deduction may land");
+}
+
+/// 回归（审计 run-2：consume-idempotency-key-uncapped-redis-retention）：
+/// 调用方选定的 idempotency_key 曾以任意长度进入三个 Redis 键名与存储值
+/// （24h+ TTL、失败路径不清理），一个已授权 API key 即可在共享 Redis 上
+/// 留下无上限的持久字节。修复后：超 255 字节的键 400，且不留任何幂等键。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_consume_idempotency_oversized_key_rejected(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    let user_id = create_test_user(
+        &ctx._app_state.pool,
+        &ctx._realm_id,
+        "user15-oversize@example.com",
+    )
+    .await;
+    let _wallet_id = create_test_points_wallet(&ctx._app_state.pool, user_id, 5000).await;
+    let client_app_id = create_test_client_app(&ctx._app_state.pool, &ctx._realm_id).await;
+    let api_key = create_test_api_key(&ctx._app_state.pool, &ctx._realm_id, client_app_id).await;
+
+    let oversized_key = format!("k-{}", "x".repeat(64 * 1024));
+    let request = build_consume_request(
+        &ctx._realm_id,
+        &api_key,
+        &user_id.to_string(),
+        &client_app_id.to_string(),
+        100,
+        "AI API call",
+        Some(&oversized_key),
+    );
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "an oversized idempotency key must be rejected before any Redis write"
+    );
+
+    // 不得留下任何以该键为后缀的 Redis 键。
+    let leftover = scan_idempotency_keys(ctx, "*x{64}*").await;
+    let leftover = leftover
+        .into_iter()
+        .filter(|k| k.contains(&oversized_key[..64]))
+        .count();
+    assert_eq!(leftover, 0, "no idempotency Redis keys may be written");
+
+    // 账本零扣减。
+    let (txn_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM points_transactions WHERE user_id = $1 AND type = 'consume'",
+    )
+    .bind(user_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(txn_count, 0);
+}

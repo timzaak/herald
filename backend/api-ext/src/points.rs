@@ -231,6 +231,50 @@ async fn ensure_idempotency_fingerprint(
                 json_error(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalError)
             })?;
         if first_writer.is_some() {
+            // Freshly seeded fingerprint. If the main idempotency record for
+            // this key already exists, the fingerprint horizon was violated —
+            // the cached record OUTLIVED the fingerprint that proves payload
+            // identity (completion lagged start by over the 1h slack, or the
+            // fingerprint key was evicted). Replaying the cached transaction
+            // now would answer with a payload whose identity cannot be
+            // verified — the "fabricated amount" shape. Fail closed
+            // (audit run-2: consume-idempotency-fingerprint-horizon-gap).
+            let main_key = herald_core::domain::points::idempotency_service::idempotency_record_key(
+                idempotency_scope,
+                idempotency_key,
+            );
+            let main_exists: bool = conn.exists(&main_key).await.map_err(|e| {
+                tracing::error!(%e, "Failed to check idempotency record existence");
+                json_error(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalError)
+            })?;
+            if main_exists {
+                tracing::warn!(
+                    idempotency_key = %idempotency_key,
+                    "Cached idempotency record outlived its request fingerprint — refusing unguarded replay"
+                );
+                // The freshly-seeded fingerprint records THIS request's
+                // payload; leaving it in place would let an immediate
+                // byte-identical resubmission pass the comparison and replay
+                // the cached transaction beside a fabricated amount. Remove
+                // it so the key stays unwritten for any payload the cached
+                // record cannot vouch for. If the delete itself fails, answer
+                // 500 rather than pretend the key is clean.
+                if let Err(e) = conn.del::<_, usize>(&fp_key).await {
+                    tracing::error!(
+                        %e,
+                        idempotency_key = %idempotency_key,
+                        "Failed to remove rejected idempotency fingerprint"
+                    );
+                    return Err(json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        ErrorCode::InternalError,
+                    ));
+                }
+                return Err(json_error(
+                    StatusCode::CONFLICT,
+                    ErrorCode::IdempotencyConflict,
+                ));
+            }
             return Ok(());
         }
         let stored: Option<String> = conn.get(&fp_key).await.map_err(|e| {
@@ -529,6 +573,15 @@ pub async fn consume_points_ext(
 
     // 2. Check idempotency if key is provided
     if let Some(ref idempotency_key) = request.idempotency_key {
+        // The caller-chosen key is embedded verbatim into three Redis key
+        // names and the stored request value with 24h+ TTLs and no failure-path
+        // cleanup — an unbounded key turns one authorized API key into a
+        // persistent Redis-storage write primitive on the shared instance
+        // (audit run-2: consume-idempotency-key-uncapped-redis-retention).
+        const IDEMPOTENCY_KEY_MAX_BYTES: usize = 255;
+        if idempotency_key.len() > IDEMPOTENCY_KEY_MAX_BYTES {
+            return json_error(StatusCode::BAD_REQUEST, ErrorCode::ValidationError);
+        }
         let idempotency_service = &state.idempotency_service;
         // Scope idempotency keys to the calling principal, not just the realm:
         // multiple API keys (potentially bound to different client apps) share
@@ -708,6 +761,26 @@ pub async fn consume_points_ext(
         Ok(transactions) => transactions,
         Err(e) => {
             tracing::error!("Failed to consume points: {}", e);
+            // Mark the idempotency record Failed so a same-key retry can
+            // re-execute: consume_points is a single atomic transaction, so
+            // an Err means no deduction landed. Without this mark the
+            // 60s processing marker expires beside the still-existing main
+            // key, and every retry inside the 24h horizon hits the
+            // unknown-marker fail-closed 409 instead of re-running.
+            if let Some(ref idempotency_key) = request.idempotency_key {
+                let idempotency_scope = format!("{}:{}", realm_id, identity.id());
+                if let Err(mark_error) = state
+                    .idempotency_service
+                    .mark_failed(&idempotency_scope, idempotency_key)
+                    .await
+                {
+                    tracing::error!(
+                        idempotency_key = %idempotency_key,
+                        error = %mark_error,
+                        "Failed to mark idempotency key as failed after consume error"
+                    );
+                }
+            }
             return map_consume_error(e);
         }
     };

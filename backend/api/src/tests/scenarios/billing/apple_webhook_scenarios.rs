@@ -1455,4 +1455,123 @@ mod tests {
         .unwrap();
         assert!(processed, "the swept refund event must be marked processed");
     }
+
+    /// 回归（审计 run-2：iap-notification-first-purchase-dedup-after-fulfillment）：
+    /// 通知首购分支的旧去重是"探针式 + 履约后写入"—— 两个并发的重复投递都能
+    /// 通过 find_payment_event 探针、各自创建并完成自己的 payment_attempt，
+    /// 双份发放积分包（收据入口在 run-1 已改为 insert-first 收件箱模式）。
+    /// 修复后：通知分支同样先插 payment_event（租约内、唯一约束裁决单次执行），
+    /// 并发重复投递恰好一次履约。
+    #[test_context(AppleWebhookContext)]
+    #[tokio::test]
+    async fn test_iap_notification_concurrent_duplicate_fulfills_once(
+        ctx: &mut AppleWebhookContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let mapping_id =
+            insert_apple_mapping(ctx, &realm_id, "prod.concurrent-pack", "one_time", None).await;
+
+        // 一次性积分包需要一条 topup 分配规则才实际发放积分。
+        let bucket_id = crate::tests::helpers::points_helpers::ensure_test_bucket_for_realm(
+            &ctx.app_state.pool,
+            &realm_id,
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO points_distribution_rules
+                (id, realm_id, owner_type, entitlement_mapping_id, bucket_id,
+                 trigger_sources, grant_mode, points_amount, validity_days,
+                 enabled, display_order)
+             VALUES ($1, $2, 'entitlement_mapping', $3, $4, $5, 'fixed', 100, 0, true, 0)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(&realm_id)
+        .bind(mapping_id)
+        .bind(bucket_id)
+        .bind(&["topup"][..])
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("seed topup rule for the concurrent pack");
+
+        seed_apple_owner_and_subscription(
+            ctx,
+            &realm_id,
+            "orig-concurrent-1",
+            "prod.concurrent-pack",
+        )
+        .await;
+
+        let notification = decoded_notification(
+            r#"{"notificationType":"SUBSCRIBED","notificationUUID":"uuid-concurrent-1",
+                "data":{"bundleId":"com.herald.test"}}"#,
+        );
+        let txn = decoded_transaction(
+            r#"{"originalTransactionId":"orig-concurrent-1","transactionId":"txn-concurrent-1",
+                "productId":"prod.concurrent-pack","purchaseDate":1740000000000,"expiresDate":1750000000000}"#,
+        );
+
+        // 两个并发投递同一通知（Apple 重投叠加重放）。
+        let verifier = local_verifier();
+        let (first, second) = tokio::join!(
+            process_apple_notification_decoded(
+                &ctx.app_state,
+                &realm_id,
+                &verifier,
+                &notification,
+                &txn,
+            ),
+            process_apple_notification_decoded(
+                &ctx.app_state,
+                &realm_id,
+                &verifier,
+                &notification,
+                &txn,
+            ),
+        );
+        // 败者按收件箱语义安静跳过（Apple 侧收 200），绝不能是双履约。
+        assert!(
+            first.is_ok() && second.is_ok(),
+            "concurrent duplicate deliveries must both answer OK (single execution), got {first:?} / {second:?}"
+        );
+
+        // 恰好一个 payment_attempt，且终态 Succeeded。
+        let (attempts, succeeded): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'Succeeded')
+             FROM payment_attempts
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND provider_reference = 'orig-concurrent-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            attempts, 1,
+            "exactly one payment_attempt per store transaction"
+        );
+        assert_eq!(succeeded, 1, "the single attempt must be Succeeded");
+
+        // 恰好一份 topup 发放（幂等执行日志恰好一行 completed）。
+        let grants: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM points_distribution_events
+             WHERE realm_id = $1 AND trigger = 'topup' AND status = 'completed'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap_or(0);
+        assert_eq!(grants, 1, "the points pack is granted exactly once");
+
+        // 收件箱行成为 processed 墓碑。
+        let processed: bool = sqlx::query_scalar(
+            "SELECT processed FROM payment_event
+             WHERE realm_id = $1 AND payment_provider = 'apple'
+               AND external_event_id = 'orig-concurrent-1'",
+        )
+        .bind(&realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert!(processed, "the dedup row must be the processed tombstone");
+    }
 }

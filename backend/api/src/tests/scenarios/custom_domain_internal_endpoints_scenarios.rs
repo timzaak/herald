@@ -97,6 +97,32 @@ fn host_get_request(path: &str, host: &str, ask_key: Option<&str>) -> Request<Bo
     builder.body(Body::empty()).unwrap()
 }
 
+/// Router variant whose requests carry the trusted-proxy real-IP config and
+/// a loopback socket peer in their extensions — the shape the production
+/// server provides through `.layer(Extension(real_ip_config))` +
+/// `into_make_service_with_connect_info`. Used to exercise the resolve
+/// endpoint's TLS-status observation on its TRUSTED path.
+fn router_with_trusted_loopback_proxy(ctx: &TestContext) -> axum::Router {
+    use axum::extract::ConnectInfo;
+    use herald_api_base::application::http::real_ip::RealIpConfig;
+
+    let real_ip = RealIpConfig::new(&["127.0.0.1/32".to_string()], "X-Forwarded-For")
+        .expect("loopback CIDR parses");
+    ctx.create_unified_test_router()
+        .layer(axum::middleware::from_fn(
+            move |mut req: axum::extract::Request, next: axum::middleware::Next| {
+                let real_ip = real_ip.clone();
+                async move {
+                    req.extensions_mut().insert(ConnectInfo(
+                        "127.0.0.1:54321".parse::<std::net::SocketAddr>().unwrap(),
+                    ));
+                    req.extensions_mut().insert(real_ip);
+                    Ok::<_, std::convert::Infallible>(next.run(req).await)
+                }
+            },
+        ))
+}
+
 fn resolve_request(host: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
@@ -329,6 +355,9 @@ async fn custom_domain_resolve_returns_realm_and_public_config_for_published_hos
         "resolve endpoint should include publicConfig; got: {body}"
     );
 
+    // TLS-status observation only advances through a TRUSTED proxy hop (the
+    // deployment's declared ingress), never from the request's own forged
+    // headers — pinned by the dedicated regression test below.
     let status: (bool, bool, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
         "SELECT cname_verified, tls_ready, status_checked_at
          FROM custom_domain_mapping WHERE hostname = $1",
@@ -338,10 +367,9 @@ async fn custom_domain_resolve_returns_realm_and_public_config_for_published_hos
     .await
     .expect("Failed to read custom-domain status");
     assert!(
-        status.0 && status.1,
-        "a real HTTPS host request proves TLS readiness"
+        !(status.0 && status.1),
+        "an untrusted (extension-less) request must not advance TLS status"
     );
-    assert!(status.2.is_some());
 }
 
 /// ============================================================================
@@ -399,4 +427,83 @@ async fn custom_domain_resolve_ignores_host_query_override(ctx: &mut TestContext
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = crate::tests::response_json(response).await;
     assert_eq!(body["realmId"], ctx._realm_id);
+}
+
+/// 回归（审计 run-2：resolve_custom_domain unauthenticated-host-header-realm-oracle）：
+/// 旧代码的 TLS 状态写入由恒真条件（request_host == host）+ 客户端可伪造的
+/// X-Forwarded-Proto 触发 —— 任意匿名请求都能把 cname_verified/tls_ready
+/// 翻成 true。修复后：仅当套接字对端是配置的受信代理时才采信转发头；
+/// 直连/未受信请求伪造 XFP 不生效，受信代理路径保持工作。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn custom_domain_resolve_tls_status_requires_trusted_proxy(ctx: &mut TestContext) {
+    let hostname_untrusted = "login.resolve-untrusted-example.com";
+    let hostname_trusted = "login.resolve-trusted-example.com";
+    insert_custom_domain_mapping(ctx, &ctx._realm_id, hostname_untrusted, true).await;
+    insert_custom_domain_mapping(ctx, &ctx._realm_id, hostname_trusted, true).await;
+
+    // 伪造 X-Forwarded-Proto 的直连请求：状态不得翻转。
+    let app = ctx.create_unified_test_router();
+    let response = app
+        .oneshot(resolve_request(hostname_untrusted))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: (bool, bool) = sqlx::query_as(
+        "SELECT cname_verified, tls_ready FROM custom_domain_mapping WHERE hostname = $1",
+    )
+    .bind(hostname_untrusted)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert!(
+        !(status.0 && status.1),
+        "a forged X-Forwarded-Proto from an untrusted peer must not flip TLS status"
+    );
+
+    // 受信代理（部署声明的 ingress）路径：观察生效。
+    let trusted_app = router_with_trusted_loopback_proxy(ctx);
+    let response = trusted_app
+        .oneshot(resolve_request(hostname_trusted))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: (bool, bool) = sqlx::query_as(
+        "SELECT cname_verified, tls_ready FROM custom_domain_mapping WHERE hostname = $1",
+    )
+    .bind(hostname_trusted)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert!(
+        status.0 && status.1,
+        "an https request observed through a trusted proxy still records TLS readiness"
+    );
+}
+
+/// 回归（审计 run-2：resolve_custom_domain host-keyed-response-missing-cache-directives）：
+/// 响应体完全由 Host 头选择（租户维度），缺少 Cache-Control/Vary 的响应可被
+/// URL 键控的共享缓存跨 Host 回放 —— 必须带 no-store + Vary: Host。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn custom_domain_resolve_response_carries_no_store_and_vary_host(ctx: &mut TestContext) {
+    let hostname = "login.resolve-cache-example.com";
+    insert_custom_domain_mapping(ctx, &ctx._realm_id, hostname, true).await;
+
+    let app = ctx.create_unified_test_router();
+    let response = app.oneshot(resolve_request(hostname)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok()),
+        Some("no-store"),
+        "the host-keyed response must not be storable by shared caches"
+    );
+    assert_eq!(
+        response.headers().get("vary").and_then(|v| v.to_str().ok()),
+        Some("Host"),
+        "the response must declare its Host variance"
+    );
 }

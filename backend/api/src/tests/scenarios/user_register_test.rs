@@ -590,3 +590,198 @@ async fn test_scenario_resend_verification_email(ctx: &mut TestContext) {
 
     println!("\n✅ User Story 场景 1d 完成：重新发送验证邮件");
 }
+
+/// 回归（审计 run-2：verify-email-confirm-unbans-forbidden-user）：
+/// verify_email 对 (realm,email) 解析账号后无条件 update_user_status(1)，
+/// 无认证的邮件确认链接因此能把管理员封禁（Forbidden=2）/删除（Deleted=3）
+/// 的账号翻回 Normal —— 被封用户用自己的邮箱即可自助解封。修复后：确认
+/// 只对 WaitVerified 激活，对禁用态一律以同形 bad_request 拒绝，状态不变、
+/// 登录仍被拒；WaitVerified → Normal 的正常激活路径不受影响。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_verify_email_confirm_cannot_unban_forbidden_user(ctx: &mut TestContext) {
+    // 直接建一个 WaitVerified 账号（不经注册接口：测试 schema 未配置邮箱
+    // 通道时注册会降级为免验证直接激活，与本回归的行为无关）。
+    let email = "verify-unban@cas.com";
+    let password = "password123";
+    let user_uuid = uuid::Uuid::now_v7();
+    let password_hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).expect("password should hash");
+    sqlx::query(
+        "INSERT INTO account (id, realm_id, email, password, status)
+         VALUES ($1, $2, $3, $4, 0)",
+    )
+    .bind(user_uuid)
+    .bind(&ctx._realm_id)
+    .bind(email)
+    .bind(&password_hash)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("WaitVerified account should insert");
+
+    // 触发验证邮件并读取最新验证码（邮件投递由测试环境承担，码本身在库中）。
+    let trigger_and_read_code = || async {
+        let trigger_payload = json!({
+            "clientId": ctx._client_id,
+            "email": email,
+            "turnstileToken": "dummy"
+        });
+        let trigger_request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/auth/{}/verify_email/trigger", ctx._realm_id))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "3.3.3.3")
+            .body(Body::from(trigger_payload.to_string()))
+            .unwrap();
+        let trigger_response = ctx
+            .create_unified_test_router()
+            .oneshot(trigger_request)
+            .await
+            .unwrap();
+        assert_eq!(trigger_response.status(), StatusCode::OK);
+
+        sqlx::query_scalar::<_, String>(
+            "SELECT verification_code FROM email_verification_code
+             WHERE email = $1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(email)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .expect("a fresh verification code should exist")
+    };
+
+    let confirm = |code: String| {
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/api/auth/{}/verify_email/confirm/{}",
+                ctx._realm_id, code
+            ))
+            .header("x-forwarded-for", "3.3.3.3")
+            .body(Body::empty())
+            .unwrap();
+        async { ctx.create_unified_test_router().oneshot(req).await.unwrap() }
+    };
+
+    let attempt_login = |pw: &str| {
+        let payload = json!({
+            "clientId": ctx._client_id,
+            "email": email,
+            "password": pw,
+            "turnstileToken": "dummy"
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/auth/{}/login", ctx._realm_id))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "3.3.3.3")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+        async { ctx.create_unified_test_router().oneshot(req).await.unwrap() }
+    };
+
+    // 正常激活路径（对照）：WaitVerified → confirm 302 → status=1 → 可登录。
+    let code = trigger_and_read_code().await;
+    let resp = confirm(code).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FOUND,
+        "WaitVerified activation keeps working"
+    );
+    let (_, status): (String, i16) =
+        sqlx::query_as("SELECT id::text, status FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&ctx._realm_id)
+            .bind(email)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, 1, "activation sets Normal");
+    let resp = attempt_login(password).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "activated account can log in"
+    );
+
+    // 封禁（管理员动作等价：直接置 status=2），登录必须 Forbidden。
+    sqlx::query(
+        "UPDATE account SET status = 2, updated_at = NOW() WHERE realm_id = $1 AND email = $2",
+    )
+    .bind(&ctx._realm_id)
+    .bind(email)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("account should be banned");
+    let resp = attempt_login(password).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "banned account cannot log in"
+    );
+
+    // 被封用户用自己邮箱触发确认信并点击 —— 修复后必须拒绝。
+    let code = trigger_and_read_code().await;
+    let resp = confirm(code).await;
+    assert_ne!(
+        resp.status(),
+        StatusCode::FOUND,
+        "the confirm link must not activate a banned account"
+    );
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let (_, status): (String, i16) =
+        sqlx::query_as("SELECT id::text, status FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&ctx._realm_id)
+            .bind(email)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        status, 2,
+        "the banned status must survive the confirm attempt"
+    );
+    let resp = attempt_login(password).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "login stays blocked after the refused confirm"
+    );
+
+    // Deleted（管理员置 3）同样不可被确认信复活。
+    sqlx::query(
+        "UPDATE account SET status = 3, updated_at = NOW() WHERE realm_id = $1 AND email = $2",
+    )
+    .bind(&ctx._realm_id)
+    .bind(email)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("account should be marked deleted");
+    let code = trigger_and_read_code().await;
+    let resp = confirm(code).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "the confirm link must not resurrect a deleted account"
+    );
+    let (_, status): (String, i16) =
+        sqlx::query_as("SELECT id::text, status FROM account WHERE realm_id = $1 AND email = $2")
+            .bind(&ctx._realm_id)
+            .bind(email)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        status, 3,
+        "the deleted status must survive the confirm attempt"
+    );
+
+    // 清理。
+    sqlx::query("DELETE FROM email_verification_code WHERE email = $1")
+        .bind(email)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM account WHERE email = $1")
+        .bind(email)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+}

@@ -571,10 +571,11 @@ mod instrument_skip_tests {
     #[test]
     fn instrument_skip_oauth_token_excludes_code_and_verifier() {
         let body = instrument_body_preceding(TOKEN_SRC, "oauth_token");
-        // `req` carries authorization code, PKCE code_verifier, client_id.
+        // `body` (raw token-request bytes) carries authorization code, PKCE
+        // code_verifier, client_id.
         assert!(
-            body.contains("req"),
-            "oauth_token must skip `req` (carries auth code / code_verifier / client_id); body was:\n{body}"
+            body.contains("body"),
+            "oauth_token must skip `body` (carries auth code / code_verifier / client_id); body was:\n{body}"
         );
         for banned in ["code", "token", "verifier", "secret", "client_id"] {
             assert!(

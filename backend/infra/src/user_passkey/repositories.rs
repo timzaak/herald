@@ -114,6 +114,15 @@ impl UserPasskeyRepository for PostgresUserPasskeyRepository {
         results.into_iter().map(Self::to_domain).collect()
     }
 
+    async fn has_any_for_user(&self, realm_id: &str, user_id: Uuid) -> Result<bool, CoreError> {
+        let row = user_passkey_credential::Entity::find()
+            .filter(user_passkey_credential::Column::RealmId.eq(realm_id))
+            .filter(user_passkey_credential::Column::UserId.eq(user_id))
+            .one(&*self.db)
+            .await?;
+        Ok(row.is_some())
+    }
+
     async fn find_by_credential_id(
         &self,
         realm_id: &str,

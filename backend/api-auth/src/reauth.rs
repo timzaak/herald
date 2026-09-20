@@ -269,7 +269,17 @@ pub async fn verify_reauth(
                 last_code_data.as_deref(),
             )? {
                 TotpVerificationResult::Valid => {
-                    crate::totp_replay::record_last_code(&mut conn, &user.id, &code).await?;
+                    // Atomic one-time consumption, shared with the login
+                    // ceremony: two concurrent step-up submissions of one
+                    // still-valid code cannot both record it — the racing
+                    // loser is a replay and gets no ticket.
+                    match crate::totp_replay::consume_last_code(&mut conn, &user.id, &code).await? {
+                        crate::totp_replay::CodeConsume::Consumed => {}
+                        crate::totp_replay::CodeConsume::Replay => {
+                            tracing::warn!(user_id = %user.id, "TOTP code reuse detected at reauth");
+                            return Err(ApiError::unauthorized("Invalid reauthentication factor"));
+                        }
+                    }
                 }
                 TotpVerificationResult::Replay => {
                     tracing::warn!(user_id = %user.id, "TOTP code reuse detected at reauth");

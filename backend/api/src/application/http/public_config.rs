@@ -1,7 +1,7 @@
 // Public configuration endpoint for realm settings
 
 use axum::{
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, State},
     http::HeaderMap,
 };
 use serde::{Deserialize, Serialize};
@@ -178,8 +178,21 @@ pub async fn get_public_config(
 )]
 pub async fn resolve_custom_domain(
     State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<ApiResult<ResolveCustomDomainResponse>, ApiError> {
+    // The trusted-proxy config and socket peer are read from the request
+    // extensions (the same way the `ClientIp` extractor does) so the handler
+    // also mounts on scenario-test routers that lack the connect-info layer;
+    // absent extensions mean "no trusted proxy signal", which fails closed
+    // below (no status write).
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, ApiError> {
+    let real_ip = request
+        .extensions()
+        .get::<herald_api_base::application::http::real_ip::RealIpConfig>();
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|connect_info| connect_info.0);
+    let headers = request.headers();
     // Bind the lookup to the host the request actually arrived on. There is
     // deliberately no `?host=` override: arbitrary host-to-realm probing of
     // the custom-domain registry is available only through the shared-secret
@@ -206,17 +219,20 @@ pub async fn resolve_custom_domain(
         })?
         .ok_or_else(|| ApiError::not_found("Custom domain not found"))?;
 
-    let request_host = headers
-        .get(axum::http::header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(':').next())
-        .and_then(normalize_custom_domain_host);
-    let is_https = headers
-        .get("x-forwarded-proto")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.eq_ignore_ascii_case("https"));
-    if request_host.as_deref() == Some(host.as_str())
-        && is_https
+    // TLS-status observation. The old gate was tautological (request_host ==
+    // host always holds — host is derived from the same Host header) and the
+    // X-Forwarded-Proto value is client-forgeable on direct reachability, so
+    // ANY anonymous request could flip cname_verified/tls_ready (audit run-2:
+    // resolve_custom_domain unauthenticated-host-header-realm-oracle). The
+    // forwarded proto is honored only when the socket peer is a configured
+    // trusted proxy — an operator-declared ingress that terminates TLS and is
+    // the only party allowed to speak forwarded headers.
+    let https_via_trusted_proxy = matches!((real_ip, peer), (Some(real_ip), Some(peer)) if real_ip.trusts(peer.ip()))
+        && headers
+            .get("x-forwarded-proto")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("https"));
+    if https_via_trusted_proxy
         && let Err(error) = state
             .custom_domain_mapping_repo
             .update_status(&host, true, true)
@@ -227,10 +243,26 @@ pub async fn resolve_custom_domain(
 
     let public_config = load_public_config(&state, &mapping.realm_id).await?;
 
-    Ok(ApiResult::ok(ResolveCustomDomainResponse {
-        realm_id: mapping.realm_id,
-        public_config,
-    }))
+    // The entire response body is keyed by the Host header (the sole varying
+    // request input since the ?host= override was removed). A shared cache
+    // that keys on the URL would store one tenant's config and replay it for
+    // every other host hitting the same path — forbid storage and pin the
+    // variance (audit run-2: resolve_custom_domain
+    // host-keyed-response-missing-cache-directives).
+    let mut response =
+        axum::response::IntoResponse::into_response(ApiResult::ok(ResolveCustomDomainResponse {
+            realm_id: mapping.realm_id,
+            public_config,
+        }));
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::VARY,
+        axum::http::HeaderValue::from_static("Host"),
+    );
+    Ok(response)
 }
 
 async fn load_public_config(

@@ -236,7 +236,28 @@ impl ApiConfig {
     pub fn load(path: &str) -> anyhow::Result<ApiConfig> {
         let config = fs::read_to_string(path)?;
         let cfg: ApiConfig = toml::from_str(&config)?;
+        cfg.validate_app_env()?;
         Ok(cfg)
+    }
+
+    /// Fail closed on an unrecognized `app_env` spelling: the value is a
+    /// tri-state switch for every production-only security gate, and a typo
+    /// ("staging", "production " with whitespace) would silently run the
+    /// deployment with all gates disabled (audit run-2:
+    /// config.app-env-unrecognized-value-fail-open-gates).
+    pub fn validate_app_env(&self) -> anyhow::Result<()> {
+        // NOTE: the RAW value is checked — `is_production` classifies the raw
+        // string, so accepting a trimmed spelling here (e.g. "production ")
+        // would let a whitespace-typo silently classify as non-production in
+        // every gate while passing startup validation.
+        let app_env = self.server.app_env.as_str();
+        if !herald_core::config::is_recognized_app_env(app_env) {
+            anyhow::bail!(
+                "Configuration error: unrecognized [server].app_env '{}' — expected one of production | prod | demo | development | dev | test. An unrecognized spelling disables every production-only security gate, refusing to start instead.",
+                self.server.app_env
+            );
+        }
+        Ok(())
     }
 
     pub fn validate_security(&self) -> anyhow::Result<()> {
@@ -467,6 +488,53 @@ ask_key = "change-me-in-production"
             assert!(
                 cfg.validate_security().is_ok(),
                 "app_env='{app_env}' must not run the production gates"
+            );
+        }
+    }
+
+    /// 回归（审计 run-2：config.app-env-unrecognized-value-fail-open-gates）：
+    /// app_env 是所有 production-only 安全闸门的三态开关，未识别拼写
+    /// （"staging"、带空白、空串）必须在加载时拒绝启动，而不是静默按
+    /// 非生产环境放开全部闸门。
+    #[test]
+    fn unrecognized_app_env_spellings_fail_closed_at_load() {
+        let toml_template = |app_env: &str| {
+            format!(
+                r#"
+[database]
+url = "postgres://test:test@localhost/test"
+[redis]
+[server]
+app_env = "{app_env}"
+[frontend]
+[custom_domain]
+ask_key = "dev-key"
+cname_target = "custom.localhost"
+"#
+            )
+        };
+        for app_env in ["staging", "production ", "", "prod ", "Production1"] {
+            let cfg: ApiConfig =
+                toml::from_str(&toml_template(app_env)).expect("valid TOML parses");
+            assert!(
+                cfg.validate_app_env().is_err(),
+                "app_env='{app_env}' must be rejected at startup"
+            );
+        }
+        for app_env in [
+            "production",
+            "prod",
+            "PROD",
+            "demo",
+            "development",
+            "dev",
+            "test",
+        ] {
+            let cfg: ApiConfig =
+                toml::from_str(&toml_template(app_env)).expect("valid TOML parses");
+            assert!(
+                cfg.validate_app_env().is_ok(),
+                "app_env='{app_env}' is a recognized spelling"
             );
         }
     }

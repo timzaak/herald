@@ -27,16 +27,13 @@ use herald_core::domain::security_constants::{
 };
 use herald_core::domain::user::ports::UserService;
 use herald_core::domain::user::value_objects::LoginRequest as DomainLoginRequest;
-use herald_core::domain::user_passkey::UserPasskeyRepository;
 use herald_core::domain::user_totp::UserTotpRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
-use herald_core::infrastructure::user_passkey::PostgresUserPasskeyRepository;
 use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
 use crate::mailflow;
-use crate::passkey_rp::resolve_passkey_rp;
 
 #[derive(Serialize, Deserialize, ToSchema, validator::Validate)]
 #[serde(rename_all = "camelCase")]
@@ -308,37 +305,21 @@ pub async fn login(
     //
     // This passkey lookup is a best-effort probe to decide whether passkey is
     // *one of several* optional second factors (credentials →
-    // TOTP → consent → session). A password-only login must NEVER depend on
-    // global passkey RP config (`RP_ID`/`RP_ORIGIN`) being set. So if RP
-    // resolution fails — most importantly because those env vars are unset,
-    // but robustly for any resolution failure here — we treat it as "user has
-    // no passkey for this request" (`has_passkey = false`) instead of failing
-    // the whole login with a 500. Registration/reauth keep strict behavior via
-    // their own `resolve_passkey_rp` call sites; only this login probe is
-    // tolerant.
-    let passkey_repo = PostgresUserPasskeyRepository::new(state.db.clone());
-    let has_passkey = match resolve_passkey_rp(
+    // TOTP → consent → session). Configuration failures (RP env vars unset,
+    // lookup outage) are tolerated so a password-only login never depends on
+    // global passkey RP config; caller-input failures (a crafted Origin
+    // header) fail CLOSED through the realm-wide credential check — the
+    // second-factor decision must not follow an attacker-chosen header.
+    // See `login_second_factor_has_passkey` for the contract shared
+    // with the LDAP and email-OTP entrances.
+    let has_passkey = crate::passkey_rp::login_second_factor_has_passkey(
         &state,
         &user.realm_id,
+        user.id,
         &headers,
         Some(client_app.id),
     )
-    .await
-    {
-        Ok(relying_party) => !passkey_repo
-            .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
-            .await?
-            .is_empty(),
-        Err(error) => {
-            tracing::debug!(
-                user_id = %user.id,
-                realm_id = %user.realm_id,
-                error = %error,
-                "Passkey RP resolution failed during login second-factor probe; passkey will not be offered"
-            );
-            false
-        }
-    };
+    .await?;
 
     let mut second_factors = Vec::new();
     if has_totp {

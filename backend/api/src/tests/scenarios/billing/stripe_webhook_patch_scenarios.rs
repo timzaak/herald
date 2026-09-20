@@ -1854,4 +1854,110 @@ mod tests {
             "Expected exactly 1 'reactivated' history event"
         );
     }
+
+    // =========================================================================
+    // 审计 run-2 回归：charge.refunded 元数据订阅跨 realm 不受检
+    // =========================================================================
+
+    /// 回归（审计 run-2：charge-refunded-metadata-subscription-realm-unchecked）：
+    /// charge.refunded 的 Herald 元数据分支曾用无 realm 谓词的主键查找解析
+    /// subscription —— 用 B realm 的 webhook 密钥签名、metadata 指向 A realm
+    /// 订阅的事件会对 A 的订阅执行取消并写入 refunded 历史（跨租户写）。
+    /// 修复后：元数据分支套用与外部 id 分支相同的 realm 过滤，跨 realm 的
+    /// id 与未知 id 不可区分 —— 事件按"无订阅"路由并 400，A 的订阅与历史
+    /// 原封不动。
+    #[test_context(WebhookPatchTestContext)]
+    #[tokio::test]
+    async fn test_charge_refunded_foreign_realm_metadata_subscription_is_ignored(
+        ctx: &mut WebhookPatchTestContext,
+    ) {
+        let app = ctx.create_unified_test_router();
+        let realm_a = ctx._realm_id.clone();
+        let webhook_secret = "whsec_patch_foreign_realm";
+
+        // Realm B：接收方 realm，持有自己的 Stripe webhook 密钥。
+        let realm_b = format!("realm-b-{}", Uuid::now_v7().simple());
+        sqlx::query("INSERT INTO realm (id, name) VALUES ($1, 'Foreign Realm')")
+            .bind(&realm_b)
+            .execute(&ctx.app_state.pool)
+            .await
+            .expect("realm B should insert");
+        setup_stripe_config(ctx, &realm_b, "sk_test_foreign_b", webhook_secret).await;
+
+        // Realm A 的用户与活跃订阅（内部主键将被塞进 B 的事件元数据）。
+        let user_a = create_test_user(ctx, &realm_a, "foreign-realm-a@test.com").await;
+        let sub_internal_id = Uuid::now_v7();
+        let external_sub_id = format!("sub_stripe_{}", Uuid::now_v7());
+        sqlx::query(
+            "INSERT INTO subscription
+                (id, realm_id, user_id, external_subscription_id, external_product_id,
+                 payment_provider, status, entitlement_key, synced_at,
+                 current_period_start, current_period_end, cancel_at_period_end,
+                 cancel_at, created_at, updated_at, billing_type)
+             VALUES ($1, $2, $3, $4, 'prod_stripe_patch-foreign',
+                     'stripe', 'active', 'patch-foreign', NOW(),
+                     NOW(), NOW() + INTERVAL '30 days', false,
+                     NULL, NOW(), NOW(), 'recurring')",
+        )
+        .bind(sub_internal_id)
+        .bind(&realm_a)
+        .bind(user_a)
+        .bind(&external_sub_id)
+        .execute(&ctx.app_state.pool)
+        .await
+        .expect("realm A subscription should insert");
+
+        let payload = json!({
+            "id": generate_test_event_id(),
+            "object": "event",
+            "type": "charge.refunded",
+            "api_version": "2020-08-27",
+            "created": chrono::Utc::now().timestamp(),
+            "data": {
+                "object": {
+                    "id": format!("ch_{}", Uuid::now_v7()),
+                    "object": "charge",
+                    "amount": 1000,
+                    "amount_refunded": 1000,
+                    "currency": "usd",
+                    "payment_intent": format!("pi_{}", Uuid::now_v7()),
+                    "metadata": {
+                        "herald_subscription_id": sub_internal_id.to_string(),
+                    }
+                }
+            }
+        });
+
+        let response =
+            send_stripe_webhook_with_signature(&app, &realm_b, payload, webhook_secret).await;
+        // 修复后：跨 realm 元数据不可解析 → 按无订阅路由 → 400（诚实失败），
+        // 绝不能对 A 的订阅产生任何效果。
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "a foreign-realm metadata subscription must not be accepted"
+        );
+
+        let (status,): (String,) = sqlx::query_as("SELECT status FROM subscription WHERE id = $1")
+            .bind(sub_internal_id)
+            .fetch_one(&ctx.app_state.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "active",
+            "realm A's subscription must stay untouched"
+        );
+
+        let history: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM subscription_history WHERE subscription_id = $1",
+        )
+        .bind(sub_internal_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            history, 0,
+            "no refunded history row may be written onto the foreign realm's subscription"
+        );
+    }
 }

@@ -118,7 +118,24 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         )
         .route(
             "/points/{realmId}/consume",
-            axum::routing::post(points::consume_points_ext),
+            // Request-lifetime bound (audit run-2:
+            // consume-idempotency-fingerprint-horizon-gap), scoped to the
+            // consume route ONLY: the consume idempotency contract assumes a
+            // first request COMPLETES well inside the 1h slack between the
+            // fingerprint horizon (24h+1h from request start) and the
+            // cached-record TTL (24h from completion). Without a deadline, a
+            // stalled consume completing >1h after its start leaves the
+            // fingerprint expired beside a still-live cached record, and a
+            // different-payload replay answers 200 with a fabricated amount.
+            // 60s is far inside the slack and generous for DB-bound handlers.
+            // A router-wide layer would also cut off unrelated routes
+            // (create_realm etc.) mid-side-effect (review 20260920).
+            axum::routing::post(points::consume_points_ext).layer(
+                tower_http::timeout::TimeoutLayer::with_status_code(
+                    axum::http::StatusCode::REQUEST_TIMEOUT,
+                    std::time::Duration::from_secs(60),
+                ),
+            ),
         )
         .route(
             "/points/{realmId}/grant",

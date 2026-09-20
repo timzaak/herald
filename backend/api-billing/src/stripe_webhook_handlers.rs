@@ -2523,10 +2523,29 @@ async fn handle_charge_refunded(
     // metadata, but every subscription-mode charge names its subscription.
     let mut subscription = match payload.subscription_id {
         Some(subscription_id) => {
-            app_state
+            // The metadata id is Herald-written but NOT realm-signed: the
+            // webhook signature authenticates the event for THIS realm only,
+            // never the realm of the objects named in the payload. Resolve
+            // through the same realm predicate the external-id fallback
+            // applies, so a provider-signed event naming another realm's
+            // subscription is indistinguishable from an unknown id instead
+            // of reaching the cancel/history writes below.
+            let resolved = app_state
                 .billing_repository
                 .find_subscription_by_id(subscription_id)
-                .await?
+                .await?;
+            if let Some(ref sub) = resolved
+                && sub.realm_id != realm_id
+            {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    subscription_id = %subscription_id,
+                    subscription_realm_id = %sub.realm_id,
+                    event_id = %event_id,
+                    "charge.refunded metadata names a foreign-realm subscription — ignoring it"
+                );
+            }
+            resolved.filter(|sub| sub.realm_id == realm_id)
         }
         None => None,
     };

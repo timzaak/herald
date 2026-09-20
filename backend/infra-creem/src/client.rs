@@ -53,12 +53,23 @@ impl CreemClient {
     /// Avoids per-realm `reqwest::Client` reconstruction in batch jobs that
     /// iterate over many realms with different API keys but can share the
     /// underlying connection pool.
-    pub fn with_http_client(http: reqwest::Client, api_key: String, base_url: String) -> Self {
-        Self {
+    pub fn with_http_client(
+        http: reqwest::Client,
+        api_key: String,
+        base_url: String,
+    ) -> Result<Self, CoreError> {
+        // Label-independent client-side backstop (audit run-2:
+        // unvalidated-provider-base-url-credential-transmission): the raw
+        // x-api-key this client transmits on every request must never be
+        // sent to a non-HTTPS destination (loopback HTTP is local-test
+        // only). The write-time/boot-time guards are production-gated;
+        // this is not.
+        herald_domain::common::entities::provider_url::validate_provider_base_url(&base_url)?;
+        Ok(Self {
             http,
             api_key,
             base_url,
-        }
+        })
     }
 
     /// Create a checkout session for a product

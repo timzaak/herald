@@ -617,11 +617,11 @@ fn parse_refund_created_payload(event: &Value) -> Result<CreemRefundCreatedPaylo
         event_id: parse_event_id(event)?,
         refund_id: object["id"]
             .as_str()
-            .ok_or_else(|| CoreError::BadRequest("Missing refund id".to_string()))?
+            .ok_or_else(|| CoreError::BadRequest("Missing or invalid refund id".to_string()))?
             .to_string(),
         payment_id: object["paymentId"]
             .as_str()
-            .ok_or_else(|| CoreError::BadRequest("Missing paymentId".to_string()))?
+            .ok_or_else(|| CoreError::BadRequest("Missing or invalid paymentId".to_string()))?
             .to_string(),
         amount: object["amount"]
             .as_i64()
@@ -681,7 +681,9 @@ fn parse_dispute_created_payload(event: &Value) -> Result<CreemDisputeCreatedPay
             .as_str()
             .or_else(|| object["transaction"]["subscription"].as_str())
             .map(str::to_string)
-            .ok_or_else(|| CoreError::BadRequest("Missing dispute subscription id".to_string()))?,
+            .ok_or_else(|| {
+                CoreError::BadRequest("Missing or invalid dispute subscription id".to_string())
+            })?,
         external_product_id: subscription["product"]
             .as_str()
             .or_else(|| subscription["product"]["id"].as_str())
@@ -691,7 +693,7 @@ fn parse_dispute_created_payload(event: &Value) -> Result<CreemDisputeCreatedPay
         currency: object["currency"].as_str().unwrap_or("").to_string(),
         dispute_id: object["id"]
             .as_str()
-            .ok_or_else(|| CoreError::BadRequest("Missing dispute id".to_string()))?
+            .ok_or_else(|| CoreError::BadRequest("Missing or invalid dispute id".to_string()))?
             .to_string(),
     })
 }
@@ -2630,6 +2632,65 @@ pub(crate) async fn reprocess_creem_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 审计 run-2 回归（creem-compensation-refund-dispute-payload-unprocessable）：
+    // 补偿任务从 REST 状态派生的合成 payload 必须能被目标 handler 的 parser
+    // 接受（dispute），或以"Missing or invalid"家族消息失败（refund，REST 数据
+    // 本就缺少 paymentId/userId）——后者是 reprocess_creem_event 优雅墓碑
+    // 谓词的覆盖范围，保证行收敛而不是永远重试。
+
+    #[test]
+    fn parse_dispute_created_accepts_compensation_synthetic_subscription() {
+        // webhook_compensation_job 构建的嵌套订阅对象同时携带
+        // `subscriptionId`（生命周期 parser）与 `id`（dispute parser）。
+        let event: Value = serde_json::json!({
+            "id": "tx_chargeback_1:dispute.created",
+            "eventType": "dispute.created",
+            "object": {
+                "id": "tx_chargeback_1",
+                "type": "payment",
+                "status": "chargeback",
+                "amount": 5000,
+                "currency": "USD",
+                "subscription": { "subscriptionId": "sub_123", "id": "sub_123" },
+                "customer": { "customerId": "cust_1" }
+            }
+        });
+        let payload = parse_dispute_created_payload(&event).unwrap();
+        assert_eq!(payload.external_subscription_id, "sub_123");
+        assert_eq!(payload.dispute_id, "tx_chargeback_1");
+    }
+
+    #[test]
+    fn parse_refund_created_synthetic_missing_payment_id_is_tombstoneable() {
+        // REST 状态数据没有 paymentId/userId —— 合成 refund payload 必然解析
+        // 失败，且失败消息要落在 reprocess_creem_event 的
+        // "Missing or invalid" 墓碑谓词内。
+        let event: Value = serde_json::json!({
+            "id": "tx_refunded_1:refund.created",
+            "eventType": "refund.created",
+            "object": {
+                "id": "tx_refunded_1",
+                "type": "payment",
+                "status": "paid",
+                "amount": 5000,
+                "currency": "USD",
+                "subscription": { "subscriptionId": "sub_123", "id": "sub_123" },
+                "customer": { "customerId": "cust_1" }
+            }
+        });
+        let err = match parse_refund_created_payload(&event) {
+            Err(err) => err,
+            Ok(_) => panic!("the compensation refund shape must fail to parse (no paymentId)"),
+        };
+        let CoreError::BadRequest(msg) = &err else {
+            panic!("missing paymentId must be a BadRequest, got {err:?}");
+        };
+        assert!(
+            msg.contains("Missing or invalid"),
+            "the parse failure must fall inside the graceful-tombstone predicate, got: {msg}"
+        );
+    }
 
     #[test]
     fn parse_checkout_completed_extracts_attempt_id() {

@@ -29,6 +29,12 @@ app_env = "production"
 # the socket peer IP is used (drives audit logs + rate limiting). Empty
 # (default) = trust nothing, correct when Herald is exposed directly.
 #
+# This also gates custom-domain cname/tls status advancement: a realm's
+# cname_verified/tls_ready only flips when an HTTPS request arrives through a
+# peer listed here. If your TLS-terminating ingress is NOT in this list,
+# tenant custom domains stall at "pending verification" forever with no error
+# — add the ingress CIDR here.
+#
 # Behind Cloudflare (orange cloud): set this to the CF IP ranges
 # (https://www.cloudflare.com/ips/) and set real_ip_header = "CF-Connecting-IP"
 # below. Invalid CIDR aborts startup (fail loud).

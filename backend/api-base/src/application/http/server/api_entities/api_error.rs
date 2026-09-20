@@ -91,6 +91,13 @@ impl ApiError {
         Self::with_error_code(status, Self::status_error_code(status), message)
     }
 
+    /// The HTTP status this error will render with. Callers that branch on
+    /// the error class (e.g. request-input 4xx vs configuration 5xx) read it
+    /// here instead of matching on message text.
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
+
     pub fn with_error_code(
         status: StatusCode,
         code: impl Into<String>,

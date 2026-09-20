@@ -965,4 +965,205 @@ mod tests {
             stored_external_order_id
         );
     }
+
+    /// 回归（审计 run-2：external_sync_invoice_exists-non-atomic-check-then-insert）：
+    /// 手动开票路径的 external_sync 重复守卫曾是无锁的 SELECT EXISTS + 独立
+    /// 事务 INSERT —— 用户/管理员申请路径与 webhook 驱动的
+    /// upsert_external_invoice 之间没有任何串行化，交错提交后同一资源同时
+    /// 存在 manual 与 external_sync 两张发票。修复后：两个写入方都在同一把
+    /// attribution 通告锁内判定并写入，任意交错恰好一张发票；顺序对照：
+    /// external 先落地时手动创建得到 Conflict。
+    #[test_context(SyncTestContext)]
+    #[tokio::test]
+    async fn test_manual_apply_and_external_sync_cannot_both_cover_a_resource(
+        ctx: &mut SyncTestContext,
+    ) {
+        use herald_core::domain::billing::invoice::{
+            ExternalInvoiceData, InvoiceProvider, InvoiceRepository, InvoiceSource, InvoiceStatus,
+            NewInvoice, NewLineItem,
+        };
+        use herald_core::infrastructure::billing::PostgresInvoiceRepository;
+
+        let realm_id = ctx._realm_id.clone();
+        let pool = ctx.app_state.pool.clone();
+
+        let user_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account (id, realm_id, email, password, status)
+             VALUES ($1, $2, $3, '$2a$12$dummy', 1)",
+        )
+        .bind(user_id)
+        .bind(&realm_id)
+        .bind("invoice-coverage-race@test.com")
+        .execute(&pool)
+        .await
+        .expect("account should insert");
+
+        let attempt_id = Uuid::now_v7();
+        let mapping_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO provider_entitlement_mappings
+                (id, realm_id, payment_provider, external_product_id, entitlement_key,
+                 billing_type, service_duration_days, enabled, created_at, updated_at)
+             VALUES ($1, $2, 'stripe', 'prod_race', 'race', 'one_time', NULL, true, NOW(), NOW())",
+        )
+        .bind(mapping_id)
+        .bind(&realm_id)
+        .execute(&pool)
+        .await
+        .expect("mapping should insert");
+        sqlx::query(
+            "INSERT INTO payment_attempts
+                (id, realm_id, user_id, payment_provider, target_type, target_id,
+                 amount, currency, status, provider_reference, expires_at)
+             VALUES ($1, $2, $3, 'stripe', 'entitlement_mapping', $4,
+                     1000, 'usd', 'Succeeded', $5, NOW() + INTERVAL '1 day')",
+        )
+        .bind(attempt_id)
+        .bind(&realm_id)
+        .bind(user_id)
+        .bind(mapping_id)
+        .bind(format!("pi_race_{}", Uuid::now_v7().simple()))
+        .execute(&pool)
+        .await
+        .expect("paid attempt should insert");
+
+        let repo = PostgresInvoiceRepository::new(ctx.app_state.db.as_ref().clone());
+
+        let manual_invoice = || NewInvoice {
+            realm_id: realm_id.clone(),
+            source: InvoiceSource::UserApplication,
+            account_id: user_id,
+            applicant_user_id: Some(user_id),
+            subscription_id: None,
+            payment_attempt_id: Some(attempt_id),
+            currency: "usd".to_string(),
+            line_items: vec![NewLineItem {
+                name: "race".to_string(),
+                description: None,
+                quantity: "1".to_string(),
+                unit_price: 1000,
+            }],
+            actor_user_id: Some(user_id),
+            billing_name: "Race Tester".to_string(),
+            billing_address: "1 Test Street".to_string(),
+            billing_email: None,
+            billing_phone: None,
+            billing_tax_id: String::new(),
+            seller_name: "Seller".to_string(),
+            seller_address: "2 Test Street".to_string(),
+            seller_email: None,
+            seller_phone: None,
+            seller_tax_id: String::new(),
+            discount_mode: None,
+            discount_value: None,
+            tax_mode: None,
+            tax_value: None,
+            shipping_mode: None,
+            shipping_value: None,
+            due_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            payment_terms: None,
+            notes: None,
+        };
+        let external_data = || ExternalInvoiceData {
+            realm_id: realm_id.clone(),
+            provider: InvoiceProvider::Stripe,
+            payment_provider: Some("stripe".to_string()),
+            external_invoice_id: Some(format!("in_race_{}", Uuid::now_v7().simple())),
+            external_order_id: None,
+            external_status: Some("paid".to_string()),
+            external_hosted_url: None,
+            external_pdf_url: None,
+            external_payload: None,
+            tax_details: None,
+            account_id: Some(user_id),
+            applicant_user_id: Some(user_id),
+            billing_name: None,
+            billing_email: None,
+            billing_phone: None,
+            billing_address: None,
+            currency: "usd".to_string(),
+            total: 1000,
+            status: InvoiceStatus::Paid,
+            subscription_id: None,
+            payment_attempt_id: Some(attempt_id),
+        };
+
+        // Interleaved writes: manual create races the external sync for the
+        // same attribution. Under the shared advisory lock exactly one row
+        // may cover the resource.
+        let (manual_outcome, external_outcome) = tokio::join!(
+            repo.create_invoice(manual_invoice()),
+            repo.upsert_external_invoice(external_data())
+        );
+        // Whichever side loses must surface a conflict/skip, never succeed
+        // into coexistence.
+        let manual_won = manual_outcome.is_ok();
+        if manual_won {
+            assert!(
+                external_outcome.is_ok(),
+                "external sync losing the race must skip gracefully, got {external_outcome:?}"
+            );
+        } else {
+            assert!(
+                external_outcome.is_ok(),
+                "external sync winning the race must succeed, got {external_outcome:?}"
+            );
+        }
+
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM invoice WHERE realm_id = $1 AND payment_attempt_id = $2",
+        )
+        .bind(&realm_id)
+        .bind(attempt_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows, 1,
+            "manual and external_sync invoices must never coexist on one resource (got {rows})"
+        );
+
+        // Sequential control: the losing manual creation is now refused by the
+        // authoritative guard inside the same lock.
+        if !manual_won {
+            let second = repo.create_invoice(manual_invoice()).await;
+            assert!(
+                second.is_err(),
+                "a second manual invoice for the same resource must conflict"
+            );
+        }
+
+        // Cleanup.
+        sqlx::query("DELETE FROM invoice_line_item WHERE invoice_id IN (SELECT id FROM invoice WHERE realm_id = $1 AND payment_attempt_id = $2)")
+            .bind(&realm_id).bind(attempt_id).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM invoice_history WHERE invoice_id IN (SELECT id FROM invoice WHERE realm_id = $1 AND payment_attempt_id = $2)")
+            .bind(&realm_id).bind(attempt_id).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM invoice WHERE realm_id = $1 AND payment_attempt_id = $2")
+            .bind(&realm_id)
+            .bind(attempt_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM invoice_number_counter WHERE realm_id = $1")
+            .bind(&realm_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM payment_attempts WHERE id = $1")
+            .bind(attempt_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM provider_entitlement_mappings WHERE id = $1")
+            .bind(mapping_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM account WHERE id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
 }

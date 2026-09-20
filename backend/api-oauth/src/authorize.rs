@@ -122,9 +122,18 @@ pub async fn oauth_authorize(
         )));
     }
 
-    // The optional OIDC parameters are stored verbatim in the Redis state, so
-    // they need a size bound to not double as a Redis-storage write primitive.
-    for (name, value) in [("scope", &params.scope), ("nonce", &params.nonce)] {
+    // The parameters stored server-side need a size bound so an unauthenticated
+    // caller cannot turn the authorize endpoint into a Redis-storage write
+    // primitive: scope/nonce are stored verbatim in the state JSON value, and
+    // `state` itself becomes the Redis KEY name while `code_challenge` is
+    // stored in the value (audit run-2:
+    // oauth-state-seeding-unbounded-state-and-code-challenge).
+    for (name, value) in [
+        ("scope", params.scope.as_deref()),
+        ("nonce", params.nonce.as_deref()),
+        ("code_challenge", Some(params.code_challenge.as_str())),
+        ("state", Some(params.state.as_str())),
+    ] {
         if let Some(value) = value
             && value.len() > OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES
         {

@@ -798,3 +798,224 @@ async fn scenario_check_permission_rejects_disabled_principals(ctx: &mut SchemaT
         "re-enabled app must introspect allowed again"
     );
 }
+
+// ============================================================================
+// 回归（审计 run-2）：admin /api/permission/check 探测令牌的主体复查 +
+// ext client-app 详情路由的跨租户存在性 oracle
+// ============================================================================
+
+/// 回归（审计 run-2：probed-token-introspection-skips-client-app-live-recheck）：
+/// /api/permission/check 曾对被探测令牌只做 Redis 存在性检查 —— 禁用/删除
+/// Client App 不吊销其令牌族，drift 状态下（禁用后吊销失败的窗口 / 直接
+/// DB 改库）该令牌在每个 Bearer 路由 401、在 ext 内省 invalid_token，却在
+/// 这个面回答 allowed=true。修复后：探测令牌走与 identity_middleware 相同
+/// 的 lookup_token_client_app 复查。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn scenario_admin_permission_check_rejects_drifted_client_app_token(
+    ctx: &mut SchemaTestContext,
+) {
+    // 用户的两条凭证：first-party 管理台会话（调用方）+ 自建 Client App 的
+    // CustomUserUi 会话（被探测方）。
+    let (caller_token, user_id_str) =
+        auth_helpers::create_admin_session_with_user(ctx, "introspect-drift@test.com", 1800).await;
+    auth_helpers::grant_realm_admin_role(ctx, &user_id_str).await;
+    let user_id = uuid::Uuid::parse_str(&user_id_str).unwrap();
+    use herald_core::domain::client::ports::ClientService;
+    use herald_core::domain::user::ports::UserRepository;
+    let user = ctx
+        ._app_state
+        .user_repository
+        .get_user_by_id(user_id)
+        .await
+        .unwrap();
+
+    let custom_app_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO client_app
+            (id, realm_id, client_id, name, redirect_uris, enabled, browser_refresh_absolute_ttl_seconds, is_first_party)
+         VALUES ($1, $2, $3, 'Drift App', '[]'::jsonb, true, 86400, false)",
+    )
+    .bind(custom_app_id)
+    .bind(&user.realm_id)
+    .bind(format!("drift-app-{}", uuid::Uuid::now_v7().simple()))
+    .execute(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    // 通过 service 层取完整 ClientApp（create_token_family 需要领域实体）。
+    let custom_client_row: (String,) =
+        sqlx::query_as("SELECT client_id FROM client_app WHERE id = $1")
+            .bind(custom_app_id)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    let custom_app = ctx
+        ._app_state
+        .service
+        .client_service()
+        .get_client_app_by_client_id(&user.realm_id, &custom_client_row.0)
+        .await
+        .unwrap();
+
+    use herald_core::domain::authentication::BrowserTokenService;
+    let drifted_token = herald_core::infrastructure::authentication::RedisBrowserTokenService::new(
+        ctx._app_state.redis_manager.clone(),
+    )
+    .create_token_family(&user, &custom_app, None, None)
+    .await
+    .unwrap()
+    .access_token;
+
+    let probe = |token: &str| {
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/permission/check")
+            .header("authorization", format!("Bearer {caller_token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "token": token,
+                    "clientId": ctx._client_id,
+                    "rules": [{"resource": "users", "action": "view"}]
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        async {
+            let resp = ctx.create_unified_test_router().oneshot(req).await.unwrap();
+            let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+        }
+    };
+    let unwrap_result = |body: serde_json::Value| body.get("data").cloned().unwrap_or(body);
+
+    // 基线：启用中的 Client App 令牌内省 allowed=true。
+    let body = unwrap_result(probe(&drifted_token).await);
+    assert_eq!(
+        body["allowed"], true,
+        "baseline must be allowed, got: {body}"
+    );
+
+    // Drift：直接 DB 置 enabled=false（吊销窗口失败/改库等价状态），
+    // Redis 令牌族不受影响地存活。
+    sqlx::query("UPDATE client_app SET enabled = false WHERE id = $1")
+        .bind(custom_app_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let body = unwrap_result(probe(&drifted_token).await);
+    assert_eq!(
+        body["allowed"], false,
+        "a drifted (disabled-app) token must not introspect as allowed"
+    );
+    assert!(
+        body["userId"].is_null(),
+        "denied introspection must not echo the userId"
+    );
+
+    // 对照：恢复启用后回到 allowed=true（复查是状态驱动的）。
+    sqlx::query("UPDATE client_app SET enabled = true WHERE id = $1")
+        .bind(custom_app_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let body = unwrap_result(probe(&drifted_token).await);
+    assert_eq!(body["allowed"], true, "re-enabled app restores allowed");
+}
+
+/// 回归（审计 run-2：api-ext/client_app.rs:get_client_app:
+/// cross-realm-existence-oracle-fetch-then-realm-check）：
+/// ext client-app 详情路由曾对跨 realm 行返回 403 "client belongs to a
+/// different realm"、对未知 id 返回 404 —— 403/404 的区分泄露跨租户
+/// Client App 存在性。修复后：两种探测得到字节等价的 404。
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn scenario_ext_client_app_detail_cross_realm_is_uniform_404(ctx: &mut SchemaTestContext) {
+    let app = ctx.create_unified_test_router();
+
+    // Realm B 的 Client App；Realm A 的（非绑定）API Key 持 clients:view。
+    let realm_b = format!("realm-oracle-{}", uuid::Uuid::now_v7().simple());
+    sqlx::query("INSERT INTO realm (id, name) VALUES ($1, 'Oracle Realm')")
+        .bind(&realm_b)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let foreign_app_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO client_app
+            (id, realm_id, client_id, name, redirect_uris, enabled, browser_refresh_absolute_ttl_seconds, is_first_party)
+         VALUES ($1, $2, $3, 'Foreign App', '[]'::jsonb, true, 86400, false)",
+    )
+    .bind(foreign_app_id)
+    .bind(&realm_b)
+    .bind(format!("foreign-app-{}", uuid::Uuid::now_v7().simple()))
+    .execute(&ctx._app_state.pool)
+    .await
+    .unwrap();
+
+    let (api_key, entity) = create_test_api_key(ctx, "oracle-probe", true, None).await;
+
+    // 授予 API key 主体 clients:view（无角色绑定的 key 会在 handler 之前的
+    // 权限闸门 403，两个探测都会被挡住而不是到达 handler 的 404 折叠）。
+    {
+        use herald_core::domain::authorization::principal_types;
+        let role_id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO roles (id, name, description, realm_id, client_id, is_builtin)
+             VALUES ($1, 'oracle-probe-role', 'clients:view probe role', $2, $3, false)",
+        )
+        .bind(role_id)
+        .bind(&ctx._realm_id)
+        .bind(&ctx._client_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO role_policies (id, role_id, realm_id, resource, action)
+             VALUES ($1, $2, $3, 'clients', 'view')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(role_id)
+        .bind(&ctx._realm_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO user_roles (id, user_id, role_id, realm_id, client_id, principal_type, principal_id)
+             VALUES ($1, NULL, $2, $3, $4, $5, $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(role_id)
+        .bind(&ctx._realm_id)
+        .bind(&ctx._client_id)
+        .bind(principal_types::API_KEY)
+        .bind(&entity.id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    }
+
+    let probe = |app_id: uuid::Uuid| {
+        create_request_with_api_key(
+            Method::GET,
+            &format!("/api/ext/realms/{}/client-apps/{}", ctx._realm_id, app_id),
+            &api_key,
+            None,
+        )
+    };
+
+    let foreign = app.clone().oneshot(probe(foreign_app_id)).await.unwrap();
+    let unknown = app.oneshot(probe(uuid::Uuid::now_v7())).await.unwrap();
+    assert_eq!(
+        foreign.status(),
+        StatusCode::NOT_FOUND,
+        "a foreign-realm client app must answer 404, not 403"
+    );
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+    let foreign_body = to_bytes(foreign.into_body(), usize::MAX).await.unwrap();
+    let unknown_body = to_bytes(unknown.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(
+        foreign_body, unknown_body,
+        "the two probes must be byte-identical (no existence oracle)"
+    );
+}

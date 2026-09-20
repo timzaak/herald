@@ -182,17 +182,32 @@ impl UserTotpRepository for PostgresUserTotpRepository {
     }
 
     async fn mark_backup_code_used(&self, code_id: i64) -> Result<UserTotpBackupCode, CoreError> {
+        // Conditional claim: the `used = false` predicate makes the row
+        // transition itself the one-time gate, so two concurrent submissions
+        // of one backup code cannot both flip it — the loser affects zero
+        // rows and surfaces Conflict.
+        let now: sea_orm::prelude::DateTimeWithTimeZone = chrono::Utc::now().into();
+        let result = user_totp_backup_codes::Entity::update_many()
+            .col_expr(
+                user_totp_backup_codes::Column::Used,
+                sea_orm::sea_query::Expr::value(true),
+            )
+            .col_expr(
+                user_totp_backup_codes::Column::UsedAt,
+                sea_orm::sea_query::Expr::value(now),
+            )
+            .filter(user_totp_backup_codes::Column::Id.eq(code_id))
+            .filter(user_totp_backup_codes::Column::Used.eq(false))
+            .exec(&*self.db)
+            .await?;
+        if result.rows_affected == 0 {
+            return Err(CoreError::Conflict("Backup code already used".to_string()));
+        }
         let code_model = user_totp_backup_codes::Entity::find_by_id(code_id)
             .one(&*self.db)
             .await?
             .ok_or(CoreError::NotFound)?;
-
-        let mut active_model: user_totp_backup_codes::ActiveModel = code_model.into();
-        active_model.used = Set(true);
-        active_model.used_at = Set(Some(chrono::Utc::now().into()));
-
-        let result = active_model.update(&*self.db).await?;
-        Ok(Self::to_domain_backup_code(result))
+        Ok(Self::to_domain_backup_code(code_model))
     }
 
     async fn delete_backup_codes(&self, config_id: Uuid) -> Result<(), CoreError> {

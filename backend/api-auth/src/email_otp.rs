@@ -47,17 +47,14 @@ use herald_core::domain::security_constants::{
 };
 use herald_core::domain::user::ports::{UserRepository, UserService};
 use herald_core::domain::user::value_objects::CreateUserRequest;
-use herald_core::domain::user_passkey::UserPasskeyRepository;
 use herald_core::domain::user_totp::UserTotpRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
-use herald_core::infrastructure::user_passkey::PostgresUserPasskeyRepository;
 use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 use herald_core::third::email::EmailService;
 
 use crate::browser_token::BrowserTokenResponse;
 use crate::consent_gate::AuthConsentAgreement;
 use crate::mailflow;
-use crate::passkey_rp::resolve_passkey_rp;
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -771,32 +768,19 @@ pub async fn verify(
         .map(|config| config.enabled)
         .unwrap_or(false);
 
-    // Best-effort probe identical to the password-login one: a passkey RP
-    // resolution failure (e.g. no RP configured for this realm) means "no
-    // passkey second factor", never a 500 on the OTP path.
-    let passkey_repo = PostgresUserPasskeyRepository::new(state.db.clone());
-    let has_passkey = match resolve_passkey_rp(
+    // Shared second-factor probe (see `login_second_factor_has_passkey`):
+    // configuration failures stay tolerated so an OTP login never 500s on
+    // passkey RP config; caller-input failures (a crafted Origin header) fail
+    // CLOSED through the realm-wide credential check, preserving the
+    // "OTP login must not bypass an existing passkey second factor" invariant.
+    let has_passkey = crate::passkey_rp::login_second_factor_has_passkey(
         &state,
         &user.realm_id,
+        user.id,
         &headers,
         Some(client_app.id),
     )
-    .await
-    {
-        Ok(relying_party) => !passkey_repo
-            .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
-            .await?
-            .is_empty(),
-        Err(error) => {
-            tracing::debug!(
-                user_id = %user.id,
-                realm_id = %user.realm_id,
-                error = %error,
-                "Passkey RP resolution failed during OTP login second-factor probe; passkey will not be offered"
-            );
-            false
-        }
-    };
+    .await?;
 
     let mut second_factors = Vec::new();
     if has_totp {

@@ -222,9 +222,24 @@ impl WebhookCompensationJob {
         let base_url = base_url
             .map(|u| u.to_string())
             .unwrap_or_else(|| "https://api.stripe.com".to_string());
-        let client =
-            StripeClient::with_http_client(self.http.clone(), api_key.to_string(), base_url);
         let mut stats = CompensationStats::default();
+        let client = match StripeClient::with_http_client(
+            self.http.clone(),
+            api_key.to_string(),
+            base_url.clone(),
+        ) {
+            Ok(client) => client,
+            Err(error) => {
+                // Fail the realm's sweep loudly instead of returning an
+                // empty-success round: the purchase path rejects the same
+                // stored URL at request time, and a silent skip would strand
+                // missed events (e.g. charge.refunded) with no signal, every
+                // round, forever.
+                return Err(anyhow::anyhow!(
+                    "Stripe compensation refused for realm {realm_id}: base_url {base_url} failed client-side validation: {error}"
+                ));
+            }
+        };
         let mut starting_after: Option<String> = None;
 
         loop {
@@ -294,9 +309,22 @@ impl WebhookCompensationJob {
                 "https://api.creem.io".to_string()
             }
         });
-        let client =
-            CreemClient::with_http_client(self.http.clone(), api_key.to_string(), base_url);
         let mut stats = CompensationStats::default();
+        let client = match CreemClient::with_http_client(
+            self.http.clone(),
+            api_key.to_string(),
+            base_url.clone(),
+        ) {
+            Ok(client) => client,
+            Err(error) => {
+                // Same loud-failure contract as the Stripe branch above: an
+                // uncompensatable realm must surface as an error, not as a
+                // successful empty sweep.
+                return Err(anyhow::anyhow!(
+                    "Creem compensation refused for realm {realm_id}: base_url {base_url} failed client-side validation: {error}"
+                ));
+            }
+        };
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         let mut page_number = 1;
@@ -330,11 +358,17 @@ impl WebhookCompensationJob {
 
                 // Build subscription/customer with camelCase keys explicitly,
                 // since Serialize on CreemTransactionSub/Customer uses snake_case
-                // but the webhook handler expects camelCase.
+                // but the webhook handler expects camelCase. The nested
+                // subscription object carries BOTH key spellings: lifecycle
+                // parsers read `subscriptionId`, the dispute.created parser
+                // reads `subscription.id` — with only the camelCase key the
+                // derived dispute payload could never parse and its row
+                // retried forever (audit run-2:
+                // creem-compensation-refund-dispute-payload-unprocessable).
                 let subscription = tx
                     .subscription
                     .as_ref()
-                    .map(|s| serde_json::json!({ "subscriptionId": s.subscription_id }));
+                    .map(|s| serde_json::json!({ "subscriptionId": s.subscription_id, "id": s.subscription_id }));
                 let customer = tx
                     .customer
                     .as_ref()

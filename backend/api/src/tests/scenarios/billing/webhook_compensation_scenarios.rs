@@ -1614,4 +1614,121 @@ mod tests {
             "the canceled transition must dispatch under its own synthetic id"
         );
     }
+
+    // =========================================================================
+    // 审计 run-2 回归：refund/dispute 合成 payload 的可解析性
+    // =========================================================================
+
+    /// 回归（审计 run-2：creem-compensation-refund-dispute-payload-unprocessable）：
+    /// 补偿任务为 refunded_amount>0 与 status=chargeback 交易派生
+    /// refund.created / dispute.created。合成的嵌套订阅对象现在同时携带
+    /// `subscriptionId` 与 `id` —— dispute parser 读 `subscription.id`，修复
+    /// 前该键缺失导致 dispute 行永远解析失败；refund 行的
+    /// "Missing or invalid paymentId" 解析失败落在 reprocess 的墓碑谓词内。
+    /// 这里在补偿任务出口断言合成 payload 的形状（parser 契约由
+    /// api-billing 单元测试钉住）。
+    #[test_context(CompensationTestContext)]
+    #[tokio::test]
+    async fn test_creem_refund_dispute_synthetic_payloads_carry_parser_fields(
+        ctx: &mut CompensationTestContext,
+    ) {
+        let realm_id = ctx._realm_id.clone();
+        let pool = &ctx.app_state.pool;
+
+        let mock_server = MockServer::start().await;
+        insert_realm_creem_config(pool, &realm_id, "ck_test_refund_dispute").await;
+        insert_realm_base_url(pool, &realm_id, "creem", &mock_server.uri()).await;
+
+        Mock::given(method("GET"))
+            .and(path("/v1/transactions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {
+                        "id": "tx_refunded_comp_1",
+                        "mode": "test",
+                        "object": "transaction",
+                        "amount": 5000,
+                        "currency": "USD",
+                        "type": "payment",
+                        "status": "paid",
+                        "created_at": chrono::Utc::now().timestamp(),
+                        "amount_paid": 5000,
+                        "refunded_amount": 1500,
+                        "order": { "order_id": "order_ref_1" },
+                        "subscription": { "subscription_id": "sub_comp_1" },
+                        "customer": { "customer_id": "cust_1" }
+                    },
+                    {
+                        "id": "tx_chargeback_comp_1",
+                        "mode": "test",
+                        "object": "transaction",
+                        "amount": 7000,
+                        "currency": "USD",
+                        "type": "payment",
+                        "status": "chargeback",
+                        "created_at": chrono::Utc::now().timestamp(),
+                        "amount_paid": 7000,
+                        "refunded_amount": null,
+                        "order": { "order_id": "order_cb_1" },
+                        "subscription": { "subscription_id": "sub_comp_2" },
+                        "customer": { "customer_id": "cust_2" }
+                    }
+                ],
+                "pagination": {
+                    "total_records": 2,
+                    "total_pages": 1,
+                    "current_page": 1,
+                    "next_page": null,
+                    "prev_page": null
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/v1/subscriptions/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [],
+                "pagination": {
+                    "total_records": 0,
+                    "total_pages": 0,
+                    "current_page": 1,
+                    "next_page": null,
+                    "prev_page": null
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let processor = MockProcessor::new();
+        let call_log = processor.call_log();
+        let job = build_job(ctx, &processor);
+        job.run().await.expect("Job should succeed");
+
+        let calls = get_calls(&call_log);
+        let dispute = calls
+            .iter()
+            .find(|c| c.event_type == "dispute.created")
+            .expect("a chargeback transaction must derive dispute.created");
+        let dispute_sub = &dispute.payload["object"]["subscription"];
+        assert_eq!(
+            dispute_sub["id"].as_str(),
+            Some("sub_comp_2"),
+            "the synthetic dispute payload must carry subscription.id for the dispute parser"
+        );
+        assert_eq!(
+            dispute_sub["subscriptionId"].as_str(),
+            Some("sub_comp_2"),
+            "lifecycle readers of subscriptionId keep working"
+        );
+
+        let refund = calls
+            .iter()
+            .find(|c| c.event_type == "refund.created")
+            .expect("a refunded transaction must derive refund.created");
+        assert!(
+            refund.payload["object"]["paymentId"].is_null(),
+            "REST compensation data carries no paymentId — the parse failure must tombstone (see api-billing unit tests)"
+        );
+    }
 }

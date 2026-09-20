@@ -217,6 +217,20 @@ where
             .get_user_by_email(realm_id, &email)
             .await?;
 
+        // Email confirmation is the ONLY intended activation source for a
+        // WaitVerified account. It must never move an account OUT of a
+        // disabled state: an unauthenticated confirm flipping an
+        // admin-banned (Forbidden) or Deleted account back to Normal would
+        // let a banned user self-unban through their own mailbox. An already
+        // Normal account stays idempotently active; the rejection keeps the
+        // generic bad_request shape so the confirm link leaks nothing about
+        // the account's current status.
+        if user.status.is_disabled() {
+            return Err(CoreError::BadRequest(
+                "verification code not found".to_string(),
+            ));
+        }
+
         // Update user status to active
         self.user_repository.update_user_status(user.id, 1).await?;
 

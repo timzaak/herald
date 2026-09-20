@@ -1,4 +1,5 @@
 pub mod app_errors;
+pub mod provider_url;
 
 pub use app_errors::CoreError;
 

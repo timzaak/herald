@@ -806,14 +806,19 @@ async fn consume_idempotency_replay_returns_same_result_set(ctx: &mut TestContex
     let total_after_first = balances_after_first_a + balances_after_first_b;
     assert_eq!(total_after_first, 400 - 250, "balances deducted once");
 
-    // --- Replay with the same idempotencyKey. ----------------------------
+    // --- Replay with the same idempotencyKey and a byte-identical payload.
+    // (The request fingerprint shipped with audit run-1 answers key reuse
+    // with a DIFFERENT payload — e.g. a different description — with 409
+    // idempotency_conflict; the cached-result replay applies to the same
+    // payload only. This test predates that guard and was missed when it
+    // landed — pin the shipped semantics instead.)
     let (status2, body2) = consume_points_ext_via_api(
         ctx,
         &realm_id,
         user_id,
         client_app_id,
         250,
-        Some("replay multi-pool"),
+        Some("first multi-pool"),
         Some(&idempotency_key),
         &api_key,
     )

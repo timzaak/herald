@@ -248,6 +248,20 @@ async fn load_google_credentials(
     // Optional `base_url` override (Stripe/Creem `base_url` realm-config
     // pattern). Empty / absent → `None` → production Google endpoints.
     let base_url = map.get("base_url").filter(|v| !v.is_empty()).cloned();
+    // Label-independent client-side guard (review 20260920): the
+    // service-account JWT assertion is POSTed to `{base}/token` and the
+    // Developer API calls carry its bearer token at `{base}/…` — a
+    // plaintext non-loopback base would receive the realm's credentials,
+    // the same gap Stripe/Creem already guard against at their clients.
+    if let Some(base) = base_url.as_deref()
+        && let Err(error) =
+            herald_core::domain::common::entities::provider_url::validate_provider_base_url(base)
+    {
+        return Err(IapError::NotConfigured {
+            realm_id: realm_id.to_string(),
+            provider: format!("google (invalid base_url: {error})"),
+        });
+    }
 
     Ok(GoogleCredentials {
         package_name,
@@ -1176,9 +1190,24 @@ fn iap_dedup_lease_is_stale(event: &PaymentEvent) -> bool {
     })
 }
 
-/// Decide the unique-conflict branch of a receipt resubmission against the
-/// row a prior submission left (`existing` is always unprocessed — processed
-/// rows replay before the insert is ever attempted):
+/// Neutral outcome of [`claim_iap_dedup_row_for_recovery`]; the two dedup
+/// entrances surface the non-recovery arms differently.
+enum IapDedupRecoveryClaim {
+    /// The row's lease was claimed (and any abandoned Pending attempt flipped
+    /// to Failed) — re-run fulfillment on the row.
+    Recover(Uuid),
+    /// The prior attempt is genuinely in-flight (fresh lease) or
+    /// fulfilled-but-unmarked — its state stands.
+    PriorStanding,
+    /// The lease claim lost to a concurrent submission that holds it.
+    LeaseLost,
+}
+
+/// Shared core of the two dedup-conflict entrances (client receipt
+/// resubmission and Apple notification redelivery): decide what a duplicate
+/// delivery owes a prior delivery's unprocessed dedup row (`existing` is
+/// always unprocessed — processed rows replay before the insert is ever
+/// attempted):
 ///
 /// - prior attempt `Failed` → recovery re-run. The prior submission's failure
 ///   exit released the lease, so the claim succeeds immediately; if it did
@@ -1186,28 +1215,31 @@ fn iap_dedup_lease_is_stale(event: &PaymentEvent) -> bool {
 /// - prior attempt `Pending`/`RequiresAction` with a stale lease → the prior
 ///   submission died between attempt creation and its terminal marking
 ///   (crash window): flip the orphan attempt to Failed, then recover. A
-///   fresh lease means a submission is genuinely in-flight — replay it.
+///   fresh lease means a submission is genuinely in-flight — leave it.
 /// - no prior attempt + released/stale lease → the prior submission died
 ///   between the dedup insert and its attempt creation (invalid target_type,
 ///   transient DB failure, crash) — dead-zone row recovery (review
 ///   20260919 finding 1). A fresh lease is a concurrent in-flight
 ///   submission.
-/// - any other prior attempt state → replay its status.
+/// - any other prior attempt state → its status stands
+///   ([`IapDedupRecoveryClaim::PriorStanding`]).
 ///
-/// The claim is a single conditional UPDATE, so of two concurrent
-/// resubmissions at most one wins the recovery re-run.
-async fn resolve_iap_dedup_conflict(
+/// The claim is a single conditional UPDATE, so of two concurrent duplicate
+/// deliveries at most one wins the recovery re-run.
+async fn claim_iap_dedup_row_for_recovery(
     state: &AppState,
     realm_id: &str,
     provider: &str,
     external_txn_id: &str,
     existing: &PaymentEvent,
-) -> Result<IapDedupConflictResolution, ApiError> {
+    lookup_error_context: &'static str,
+    claim_error_context: &'static str,
+) -> Result<IapDedupRecoveryClaim, ApiError> {
     let prior_attempt = state
         .payment_attempt_service
         .get_payment_attempt_by_provider_reference(provider, external_txn_id)
         .await
-        .map_err(|e| core_error_to_api_error(e, "iap prior attempt lookup"))?
+        .map_err(|e| core_error_to_api_error(e, lookup_error_context))?
         .filter(|prior| prior.realm_id == realm_id);
 
     let abandon_attempt_id = match prior_attempt {
@@ -1227,11 +1259,7 @@ async fn resolve_iap_dedup_conflict(
             Some(prior.id)
         }
         // In-flight (fresh lease) or fulfilled-but-unmarked: replay its state.
-        Some(_) => {
-            return Ok(IapDedupConflictResolution::Replay(
-                iap_response_for_existing_event(state, realm_id, provider, existing).await?,
-            ));
-        }
+        Some(_) => return Ok(IapDedupRecoveryClaim::PriorStanding),
     };
 
     // Claim the row's lease atomically: NULL (released by the prior
@@ -1241,9 +1269,9 @@ async fn resolve_iap_dedup_conflict(
         .billing_repository
         .claim_payment_event_for_processing(existing.id, IAP_DEDUP_LEASE_STALE_SECS)
         .await
-        .map_err(|e| core_error_to_api_error(e, "iap dedup lease claim"))?
+        .map_err(|e| core_error_to_api_error(e, claim_error_context))?
     {
-        return Ok(IapDedupConflictResolution::InFlight);
+        return Ok(IapDedupRecoveryClaim::LeaseLost);
     }
 
     if let Some(attempt_id) = abandon_attempt_id {
@@ -1265,12 +1293,43 @@ async fn resolve_iap_dedup_conflict(
                 attempt_id = %attempt_id,
                 provider = provider,
                 error = %e,
-                "IAP recovery: stale Pending attempt could not be flipped to Failed — the re-run proceeds; the orphan stays Pending"
+                "IAP dedup recovery: stale Pending attempt could not be flipped to Failed — the re-run proceeds; the orphan stays Pending"
             );
         }
     }
 
-    Ok(IapDedupConflictResolution::Recover(existing.id))
+    Ok(IapDedupRecoveryClaim::Recover(existing.id))
+}
+
+/// Receipt-entrance view of the shared dedup-recovery decision
+/// ([`claim_iap_dedup_row_for_recovery`]): a standing prior submission
+/// replays its attempt status, a lost lease claim rejects as in-flight.
+async fn resolve_iap_dedup_conflict(
+    state: &AppState,
+    realm_id: &str,
+    provider: &str,
+    external_txn_id: &str,
+    existing: &PaymentEvent,
+) -> Result<IapDedupConflictResolution, ApiError> {
+    match claim_iap_dedup_row_for_recovery(
+        state,
+        realm_id,
+        provider,
+        external_txn_id,
+        existing,
+        "iap prior attempt lookup",
+        "iap dedup lease claim",
+    )
+    .await?
+    {
+        IapDedupRecoveryClaim::Recover(event_id) => {
+            Ok(IapDedupConflictResolution::Recover(event_id))
+        }
+        IapDedupRecoveryClaim::PriorStanding => Ok(IapDedupConflictResolution::Replay(
+            iap_response_for_existing_event(state, realm_id, provider, existing).await?,
+        )),
+        IapDedupRecoveryClaim::LeaseLost => Ok(IapDedupConflictResolution::InFlight),
+    }
 }
 
 // ============================================================================
@@ -1485,12 +1544,23 @@ pub async fn process_apple_notification_decoded(
         ));
     }
 
-    // Idempotency: payment_event keyed by originalTransactionId.
+    // Idempotency, inbox mode (mirror of the receipt entrance in
+    // submit_iap_receipt): the dedup row is inserted BEFORE any fulfillment
+    // under an in-flight lease, and the UNIQUE(realm_id, external_event_id,
+    // payment_provider) constraint — not an unlocked probe — decides single
+    // execution. The old probe-only check let two concurrent duplicate
+    // deliveries each pass the probe, create and complete their own attempt,
+    // and double-grant the points pack (audit run-2:
+    // iap-notification-first-purchase-dedup-after-fulfillment). The
+    // `iap_apple_` event_type prefix keeps the row inside the retry sweep's
+    // `iap_%` skip: recovery is delivery-driven (Apple redelivery or the
+    // user's receipt resubmission re-enters through the conflict branch),
+    // and the stored payload carries no provider-replayable data.
     if state
         .billing_repository
         .find_payment_event_by_external_id(realm_id, &original_transaction_id, "apple")
         .await?
-        .is_some()
+        .is_some_and(|existing| existing.processed)
     {
         tracing::info!(
             realm_id = %realm_id,
@@ -1500,94 +1570,240 @@ pub async fn process_apple_notification_decoded(
         return Ok(());
     }
 
-    // Attribute the attempt to the real purchaser where possible. The Apple
-    // notification path has no client user_id (the webhook is unauthenticated),
-    // but Herald's client receipt path REQUIRES appAccountToken == user id, so
-    // webhook-only transactions can usually recover the owner from the same
-    // verified field; otherwise fall back to the existing subscription's
-    // owner. Refund/REVOKE clawbacks revoke by attempt.user_id — with the old
-    // mapping-id placeholder they silently no-oped and the buyer kept refunded
-    // entitlements.
-    let mut attributed_user_id: Option<Uuid> = match txn.app_account_token {
-        Some(uid) => match state.user_repository.get_user_by_id(uid).await {
-            Ok(user) if user.realm_id == realm_id => Some(uid),
-            _ => None,
-        },
-        None => None,
-    };
-    if attributed_user_id.is_none()
-        && let Ok(Some(subscription)) = state
-            .billing_repository
-            .find_by_external_subscription_id(&original_transaction_id, "apple")
-            .await
-        && subscription.realm_id == realm_id
-    {
-        attributed_user_id = Some(subscription.user_id);
-    }
-
-    let attributed_user_id = attributed_user_id.ok_or_else(|| {
-        CoreError::BadRequest(format!(
-            "apple notification purchaser could not be attributed for transaction {original_transaction_id}"
-        ))
-    })?;
-
-    let attempt = state
-        .purchase_service
-        .create_iap_payment_attempt(CreateIapAttemptInput {
+    let notification_type_str = apple_notification_type_str(&notification.notification_type);
+    let dedup_event_id = match state
+        .billing_repository
+        .create_payment_event(PaymentEvent {
+            id: Uuid::now_v7(),
             realm_id: realm_id.to_string(),
-            user_id: attributed_user_id,
+            external_event_id: original_transaction_id.clone(),
             payment_provider: "apple".to_string(),
-            target_type: PurchasableTarget::EntitlementMapping,
-            target_id: resolved.mapping.id,
-            provider_reference: original_transaction_id.clone(),
-            metadata: None,
+            event_type: format!("iap_apple_{notification_type_str}"),
+            subscription_id: None,
+            payload: serde_json::json!({
+                "provider": "apple",
+                "notificationType": notification_type_str,
+                "productId": product_id,
+            }),
+            processed: false,
+            // In-flight lease: concurrent duplicate deliveries that hit the
+            // unique conflict below skip quietly while it is fresh. Every
+            // failure exit after this point releases it; a crash mid-flight
+            // leaves it to expire after IAP_DEDUP_LEASE_STALE_SECS.
+            processing_started_at: Some(Utc::now()),
+            created_at: Utc::now(),
         })
+        .await
+    {
+        Ok(saved) => saved.id,
+        Err(CoreError::DatabaseError(ref msg))
+            if crate::webhook_common::is_unique_violation_msg(msg) =>
+        {
+            // Another delivery already claimed this transaction. Load the
+            // row and decide between skip and recovery re-run.
+            let existing = state
+                .billing_repository
+                .find_payment_event_by_external_id(realm_id, &original_transaction_id, "apple")
+                .await?
+                .ok_or_else(|| {
+                    CoreError::InternalServerError(
+                        "apple notification dedup row vanished after unique conflict".to_string(),
+                    )
+                })?;
+            if existing.processed {
+                tracing::info!(
+                    realm_id = %realm_id,
+                    original_transaction_id = %original_transaction_id,
+                    "apple notification already processed -- skipping (conflict branch)"
+                );
+                return Ok(());
+            }
+            match resolve_apple_notification_dedup_conflict(
+                state,
+                realm_id,
+                &original_transaction_id,
+                &existing,
+            )
+            .await?
+            {
+                AppleNotificationDedupConflict::Skip => return Ok(()),
+                AppleNotificationDedupConflict::Recover(event_id) => {
+                    tracing::warn!(
+                        realm_id = %realm_id,
+                        original_transaction_id = %original_transaction_id,
+                        "apple notification redelivery: recovering the prior delivery's dedup row"
+                    );
+                    event_id
+                }
+            }
+        }
+        Err(e) => return Err(e),
+    };
+
+    // Attribution, attempt creation and fulfillment run under the dedup
+    // row's lease. Every failure exit below releases the lease so the next
+    // redelivery (or the user's receipt resubmission) recovers immediately.
+    let result: Result<(), CoreError> = async {
+        // Attribute the attempt to the real purchaser where possible. The Apple
+        // notification path has no client user_id (the webhook is unauthenticated),
+        // but Herald's client receipt path REQUIRES appAccountToken == user id, so
+        // webhook-only transactions can usually recover the owner from the same
+        // verified field; otherwise fall back to the existing subscription's
+        // owner. Refund/REVOKE clawbacks revoke by attempt.user_id — with the old
+        // mapping-id placeholder they silently no-oped and the buyer kept refunded
+        // entitlements.
+        let mut attributed_user_id: Option<Uuid> = match txn.app_account_token {
+            Some(uid) => match state.user_repository.get_user_by_id(uid).await {
+                Ok(user) if user.realm_id == realm_id => Some(uid),
+                _ => None,
+            },
+            None => None,
+        };
+        if attributed_user_id.is_none()
+            && let Ok(Some(subscription)) = state
+                .billing_repository
+                .find_by_external_subscription_id(&original_transaction_id, "apple")
+                .await
+            && subscription.realm_id == realm_id
+        {
+            attributed_user_id = Some(subscription.user_id);
+        }
+
+        let attributed_user_id = attributed_user_id.ok_or_else(|| {
+            CoreError::BadRequest(format!(
+                "apple notification purchaser could not be attributed for transaction {original_transaction_id}"
+            ))
+        })?;
+
+        let attempt = state
+            .purchase_service
+            .create_iap_payment_attempt(CreateIapAttemptInput {
+                realm_id: realm_id.to_string(),
+                user_id: attributed_user_id,
+                payment_provider: "apple".to_string(),
+                target_type: PurchasableTarget::EntitlementMapping,
+                target_id: resolved.mapping.id,
+                provider_reference: original_transaction_id.clone(),
+                metadata: None,
+            })
+            .await?;
+
+        fulfill_provider_event(
+            state,
+            realm_id,
+            attempt.id,
+            "apple",
+            "succeeded",
+            original_transaction_id.clone(),
+            Utc::now(),
+            Some(billing_type),
+        )
         .await?;
 
-    fulfill_provider_event(
-        state,
-        realm_id,
-        attempt.id,
-        "apple",
-        "succeeded",
-        original_transaction_id.clone(),
-        Utc::now(),
-        Some(billing_type),
-    )
-    .await?;
+        record_iap_audit(
+            state,
+            realm_id,
+            AuditAction::IapNotification,
+            None,
+            Some(ActorType::System),
+            original_transaction_id.to_string(),
+            serde_json::json!({
+                "provider": "apple",
+                "notificationType": notification_type_str,
+                "productId": product_id,
+                "outcome": "purchase_fulfilled",
+            }),
+        )
+        .await;
 
-    // Record payment_event for idempotency (best-effort).
-    let notification_type_str = apple_notification_type_str(&notification.notification_type);
-    record_idempotent_payment_event(
-        state,
-        realm_id,
-        &original_transaction_id,
-        "apple",
-        format!("apple_{notification_type_str}"),
-        serde_json::json!({
-            "notificationType": notification_type_str,
-            "productId": product_id,
-        }),
-    )
+        Ok(())
+    }
     .await;
 
-    record_iap_audit(
+    match &result {
+        Ok(()) => {
+            // Fulfilled: the dedup row becomes the processed tombstone. A
+            // failure here leaves the row unprocessed under a released lease
+            // — a later redelivery or receipt resubmission recovers through
+            // the conflict branch (which replays the Succeeded attempt).
+            if let Err(e) = state
+                .billing_repository
+                .mark_payment_event_processed(dedup_event_id)
+                .await
+            {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    original_transaction_id = %original_transaction_id,
+                    error = %e,
+                    "apple notification fulfilled but marking payment_event processed failed"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                realm_id = %realm_id,
+                original_transaction_id = %original_transaction_id,
+                error = %e,
+                "apple notification fulfillment failed -- dedup row stays unprocessed for redelivery recovery"
+            );
+        }
+    }
+    // Every failure exit releases the in-flight lease so the next duplicate
+    // delivery's conflict branch recovers immediately instead of waiting out
+    // IAP_DEDUP_LEASE_STALE_SECS; a crash mid-flight leaves it to expire.
+    if result.is_err()
+        && let Err(e) = state
+            .billing_repository
+            .release_payment_event_lease(dedup_event_id)
+            .await
+    {
+        tracing::warn!(
+            realm_id = %realm_id,
+            original_transaction_id = %original_transaction_id,
+            error = %e,
+            "apple notification failed but the dedup lease release failed -- recovery may skip until the lease expires"
+        );
+    }
+    result
+}
+
+/// Outcome of the notification-path dedup conflict resolution: `Skip` covers
+/// both a fresh in-flight delivery (another request owns the outcome) and a
+/// fulfilled-but-unmarked attempt (its state replays through the existing
+/// rows); only `Recover` re-runs fulfillment.
+enum AppleNotificationDedupConflict {
+    Skip,
+    Recover(Uuid),
+}
+
+/// Notification-path sibling of [`resolve_iap_dedup_conflict`]: the shared
+/// recovery decision ([`claim_iap_dedup_row_for_recovery`]) surfaced through
+/// Apple's always-200 semantics — anything that is not a recovery re-run
+/// (fresh in-flight delivery or fulfilled-but-unmarked attempt) skips
+/// quietly.
+async fn resolve_apple_notification_dedup_conflict(
+    state: &AppState,
+    realm_id: &str,
+    original_transaction_id: &str,
+    existing: &PaymentEvent,
+) -> Result<AppleNotificationDedupConflict, CoreError> {
+    match claim_iap_dedup_row_for_recovery(
         state,
         realm_id,
-        AuditAction::IapNotification,
-        None,
-        Some(ActorType::System),
-        original_transaction_id.to_string(),
-        serde_json::json!({
-            "provider": "apple",
-            "notificationType": notification_type_str,
-            "productId": product_id,
-            "outcome": "purchase_fulfilled",
-        }),
+        "apple",
+        original_transaction_id,
+        existing,
+        "apple notification prior attempt lookup",
+        "apple notification dedup lease claim",
     )
-    .await;
-
-    Ok(())
+    .await
+    {
+        Ok(IapDedupRecoveryClaim::Recover(event_id)) => {
+            Ok(AppleNotificationDedupConflict::Recover(event_id))
+        }
+        Ok(_) => Ok(AppleNotificationDedupConflict::Skip),
+        Err(e) => Err(CoreError::InternalServerError(e.to_string())),
+    }
 }
 
 /// payment_attempt (idempotency key = originalTransactionId), then routed by

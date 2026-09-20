@@ -49,6 +49,22 @@ pub async fn get_wechat_client_for_realm(
         }
     }
 
+    // Label-independent client-side guard (review 20260920): every outbound
+    // WeChat request is merchant-key-signed and posted to the configured
+    // base — a plaintext non-loopback base must not receive the realm's
+    // credentials. Mirrors the Stripe/Creem client-side base_url guard.
+    if let Some(base) = map
+        .get("base_url")
+        .map(String::as_str)
+        .filter(|b| !b.is_empty())
+        && let Err(error) =
+            herald_domain::common::entities::provider_url::validate_provider_base_url(base)
+    {
+        return Err(CoreError::BadRequest(format!(
+            "Invalid WeChat configuration: base_url {error}"
+        )));
+    }
+
     let config = WechatPayConfig {
         app_id: map.remove("app_id").unwrap(),
         mch_id: map.remove("mch_id").unwrap(),

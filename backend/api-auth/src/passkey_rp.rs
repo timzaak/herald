@@ -1,10 +1,12 @@
-use axum::http::{HeaderMap, Uri, header::ORIGIN};
+use axum::http::{HeaderMap, StatusCode, Uri, header::ORIGIN};
 
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::custom_domain::CustomDomainMappingRepository;
 use herald_core::domain::realm_config::ConfigType;
-use herald_core::domain::user_passkey::PasskeyRelyingParty;
+use herald_core::domain::user_passkey::{PasskeyRelyingParty, UserPasskeyRepository};
+use herald_core::infrastructure::user_passkey::PostgresUserPasskeyRepository;
+use uuid::Uuid;
 
 /// Read the realm's passkey `enabled` flag from `realm_config`
 /// (`config_type='passkey'`, `config_key='settings'`).
@@ -86,7 +88,12 @@ pub async fn resolve_passkey_rp(
         .get(ORIGIN)
         .and_then(|value| value.to_str().ok())
         .unwrap_or(configured_origin.as_str());
-    let request_uri = parse_origin(request_origin)?;
+    // The request Origin is caller-controlled input: a malformed value is a
+    // 400 naming the header, not a server configuration error. The login
+    // second-factor probe keys on this distinction (see
+    // `login_second_factor_has_passkey`) so an attacker-chosen Origin can
+    // never be mistaken for a deployment misconfiguration.
+    let request_uri = parse_request_origin(request_origin)?;
     let configured_uri = parse_origin(&configured_origin)?;
 
     if same_origin(&request_uri, &configured_uri) {
@@ -153,6 +160,61 @@ pub async fn resolve_passkey_rp(
     )
 }
 
+/// Does the user hold a passkey that must be satisfied before a session is
+/// issued? Shared by the password, LDAP and email-OTP login entrances.
+///
+/// RP resolution normally scopes the credential lookup to the request's
+/// relying party. Its failures split into two classes with different
+/// obligations:
+///
+/// * configuration/infrastructure failures (5xx: `RP_ID`/`RP_ORIGIN` unset,
+///   malformed configured origin, origin-lookup DB error) stay tolerated as
+///   "no passkey offered" — the passkey ceremony could not run under that
+///   configuration either, and a password-only login must never hard-fail on
+///   global passkey env config.
+/// * request-input failures (400: the caller-controlled `Origin` header names
+///   an origin that is not configured for this realm) fall back to a
+///   realm-wide credential check. The second-factor decision must never
+///   follow an attacker-chosen header: when the user holds any passkey in
+///   the realm the ceremony is required, and the ceremony itself rejects the
+///   unconfigured origin — fail closed.
+pub async fn login_second_factor_has_passkey(
+    state: &AppState,
+    realm_id: &str,
+    user_id: Uuid,
+    headers: &HeaderMap,
+    client_app_id: Option<Uuid>,
+) -> Result<bool, ApiError> {
+    let repo = PostgresUserPasskeyRepository::new(state.db.clone());
+    match resolve_passkey_rp(state, realm_id, headers, client_app_id).await {
+        Ok(relying_party) => Ok(!repo
+            .list_by_user_and_rp(realm_id, user_id, &relying_party.id)
+            .await?
+            .is_empty()),
+        Err(error) if error.status() == StatusCode::BAD_REQUEST => repo
+            .has_any_for_user(realm_id, user_id)
+            .await
+            .map_err(|db_error| {
+                tracing::error!(
+                    user_id = %user_id,
+                    realm_id = realm_id,
+                    error = %db_error,
+                    "Failed to check realm-wide passkey credential presence"
+                );
+                ApiError::internal("Failed to resolve Passkey origin")
+            }),
+        Err(error) => {
+            tracing::debug!(
+                user_id = %user_id,
+                realm_id = realm_id,
+                error = %error,
+                "Passkey RP resolution failed during login second-factor probe; passkey will not be offered"
+            );
+            Ok(false)
+        }
+    }
+}
+
 fn select_client_app_rp(
     request_uri: &Uri,
     matches_enabled_client: bool,
@@ -187,12 +249,24 @@ fn select_custom_domain_rp(
 }
 
 fn parse_origin(origin: &str) -> Result<Uri, ApiError> {
+    parse_origin_impl(origin)
+        .map_err(|_| ApiError::internal("Invalid Passkey origin configuration"))
+}
+
+/// Parse the caller-supplied `Origin` header. Same shape rules as
+/// [`parse_origin`], but the failure is attributed to the request input
+/// (400) instead of the deployment configuration (500).
+fn parse_request_origin(origin: &str) -> Result<Uri, ApiError> {
+    parse_origin_impl(origin).map_err(|_| ApiError::bad_request("Passkey origin header is invalid"))
+}
+
+fn parse_origin_impl(origin: &str) -> Result<Uri, ()> {
     let uri = origin
         .trim_end_matches('/')
         .parse::<Uri>()
-        .map_err(|_| ApiError::internal("Invalid Passkey origin configuration"))?;
+        .map_err(|_| ())?;
     if uri.scheme().is_none() || uri.authority().is_none() || uri.path() != "/" {
-        return Err(ApiError::internal("Invalid Passkey origin configuration"));
+        return Err(());
     }
     Ok(uri)
 }

@@ -502,7 +502,11 @@ fn host_of_configured_url(raw: &str) -> Option<String> {
         None => return None,
     };
     let host = url.host_str()?.trim_matches(['[', ']']);
-    (!host.is_empty()).then(|| host.to_ascii_lowercase())
+    // Canonicalize through the shared read-side helper (strip exactly one
+    // trailing root-label dot, then lowercase) so an FQDN-spelled configured
+    // URL ("app.example.com.") matches the dotless claim form instead of
+    // reserving a name no claim can ever equal.
+    normalize_custom_domain_host(host)
 }
 
 /// Assert a hostname is not claimed by another realm.
@@ -524,17 +528,27 @@ fn assert_hostname_not_reserved(state: &AppState, hostname: &str) -> Result<(), 
             "localhost cannot be claimed as a custom domain",
         ));
     }
-    for reserved in [
-        host_of_configured_url(&state.public_base_url),
-        host_of_configured_url(&state.custom_domain_cname_target),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if claimed == reserved {
-            return Err(ApiError::bad_request(
-                "This hostname is reserved by the deployment and cannot be claimed as a custom domain",
-            ));
+    for configured in [&state.public_base_url, &state.custom_domain_cname_target] {
+        let configured = configured.trim();
+        if configured.is_empty() {
+            continue;
+        }
+        match host_of_configured_url(configured) {
+            Some(reserved) if claimed == reserved => {
+                return Err(ApiError::bad_request(
+                    "This hostname is reserved by the deployment and cannot be claimed as a custom domain",
+                ));
+            }
+            // Fail closed: a non-empty configured deployment URL whose host
+            // cannot be extracted still denotes deployment-owned names. With
+            // no DNS-control proof anywhere in the claim flow, reserving
+            // nothing would leave those names claimable by a tenant.
+            None => {
+                return Err(ApiError::bad_request(
+                    "Deployment URL configuration is malformed; custom-domain claims are disabled until it is fixed",
+                ));
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -695,9 +709,30 @@ mod reserved_host_tests {
             Some("2001:db8::1".to_string())
         );
 
-        // Nothing extractable — no bogus reservation either.
+        // FQDN root-label spellings must reserve the same dotless identity
+        // the claim side stores and the read side keys on — a dotted reserved
+        // value can never equal the dotless claim form in the exact compare,
+        // so without the strip the deployment host stays claimable.
+        assert_eq!(
+            host_of_configured_url("https://app.example.com./"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("https://App.Example.Com.:8443"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_of_configured_url("app.example.com."),
+            Some("app.example.com".to_string())
+        );
+
+        // Nothing extractable — no bogus reservation either. A non-empty
+        // unparseable spelling returning None here is what makes
+        // `assert_hostname_not_reserved` fail closed (claims disabled) rather
+        // than silently reserving nothing.
         assert_eq!(host_of_configured_url(""), None);
         assert_eq!(host_of_configured_url("   "), None);
         assert_eq!(host_of_configured_url("https://"), None);
+        assert_eq!(host_of_configured_url("https://app .example.com/"), None);
     }
 }
