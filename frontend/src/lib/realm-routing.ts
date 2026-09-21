@@ -69,10 +69,10 @@ export async function resolveRealmContext(pathname: string): Promise<ResolvedRea
     return cachedCustomDomainContext
   }
 
-  const host = typeof window === 'undefined' ? '' : window.location.host
-  const response = await resolveCustomDomain({
-    query: host ? { host } : {},
-  })
+  // The resolve endpoint has no `?host=` override (removed as a host-to-realm
+  // oracle); it reads the request Host header, which the browser fetch carries
+  // as window.location.host automatically.
+  const response = await resolveCustomDomain()
   if (response.error) {
     // On a non-custom-domain host the resolve endpoint deterministically 404s.
     // For main-domain paths that carry no realm prefix ('/', session-scoped
