@@ -249,7 +249,7 @@
 ## 8. 已确认决策
 
 - **D-SEC-01（安全姿态）**：选定"跨域 + 浏览器持有用户 token"主路线。token 明确进入集成方前端，身份解析不再依赖 cookie；传输与凭证模型类比业界标准（浏览器持 token + Bearer + 不走跨域 cookie + 旋转 refresh token）。
-- **D-CRED-01（双轨凭证类）**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类。`FirstParty` 由内置保留 Client App（数据库内部标记，不进入 Admin/Ext API DTO）经 Authorization Code + PKCE 换取，执行完整 RBAC；`CustomUserUi` 由 `/login` 直接签发，受用户自服务权限上限约束。普通 Client App 即便完成 PKCE 也不升级为 FirstParty。判定在服务端 fail-closed，不接受请求体声明凭证类。
+- **D-CRED-01（双轨凭证类）**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类。`FirstParty` 由内置保留 Client App（数据库内部标记，不进入 Ext API DTO；Admin API 仅只读回显该标记供管理员识别内置应用，不接受写入——服务端判定用 `is_builtin_first_party_client` 而非该标志）经 Authorization Code + PKCE 换取，执行完整 RBAC；`CustomUserUi` 由 `/login` 直接签发，受用户自服务权限上限约束。普通 Client App 即便完成 PKCE 也不升级为 FirstParty。判定在服务端 fail-closed，不接受请求体声明凭证类。
 - **D-SCOPE-FULL（用户自服务权限全覆盖）**：`CustomUserUi` token 获得完整用户自服务权限集合，含经重新认证的高危写；管理员能力和未知能力默认拒绝。授权依据是主体、Realm、凭证用途与权限上限，不是路径。即使 token 所属用户拥有管理员角色，`CustomUserUi` 凭证也不能调用管理员能力。
 - **D-LOGIN-01（登录链路）**：集成方自建 UI 登录入口经 `/login` 签发 `CustomUserUi` token，跨域场景不设 cookie；二因素流程同步支持。OAuth Authorization Code + PKCE 链路用于签发 `FirstParty` token（Herald 自有前端），不作为自建 UI 的登录入口；普通 Client App 经 PKCE 换码获得的是 `CustomUserUi` 类浏览器 token（权限上限与 `/login` 签发一致），不升级为 FirstParty。
 - **D-TOK-01（生命周期 = 旋转 refresh token）**：短时效 access token（内存）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测（旧 RT 再用吊销整个家族）+ RT 绝对有效上限。

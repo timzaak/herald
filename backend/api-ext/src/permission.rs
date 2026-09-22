@@ -167,10 +167,12 @@ pub async fn check_permission(
     };
     // The principal recheck runs through the same lookup identity_middleware
     // uses on every /api/user/* Bearer route, so the two surfaces cannot
-    // drift: a disabled or deleted Client App row rejects the token outright —
-    // disabling a Client App does NOT revoke its token families, so live
-    // tokens would otherwise introspect allowed=true up to their TTL while
-    // every Bearer route refuses them. The enabled state must be evaluated
+    // drift: a disabled or deleted Client App row rejects the token outright.
+    // Disabling/deleting also revokes the app's browser token families
+    // (api-admin client_apps update/delete), but that revocation is
+    // after-persist best-effort — on its failure tokens survive to natural
+    // expiry, so this recheck must not assume they are gone. The enabled
+    // state must be evaluated
     // for admin/unbound keys too, not only inside the bound-key comparison.
     let token_client_id =
         match lookup_token_client_app(&state, token_data.client_app_id, &token_data.realm_id)

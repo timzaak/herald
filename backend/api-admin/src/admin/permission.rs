@@ -104,8 +104,9 @@ pub async fn check_permission(
 
     // Live recheck of the probed token's principal through the same lookup
     // every Bearer route (identity_middleware) and the ext introspection use:
-    // disabling or deleting a Client App does NOT revoke its token families,
-    // so a still-live Redis token of a disabled/deleted app would otherwise
+    // disabling/deleting a Client App revokes its browser token families
+    // after-persist best-effort, so a still-live Redis token of a
+    // disabled/deleted app can exist and would otherwise
     // introspect allowed=true on this surface while every Bearer route
     // answers 401 and /api/ext/permission/check answers invalid_token
     // (audit run-2: probed-token-introspection-skips-client-app-live-recheck).

@@ -113,7 +113,13 @@ fn parse_token_request(headers: &HeaderMap, body: &[u8]) -> Result<TokenRequest,
     params(
         ("realmId" = String, Path, description = "Realm ID"),
     ),
-    request_body = TokenRequest,
+    request_body(
+        description = "Dual encoding per openid-connect.md §5.1: JSON (first-party flow) or RFC 6749 §4.1.3 form-urlencoded (standard OIDC clients); both deserialize into the same snake_case field names",
+        content(
+            (TokenRequest = "application/json"),
+            (TokenRequest = "application/x-www-form-urlencoded")
+        )
+    ),
     responses(
         (status = 200, description = "Access token issued", body = TokenResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -420,6 +426,37 @@ mod tests {
     fn parse_token_request_rejects_unparseable_bodies() {
         assert!(parse_token_request(&form_headers(), b"grant_type=&missing=everything").is_err());
         assert!(parse_token_request(&json_headers(), b"not json at all").is_err());
+    }
+
+    // WHY (openid-connect.md §5.1 双编码): the wire handler accepts both
+    // encodings, but standard OIDC clients generate calls from the OpenAPI
+    // contract — a JSON-only requestBody leaves the RFC 6749 form path
+    // undocumented to anyone reading the spec.
+    #[test]
+    fn openapi_token_request_body_declares_json_and_form() {
+        use utoipa::OpenApi as _;
+        let doc = crate::ApiDoc::openapi();
+        let item = doc
+            .paths
+            .paths
+            .get("/api/oauth/{realmId}/token")
+            .expect("token path must be registered in ApiDoc");
+        let post = item
+            .post
+            .as_ref()
+            .expect("token path must have a POST operation");
+        let content = &post
+            .request_body
+            .as_ref()
+            .expect("token operation must declare a request body")
+            .content;
+        for content_type in ["application/json", "application/x-www-form-urlencoded"] {
+            assert!(
+                content.contains_key(content_type),
+                "token requestBody must declare {content_type}; declared: {:?}",
+                content.keys().collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

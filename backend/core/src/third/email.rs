@@ -99,6 +99,10 @@ impl ResendClient {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(EMAIL_SEND_TIMEOUT_SECS))
             .connect_timeout(std::time::Duration::from_secs(10))
+            // Refused redirects, matching every other outbound client: the
+            // API host is fixed configuration, so a redirect response is
+            // tampering/noise, not a path to follow.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| anyhow::anyhow!("failed to build Resend HTTP client: {e}"))?;
         Ok(Self { token, from, http })

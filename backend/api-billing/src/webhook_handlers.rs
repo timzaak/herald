@@ -138,7 +138,7 @@ struct CreemRefundCreatedPayload {
     amount: i64,
     original_amount: i64,
     user_id: Uuid,
-    refund_type: String,
+    refund_type: Option<String>,
     external_subscription_id: Option<String>,
 }
 
@@ -635,8 +635,7 @@ fn parse_refund_created_payload(event: &Value) -> Result<CreemRefundCreatedPaylo
         )?,
         refund_type: object["metadata"]["refundType"]
             .as_str()
-            .unwrap_or("subscription")
-            .to_string(),
+            .map(str::to_string),
         external_subscription_id: object["subscriptionId"].as_str().map(str::to_string),
     })
 }
@@ -1729,7 +1728,7 @@ async fn handle_refund_created(
         payment_id = %payload.payment_id,
         amount = payload.amount,
         original_amount = payload.original_amount,
-        refund_type = %payload.refund_type,
+        refund_type = ?payload.refund_type,
         user_id = %payload.user_id,
         event_id = %event_id,
         "Processing refund - revoking points"
@@ -1763,149 +1762,189 @@ async fn handle_refund_created(
                 payload.refund_id, payload.payment_id
             ))
         })?;
-    match payload.refund_type.as_str() {
-        "topup" => {
-            // The provider-reference lookup is realm-free; a refund signed for
-            // this realm must not revoke against another realm's attempt.
-            if attempt.realm_id != realm_id {
-                return Err(CoreError::BadRequest(format!(
-                    "Creem refund realm mismatch for payment_id {}",
-                    payload.payment_id
-                )));
-            }
-            // Creem's payload amount is this refund's own amount (already the
-            // incremental input) and carries no cumulative figure — the
-            // cumulative total for the full-refund gate aggregates in-transaction
-            // from the recorded refund rows. The gate denominator is the local
-            // attempt snapshot by design; a divergence from the provider-declared
-            // original amount silently skews the gate — surface it.
-            if payload.original_amount != attempt.amount {
-                tracing::warn!(
-                    realm_id = %realm_id,
-                    payment_id = %payload.payment_id,
-                    provider_original_amount = payload.original_amount,
-                    attempt_amount = attempt.amount,
-                    "Creem refund original amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
-                );
-            }
-            let outcome = app_state
-                .points_service
-                .revoke_topup_refund(TopupRefundRevokeRequest {
-                    realm_id,
-                    user_id: payload.user_id,
-                    payment_attempt_id: attempt.id,
-                    payment_provider: "creem",
-                    refund_id: &payload.refund_id,
-                    refund_amount: payload.amount,
-                    original_payment_amount: attempt.amount,
-                    provider_cumulative_refunded: None,
-                })
-                .await?;
-
-            // Full-refund gate: a partial refund (any share, any count) keeps
-            // the payment-granted permanent roles; only a refund that brings
-            // the cumulative total to the original payment amount revokes
-            // them. Runs on duplicate re-delivery too: the revoke is
-            // idempotent (NotFound is a no-op; only source='payment' rows)
-            // and the call itself is best-effort, so re-running it is the
-            // only self-heal path when the first attempt failed transiently —
-            // the persistent dedup row above guards the points revocation.
-            if outcome.fully_refunded {
-                revoke_payment_roles_for_source(
-                    &app_state,
-                    realm_id,
-                    payload.user_id,
-                    &attempt.id.to_string(),
-                )
-                .await;
-            }
-
-            info!(
-                realm_id = %realm_id,
-                user_id = %payload.user_id,
-                refund_id = %payload.refund_id,
-                amount = payload.amount,
-                original_amount = payload.original_amount,
-                duplicate = outcome.duplicate,
-                fully_refunded = outcome.fully_refunded,
-                total_revoked = outcome.revoked.total_revoked,
-                "Topup refund - proportionally revoked topup credits"
-            );
+    // Route the refund. Explicit `refundType` payment metadata (programmatic
+    // refunds) keeps its authority; a Dashboard-initiated refund carries none
+    // and the historical parse default ("subscription") hard-errored because
+    // one-time purchases also lack the subscriptionId field. Default instead
+    // to whichever side actually resolves: a resolvable subscription →
+    // subscription cancellation; a one-time purchase attempt → topup
+    // clawback; neither → keep the honest loud failure in the subscription
+    // branch. Mirrors the Stripe charge.refunded default routing
+    // (refund-clawback.md §5.1 FR-2: the two refund paths behave alike).
+    let subscription = match payload.external_subscription_id.as_deref() {
+        Some(external_subscription_id) => {
+            resolve_existing_creem_subscription(&app_state, external_subscription_id).await?
         }
+        None => None,
+    };
+    let route_topup = match payload.refund_type.as_deref() {
+        Some("topup") => true,
+        Some("subscription") => false,
         _ => {
-            // subscription's active quota entitlement by `source_id =
-            // broad `revoke_subscription_unused` ledger-row paths are retired
-            // under the window quota model. A refund targets the originating
-            // subscription; resolve it by external_subscription_id from the
-            // event payload and verify it belongs to the routing bucket resolved
-            // from the original payment attempt. Idempotent: no active
-            // entitlement / already-revoked ⟹ no-op.
-            let external_subscription_id =
-                payload.external_subscription_id.as_deref().ok_or_else(|| {
-                    CoreError::BadRequest(
-                        "Missing subscriptionId in subscription refund payload".to_string(),
-                    )
-                })?;
-            let subscription =
-                resolve_existing_creem_subscription(&app_state, external_subscription_id)
-                    .await?
-                    .ok_or_else(|| {
-                        CoreError::BadRequest(format!(
-                            "No subscription found for refund {}: external_subscription_id {}",
-                            payload.refund_id, external_subscription_id
+            if subscription.is_some() {
+                false
+            } else {
+                // A failed mapping load must not fold into a subscription
+                // route — the refund would 400 with "Missing subscriptionId"
+                // while the actual DB error goes unlogged. Fail loud like
+                // the attempt lookup above so the provider retry / sweep
+                // re-runs it (mirrors the Stripe route_topup guard).
+                app_state
+                    .billing_repository
+                    .find_entitlement_mapping_by_id(attempt.target_id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            realm_id = %realm_id,
+                            payment_id = %payload.payment_id,
+                            error = %e,
+                            "Failed to load entitlement mapping for refund routing"
+                        );
+                        CoreError::InternalServerError(format!(
+                            "Failed to resolve bucket for refund {}: {e}",
+                            payload.refund_id
                         ))
-                    })?;
-            // The lookup is realm-free (provider ids are globally unique per
-            // provider account); a refund signed for this realm must never
-            // cancel another realm's subscription — handle_subscription_cancel
-            // keys its revokes on the passed realm_id, so a foreign
-            // subscription would consume the refund while the owning realm's
-            // revoke silently no-ops (mirrors the sync_subscription guard).
-            if subscription.realm_id != realm_id {
-                return Err(CoreError::Forbidden(format!(
-                    "Creem refund for subscription {external_subscription_id} does not belong to realm {realm_id}"
-                )));
+                    })?
+                    .is_some_and(|mapping| mapping.billing_type == Some(BillingType::OneTime))
             }
+        }
+    };
 
-            let _output = app_state
-                .subscription_service
-                .handle_subscription_cancel(
-                    payload.user_id,
-                    realm_id,
-                    subscription.id,
-                    CancelMode::ImmediateCancel,
-                    None,
-                    None,
-                )
-                .await?;
-
-            // Mirror Stripe's charge.refunded handling: record a subscription
-            // history event so provider behavior stays symmetric. Topup refunds
-            // have no subscription and skip this.
-            let history_event = SubscriptionHistoryService::create_subscription_refunded_event(
-                &subscription,
-                serde_json::json!({
-                    "provider": "creem",
-                    "refundId": payload.refund_id,
-                    "amountRefunded": payload.amount,
-                    "originalAmount": payload.original_amount,
-                    "refundType": payload.refund_type,
-                }),
-                Some(ACTOR_WEBHOOK.to_string()),
-            );
-            app_state
-                .billing_repository
-                .save_history_event(history_event)
-                .await?;
-
-            info!(
+    if route_topup {
+        // The provider-reference lookup is realm-free; a refund signed for
+        // this realm must not revoke against another realm's attempt.
+        if attempt.realm_id != realm_id {
+            return Err(CoreError::BadRequest(format!(
+                "Creem refund realm mismatch for payment_id {}",
+                payload.payment_id
+            )));
+        }
+        // Creem's payload amount is this refund's own amount (already the
+        // incremental input) and carries no cumulative figure — the
+        // cumulative total for the full-refund gate aggregates in-transaction
+        // from the recorded refund rows. The gate denominator is the local
+        // attempt snapshot by design; a divergence from the provider-declared
+        // original amount silently skews the gate — surface it.
+        if payload.original_amount != attempt.amount {
+            tracing::warn!(
                 realm_id = %realm_id,
-                user_id = %payload.user_id,
-                refund_id = %payload.refund_id,
-                subscription_id = %subscription.id,
-                "Subscription refund - revoked subscription quota entitlement"
+                payment_id = %payload.payment_id,
+                provider_original_amount = payload.original_amount,
+                attempt_amount = attempt.amount,
+                "Creem refund original amount diverges from payment_attempt snapshot (full-refund gate uses the snapshot)"
             );
         }
+        let outcome = app_state
+            .points_service
+            .revoke_topup_refund(TopupRefundRevokeRequest {
+                realm_id,
+                user_id: payload.user_id,
+                payment_attempt_id: attempt.id,
+                payment_provider: "creem",
+                refund_id: &payload.refund_id,
+                refund_amount: payload.amount,
+                original_payment_amount: attempt.amount,
+                provider_cumulative_refunded: None,
+            })
+            .await?;
+
+        // Full-refund gate: a partial refund (any share, any count) keeps
+        // the payment-granted permanent roles; only a refund that brings
+        // the cumulative total to the original payment amount revokes
+        // them. Runs on duplicate re-delivery too: the revoke is
+        // idempotent (NotFound is a no-op; only source='payment' rows)
+        // and the call itself is best-effort, so re-running it is the
+        // only self-heal path when the first attempt failed transiently —
+        // the persistent dedup row above guards the points revocation.
+        if outcome.fully_refunded {
+            revoke_payment_roles_for_source(
+                &app_state,
+                realm_id,
+                payload.user_id,
+                &attempt.id.to_string(),
+            )
+            .await;
+        }
+
+        info!(
+            realm_id = %realm_id,
+            user_id = %payload.user_id,
+            refund_id = %payload.refund_id,
+            amount = payload.amount,
+            original_amount = payload.original_amount,
+            duplicate = outcome.duplicate,
+            fully_refunded = outcome.fully_refunded,
+            total_revoked = outcome.revoked.total_revoked,
+            "Topup refund - proportionally revoked topup credits"
+        );
+    } else {
+        // subscription's active quota entitlement by `source_id =
+        // broad `revoke_subscription_unused` ledger-row paths are retired
+        // under the window quota model. A refund targets the originating
+        // subscription; it was resolved above by external_subscription_id from
+        // the event payload. Idempotent: no active
+        // entitlement / already-revoked ⟹ no-op.
+        let subscription =
+            subscription.ok_or_else(|| match payload.external_subscription_id.as_deref() {
+                Some(external_subscription_id) => CoreError::BadRequest(format!(
+                    "No subscription found for refund {}: external_subscription_id {}",
+                    payload.refund_id, external_subscription_id
+                )),
+                None => CoreError::BadRequest(
+                    "Missing subscriptionId in subscription refund payload".to_string(),
+                ),
+            })?;
+        // The lookup is realm-free (provider ids are globally unique per
+        // provider account); a refund signed for this realm must never
+        // cancel another realm's subscription — handle_subscription_cancel
+        // keys its revokes on the passed realm_id, so a foreign
+        // subscription would consume the refund while the owning realm's
+        // revoke silently no-ops (mirrors the sync_subscription guard).
+        if subscription.realm_id != realm_id {
+            return Err(CoreError::Forbidden(format!(
+                "Creem refund for subscription {} does not belong to realm {realm_id}",
+                subscription.external_subscription_id
+            )));
+        }
+
+        let _output = app_state
+            .subscription_service
+            .handle_subscription_cancel(
+                payload.user_id,
+                realm_id,
+                subscription.id,
+                CancelMode::ImmediateCancel,
+                None,
+                None,
+            )
+            .await?;
+
+        // Mirror Stripe's charge.refunded handling: record a subscription
+        // history event so provider behavior stays symmetric. Topup refunds
+        // have no subscription and skip this.
+        let history_event = SubscriptionHistoryService::create_subscription_refunded_event(
+            &subscription,
+            serde_json::json!({
+                "provider": "creem",
+                "refundId": payload.refund_id,
+                "amountRefunded": payload.amount,
+                "originalAmount": payload.original_amount,
+                "refundType": payload.refund_type.as_deref(),
+            }),
+            Some(ACTOR_WEBHOOK.to_string()),
+        );
+        app_state
+            .billing_repository
+            .save_history_event(history_event)
+            .await?;
+
+        info!(
+            realm_id = %realm_id,
+            user_id = %payload.user_id,
+            refund_id = %payload.refund_id,
+                subscription_id = %subscription.id,
+            "Subscription refund - revoked subscription quota entitlement"
+        );
     }
 
     Ok(create_placeholder_transaction(
@@ -2690,6 +2729,41 @@ mod tests {
             msg.contains("Missing or invalid"),
             "the parse failure must fall inside the graceful-tombstone predicate, got: {msg}"
         );
+    }
+
+    // refund-clawback.md §5.1 FR-2（两条退款路径行为一致）：Dashboard 发起的
+    // Creem 退款不带 refundType 元数据。解析层必须把缺失呈现为 None 而不是
+    // 默认 "subscription" —— 该默认曾把一次性购买退款误路由进订阅分支 400，
+    // 积分/角色无法自动回收；路由层按"可解析侧"分流（对齐 Stripe
+    // charge.refunded 的解析式默认）。
+
+    fn dashboard_refund_event() -> Value {
+        serde_json::json!({
+            "id": "evt_refund_dashboard",
+            "eventType": "refund.created",
+            "object": {
+                "id": "re_1",
+                "paymentId": "pay_1",
+                "amount": 5000,
+                "originalAmount": 10000,
+                "metadata": { "herald_user_id": "00000000-0000-0000-0000-000000000001" }
+            }
+        })
+    }
+
+    #[test]
+    fn parse_refund_created_missing_refund_type_metadata_is_none() {
+        let payload = parse_refund_created_payload(&dashboard_refund_event()).unwrap();
+        assert_eq!(payload.refund_type, None);
+        assert_eq!(payload.external_subscription_id, None);
+    }
+
+    #[test]
+    fn parse_refund_created_explicit_refund_type_keeps_authority() {
+        let mut event = dashboard_refund_event();
+        event["object"]["metadata"]["refundType"] = serde_json::json!("topup");
+        let payload = parse_refund_created_payload(&event).unwrap();
+        assert_eq!(payload.refund_type.as_deref(), Some("topup"));
     }
 
     #[test]

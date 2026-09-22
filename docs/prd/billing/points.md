@@ -366,7 +366,7 @@
 - SDK 消耗积分时校验 API Key 对 client_app 的作用域（client_app_scope），确保 API Key 只能操作其授权范围内的 client_app 积分
 - API Key 鉴权实时校验其绑定 Client App 的启用状态（包括缓存命中路径）：Client App 被禁用后，其 API Key 立即失效并返回 401，不依赖缓存 TTL 过期
 - 限流策略（生效范围：SDK ext 消费与发放两点，即 `/api/ext` 下的 consume 与 grant 端点）：realm 级别 100 次/分钟，user 级别 20 次/分钟；api-points 管理端点当前不设独立限流
-- SDK 消费幂等（`/api/ext/points/{realmId}/consume` 的 `idempotencyKey`）：键上限 255 字节（超限 400，防共享 Redis 的持久键名膨胀）；同键同负载重放返回首次结果；同键异负载 409 `idempotency_conflict`；状态标记丢失（60s 在途 TTL 到期/写入失败/完成前崩溃）时失败关闭为 409（先前排键重放会二次扣减）；缓存记录比请求指纹存活更久（完成滞后超过 1h 时域）同样 409——ext 路由整体有 60s 请求上限，正常路径不可能进入该状态
+- SDK 消费幂等（`/api/ext/points/{realmId}/consume` 的 `idempotencyKey`）：键上限 255 字节（超限 400，防共享 Redis 的持久键名膨胀）；同键同负载重放返回首次结果；同键异负载 409 `idempotency_conflict`；状态标记丢失（60s 在途 TTL 到期/写入失败/完成前崩溃）时失败关闭为 409（先前排键重放会二次扣减）；缓存记录比请求指纹存活更久（完成滞后超过 1h 时域）同样 409——ext consume 路由（仅该路由，非 ext 整体）有 60s 请求上限，正常路径不可能进入该状态
 - 管理接口权限：所有管理端点经灵活认证中间件认证后，再经 admin-console 凭据闸门（仅第一方 admin-web-console Bearer token 可通过，API Key 与第三方 Bearer 一律 403；第三方 API Key 走 `/api/ext/points/*`），最后在 handler 内以 `require_authenticated_user_in_realm`（Realm 归属校验）+ 权限校验进行控制：
   - 积分数据查询（wallets、transactions）：`points.manage`。`points.view` 授权用户本人数据查询（经用户自查端点）；管理端跨用户查询 wallets/transactions 需 `points.manage`（内置 user 角色持有 `points.view`，若管理端仅要求 view 会导致普通用户跨用户读取积分数据）
   - Entitlement Mapping 的积分分发规则（随 mapping 的 `point_rules`）：随 mapping CRUD，`billing.manage`（带 `point_rules` 时额外要 `points.manage`）

@@ -224,7 +224,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | `/api/roles/{realmId}/define` | 角色定义（role_definitions）的 CRUD 及角色权限关联 |
 | `/api/permission/roles/{roleId}/policies` | 角色策略关联（GET/POST/DELETE）：查询需 `policies.view`；添加需 `policies.manage` 且授予方自持被授予的 `resource.action`；删除需 `policies.manage`（移除不受自持约束，与 §4.1 防提权规则 1 只约束添加一致） |
 | `/api/permission/users/{userId}/roles` | 用户的角色分配（GET/POST/DELETE）：查询需 `users.view`；分配需 `roles.manage` 且授予方自持对应策略权限；移除需 `roles.manage` |
-| `POST /api/permission/check` | 管理端批量权限检查（路径无 realm 段，realm 取自登录身份）：**任一**规则命中即 `allowed=true`。仅限自省（RFC 7662 式）：调用者须为已认证用户身份（API Key/CustomUserUi 被 403），且被探测 token 必须属于调用者本人——不可探测他人令牌；被探测 token 的主体与 ext 内省同规则复查（Client App 禁用/删除后的存活令牌回答 allowed=false，不回显 userId） |
+| `POST /api/permission/check` | 管理端批量权限检查（路径无 realm 段，realm 取自登录身份）：**任一**规则命中即 `allowed=true`。仅限自省（RFC 7662 式）：调用者须为已认证用户身份（API Key 被 403；CustomUserUi 凭证需持 `ProfileRead` scope，与 `GET /api/user/permissions` 同规则），且被探测 token 必须属于调用者本人——不可探测他人令牌；被探测 token 的主体与 ext 内省同规则复查（Client App 禁用/删除后的存活令牌回答 allowed=false，不回显 userId） |
 | `POST /api/ext/permission/check` | SDK/ext 批量权限检查（API Key 认证）：**全部**规则命中才 `allowed=true`（与 admin 侧 check 的任一命中语义相反，混用易误判） |
 
 **Principal 角色与权限管理**:
@@ -318,7 +318,7 @@ Herald 系统实现完整的 RBAC（基于角色的访问控制）权限管理�
 | API Keys | `api_keys.view` | `api_keys.manage` |
 | API Key role assignment | `api_keys.view` | `roles.manage` |
 | Products / Plans / Invoices | `billing.view` | `billing.manage` |
-| Points Rules / Wallets | `points.view` | `points.manage` |
+| Points Rules / Wallets | `points.view`（Points Rules 读取与本人积分数据；管理端跨用户 wallets/transactions 查询需 `points.manage`，与 `docs/prd/billing/points.md` §6 访问控制一致——仅持 `points.view` 的自定义角色菜单可见但跨用户数据接口 403） | `points.manage` |
 | Settings（含支付 Provider 凭证配置） | `settings.view` | `settings.manage` |
 
 ---

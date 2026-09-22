@@ -270,7 +270,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 
 **异常场景**：
 - 删除有活跃订阅的支付平台配置：拒绝操作并提示活跃订阅数量
-- 禁用有活跃订阅的 Entitlement 映射：单条 PATCH 与批量更新均返回 409；批量更新整批事务回滚（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载
+- 禁用有活跃订阅的 Entitlement 映射：单条 PATCH 与批量更新均返回 409；批量更新整批事务回滚（`mapping_in_use`，携带活跃订阅数量）；映射不提供删除操作，下线以禁用承载。守卫的"活跃"口径（`ACCESS_GRANTING_SUBSCRIPTION_STATUSES`）为 active/trialing/past_due/scheduled_cancel/dispute——比 §4.2 的访问权口径宽（`past_due` 无访问权但计入禁用阻断：可经支付方式更新恢复 Active，属可恢复中间态，保守阻断）；provider 配置删除守卫同口径
 - Webhook 签名验证失败：拒绝处理请求
 
 ---
@@ -287,7 +287,7 @@ Billing（订阅计费）是 Herald 系统为 Realm 提供的灵活订阅管理�
 **Entitlement 映射管理**：
 - 查看 Provider Entitlement 映射列表：显示 provider、external IDs、entitlement_key、积分策略、同步状态
 - 触发 Provider 产品同步：手动触发全量同步，更新 provider-sourced cache
-- 启用/禁用映射：禁用后不触发积分发放/回收，重新启用后恢复
+- 启用/禁用映射：禁用只冻结积分发放与支付来源 role 续授，**回收不受影响**（立即取消/退款/过期撤销照常回收，见 §4.1），重新启用后恢复
 
 **Provider 同步与缓存**：
 - 全量同步：调用支付方 API 读取 Product/Price 信息并更新本地缓存

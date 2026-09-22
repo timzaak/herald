@@ -218,6 +218,34 @@ fn validate_ldap_settings_row(
         })
 }
 
+/// Guard: email verification cannot be enabled without email delivery
+/// configured. Shared by the single upsert and batch upsert paths so both
+/// enforce identical rules. Truthiness must be normalized through the same
+/// parse_bool the read side uses — a literal-only "true" check let "1"/"yes"
+/// spellings slip past this prerequisite while still enabling verification
+/// at read time.
+async fn validate_email_verification_prerequisite(
+    state: &AppState,
+    realm_id: &str,
+    rows: &[UpsertRealmConfigRequest],
+) -> Result<(), ApiError> {
+    let enables_verification = rows.iter().any(|r| {
+        r.config_type == ConfigType::Registration
+            && r.config_key == "require_email_verification"
+            && public_helper::parse_bool(&r.config_value) == Some(true)
+    });
+    if !enables_verification {
+        return Ok(());
+    }
+    let email_ready = is_email_configured(state, realm_id).await?;
+    if !email_ready {
+        return Err(ApiError::bad_request(
+            "Cannot enable email verification without email configuration".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Block deletion of a payment provider's configuration while that provider
 /// has active subscriptions in the realm.
 ///
@@ -700,17 +728,9 @@ pub async fn upsert_realm_config(
     };
 
     // Validate: cannot enable email verification without email config
-    if request.config_type == ConfigType::Registration
-        && request.config_key == "require_email_verification"
-        && request.config_value == "true"
-    {
-        let email_ready = is_email_configured(&state, &realm_id).await?;
-        if !email_ready {
-            return Err(ApiError::bad_request(
-                "Cannot enable email verification without email configuration".to_string(),
-            ));
-        }
-    }
+    // (shared with the batch path).
+    validate_email_verification_prerequisite(&state, &realm_id, std::slice::from_ref(&request))
+        .await?;
 
     // LDAP settings row: shape/encryption-channel validation before persisting
     // (admin surface, so field-specific 400 messages are intended).
@@ -870,18 +890,8 @@ pub async fn batch_upsert_realm_configs(
     }
 
     // Validate: cannot enable email verification without email config
-    if requests.iter().any(|r| {
-        r.config_type == ConfigType::Registration
-            && r.config_key == "require_email_verification"
-            && r.config_value == "true"
-    }) {
-        let email_ready = is_email_configured(&state, &realm_id).await?;
-        if !email_ready {
-            return Err(ApiError::bad_request(
-                "Cannot enable email verification without email configuration".to_string(),
-            ));
-        }
-    }
+    // (shared with the single upsert path).
+    validate_email_verification_prerequisite(&state, &realm_id, &requests).await?;
 
     // LDAP settings row: shape/encryption-channel validation before persisting
     // (same rules as the single upsert path).

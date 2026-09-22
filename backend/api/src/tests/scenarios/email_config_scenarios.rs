@@ -346,6 +346,87 @@ async fn test_scenario_enable_email_verification_without_email_config_rejected(
     );
 }
 
+// The read side (/api/public-config) treats "1"/"yes" as true via parse_bool,
+// so the write-side prerequisite guard must normalize through the same
+// parser. A literal-only "true" check let non-canonical spellings enable
+// verification without email config — the registration flow only survived
+// via the read-side fallback.
+
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_enable_email_verification_non_canonical_truth_without_email_config_rejected(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+    let (token, user_id) =
+        create_admin_session_with_user(ctx, "switch-no-email-alt@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+
+    delete_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
+
+    // When: single upsert with the non-canonical truthy spelling "1"
+    let payload = json!({
+        "configType": "registration",
+        "configKey": "require_email_verification",
+        "configValue": "1",
+        "isSecret": false,
+        "enabled": true
+    });
+
+    let req = Request::builder()
+        .method("PUT")
+        .uri(format!("/api/configs/{}", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
+
+    // Then: 400 — the guard must see "1" as enabling verification
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "non-canonical truthy spelling must not bypass the email-config prerequisite"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Cannot enable email verification without email configuration"),
+        "error message should mention missing email configuration, got: {:?}",
+        body
+    );
+
+    // And: the batch path normalizes the same way ("yes")
+    let payload = json!({
+        "configs": [{
+            "configType": "registration",
+            "configKey": "require_email_verification",
+            "configValue": "yes",
+            "isSecret": false,
+            "enabled": true
+        }]
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/configs/{}/batch", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "batch path must normalize \"yes\" as enabling verification too"
+    );
+}
+
 // User Story: docs/user-stories/02-realm-admin-user-stories.md US-RA-015
 // Covers: US-RA-015 scenario 2 -- can enable after email is configured
 #[test_context(TestContext)]

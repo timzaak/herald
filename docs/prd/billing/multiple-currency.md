@@ -106,7 +106,7 @@
 **Checkout 构造规则**：
 - 货币解析只决定「选哪一行映射」；选中价格行后，Checkout 仍引用真实 Stripe Price / Creem `product_id`，构造方式不变
 - Stripe 映射行缺失价格信息时拒绝下单（fail-loud），不产生零金额或串货币支付；显式 `target_id` 购买的既有路径行为不变（DEC-multiple_currency-009）
-- provider/store 侧定价渠道（Creem、IAP、WeChat Pay）的价格由渠道侧决定，Herald 不做服务端价格解析；其映射行无 Herald 侧价格信息在解析/目录层属合法状态，不触发解析层 fail-loud（DEC-multiple_currency-013）。分层例外：WeChat Pay v3 无托管定价且下单必须传正数金额，价格由管理员在映射行手工配置（wechat-support.md §2.2/§8.1）；映射行缺价时在下单构造层被拒绝（fail-loud），不产生零金额订单
+- provider/store 侧定价渠道（Creem、IAP、WeChat Pay）的价格由渠道侧决定，Herald 不做服务端价格解析；其映射行无 Herald 侧价格信息在解析/目录层属合法状态，不触发解析层 fail-loud（DEC-multiple_currency-013）。分层例外：WeChat Pay v3 无托管定价且下单必须传正数金额，价格由管理员在映射行手工配置（wechat-support.md §2.2/§8.1）；WeChat 映射行在**写入层**即强制正数金额与合法货币（缺价或非正数价格在映射保存时被拒，"可缺价的映射行"中间状态不存在），下单构造层保留防御性二次守卫，不产生零金额订单
 
 **api-ext 暴露规则**：
 - 对每个可购权益聚合其启用映射行覆盖的货币集合并对外暴露
@@ -201,7 +201,7 @@
 | `DEC-multiple_currency-009` | Applied | 缺价 fail-loud | Stripe 映射行缺失价格信息时拒绝下单（fail-loud），不产生零金额/串货币支付；显式 `target_id` 路径行为不变 | §4.1、§4.2、§5.1 | 同上 |
 | `DEC-multiple_currency-010` | Applied | 货币码校验 | `^[A-Z]{3}$` 格式 + 拒绝 ISO 4217 保留码（`XXX`/`XTS`）；非法码被拒 | §4.1、§5.2 | 同上 |
 | `DEC-multiple_currency-012` | Applied | 大小写归一 | 货币码匹配不区分 ASCII 大小写（目录存储 provider 原生码）；对外暴露统一大写 ISO 码 | §4.1 | 同上 |
-| `DEC-multiple_currency-013` | Applied | fail-loud 范围 | 缺价 fail-loud 仅对 Stripe 映射行生效；provider/store 侧定价渠道（apple/google/wechat/creem）缺价信息在解析/目录层属合法状态，不视为异常。分层例外：WeChat Pay 在下单构造层要求映射行正数金额（WeChat v3 下单必须传金额，缺价下单被拒） | §4.1、§4.2、§5.1、§7 | 同上 |
+| `DEC-multiple_currency-013` | Applied | fail-loud 范围 | 缺价 fail-loud 仅对 Stripe 映射行生效；provider/store 侧定价渠道（apple/google/wechat/creem）缺价信息在解析/目录层属合法状态，不视为异常。分层例外：WeChat Pay 映射行在写入层即要求正数金额（WeChat v3 下单必须传金额，缺价/非正数在映射保存时被拒；下单构造层为防御性二次守卫） | §4.1、§4.2、§5.1、§7 | 同上 |
 | `DEC-multiple_currency-014` | Applied | 显式货币选择 | 废除「默认/偏好货币」：无 Realm 默认、无用户偏好、无回退链；购买页显式选择后才渲染价格行（单一货币为唯一选项自动选中）；程序化解析须显式传 currency。取代 DEC-004/006/007/011 | §2.1、§2.2、§3.1、§4.1、§5.1、§7 | conversation（2026-08-15） |
 
 ---
