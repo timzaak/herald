@@ -23,7 +23,7 @@ use uuid::Uuid;
 ///
 /// Returns a Request<Body> ready to send via oneshot.
 pub fn grant_points_admin_request(
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
     bucket_id: Uuid,
     amount: i64,
@@ -43,7 +43,7 @@ pub fn grant_points_admin_request(
 
     Request::builder()
         .method("POST")
-        .uri(format!("/api/points/{}/grant", realm_id))
+        .uri("/api/points/grant".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", session_token))
         .body(Body::from(body.to_string()))

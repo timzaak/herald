@@ -1349,9 +1349,7 @@ async fn test_scenario_oidc_consent_gate_blocks_id_token_until_consent_recorded(
     grant_realm_admin_role(ctx, &publish_user_id).await;
     let publish_request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/api/legal/admin/{realm_id}/agreements/terms_of_service"
-        ))
+        .uri("/api/legal/admin/agreements/terms_of_service".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {publish_token}"))
         .header("x-forwarded-for", "3.3.3.3")

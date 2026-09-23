@@ -57,7 +57,7 @@ function SubscriptionCancelAction({
   const cancelMutation = useMutation({
     mutationFn: async () => {
       const response = await cancelSubscriptionForClientApp({
-        path: { realmId, clientAppId },
+        path: { clientAppId },
         body: { cancelAtPeriodEnd: false },
       })
       if (response.error) throw response.error
@@ -160,7 +160,7 @@ export function MySubscriptionsPage({ realmId }: MySubscriptionsPageProps) {
           clientApps.map(async (clientApp) => {
             try {
               const response = await getSubscriptionForClientApp({
-                path: { realmId, clientAppId: clientApp.id },
+                path: { clientAppId: clientApp.id },
               })
 
               if (response.error || !response.data) {

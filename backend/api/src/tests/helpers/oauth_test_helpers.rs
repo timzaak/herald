@@ -50,7 +50,7 @@ pub async fn create_oauth_provider_config(
     ctx: &mut SchemaTestContext,
     config: &OAuthProviderConfig,
     token: &str,
-    realm_id: &str,
+    _realm_id: &str,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
 
@@ -64,7 +64,7 @@ pub async fn create_oauth_provider_config(
 
     let create_request = Request::builder()
         .method(Method::POST)
-        .uri(format!("/api/oauth/{}/configs", realm_id))
+        .uri("/api/oauth-configs".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {}", token))
         .body(Body::from(create_payload.to_string()))
@@ -154,7 +154,7 @@ pub async fn send_oauth_callback(
 /// Get OAuth provider configuration by type
 pub async fn get_oauth_provider_config(
     ctx: &mut SchemaTestContext,
-    realm_id: &str,
+    _realm_id: &str,
     provider_type: &str,
     token: &str,
 ) -> axum::response::Response {
@@ -162,7 +162,7 @@ pub async fn get_oauth_provider_config(
 
     let get_request = Request::builder()
         .method(Method::GET)
-        .uri(format!("/api/oauth/{}/configs/{}", realm_id, provider_type))
+        .uri(format!("/api/oauth-configs/{}", provider_type))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -173,14 +173,14 @@ pub async fn get_oauth_provider_config(
 /// List enabled OAuth providers
 pub async fn list_enabled_oauth_providers(
     ctx: &mut SchemaTestContext,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
 
     let list_request = Request::builder()
         .method(Method::GET)
-        .uri(format!("/api/oauth/{}/configs?enabled=true", realm_id))
+        .uri("/api/oauth-configs?enabled=true".to_string())
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -191,7 +191,7 @@ pub async fn list_enabled_oauth_providers(
 /// Delete OAuth provider configuration
 pub async fn delete_oauth_provider_config(
     ctx: &mut SchemaTestContext,
-    realm_id: &str,
+    _realm_id: &str,
     provider_type: &str,
     token: &str,
 ) -> axum::response::Response {
@@ -199,7 +199,7 @@ pub async fn delete_oauth_provider_config(
 
     let delete_request = Request::builder()
         .method(Method::DELETE)
-        .uri(format!("/api/oauth/{}/configs/{}", realm_id, provider_type))
+        .uri(format!("/api/oauth-configs/{}", provider_type))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -233,7 +233,7 @@ pub async fn verify_provider_config_in_db(
 /// Assert the consentRequired shape a gated OAuth login entrance must answer
 /// with (fresh user, zero consent records), then run the recovery loop the
 /// real client would: record explicit consent through the consent-restricted
-/// browser family via the actual POST /api/legal/{realm}/consent endpoint.
+/// browser family via the actual POST /api/user/consent endpoint.
 /// After this returns, re-triggering the same entrance yields its normal
 /// response (the downstream_state is deliberately left unconsumed by the
 /// gated path).
@@ -281,7 +281,7 @@ pub async fn assert_consent_required_and_recover(
         .collect();
     let consent_req = Request::builder()
         .method("POST")
-        .uri(format!("/api/legal/{}/consent", ctx._realm_id))
+        .uri("/api/user/consent".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {restricted_access_token}"))
         .body(Body::from(

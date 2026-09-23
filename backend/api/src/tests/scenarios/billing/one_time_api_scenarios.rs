@@ -188,7 +188,7 @@ mod tests {
         (status, body_json)
     }
 
-    /// Send GET to /api/bill/{realmId}/purchase/history with auth cookie.
+    /// Send GET to /api/bill/purchase/history with auth cookie.
     async fn make_purchase_history_request(
         app: &axum::Router,
         _realm_id: &str,
@@ -220,10 +220,10 @@ mod tests {
         (status, body_json)
     }
 
-    /// Send POST to /api/bill/{realmId}/purchase/payment-attempts.
+    /// Send POST to /api/bill/purchase/payment-attempts.
     async fn make_create_attempt_request(
         app: &axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         token: &str,
         target_type: &str,
         target_id: Uuid,
@@ -234,7 +234,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header(header::AUTHORIZATION, format!("Bearer {}", token))
                     .header("Content-Type", "application/json")
                     .body(Body::from(
@@ -262,7 +262,7 @@ mod tests {
     /// key, matching clients that predate the flow field.
     async fn make_create_attempt_request_with_flow(
         app: &axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         token: &str,
         target_type: &str,
         target_id: Uuid,
@@ -282,7 +282,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header(header::AUTHORIZATION, format!("Bearer {}", token))
                     .header("Content-Type", "application/json")
                     .body(Body::from(payload.to_string()))

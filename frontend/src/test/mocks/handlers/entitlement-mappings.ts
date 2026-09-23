@@ -29,7 +29,7 @@ import {
  */
 
 const API_BASE_URL = 'http://localhost:3000'
-const MAPPING_BASE = `${API_BASE_URL}/api/bill/:realmId/entitlement-mappings`
+const MAPPING_BASE = `${API_BASE_URL}/api/bill/entitlement-mappings`
 
 // ---------------------------------------------------------------------------
 // Default success handlers (registered globally via handlers.ts)
@@ -113,7 +113,7 @@ export function syncHandler(result?: Partial<SyncProviderResponse>) {
  * supplied items (defaults to the multi-price fixture set).
  */
 export function purchaseOptionsHandler(items?: PurchaseOptionView[]) {
-  return http.get(`${API_BASE_URL}/api/bill/:realmId/client/:clientAppId/purchase-options`, () =>
+  return http.get(`${API_BASE_URL}/api/bill/client/:clientAppId/purchase-options`, () =>
     HttpResponse.json({ items: items ?? purchaseOptionsList() })
   )
 }

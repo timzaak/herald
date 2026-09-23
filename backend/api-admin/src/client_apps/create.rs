@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
 };
 use axum_valid::Valid;
 use herald_core::domain::authentication::Identity;
@@ -17,12 +17,9 @@ use herald_core::domain::client::value_objects::CreateClientAppRequest;
 /// Creates a new OAuth client application with the specified configuration.
 #[utoipa::path(
     post,
-    path = "/api/client/{realmId}",
+    path = "/api/client",
     tag = "client",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = ClientAppCreateRequest,
+        request_body = ClientAppCreateRequest,
     responses(
         (status = 201, description = "ClientApp created", body = ClientAppItem),
         (status = 400, description = "Bad request", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -32,10 +29,10 @@ use herald_core::domain::client::value_objects::CreateClientAppRequest;
 pub async fn create_client_app(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Valid(Json(payload)): Valid<Json<ClientAppCreateRequest>>,
 ) -> Result<ApiResult<ClientAppItem>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "client applications")?;
+    let admin = AdminIdentity::require(identity, "client applications")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "clients", "manage")
         .await?;

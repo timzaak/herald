@@ -107,7 +107,8 @@ pub async fn handle_get_custom_domain_config(
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<CustomDomainConfigStateResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm custom-domain configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm custom-domain configuration")?;
     admin.require_permission(&state, "settings", "view").await?;
 
     Ok(Json(
@@ -142,7 +143,8 @@ pub async fn handle_update_custom_domain_config(
     headers: HeaderMap,
     Json(req): Json<UpdateCustomDomainConfigRequest>,
 ) -> Result<Json<CustomDomainUpdateResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm custom-domain configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm custom-domain configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;

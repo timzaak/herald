@@ -189,13 +189,13 @@ mod tests {
         mapping_id
     }
 
-    /// Send POST `/api/bill/{realmId}/purchase/payment-attempts` with an auth
+    /// Send POST `/api/bill/purchase/payment-attempts` with an auth
     /// cookie. Copied verbatim from
     /// `one_time_api_scenarios.rs::make_create_attempt_request` (hardcoded
     /// targetType=entitlement_mapping, paymentProvider=stripe).
     async fn create_payment_attempt(
         app: &axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         token: &str,
         target_id: Uuid,
     ) -> (StatusCode, serde_json::Value) {
@@ -204,7 +204,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header(header::AUTHORIZATION, format!("Bearer {}", token))
                     .header("Content-Type", "application/json")
                     .body(Body::from(
@@ -227,13 +227,13 @@ mod tests {
         (status, body_json)
     }
 
-    /// GET `/api/bill/{realmId}/client/{clientAppId}/purchase-options` with an
+    /// GET `/api/bill/client/{clientAppId}/purchase-options` with an
     /// auth cookie. Returns `{ items: [...] }`. Mirrors the authenticated
     /// oneshot pattern from `make_ext_request` /
     /// `make_purchase_history_request`.
     async fn get_purchase_options(
         app: &axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         client_app_id: &str,
         token: &str,
     ) -> (StatusCode, serde_json::Value) {
@@ -243,8 +243,8 @@ mod tests {
                 Request::builder()
                     .method("GET")
                     .uri(format!(
-                        "/api/bill/{}/client/{}/purchase-options",
-                        realm_id, client_app_id
+                        "/api/bill/client/{}/purchase-options",
+                        client_app_id
                     ))
                     .header(header::AUTHORIZATION, format!("Bearer {}", token))
                     .body(Body::empty())

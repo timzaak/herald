@@ -178,7 +178,7 @@ async function deleteExistingUser(
     if (!userId) {
       return
     }
-    const url = `${backendBaseUrl()}/api/users/${realmId}/${userId}`
+    const url = `${backendBaseUrl()}/api/users/${userId}`
     const response = await apiContext.delete(url)
     if (response.status() >= 400 && response.status() !== 404) {
       const body = await response.text().catch(() => '<unreadable>')
@@ -221,7 +221,7 @@ async function resolveAnyRoleId(
   apiContext: APIRequestContext,
   realmId: string
 ): Promise<string> {
-  const url = `${backendBaseUrl()}/api/roles/${realmId}/define`
+  const url = `${backendBaseUrl()}/api/roles/define`
   const response = await apiContext.get(url)
   if (!response.ok()) {
     const body = await response.text().catch(() => '<unreadable>')

@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Query, State};
 use chrono::{DateTime, NaiveDate};
 use herald_core::domain::audit::{
     AuditAction, AuditCategory, AuditEventFilters, AuditEventRepository,
@@ -13,10 +13,9 @@ use herald_api_base::application::http::state::AppState;
 /// List audit events with optional filters and pagination
 #[utoipa::path(
     get,
-    path = "/api/audit/{realmId}",
+    path = "/api/audit",
     tag = "audit",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("category" = Option<String>, Query, description = "Filter by audit category (user_management, rbac, realm_management, auth, billing, oauth, compliance)"),
         ("action" = Option<String>, Query, description = "Filter by action (e.g. user.create, auth.login)"),
         ("actorId" = Option<String>, Query, description = "Filter by actor ID"),
@@ -35,12 +34,12 @@ use herald_api_base::application::http::state::AppState;
     security(("bearer_auth" = []))
 )]
 pub async fn list_audit_events(
-    Path(realm_id): Path<String>,
     Query(params): Query<AuditEventQueryParams>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<AuditEventListResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "audit logs")?;
+    let admin = AdminIdentity::require(identity, "audit logs")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "audit", "view").await?;
 
     let category: Option<AuditCategory> = params

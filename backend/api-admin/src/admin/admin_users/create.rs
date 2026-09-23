@@ -1,9 +1,5 @@
 use crate::admin::admin_users::types::{ErrorResponse, UserCreateRequest, UserResponse};
-use axum::{
-    Extension, Json,
-    extract::{Path, State},
-    http::HeaderMap,
-};
+use axum::{Extension, Json, extract::State, http::HeaderMap};
 use axum_valid::Valid;
 use herald_api_base::application::http::auth::util::{
     ClientIp, normalize_email, user_agent_from_headers,
@@ -23,14 +19,11 @@ use herald_core::domain::user::admin_errors::UserAdminError;
 /// "users.manage" permission can create users. Realm-admins can only assign the "user" role.
 #[utoipa::path(
     post,
-    path = "/api/users/{realmId}",
+    path = "/api/users",
     tag = "users",
     summary = "Create a new user",
     description = "Create a new user with email, password, and optional roles. Requires `users.manage` permission. Realm-admins can only assign the 'user' role unless they also have `roles.manage` permission.",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = UserCreateRequest,
+        request_body = UserCreateRequest,
     responses(
         (status = 201, description = "User created", body = UserResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -40,14 +33,14 @@ use herald_core::domain::user::admin_errors::UserAdminError;
     security(("bearer_auth" = []))
 )]
 pub async fn create_user(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<UserCreateRequest>>,
 ) -> Result<ApiResult<UserResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "manage").await?;
 
     tracing::info!(

@@ -83,7 +83,7 @@ async function findRoleIdByName(
     'http://localhost:8080'
   const apiContext = await createBearerApiContext(accessToken)
   try {
-    const resp = await apiContext.get(`${backendUrl}/api/roles/${realmId}/define`)
+    const resp = await apiContext.get(`${backendUrl}/api/roles/define`)
     if (!resp.ok()) {
       throw new Error(
         `Failed to list roles in realm "${realmId}": ${resp.status()} ${await resp.text()}`,

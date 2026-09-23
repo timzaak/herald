@@ -15,11 +15,10 @@ use crate::api_keys::types::{ApiKeyRoleDetail, ApiKeyRolesResponse, UpdateApiKey
 /// Returns the list of roles assigned to a specific API Key.
 #[utoipa::path(
     get,
-    path = "/api/api-keys/{realmId}/{apiKeyId}/roles",
+    path = "/api/api-keys/{apiKeyId}/roles",
     tag = "api-keys",
     operation_id = "adminGetApiKeyRoles",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("apiKeyId" = String, Path, description = "API Key ID")
     ),
     responses(
@@ -33,9 +32,10 @@ use crate::api_keys::types::{ApiKeyRoleDetail, ApiKeyRolesResponse, UpdateApiKey
 pub async fn get_api_key_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, api_key_id)): Path<(String, String)>,
+    Path(api_key_id): Path<String>,
 ) -> Result<ApiResult<ApiKeyRolesResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "api_keys", "view").await?;
 
     // Verify API Key exists and belongs to realm
@@ -79,11 +79,10 @@ pub async fn get_api_key_roles(
 /// Builtin roles cannot be assigned to API Keys (returns 400).
 #[utoipa::path(
     put,
-    path = "/api/api-keys/{realmId}/{apiKeyId}/roles",
+    path = "/api/api-keys/{apiKeyId}/roles",
     tag = "api-keys",
     operation_id = "adminUpdateApiKeyRoles",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("apiKeyId" = String, Path, description = "API Key ID")
     ),
     request_body = UpdateApiKeyRolesRequest,
@@ -99,10 +98,11 @@ pub async fn get_api_key_roles(
 pub async fn update_api_key_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, api_key_id)): Path<(String, String)>,
+    Path(api_key_id): Path<String>,
     Valid(Json(payload)): Valid<axum::Json<UpdateApiKeyRolesRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "manage").await?;
 
     // Verify API Key exists and belongs to realm

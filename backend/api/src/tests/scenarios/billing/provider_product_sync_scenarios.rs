@@ -788,7 +788,7 @@ mod tests {
     // =========================================================================
     //
     // These are DB-backed integration tests through the REAL HTTP batch PUT
-    // endpoint (PUT /api/bill/{realmId}/entitlement-mappings/batch) — they do
+    // endpoint (PUT /api/bill/entitlement-mappings/batch) — they do
     // NOT use the FakeProviderApi seam above. They assert that a batch update
     // no longer writes `billing_period`: a previously-synced value survives a
     // batch update that does not target it (concern #3 / design §6.1 + §6.3
@@ -878,7 +878,7 @@ mod tests {
             .clone()
             .oneshot(batch_auth_request(
                 "PUT",
-                format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 &token,
                 Some(axum::body::Body::from(payload.to_string())),
             ))
@@ -962,7 +962,7 @@ mod tests {
             .clone()
             .oneshot(batch_auth_request(
                 "PUT",
-                format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 &token,
                 Some(axum::body::Body::from(payload.to_string())),
             ))

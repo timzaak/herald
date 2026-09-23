@@ -78,7 +78,7 @@ export function CreateClientAppDialog({
         ...rest,
         ...(data.turnstileSecretKey ? { turnstileSecretKey: data.turnstileSecretKey } : {}),
       }
-      const response = await createClientApp({ path: { realmId }, body })
+      const response = await createClientApp({ body })
       if (response.error) throw response.error
       return response.data
     },

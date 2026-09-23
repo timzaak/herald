@@ -66,7 +66,7 @@ export function useCreateInvoice(realmId: string) {
         subscriptionId: values.subscriptionId ?? undefined,
         paymentAttemptId: values.paymentAttemptId ?? undefined,
       }
-      const response = await createInvoice({ path: { realmId }, body })
+      const response = await createInvoice({ body })
       if (response.error) throw response.error
       return response.data
     },
@@ -115,7 +115,7 @@ export function useUpdateInvoice(realmId: string, invoiceId: string) {
         notes: values.notes ?? undefined,
       }
       const response = await updateInvoice({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
         body,
       })
       if (response.error) throw response.error
@@ -138,7 +138,7 @@ export function useIssueInvoice(realmId: string) {
   return useMutation({
     mutationFn: async ({ invoiceId, issueDate }: { invoiceId: string; issueDate?: string }) => {
       const response = await issueInvoice({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
         body: { issueDate: issueDate ?? undefined },
       })
       if (response.error) throw response.error
@@ -161,7 +161,7 @@ export function useVoidInvoice(realmId: string) {
   return useMutation({
     mutationFn: async ({ invoiceId, voidReason }: { invoiceId: string; voidReason?: string }) => {
       const response = await voidInvoice({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
         body: { voidReason: voidReason ?? undefined },
       })
       if (response.error) throw response.error
@@ -184,7 +184,7 @@ export function useMarkPaid(realmId: string) {
   return useMutation({
     mutationFn: async ({ invoiceId }: { invoiceId: string }) => {
       const response = await markPaid({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
         body: {},
       })
       if (response.error) throw response.error
@@ -207,7 +207,6 @@ export function useUpsertSellerConfig(realmId: string) {
   return useMutation({
     mutationFn: async (values: InvoiceSellerConfigFormData) => {
       const response = await upsertSellerConfig({
-        path: { realmId },
         body: {
           sellerName: values.sellerName,
           sellerAddress: values.sellerAddress,
@@ -272,7 +271,6 @@ export function useUpsertInvoicePolicy(realmId: string) {
   return useMutation({
     mutationFn: async (values: InvoicePolicyConfigFormData) => {
       const response = await upsertRealmConfig({
-        path: { realmId },
         body: {
           configType: 'invoice_policy',
           configKey: 'settings',
@@ -307,7 +305,7 @@ export function useCreateCreditNote(realmId: string, invoiceId: string) {
         memo: values.memo,
       }
       const response = await createCreditNote({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
         body,
       })
       if (response.error) throw response.error

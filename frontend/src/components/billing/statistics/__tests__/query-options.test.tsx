@@ -97,11 +97,11 @@ describe('billing statistics query options', () => {
   it('hits both stats endpoints and passes the selected window as days', async () => {
     const capturedQueries: string[] = []
     server.use(
-      http.get(`${API_BASE_URL}/api/bill/:realmId/stats/payments`, ({ request }) => {
+      http.get(`${API_BASE_URL}/api/bill/stats/payments`, ({ request }) => {
         capturedQueries.push(`payments${new URL(request.url).search}`)
         return HttpResponse.json(makePaymentStats({ succeededCount: 12, failedCount: 3 }))
       }),
-      http.get(`${API_BASE_URL}/api/points/:realmId/stats/consumption`, ({ request }) => {
+      http.get(`${API_BASE_URL}/api/points/stats/consumption`, ({ request }) => {
         capturedQueries.push(`points${new URL(request.url).search}`)
         return HttpResponse.json(makePointsStats({ totalConsumedPoints: 25000 }))
       })
@@ -115,7 +115,7 @@ describe('billing statistics query options', () => {
 
   it('enters the error state when the stats API rejects', async () => {
     server.use(
-      http.get(`${API_BASE_URL}/api/bill/:realmId/stats/payments`, () => {
+      http.get(`${API_BASE_URL}/api/bill/stats/payments`, () => {
         return HttpResponse.json({ message: 'Forbidden' }, { status: 403 })
       })
     )
@@ -131,7 +131,7 @@ describe('billing statistics query options', () => {
     // Window switching is a query-key change; each window must resolve to its
     // own data, never a cached hit from the other window.
     server.use(
-      http.get(`${API_BASE_URL}/api/bill/:realmId/stats/payments`, ({ request }) => {
+      http.get(`${API_BASE_URL}/api/bill/stats/payments`, ({ request }) => {
         const days = new URL(request.url).searchParams.get('days')
         return HttpResponse.json(
           makePaymentStats({
@@ -141,7 +141,7 @@ describe('billing statistics query options', () => {
           })
         )
       }),
-      http.get(`${API_BASE_URL}/api/points/:realmId/stats/consumption`, () => {
+      http.get(`${API_BASE_URL}/api/points/stats/consumption`, () => {
         return HttpResponse.json(makePointsStats())
       })
     )
@@ -182,7 +182,7 @@ describe('payment statistics panel all-zero window', () => {
   beforeEach(() => {
     server.resetHandlers()
     server.use(
-      http.get(`${API_BASE_URL}/api/bill/:realmId/stats/payments`, () => {
+      http.get(`${API_BASE_URL}/api/bill/stats/payments`, () => {
         return HttpResponse.json(makePaymentStats())
       })
     )
@@ -212,7 +212,7 @@ describe('payment statistics panel with completed attempts', () => {
 
   it('derives the success rate from succeeded/(succeeded+failed)', async () => {
     server.use(
-      http.get(`${API_BASE_URL}/api/bill/:realmId/stats/payments`, () => {
+      http.get(`${API_BASE_URL}/api/bill/stats/payments`, () => {
         return HttpResponse.json(makePaymentStats({ succeededCount: 12, failedCount: 3 }))
       })
     )
@@ -228,7 +228,7 @@ describe('points consumption panel all-zero window', () => {
   beforeEach(() => {
     server.resetHandlers()
     server.use(
-      http.get(`${API_BASE_URL}/api/points/:realmId/stats/consumption`, () => {
+      http.get(`${API_BASE_URL}/api/points/stats/consumption`, () => {
         return HttpResponse.json(makePointsStats())
       })
     )

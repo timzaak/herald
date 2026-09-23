@@ -884,7 +884,7 @@ async function readUserRoleRows(
   userId: string,
 ): Promise<Array<{ name: string; source: string; sourceId: string | null }>> {
   const resp = await apiContext.get(
-    `${purchaseBaseUrl()}/api/users/${realmId}/${userId}/roles`,
+    `${purchaseBaseUrl()}/api/users/${userId}/roles`,
   )
   if (!resp.ok()) {
     throw new Error(
@@ -973,7 +973,7 @@ async function findRoleIdByName(
   roleName: string,
 ): Promise<string | null> {
   const resp = await apiContext.get(
-    `${purchaseBaseUrl()}/api/roles/${realmId}/define`,
+    `${purchaseBaseUrl()}/api/roles/define`,
   )
   if (!resp.ok()) return null
   const body = await resp.json()
@@ -1037,14 +1037,14 @@ async function resolveMappingId(
   // mapping; if that 404s, fall back to listing mappings and matching the
   // external_price_id.
   const direct = await apiContext
-    .get(`${purchaseBaseUrl()}/api/bill/${realmId}/entitlement-mappings/${priceKey}`)
+    .get(`${purchaseBaseUrl()}/api/bill/entitlement-mappings/${priceKey}`)
     .catch(() => null)
   if (direct && direct.ok()) {
     return priceKey
   }
   // Fall back to listing and matching external_price_id.
   const list = await apiContext.get(
-    `${purchaseBaseUrl()}/api/bill/${realmId}/entitlement-mappings`,
+    `${purchaseBaseUrl()}/api/bill/entitlement-mappings`,
   )
   if (list.ok()) {
     const body = await list.json()
@@ -1076,7 +1076,7 @@ async function findPointsOnlyMappingId(
   realmId: string,
 ): Promise<string | null> {
   const list = await apiContext.get(
-    `${purchaseBaseUrl()}/api/bill/${realmId}/entitlement-mappings`,
+    `${purchaseBaseUrl()}/api/bill/entitlement-mappings`,
   )
   if (!list.ok()) return null
   const body = await list.json()

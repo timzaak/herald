@@ -24,7 +24,7 @@ export function WechatConfigRoute() {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['payment-providers', realmId],
     queryFn: async () => {
-      const result = await listPaymentProviders({ path: { realmId } })
+      const result = await listPaymentProviders({})
       return result.data?.providers ?? []
     },
   })
@@ -36,7 +36,7 @@ export function WechatConfigRoute() {
     queryKey: ['wechat-config', realmId],
     queryFn: async () => {
       if (!wechatProvider) return null
-      const result = await listRealmConfigs({ path: { realmId } })
+      const result = await listRealmConfigs({})
       return parseWechatConfig(result.data ?? [])
     },
     enabled: !!wechatProvider,

@@ -15,9 +15,9 @@
 // Reference: docs/user-stories/core/audit.md (US-AU-001, US-AU-003)
 //
 // Routes:
-//   GET /api/dashboard/{realmId}/stats
-//   GET /api/audit/{realmId}?page=0&pageSize=20
-//   GET /api/audit/{realmId}/{eventId}
+//   GET /api/dashboard/stats
+//   GET /api/audit?page=0&pageSize=20
+//   GET /api/audit/{eventId}
 //
 // =============================================================================
 
@@ -104,7 +104,7 @@ async fn grant_single_permission(ctx: &TestContext, user_id: &str, resource: &st
 /// Covers: User with dashboard.view permission can access dashboard stats endpoint
 ///
 /// Given a user with ONLY dashboard.view permission,
-/// When calling GET /api/dashboard/{realmId}/stats,
+/// When calling GET /api/dashboard/stats,
 /// Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -119,7 +119,7 @@ async fn test_scenario_dashboard_view_grants_access(ctx: &mut TestContext) {
     // When: calling dashboard stats endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", ctx._realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -142,7 +142,7 @@ async fn test_scenario_dashboard_view_grants_access(ctx: &mut TestContext) {
 /// Covers: User without dashboard.view permission cannot access dashboard stats
 ///
 /// Given a user with ONLY users.view permission (no dashboard.view),
-/// When calling GET /api/dashboard/{realmId}/stats,
+/// When calling GET /api/dashboard/stats,
 /// Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -157,7 +157,7 @@ async fn test_scenario_dashboard_access_denied_without_view(ctx: &mut TestContex
     // When: calling dashboard stats endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", ctx._realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -180,7 +180,7 @@ async fn test_scenario_dashboard_access_denied_without_view(ctx: &mut TestContex
 /// Covers: User with audit.view permission can list audit events
 ///
 /// Given a user with ONLY audit.view permission,
-/// When calling GET /api/audit/{realmId}?page=0&pageSize=20,
+/// When calling GET /api/audit?page=0&pageSize=20,
 /// Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -195,7 +195,7 @@ async fn test_scenario_audit_view_grants_list_access(ctx: &mut TestContext) {
     // When: calling audit list endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -218,7 +218,7 @@ async fn test_scenario_audit_view_grants_list_access(ctx: &mut TestContext) {
 /// Covers: User with audit.view permission can view audit event detail
 ///
 /// Given a user with audit.view permission and an existing audit event,
-/// When calling GET /api/audit/{realmId}/{eventId},
+/// When calling GET /api/audit/{eventId},
 /// Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -251,7 +251,7 @@ async fn test_scenario_audit_view_grants_detail_access(ctx: &mut TestContext) {
     // When: calling audit detail endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}/{}", ctx._realm_id, event_id))
+        .uri(format!("/api/audit/{}", event_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -274,7 +274,7 @@ async fn test_scenario_audit_view_grants_detail_access(ctx: &mut TestContext) {
 /// Covers: User with ONLY users.view permission cannot access audit list
 ///
 /// Given a user with ONLY users.view permission (no audit.view),
-/// When calling GET /api/audit/{realmId},
+/// When calling GET /api/audit,
 /// Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -289,7 +289,7 @@ async fn test_scenario_audit_users_view_insufficient(ctx: &mut TestContext) {
     // When: calling audit list endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();

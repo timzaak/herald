@@ -16,7 +16,7 @@
 //     appear in any response JSON.
 //
 // All scenarios exercise the real production HTTP path through the unified test
-// router (`/api/realms/{realmId}/billing/credit-buckets...`) gated on Realm
+// router (`/api/bill/credit-buckets...`) gated on Realm
 // Admin `points.manage`. Direct-DB seed helpers (these helpers) materialize
 // the in-flight subscription / residual wallet rows the delete intercept reads.
 //
@@ -109,7 +109,7 @@ fn assert_no_is_default(body: &Option<Value>, context: &str) {
 /// POST a new Bucket via the real handler and return (status, body).
 async fn create_bucket_via_api(
     ctx: &TestContext,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
     bucket_key: &str,
     name: &str,
@@ -120,14 +120,7 @@ async fn create_bucket_via_api(
         "name": name,
         "clientAppIds": client_app_ids.iter().map(|u| u.to_string()).collect::<Vec<_>>(),
     });
-    auth_admin_request_via_api(
-        ctx,
-        "POST",
-        &format!("/api/realms/{}/billing/credit-buckets", realm_id),
-        token,
-        Some(&body),
-    )
-    .await
+    auth_admin_request_via_api(ctx, "POST", "/api/bill/credit-buckets", token, Some(&body)).await
 }
 
 // =============================================================================
@@ -142,17 +135,11 @@ async fn create_bucket_via_api(
 #[test_context(TestContext)]
 #[tokio::test]
 async fn list_credit_buckets_empty(ctx: &mut TestContext) {
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
     let token = setup_billing_admin_session(ctx, "cb_t04_list_empty@example.com").await;
 
-    let (status, body) = auth_admin_request_via_api(
-        ctx,
-        "GET",
-        &format!("/api/realms/{}/billing/credit-buckets", realm_id),
-        &token,
-        None,
-    )
-    .await;
+    let (status, body) =
+        auth_admin_request_via_api(ctx, "GET", "/api/bill/credit-buckets", &token, None).await;
 
     assert_eq!(
         status,
@@ -203,14 +190,8 @@ async fn list_credit_buckets_with_data(ctx: &mut TestContext) {
     .await;
     attach_bucket_client_app(pool, &realm_id, bucket, client_app).await;
 
-    let (status, body) = auth_admin_request_via_api(
-        ctx,
-        "GET",
-        &format!("/api/realms/{}/billing/credit-buckets", realm_id),
-        &token,
-        None,
-    )
-    .await;
+    let (status, body) =
+        auth_admin_request_via_api(ctx, "GET", "/api/bill/credit-buckets", &token, None).await;
 
     assert_eq!(
         status,
@@ -263,17 +244,14 @@ async fn list_credit_buckets_with_data(ctx: &mut TestContext) {
 #[test_context(TestContext)]
 #[tokio::test]
 async fn get_credit_bucket_detail_404_when_missing(ctx: &mut TestContext) {
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
     let token = setup_billing_admin_session(ctx, "cb_t04_get_404@example.com").await;
 
     let missing_id = Uuid::now_v7();
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!(
-            "/api/realms/{}/billing/credit-buckets/{}",
-            realm_id, missing_id
-        ),
+        &format!("/api/bill/credit-buckets/{}", missing_id),
         &token,
         None,
     )
@@ -323,7 +301,7 @@ async fn get_credit_bucket_detail_returns_client_apps_and_rule_references(ctx: &
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -557,7 +535,7 @@ async fn update_credit_bucket_changes_name_order_enabled_coverage(ctx: &mut Test
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "PUT",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         Some(&put_body),
     )
@@ -583,7 +561,7 @@ async fn update_credit_bucket_changes_name_order_enabled_coverage(ctx: &mut Test
     let (status_bad, body_bad) = auth_admin_request_via_api(
         ctx,
         "PUT",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         Some(&bad_body),
     )
@@ -677,7 +655,7 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "PUT",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         Some(&put_body),
     )
@@ -704,14 +682,8 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
 
     // Read-after-write: the list count MUST reflect the just-committed attach
     // (Gap #4 regression assertion — count must increase; no staleness).
-    let (list_status, list_body) = auth_admin_request_via_api(
-        ctx,
-        "GET",
-        &format!("/api/realms/{}/billing/credit-buckets", realm_id),
-        &token,
-        None,
-    )
-    .await;
+    let (list_status, list_body) =
+        auth_admin_request_via_api(ctx, "GET", "/api/bill/credit-buckets", &token, None).await;
     assert_eq!(
         list_status,
         StatusCode::OK,
@@ -744,7 +716,7 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
     let (drop_status, drop_body) = auth_admin_request_via_api(
         ctx,
         "PUT",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         Some(&drop_body),
     )
@@ -813,7 +785,7 @@ async fn delete_credit_bucket_rejected_when_active_subscriptions_exist(ctx: &mut
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -877,7 +849,7 @@ async fn delete_credit_bucket_rejected_when_holders_with_balance_exist(ctx: &mut
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -937,7 +909,7 @@ async fn delete_credit_bucket_succeeds_when_unused(ctx: &mut TestContext) {
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -1024,7 +996,7 @@ async fn credit_bucket_overview_returns_rows_and_grand_total(ctx: &mut TestConte
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!("/api/realms/{}/billing/credit-buckets/overview", realm_id),
+        "/api/bill/credit-buckets/overview",
         &token,
         None,
     )
@@ -1123,7 +1095,7 @@ async fn dream_check_inactive_quota_reference_blocks_bucket_delete(ctx: &mut Tes
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{realm}/billing/credit-buckets/{bucket}"),
+        &format!("/api/bill/credit-buckets/{bucket}"),
         &token,
         None,
     )
@@ -1151,7 +1123,7 @@ async fn dream_check_disabled_rule_reference_blocks_bucket_delete(ctx: &mut Test
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{realm}/billing/credit-buckets/{bucket}"),
+        &format!("/api/bill/credit-buckets/{bucket}"),
         &token,
         None,
     )
@@ -1221,7 +1193,7 @@ async fn dream_check_single_patch_cannot_disable_active_mapping(ctx: &mut TestCo
         let (status, response) = auth_admin_request_via_api(
             ctx,
             "PATCH",
-            &format!("/api/bill/{realm}/entitlement-mappings/{mapping}"),
+            &format!("/api/bill/entitlement-mappings/{mapping}"),
             &token,
             Some(&body),
         )

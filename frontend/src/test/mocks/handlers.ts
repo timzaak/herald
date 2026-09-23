@@ -41,7 +41,7 @@ export const handlers = [
   }),
 
   // Subscription History Handlers
-  http.get('/api/bill/:realmId/subscriptions/:subscriptionId/history', ({ params }) => {
+  http.get('/api/bill/subscriptions/:subscriptionId/history', ({ params }) => {
     const { realmId, subscriptionId } = params
 
     const mockEvents: SubscriptionHistoryEvent[] = [
@@ -138,7 +138,7 @@ export const handlers = [
     return HttpResponse.json(response)
   }),
 
-  http.get('/api/bill/:realmId/subscriptions/history', ({ request, params }) => {
+  http.get('/api/bill/subscriptions/history', ({ request, params }) => {
     const url = new URL(request.url)
     const eventType = url.searchParams.get('eventType') as any
     const userId = url.searchParams.get('userId')

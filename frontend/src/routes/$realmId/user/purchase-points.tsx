@@ -278,7 +278,6 @@ export function PurchasePointsPage({
   const createPaymentMutation = useMutation({
     mutationFn: async (data: { mappingId: string; provider: string }) => {
       const response = await createPaymentAttempt({
-        path: { realmId },
         body: {
           targetType: 'entitlement_mapping',
           targetId: data.mappingId,
@@ -340,7 +339,7 @@ export function PurchasePointsPage({
   const cancelPaymentMutation = useMutation({
     mutationFn: async () => {
       if (!attemptId) throw new Error('No payment attempt to cancel')
-      const response = await cancelPaymentAttempt({ path: { realmId, attemptId } })
+      const response = await cancelPaymentAttempt({ path: { attemptId } })
       if (response.error) throw response.error
       return response.data
     },

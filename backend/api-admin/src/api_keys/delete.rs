@@ -9,10 +9,9 @@ use herald_core::domain::authentication::Identity;
 /// Permanently deletes an API key.
 #[utoipa::path(
     delete,
-    path = "/api/api-keys/{realmId}/{apiKeyId}",
+    path = "/api/api-keys/{apiKeyId}",
     tag = "api-keys",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("apiKeyId" = String, Path, description = "API Key ID"),
     ),
     responses(
@@ -25,9 +24,10 @@ use herald_core::domain::authentication::Identity;
 pub async fn delete_api_key(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, api_key_id)): Path<(String, String)>,
+    Path(api_key_id): Path<String>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "api_keys", "manage")
         .await?;

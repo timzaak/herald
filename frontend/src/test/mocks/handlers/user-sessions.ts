@@ -1,6 +1,6 @@
 /**
  * MSW handler factories for the user-sessions management endpoints
- * (`GET/DELETE /api/users/{realmId}/{userId}/sessions[/{familyId}]`).
+ * (`GET/DELETE /api/users/{userId}/sessions[/{familyId}]`).
  *
  * These factories are **NOT** registered in the global default `handlers` export
  * (see `src/test/mocks/handlers.ts`) — that would pollute every other suite with
@@ -23,11 +23,11 @@ const API_BASE_URL = 'http://localhost:3000'
 
 /** Full list/revoke-all URL for a user's sessions collection. */
 export function sessionsListUrl(realmId: string, userId: string): string {
-  return `${API_BASE_URL}/api/users/${realmId}/${userId}/sessions`
+  return `${API_BASE_URL}/api/users/${userId}/sessions`
 }
 
 /** Revoke-one URL template (path params interpolated by MSW). */
-const REVOKE_ONE_URL = `${API_BASE_URL}/api/users/:realmId/:userId/sessions/:familyId`
+const REVOKE_ONE_URL = `${API_BASE_URL}/api/users/:userId/sessions/:familyId`
 
 /**
  * Captured DELETE target. A test passes a `{ familyId: '' }` seed to the
@@ -41,7 +41,7 @@ export interface CapturedRevokeRequest {
 }
 
 /**
- * `GET /api/users/{realmId}/{userId}/sessions` → 200 with the given list.
+ * `GET /api/users/{userId}/sessions` → 200 with the given list.
  * Defaults to an empty 200 (the happy "no sessions" response) so a caller can
  * `server.use(createListUserSessionsHandler())` to settle the query.
  */

@@ -72,7 +72,7 @@ export function UsersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const result = await deleteUser({ path: { realmId, userId } })
+      const result = await deleteUser({ path: { userId } })
       if (result.error) throw result.error
       return result.data
     },
@@ -89,7 +89,7 @@ export function UsersPage() {
   const resetPasswordMutation = useMutation({
     mutationFn: async (userId: string) => {
       const result = await resetUserPassword({
-        path: { realmId, userId },
+        path: { userId },
       })
       if (result.error) throw result.error
       return result.data

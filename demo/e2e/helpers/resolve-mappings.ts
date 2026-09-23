@@ -46,7 +46,7 @@ export async function syncAndListMappings(
   provider: string,
 ): Promise<MappingListItem[]> {
   const syncResp = await page.request.post(
-    `${baseUrl}/api/bill/${realmId}/entitlement-mappings/sync`,
+    `${baseUrl}/api/bill/entitlement-mappings/sync`,
     { data: { paymentProvider: provider } },
   )
   if (!syncResp.ok()) {
@@ -54,7 +54,7 @@ export async function syncAndListMappings(
   }
 
   const mappingsResp = await page.request.get(
-    `${baseUrl}/api/bill/${realmId}/entitlement-mappings?paymentProvider=${provider}`,
+    `${baseUrl}/api/bill/entitlement-mappings?paymentProvider=${provider}`,
   )
   if (!mappingsResp.ok()) {
     throw new Error('listing entitlement-mappings failed')
@@ -133,7 +133,7 @@ export async function ensureMultiPriceCatalog(
   })
 
   // 3. Sync the catalog into Herald.
-  const syncResp = await request.post(`${baseUrl}/api/bill/${realmId}/entitlement-mappings/sync`, {
+  const syncResp = await request.post(`${baseUrl}/api/bill/entitlement-mappings/sync`, {
     data: { paymentProvider: 'stripe' },
   })
   if (!syncResp.ok()) {
@@ -142,7 +142,7 @@ export async function ensureMultiPriceCatalog(
 
   // 4. Resolve the two price-level mapping rows.
   const listResp = await request.get(
-    `${baseUrl}/api/bill/${realmId}/entitlement-mappings?paymentProvider=stripe`,
+    `${baseUrl}/api/bill/entitlement-mappings?paymentProvider=stripe`,
   )
   if (!listResp.ok()) {
     throw new Error('listing entitlement-mappings failed')
@@ -184,7 +184,7 @@ async function listStripeMappings(
   realmId: string,
 ): Promise<MappingListItem[]> {
   const listResp = await request.get(
-    `${baseUrl}/api/bill/${realmId}/entitlement-mappings?paymentProvider=stripe`,
+    `${baseUrl}/api/bill/entitlement-mappings?paymentProvider=stripe`,
   )
   if (!listResp.ok()) {
     throw new Error('listing entitlement-mappings failed')
@@ -242,7 +242,7 @@ export async function ensureMultiCurrencyCatalog(
     webhookSecret: stripeWebhookSecret,
   })
 
-  const syncResp = await request.post(`${baseUrl}/api/bill/${realmId}/entitlement-mappings/sync`, {
+  const syncResp = await request.post(`${baseUrl}/api/bill/entitlement-mappings/sync`, {
     data: { paymentProvider: 'stripe' },
   })
   if (!syncResp.ok()) {
@@ -277,7 +277,7 @@ export async function ensureMultiCurrencyCatalog(
   const entitlementKey = [...keys][0]
 
   const enableResp = await request.put(
-    `${baseUrl}/api/bill/${realmId}/entitlement-mappings/batch`,
+    `${baseUrl}/api/bill/entitlement-mappings/batch`,
     {
       data: {
         paymentProvider: 'stripe',
@@ -314,7 +314,7 @@ export async function disableMultiCurrencyMappings(
   ).filter((m): m is MappingListItem => m !== null)
   if (rowIds.length === 0) return
 
-  const resp = await request.put(`${baseUrl}/api/bill/${realmId}/entitlement-mappings/batch`, {
+  const resp = await request.put(`${baseUrl}/api/bill/entitlement-mappings/batch`, {
     data: {
       paymentProvider: 'stripe',
       externalProductId: product.productId,

@@ -60,7 +60,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let update_req = Request::builder()
             .method("PUT")
-            .uri(format!("/api/roles/{}/define/{}", ctx._realm_id, role_id))
+            .uri(format!("/api/roles/define/{}", role_id))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -147,7 +147,7 @@ mod tests {
 
         let update_req = Request::builder()
             .method("PUT")
-            .uri(format!("/api/roles/{}/define/{}", ctx._realm_id, role_id))
+            .uri(format!("/api/roles/define/{}", role_id))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -236,8 +236,8 @@ mod tests {
         let remove_req = Request::builder()
             .method("DELETE")
             .uri(format!(
-                "/api/roles/{}/define/{}/permissions/{}",
-                ctx._realm_id, role_id, permission_id
+                "/api/roles/define/{}/permissions/{}",
+                role_id, permission_id
             ))
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::empty())
@@ -313,10 +313,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let delete_response = Request::builder()
             .method("DELETE")
-            .uri(format!(
-                "/api/roles/{}/define/{}",
-                ctx._realm_id, custom_role_id
-            ))
+            .uri(format!("/api/roles/define/{}", custom_role_id))
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
@@ -378,7 +375,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let list_req = Request::builder()
             .method("GET")
-            .uri(format!("/api/roles/{}/define", ctx._realm_id))
+            .uri("/api/roles/define".to_string())
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();

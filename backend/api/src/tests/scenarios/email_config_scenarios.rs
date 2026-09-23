@@ -212,10 +212,7 @@ async fn test_scenario_email_config_save_via_batch_upsert(ctx: &mut TestContext)
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/api/configs/{realmId}/batch",
-            realmId = ctx._realm_id
-        ))
+        .uri("/api/configs/batch".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(batch_payload.to_string()))
@@ -321,7 +318,7 @@ async fn test_scenario_enable_email_verification_without_email_config_rejected(
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/configs/{}/batch", ctx._realm_id))
+        .uri("/api/configs/batch".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(payload.to_string()))
@@ -375,7 +372,7 @@ async fn test_scenario_enable_email_verification_non_canonical_truth_without_ema
 
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/configs/{}", ctx._realm_id))
+        .uri("/api/configs".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(payload.to_string()))
@@ -412,7 +409,7 @@ async fn test_scenario_enable_email_verification_non_canonical_truth_without_ema
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/configs/{}/batch", ctx._realm_id))
+        .uri("/api/configs/batch".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(payload.to_string()))
@@ -464,7 +461,7 @@ async fn test_scenario_enable_email_verification_with_email_config_succeeds(ctx:
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/configs/{}/batch", ctx._realm_id))
+        .uri("/api/configs/batch".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(payload.to_string()))
@@ -737,7 +734,7 @@ async fn test_scenario_email_test_unconfigured_returns_400(ctx: &mut TestContext
 
     delete_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
 
-    // When: POST /api/configs/{realmId}/email/test with valid recipient
+    // When: POST /api/configs/email/test with valid recipient
     let resp = send_test_email(&app, &ctx._realm_id, &token, "test@example.com").await;
 
     // Then: 400 Bad Request (email not configured)
@@ -761,7 +758,7 @@ async fn test_scenario_email_test_invalid_recipient_returns_400(ctx: &mut TestCo
 
     insert_resend_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
 
-    // When: POST /api/configs/{realmId}/email/test with invalid recipient
+    // When: POST /api/configs/email/test with invalid recipient
     let resp = send_test_email(&app, &ctx._realm_id, &token, "not-an-email").await;
 
     // Then: 400 Bad Request (invalid recipient format)
@@ -787,7 +784,7 @@ async fn test_scenario_email_test_configured_returns_response(ctx: &mut TestCont
     // Insert config with dummy API key that will cause Resend send failure
     insert_resend_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
 
-    // When: POST /api/configs/{realmId}/email/test with valid recipient
+    // When: POST /api/configs/email/test with valid recipient
     let resp = send_test_email(&app, &ctx._realm_id, &token, "test@example.com").await;
 
     // Then: 200 OK, body has success=false and message field present

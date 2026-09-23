@@ -21,12 +21,11 @@ use uuid::Uuid;
 /// Updates user status or nickname. Email is read-only after creation. Requires "users.manage" permission.
 #[utoipa::path(
     put,
-    path = "/api/users/{realmId}/{userId}",
+    path = "/api/users/{userId}",
     tag = "users",
     summary = "Update a user",
     description = "Update user status or nickname. Email is read-only after creation. Requires `users.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     request_body = UserUpdateRequest,
@@ -42,12 +41,13 @@ use uuid::Uuid;
 pub async fn update_user(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<UserUpdateRequest>>,
 ) -> Result<ApiResult<UserResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "manage").await?;
 
     tracing::info!(

@@ -2,7 +2,7 @@
 // IAP Entitlement Mapping Create Scenario Tests
 // =============================================================================
 //
-// Exercises `POST /api/bill/{realmId}/entitlement-mappings`
+// Exercises `POST /api/bill/entitlement-mappings`
 // (`api-billing/src/entitlement_mapping_handlers.rs::create_entitlement_mapping`),
 // the generic mapping-create endpoint introduced for IAP (design A2). The
 // endpoint is provider-agnostic, so these tests use `apple` / `google` as the
@@ -164,7 +164,7 @@ mod tests {
             let response = app
                 .oneshot(auth_request(
                     "POST",
-                    format!("/api/bill/{realm_id}/entitlement-mappings"),
+                    "/api/bill/entitlement-mappings".to_string(),
                     &token,
                     Some(Body::from(body.to_string())),
                 ))
@@ -199,7 +199,7 @@ mod tests {
         let bucket_id = ensure_test_bucket_for_realm(&ctx.app_state.pool, &realm_id).await;
 
         let body = apple_create_body(bucket_id, "com.herald.test.dup.monthly");
-        let uri = format!("/api/bill/{realm_id}/entitlement-mappings");
+        let uri = "/api/bill/entitlement-mappings".to_string();
 
         let app = ctx.create_unified_test_router();
         let r1 = app
@@ -252,7 +252,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(body.to_string())),
             ))
@@ -282,7 +282,7 @@ mod tests {
         let realm_id = ctx._realm_id.clone();
         let token = billing_only_session(ctx, "iap-map-billingonly@test.com").await;
         let bucket_id = ensure_test_bucket_for_realm(&ctx.app_state.pool, &realm_id).await;
-        let uri = format!("/api/bill/{realm_id}/entitlement-mappings");
+        let uri = "/api/bill/entitlement-mappings".to_string();
 
         // 1. Plain mapping (no credit fields) → 201 with billing.manage alone.
         let plain_body = apple_create_body(bucket_id, "com.herald.test.plain.monthly");

@@ -162,7 +162,8 @@ pub async fn handle_get_white_label_config(
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<WhiteLabelConfigStateResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm white-label configuration")?;
     admin.require_permission(&state, "settings", "view").await?;
 
     Ok(Json(
@@ -197,7 +198,8 @@ pub async fn handle_save_white_label_draft(
     headers: HeaderMap,
     Json(req): Json<UpdateWhiteLabelConfigRequest>,
 ) -> Result<Json<SaveWhiteLabelDraftResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm white-label configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -253,7 +255,8 @@ pub async fn handle_discard_white_label_draft(
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm white-label configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -316,7 +319,8 @@ pub async fn handle_publish_white_label_config(
     headers: HeaderMap,
     payload: Option<Json<UpdateWhiteLabelConfigRequest>>,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm white-label configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -409,7 +413,8 @@ pub async fn handle_restore_white_label_config(
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<Json<WhiteLabelLifecycleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm white-label configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm white-label configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;

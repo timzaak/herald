@@ -106,7 +106,7 @@ pub async fn get_user_roles(
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("User has no realm"))?;
 
-    let admin = AdminIdentity::require(identity, realm_id, "user roles")?;
+    let admin = AdminIdentity::require_in_realm(identity, realm_id, "user roles")?;
     admin.require_permission(&state, "users", "view").await?;
 
     // Query user_roles with join to roles table
@@ -185,7 +185,7 @@ pub async fn assign_roles_to_user(
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("User has no realm"))?;
 
-    let admin = AdminIdentity::require(identity.clone(), realm_id, "user roles")?;
+    let admin = AdminIdentity::require_in_realm(identity.clone(), realm_id, "user roles")?;
     admin.require_permission(&state, "roles", "manage").await?;
 
     let mut seen_role_ids = HashSet::new();
@@ -387,7 +387,7 @@ pub async fn remove_role_from_user(
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("User has no realm"))?;
 
-    let admin = AdminIdentity::require(identity.clone(), realm_id, "user roles")?;
+    let admin = AdminIdentity::require_in_realm(identity.clone(), realm_id, "user roles")?;
     admin.require_permission(&state, "roles", "manage").await?;
 
     // Find and delete the user_role assignment

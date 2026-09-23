@@ -357,10 +357,7 @@ async fn test_admin_transaction_response_includes_effective_at_for_manage(ctx: &
     // subject's cross-user view).
     let request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/points/{}/transactions?userId={}",
-            realm_id, user_id
-        ))
+        .uri(format!("/api/points/transactions?userId={}", user_id))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -421,7 +418,7 @@ async fn test_admin_transaction_response_includes_effective_at_for_manage(ctx: &
 // Stored 列读点遗漏：list_wallets ... 若继续读 points_wallets.total_balance 会
 // 泄漏未来期积分" (P1).
 //
-// Why this test exists: `list_wallets` (`/api/points/{realm}/wallets`) is the
+// Why this test exists: `list_wallets` (`/api/points/wallets`) is the
 // admin cross-user view. Its `group_wallets_by_bucket` assembly MUST source
 // typed balances and `bucket_total` from the batched derived SUM (same
 // `effective_at <= NOW()` predicate as consumption), NOT from any
@@ -524,7 +521,7 @@ async fn test_admin_list_wallets_excludes_future_effective(ctx: &mut TestContext
     // When: the admin calls list_wallets (cross-user realm-wide view).
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/points/{}/wallets", realm_id))
+        .uri("/api/points/wallets".to_string())
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

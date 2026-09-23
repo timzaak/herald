@@ -70,7 +70,7 @@ mod tests {
     async fn create_paid_manual_invoice(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         account_id: Uuid,
         total: i64,
     ) -> serde_json::Value {
@@ -99,7 +99,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(payload.to_string()))
@@ -117,10 +117,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/issue",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/issue", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(json!({}).to_string()))
@@ -136,10 +133,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/mark-paid",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/mark-paid", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(json!({}).to_string()))
@@ -299,7 +293,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -359,7 +353,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -434,7 +428,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -512,10 +506,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/credit-notes",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/credit-notes", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(
@@ -533,7 +524,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -745,7 +736,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),

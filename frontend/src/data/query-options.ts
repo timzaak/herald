@@ -292,7 +292,7 @@ export type FeatureAvailabilityResponse = GeneratedFeatureAvailabilityResponse
 export const featureAvailabilityQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.featureAvailability(realmId),
-    queryFn: async () => handleApiResponse(await getFeatureAvailability({ path: { realmId } })),
+    queryFn: async () => handleApiResponse(await getFeatureAvailability({})),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
     gcTime: GC_TIME_5_MIN,
@@ -375,7 +375,6 @@ export const usersQueryOptions = (
     queryFn: async () =>
       handleApiResponse(
         await listUsers2({
-          path: { realmId },
           query: {
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
@@ -402,7 +401,7 @@ export const userQueryOptions = (realmId: string, userId: string) =>
 export const adminUserQueryOptions = (realmId: string, userId: string) =>
   queryOptions({
     queryKey: queryKeys.adminUser(realmId, userId),
-    queryFn: async () => handleApiResponse(await getUser2({ path: { realmId, userId } })),
+    queryFn: async () => handleApiResponse(await getUser2({ path: { userId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -412,7 +411,7 @@ export const adminUserQueryOptions = (realmId: string, userId: string) =>
 export const permissionsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.permissions(realmId),
-    queryFn: async () => handleApiResponse(await listPermissions({ path: { realmId } })),
+    queryFn: async () => handleApiResponse(await listPermissions({})),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -423,9 +422,7 @@ export const permissionQueryOptions = (realmId: string, permissionId: string) =>
   queryOptions({
     queryKey: queryKeys.permission(realmId, permissionId),
     queryFn: async () =>
-      handleApiResponse(
-        await getPermission({ path: { realmId, permissionDefinitionId: permissionId } })
-      ),
+      handleApiResponse(await getPermission({ path: { permissionDefinitionId: permissionId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -435,7 +432,7 @@ export const permissionQueryOptions = (realmId: string, permissionId: string) =>
 export const rolesQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.roles(realmId),
-    queryFn: async () => handleApiResponse(await listRoles({ path: { realmId } })),
+    queryFn: async () => handleApiResponse(await listRoles({})),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -445,7 +442,7 @@ export const adminRolesQueryOptions = rolesQueryOptions
 export const roleQueryOptions = (realmId: string, roleId: string) =>
   queryOptions({
     queryKey: queryKeys.role(realmId, roleId),
-    queryFn: async () => handleApiResponse(await getRole({ path: { realmId, roleId } })),
+    queryFn: async () => handleApiResponse(await getRole({ path: { roleId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -453,7 +450,7 @@ export const roleQueryOptions = (realmId: string, roleId: string) =>
 export const rolePermissionsQueryOptions = (realmId: string, roleId: string) =>
   queryOptions({
     queryKey: queryKeys.rolePermissions(realmId, roleId),
-    queryFn: async () => handleApiResponse(await getRolePermissions({ path: { realmId, roleId } })),
+    queryFn: async () => handleApiResponse(await getRolePermissions({ path: { roleId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -483,7 +480,7 @@ export const adminUserRolesQueryOptions = (realmId: string, userId: string) =>
     queryKey: queryKeys.adminUserRoles(realmId, userId),
     queryFn: async () =>
       adminGetUserRoles({
-        path: { realmId, userId },
+        path: { userId },
       }),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
@@ -493,9 +490,7 @@ export const userSessionsQueryOptions = (realmId: string, userId: string) =>
   queryOptions({
     queryKey: queryKeys.userSessions(realmId, userId),
     queryFn: async () =>
-      handleApiResponse(
-        await listUserSessions({ path: { realmId, userId } })
-      ) as UserSessionResponse[],
+      handleApiResponse(await listUserSessions({ path: { userId } })) as UserSessionResponse[],
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
@@ -514,7 +509,6 @@ export const clientAppsQueryOptions = (
     queryFn: async () =>
       handleApiResponse(
         await listClientApps({
-          path: { realmId },
           query: {
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
@@ -528,8 +522,7 @@ export const clientAppsQueryOptions = (
 export const clientAppQueryOptions = (realmId: string, id: string) =>
   queryOptions({
     queryKey: queryKeys.clientApp(realmId, id),
-    queryFn: async () =>
-      handleApiResponse(await getClientApp({ path: { realmId, clientAppId: id } })),
+    queryFn: async () => handleApiResponse(await getClientApp({ path: { clientAppId: id } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -540,7 +533,7 @@ export const providerConfigsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.oauthConfigs(realmId),
     queryFn: async () => {
-      const response = await listOauthConfigs({ path: { realmId } })
+      const response = await listOauthConfigs({})
       if (response.error) throw response.error
       return response.data as OAuthConfigResponse[]
     },
@@ -553,7 +546,7 @@ export const providerConfigQueryOptions = (realmId: string, providerType: string
   queryOptions({
     queryKey: queryKeys.oauthConfig(realmId, providerType),
     queryFn: async () => {
-      const response = await getOauthConfig({ path: { realmId, providerType } })
+      const response = await getOauthConfig({ path: { providerType } })
       if (response.error) throw response.error
       return response.data as OAuthConfigResponse
     },
@@ -746,7 +739,7 @@ export const emailOtpRealmConfigQueryOptions = (realmId: string) =>
 
 // ==================== LDAP Realm Config (admin) ====================
 //
-// Reads a realm's LDAP directory config rows (`GET /api/configs/{realmId}/ldap`,
+// Reads a realm's LDAP directory config rows (`GET /api/configs/ldap`,
 // the generic configs by-type list). Requires `settings.view`; consumed by the
 // Settings → LDAP tab. `bind_password` values are masked to null server-side;
 // only the row's existence matters (parsed into `hasBindPassword`).
@@ -754,7 +747,7 @@ export const ldapRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.ldapRealmConfig(realmId),
     queryFn: async () => {
-      const response = await listRealmConfigsByType({ path: { realmId, configType: 'ldap' } })
+      const response = await listRealmConfigsByType({ path: { configType: 'ldap' } })
       if (response.error) throw response.error
       return response.data
     },
@@ -808,7 +801,7 @@ export const subscriptionQueryOptions = (realmId: string, clientAppId: string) =
   queryOptions({
     queryKey: queryKeys.subscription(realmId, clientAppId),
     queryFn: async () => {
-      const response = await getSubscriptionForClientApp({ path: { realmId, clientAppId } })
+      const response = await getSubscriptionForClientApp({ path: { clientAppId } })
       if (response.error) {
         if (response.error.status === 404) return null
         throw response.error
@@ -846,23 +839,22 @@ export const userSubscriptionsQueryOptions = <TData>(
 // ==================== Subscription History ====================
 
 export async function getSubscriptionHistory(
-  realmId: string,
+  _realmId: string,
   subscriptionId: string
 ): Promise<SingleSubscriptionHistoryResponse> {
   const response = await getSubscriptionHistoryApi({
-    path: { realmId, subscriptionId },
+    path: { subscriptionId },
   })
   return handleApiResponse(response) as SingleSubscriptionHistoryResponse
 }
 
 export async function getGlobalSubscriptionHistory(
-  realmId: string,
+  _realmId: string,
   filters: HistoryFilters,
   page: number = 1,
   pageSize: number = 20
 ): Promise<GlobalSubscriptionHistoryResponse> {
   const response = await listSubscriptionHistory({
-    path: { realmId },
     query: {
       ...filters,
       page,
@@ -904,7 +896,7 @@ export const pointsWalletQueryOptions = (realmId: string, userId: string) =>
   queryOptions({
     queryKey: queryKeys.pointsWallet(realmId, userId),
     queryFn: async () =>
-      handleApiResponse(await getWallet({ path: { realmId, userId } })) as PointsWalletResponse,
+      handleApiResponse(await getWallet({ path: { userId } })) as PointsWalletResponse,
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
@@ -928,7 +920,6 @@ export const pointsTransactionsQueryOptions = (
     queryFn: async () => {
       const data = handleApiResponse(
         await listTransactions({
-          path: { realmId },
           query: {
             userId: filters.userId,
             clientAppId: filters.clientAppId,
@@ -992,7 +983,7 @@ export const registrationRulesQueryOptions = (realmId: string) =>
     queryKey: queryKeys.registrationRules(realmId),
     queryFn: async () => {
       try {
-        const response = await getRegistrationRules({ path: { realmId } })
+        const response = await getRegistrationRules({})
         if (response.error) handleApiErrorWithStatus(response.error)
         return response.data as RegistrationRulesResponse
       } catch (error) {
@@ -1004,12 +995,11 @@ export const registrationRulesQueryOptions = (realmId: string) =>
   })
 
 export const updateRegistrationRulesMutation = async (
-  realmId: string,
+  _realmId: string,
   data: UpsertRegistrationRulesRequest
 ) => {
   try {
     const response = await upsertRegistrationRules({
-      path: { realmId },
       body: data,
     })
     if (response.error) handleApiErrorWithStatus(response.error)
@@ -1026,7 +1016,7 @@ export const purchaseOptionsQueryOptions = (realmId: string, clientAppId: string
     queryKey: queryKeys.purchaseOptions(realmId, clientAppId),
     queryFn: async () => {
       const response = await listPurchaseOptions({
-        path: { realmId, clientAppId },
+        path: { clientAppId },
       })
       if (response.error) throw response.error
       return (
@@ -1087,7 +1077,7 @@ export const paymentAttemptStatusQueryOptions = (realmId: string, attemptId: str
         throw new Error('attemptId is required')
       }
       const response = await getPaymentAttemptStatus({
-        path: { realmId, attemptId },
+        path: { attemptId },
       })
       if (response.error) throw response.error
       return response.data
@@ -1112,9 +1102,7 @@ export const paymentProvidersQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.paymentProviders(realmId),
     queryFn: async () => {
-      const response = await listPaymentProviders({
-        path: { realmId },
-      })
+      const response = await listPaymentProviders({})
       if (response.error) throw response.error
       return response.data?.providers ?? []
     },
@@ -1141,7 +1129,6 @@ export const auditListQueryOptions = (
     queryFn: async () =>
       handleApiResponse(
         await listAuditEvents({
-          path: { realmId },
           query: {
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
@@ -1160,7 +1147,7 @@ export const auditListQueryOptions = (
 export const auditDetailQueryOptions = (realmId: string, eventId: string) =>
   queryOptions({
     queryKey: queryKeys.auditDetail(realmId, eventId),
-    queryFn: async () => handleApiResponse(await getAuditEvent({ path: { realmId, eventId } })),
+    queryFn: async () => handleApiResponse(await getAuditEvent({ path: { eventId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -1171,7 +1158,7 @@ export const dashboardStatsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.dashboardStats(realmId),
     queryFn: async () => {
-      const response = await getDashboardStats({ path: { realmId } })
+      const response = await getDashboardStats({})
       if (response.error) throw response.error
       return response.data
     },
@@ -1189,7 +1176,7 @@ export const paymentStatsQueryOptions = (realmId: string, days: StatisticsWindow
   queryOptions({
     queryKey: queryKeys.paymentStats(realmId, days),
     queryFn: async () => {
-      const response = await getPaymentStats({ path: { realmId }, query: { days } })
+      const response = await getPaymentStats({ query: { days } })
       if (response.error) throw response.error
       return response.data
     },
@@ -1201,7 +1188,7 @@ export const pointsConsumptionStatsQueryOptions = (realmId: string, days: Statis
   queryOptions({
     queryKey: queryKeys.pointsConsumptionStats(realmId, days),
     queryFn: async () => {
-      const response = await getPointsConsumptionStats({ path: { realmId }, query: { days } })
+      const response = await getPointsConsumptionStats({ query: { days } })
       if (response.error) throw response.error
       return response.data
     },
@@ -1215,7 +1202,7 @@ export const emailStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.emailStatus(realmId),
     queryFn: async () => {
-      const response = await emailStatus({ path: { realmId } })
+      const response = await emailStatus({})
       if (response.error) throw response.error
       return response.data
     },
@@ -1237,7 +1224,6 @@ export const apiKeysQueryOptions = (
     queryFn: async () =>
       handleApiResponse(
         await listApiKeys({
-          path: { realmId },
           query: {
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
@@ -1251,7 +1237,7 @@ export const apiKeysQueryOptions = (
 export const apiKeyQueryOptions = (realmId: string, id: string) =>
   queryOptions({
     queryKey: queryKeys.apiKey(realmId, id),
-    queryFn: async () => handleApiResponse(await getApiKey({ path: { realmId, apiKeyId: id } })),
+    queryFn: async () => handleApiResponse(await getApiKey({ path: { apiKeyId: id } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
@@ -1264,7 +1250,7 @@ export const adminApiKeyRolesQueryOptions = (realmId: string, apiKeyId: string) 
     queryFn: async () =>
       handleApiResponse(
         await adminGetApiKeyRoles({
-          path: { realmId, apiKeyId },
+          path: { apiKeyId },
         })
       ),
     retry: RETRY_COUNT,
@@ -1272,13 +1258,13 @@ export const adminApiKeyRolesQueryOptions = (realmId: string, apiKeyId: string) 
   })
 
 export const updateApiKeyRolesMutation = async (
-  realmId: string,
+  _realmId: string,
   apiKeyId: string,
   roleIds: string[]
 ) => {
   try {
     const response = await adminUpdateApiKeyRoles({
-      path: { realmId, apiKeyId },
+      path: { apiKeyId },
       body: { roleIds },
     })
     if (response.error) handleApiErrorWithStatus(response.error)
@@ -1311,7 +1297,7 @@ export const entitlementMappingsQueryOptions = (
       if (filters.pageSize !== undefined) query.pageSize = filters.pageSize
 
       const response = await client.get<EntitlementMappingListResponse>({
-        url: `/api/bill/${realmId}/entitlement-mappings`,
+        url: `/api/bill/entitlement-mappings`,
         query,
       })
       if (response.error) throw response.error
@@ -1326,7 +1312,7 @@ export const entitlementMappingQueryOptions = (realmId: string, mappingId: strin
     queryKey: queryKeys.entitlementMapping(realmId, mappingId),
     queryFn: async () => {
       const response = await getEntitlementMapping({
-        path: { realmId, mappingId },
+        path: { mappingId },
       })
       if (response.error) throw response.error
       return response.data as EntitlementMappingResponse
@@ -1357,7 +1343,7 @@ export const subscriptionsQueryOptions = (realmId: string, filters: Subscription
       if (filters.pageSize !== undefined) query.pageSize = filters.pageSize
 
       const response = await client.get<SubscriptionListResponse>({
-        url: `/api/bill/${realmId}/subscriptions`,
+        url: `/api/bill/subscriptions`,
         query,
       })
       if (response.error) throw response.error
@@ -1375,7 +1361,7 @@ export const subscriptionDetailQueryOptions = (realmId: string, subscriptionId: 
     queryKey: queryKeys.adminSubscription(realmId, subscriptionId),
     queryFn: async () => {
       const response = await getSubscription({
-        path: { realmId, subscriptionId },
+        path: { subscriptionId },
       })
       if (response.error) throw response.error
       return response.data as SubscriptionDetailResponse
@@ -1389,8 +1375,7 @@ export const subscriptionDetailQueryOptions = (realmId: string, subscriptionId: 
 export const creditBucketsListQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.creditBucketsList(realmId),
-    queryFn: async () =>
-      handleApiResponse(await listCreditBucketsHandler({ path: { realmId } })) as BucketResponse[],
+    queryFn: async () => handleApiResponse(await listCreditBucketsHandler({})) as BucketResponse[],
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
@@ -1400,7 +1385,7 @@ export const creditBucketDetailQueryOptions = (realmId: string, bucketId: string
     queryKey: queryKeys.creditBucket(realmId, bucketId),
     queryFn: async () =>
       handleApiResponse(
-        await getCreditBucketHandler({ path: { realmId, bucketId } })
+        await getCreditBucketHandler({ path: { bucketId } })
       ) as BucketDetailResponse,
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
@@ -1410,15 +1395,13 @@ export const creditBucketOverviewQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.creditBucketOverview(realmId),
     queryFn: async () =>
-      handleApiResponse(
-        await getBucketOverviewHandler({ path: { realmId } })
-      ) as BucketOverviewResponse,
+      handleApiResponse(await getBucketOverviewHandler({})) as BucketOverviewResponse,
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
 
 /**
- * Wallets grouped by (bucket_id, user_id) for a realm — `GET /api/points/{realmId}/wallets`
+ * Wallets grouped by (bucket_id, user_id) for a realm — `GET /api/points/wallets`
  * via the generated `listWallets` SDK (returns `ListWalletsByBucketResponse`).
  *
  * Backend scoping (Gap #2 fix): the endpoint is `points.view`-gated, and the service
@@ -1438,8 +1421,7 @@ export const creditBucketOverviewQueryOptions = (realmId: string) =>
 export const walletsByBucketQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.walletsByBucket(realmId),
-    queryFn: async () =>
-      handleApiResponse(await listWallets({ path: { realmId } })) as ListWalletsByBucketResponse,
+    queryFn: async () => handleApiResponse(await listWallets({})) as ListWalletsByBucketResponse,
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
@@ -1461,7 +1443,7 @@ export function toAuthConsentAgreements(
 
 /**
  * Convert agreement summaries into the snake_case `RecordConsentRequest` body
- * used by `POST /api/legal/{realmId}/consent`.
+ * used by `POST /api/user/consent`.
  */
 export function toRecordConsentRequest(agreements: LegalAgreementSummary[]): RecordConsentRequest {
   return {
@@ -1513,7 +1495,7 @@ export const legalAgreementQueryOptions = (
 export const consentStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.consentStatus(realmId),
-    queryFn: async () => handleApiResponse(await getConsentStatus({ path: { realmId } })),
+    queryFn: async () => handleApiResponse(await getConsentStatus({})),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
     gcTime: GC_TIME_5_MIN,
@@ -1522,7 +1504,7 @@ export const consentStatusQueryOptions = (realmId: string) =>
 export const legalAdminAgreementsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.legalAdminAgreements(realmId),
-    queryFn: async () => handleApiResponse(await adminListAgreements({ path: { realmId } })),
+    queryFn: async () => handleApiResponse(await adminListAgreements({})),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
@@ -1534,16 +1516,16 @@ export const legalAdminAgreementsQueryOptions = (realmId: string) =>
 export const legalVersionQueryOptions = (realmId: string, versionId: string) =>
   queryOptions({
     queryKey: queryKeys.legalVersion(realmId, versionId),
-    queryFn: async () => handleApiResponse(await adminGetVersion({ path: { realmId, versionId } })),
+    queryFn: async () => handleApiResponse(await adminGetVersion({ path: { versionId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
 
 export const recordConsentMutation = async (
-  realmId: string,
+  _realmId: string,
   data: RecordConsentRequest
 ): Promise<void> => {
-  const response = await recordConsent({ path: { realmId }, body: data })
+  const response = await recordConsent({ body: data })
   if (response.error) throw response.error
 }
 
@@ -1556,12 +1538,12 @@ export const deleteAccountMutation = async (password: string): Promise<void> => 
 }
 
 export const publishCustomAgreementMutation = async (
-  realmId: string,
+  _realmId: string,
   agreementType: string,
   data: PublishCustomRequest
 ): Promise<PublishVersionResponse> => {
   const response = await adminPublishCustom({
-    path: { realmId, agreementType },
+    path: { agreementType },
     body: data,
   })
   if (response.error) throw response.error
@@ -1569,10 +1551,10 @@ export const publishCustomAgreementMutation = async (
 }
 
 export const revertToDefaultAgreementMutation = async (
-  realmId: string,
+  _realmId: string,
   agreementType: string
 ): Promise<PublishVersionResponse> => {
-  const response = await adminRevertToDefault({ path: { realmId, agreementType } })
+  const response = await adminRevertToDefault({ path: { agreementType } })
   if (response.error) throw response.error
   return response.data as PublishVersionResponse
 }
@@ -1588,7 +1570,7 @@ export const legalDraftQueryOptions = (realmId: string, agreementType: string) =
   queryOptions({
     queryKey: queryKeys.legalDraft(realmId, agreementType),
     queryFn: async () => {
-      const response = await adminGetDraft({ path: { realmId, agreementType } })
+      const response = await adminGetDraft({ path: { agreementType } })
       // A 404 ("no draft saved for this type") is the normal "no draft yet"
       // state, not an error. Inspect the raw response error's status before
       // `handleApiResponse` would wrap it as a plain Error (which loses the
@@ -1602,20 +1584,20 @@ export const legalDraftQueryOptions = (realmId: string, agreementType: string) =
   })
 
 export const saveDraftMutation = async (
-  realmId: string,
+  _realmId: string,
   agreementType: string,
   data: SaveDraftRequest
 ): Promise<LegalAgreementDraftResponse> => {
-  const response = await adminSaveDraft({ path: { realmId, agreementType }, body: data })
+  const response = await adminSaveDraft({ path: { agreementType }, body: data })
   if (response.error) throw response.error
   return response.data as LegalAgreementDraftResponse
 }
 
 export const discardDraftMutation = async (
-  realmId: string,
+  _realmId: string,
   agreementType: string
 ): Promise<void> => {
-  const response = await adminDiscardDraft({ path: { realmId, agreementType } })
+  const response = await adminDiscardDraft({ path: { agreementType } })
   if (response.error) throw response.error
 }
 
@@ -1623,12 +1605,12 @@ export const discardDraftMutation = async (
 /// draft's label for this publish only; when omitted the draft's stored label
 /// is used. Returns the newly published version identifiers.
 export const publishFromDraftMutation = async (
-  realmId: string,
+  _realmId: string,
   agreementType: string,
   versionLabelOverride?: string | null
 ): Promise<PublishVersionResponse> => {
   const body = versionLabelOverride !== undefined ? { version_label: versionLabelOverride } : {}
-  const response = await adminPublishFromDraft({ path: { realmId, agreementType }, body })
+  const response = await adminPublishFromDraft({ path: { agreementType }, body })
   if (response.error) throw response.error
   return response.data as PublishVersionResponse
 }

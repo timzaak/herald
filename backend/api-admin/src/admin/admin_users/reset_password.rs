@@ -17,10 +17,9 @@ use uuid::Uuid;
 /// Reset user password (generate 16-character random password)
 #[utoipa::path(
     post,
-    path = "/api/users/{realmId}/{userId}/reset-password",
+    path = "/api/users/{userId}/reset-password",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -33,11 +32,12 @@ use uuid::Uuid;
 pub async fn reset_user_password(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<ApiResult<ResetPasswordResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "manage").await?;
 
     tracing::info!(

@@ -133,7 +133,7 @@ fn pick_locale(content: &serde_json::Value, locale: Option<&str>) -> serde_json:
 /// always be present).
 #[utoipa::path(
     get,
-    path = "/api/legal/{realmId}/agreements",
+    path = "/api/legal/public/{realmId}/agreements",
     tag = "legal",
     params(
         ("realmId" = String, Path, description = "Realm ID"),
@@ -175,7 +175,7 @@ pub async fn list_agreements(
 /// version deployed → 404.
 #[utoipa::path(
     get,
-    path = "/api/legal/{realmId}/agreements/{agreementType}",
+    path = "/api/legal/public/{realmId}/agreements/{agreementType}",
     tag = "legal",
     params(
         ("realmId" = String, Path, description = "Realm ID"),
@@ -210,33 +210,24 @@ pub async fn get_agreement(
 
 /// Reconsent gate verdict for the calling user across both agreement types.
 ///
-/// Self-service — requires Bearer identity. Cross-realm access is rejected
-/// with 403 (each user may only inspect their own realm's consent state).
+/// Self-service — requires Bearer identity. The realm is the one pinned by
+/// the bearer token (each user may only inspect their own realm's consent
+/// state).
 #[utoipa::path(
     get,
-    path = "/api/legal/{realmId}/consent/status",
+    path = "/api/user/consent/status",
     tag = "legal",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     responses(
         (status = 200, description = "Per-agreement reconsent verdict", body = ConsentStatusResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 403, description = "Identity does not belong to this realm", body = ErrorResponse),
         (status = 500, description = "Server error", body = ErrorResponse)
     )
 )]
 pub async fn get_consent_status(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<ConsentStatusResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
-
+    let realm_id = identity.realm_id();
     let user_id = parse_user_id(identity.user_id())?;
     let items = state
         .legal_service
@@ -247,24 +238,21 @@ pub async fn get_consent_status(
 
 /// Record the user's explicit consent to one or more agreement versions.
 ///
-/// Self-service — requires Bearer identity. Each `version_id` must equal the
+/// Self-service — requires Bearer identity; the realm is the one pinned by
+/// the bearer token. Each `version_id` must equal the
 /// current effective version for its type (enforced in the service layer,
 /// BE-D04); a stale version surfaces as 409 so the client re-reads the
 /// effective version. Returns 204 on success. The upsert is idempotent on a
 /// repeat of the same version.
 #[utoipa::path(
     post,
-    path = "/api/legal/{realmId}/consent",
+    path = "/api/user/consent",
     tag = "legal",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     request_body = RecordConsentRequest,
     responses(
         (status = 204, description = "Consent recorded"),
         (status = 400, description = "Unknown agreement type", body = ErrorResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
-        (status = 403, description = "Identity does not belong to this realm", body = ErrorResponse),
         (status = 409, description = "version_id is not the current effective version", body = ErrorResponse),
         (status = 500, description = "Server error", body = ErrorResponse)
     )
@@ -272,17 +260,11 @@ pub async fn get_consent_status(
 pub async fn record_consent(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     Json(payload): Json<RecordConsentRequest>,
 ) -> Result<StatusCode, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
-
+    let realm_id = identity.realm_id();
     let user_id = parse_user_id(identity.user_id())?;
 
     let mut items = Vec::with_capacity(payload.agreements.len());
@@ -461,12 +443,9 @@ fn admin_actor(
 /// version exists, otherwise Default).
 #[utoipa::path(
     get,
-    path = "/api/legal/admin/{realmId}/agreements",
+    path = "/api/legal/admin/agreements",
     tag = "legal",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Admin agreement views with history", body = AdminAgreementsResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden (missing settings.view or cross-realm)", body = ErrorResponse),
@@ -477,13 +456,8 @@ fn admin_actor(
 pub async fn admin_list_agreements(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<AdminAgreementsResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -534,7 +508,7 @@ pub async fn admin_list_agreements(
 
 /// Get a single published version's full body by id (admin history view).
 ///
-/// Admin — requires first-party Bearer + `settings.view` + `has_access_to_realm`
+/// Admin — requires first-party Bearer + `settings.view` (realm pinned by the session token)
 /// (same gate as `admin_list_agreements`, since this is a read of the same
 /// history the list already exposes). Returns 404 when the id does not resolve.
 /// The `realmId` path segment scopes the permission check; the version itself is
@@ -542,10 +516,9 @@ pub async fn admin_list_agreements(
 /// are guaranteed to belong to the realm or be the platform default).
 #[utoipa::path(
     get,
-    path = "/api/legal/admin/{realmId}/agreements/versions/{versionId}",
+    path = "/api/legal/admin/agreements/versions/{versionId}",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("versionId" = Uuid, Path, description = "Agreement version ID")
     ),
     responses(
@@ -559,13 +532,9 @@ pub async fn admin_list_agreements(
 pub async fn admin_get_version(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, version_id)): Path<(String, Uuid)>,
+    Path(version_id): Path<Uuid>,
 ) -> Result<Json<LegalAgreementVersionDetailResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -602,16 +571,15 @@ pub async fn admin_get_version(
 
 /// Publish a new per-realm custom agreement version.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// Unknown `agreementType` → 400; non-object/empty `content` → 400 (also
 /// enforced in the service). On success the service records an
 /// `agreement.published` audit event and returns the new version.
 #[utoipa::path(
     put,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}",
+    path = "/api/legal/admin/agreements/{agreementType}",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     request_body = PublishCustomRequest,
@@ -626,16 +594,12 @@ pub async fn admin_get_version(
 pub async fn admin_publish_custom(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     Json(payload): Json<PublishCustomRequest>,
 ) -> Result<Json<PublishVersionResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -717,7 +681,7 @@ pub async fn admin_publish_custom(
 
 /// Revert a realm's agreement to the platform default.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// Implemented as **default-follow semantics** in the service: a realm-scoped
 /// marker version is appended with `source = default` (new `version_id`,
 /// monotonic `version_no`), after which effective resolution follows the
@@ -725,10 +689,9 @@ pub async fn admin_publish_custom(
 /// append-only; no prior rows are deleted. The handler is a thin pass-through.
 #[utoipa::path(
     delete,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}/custom",
+    path = "/api/legal/admin/agreements/{agreementType}/custom",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     responses(
@@ -742,15 +705,11 @@ pub async fn admin_publish_custom(
 pub async fn admin_revert_to_default(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<Json<PublishVersionResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -790,15 +749,14 @@ pub async fn admin_revert_to_default(
 
 /// Get the staged draft for an agreement type.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// Returns 404 when no draft exists for the type (the admin form treats this as
 /// "start a new draft").
 #[utoipa::path(
     get,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}/draft",
+    path = "/api/legal/admin/agreements/{agreementType}/draft",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     responses(
@@ -813,13 +771,9 @@ pub async fn admin_revert_to_default(
 pub async fn admin_get_draft(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
 ) -> Result<Json<LegalAgreementDraftResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -857,15 +811,14 @@ pub async fn admin_get_draft(
 
 /// Save (upsert) a draft for an agreement type.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// A repeat save overwrites the prior draft. Does NOT publish — the agreement
 /// stays unchanged for end users until POST `/publish`.
 #[utoipa::path(
     put,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}/draft",
+    path = "/api/legal/admin/agreements/{agreementType}/draft",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     request_body = SaveDraftRequest,
@@ -880,14 +833,10 @@ pub async fn admin_get_draft(
 pub async fn admin_save_draft(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
     Json(payload): Json<SaveDraftRequest>,
 ) -> Result<Json<LegalAgreementDraftResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -946,7 +895,7 @@ pub async fn admin_save_draft(
 
 /// Publish the staged draft as a new effective version.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// Reads the draft, creates a new immutable `legal_agreement_version` row
 /// (advancing `version_no`, recording an `agreement.published` audit event),
 /// and clears the draft. Returns 404 when no draft exists for the type. This is
@@ -955,10 +904,9 @@ pub async fn admin_save_draft(
 /// for backward compatibility).
 #[utoipa::path(
     post,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}/publish",
+    path = "/api/legal/admin/agreements/{agreementType}/publish",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     request_body = Option<PublishFromDraftRequest>,
@@ -974,16 +922,12 @@ pub async fn admin_save_draft(
 pub async fn admin_publish_from_draft(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     payload: Option<Json<PublishFromDraftRequest>>,
 ) -> Result<Json<PublishVersionResponse>, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,
@@ -1027,15 +971,14 @@ pub async fn admin_publish_from_draft(
 
 /// Discard the staged draft.
 ///
-/// Admin — requires first-party Bearer + `settings.manage` + `has_access_to_realm`.
+/// Admin — requires first-party Bearer + `settings.manage` (realm pinned by the session token).
 /// Idempotent: discarding a missing draft returns 204. The published version
 /// table is untouched.
 #[utoipa::path(
     delete,
-    path = "/api/legal/admin/{realmId}/agreements/{agreementType}/draft",
+    path = "/api/legal/admin/agreements/{agreementType}/draft",
     tag = "legal",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("agreementType" = String, Path, description = "Agreement type: terms_of_service | privacy_policy")
     ),
     responses(
@@ -1049,13 +992,9 @@ pub async fn admin_publish_from_draft(
 pub async fn admin_discard_draft(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, agreement_type)): Path<(String, String)>,
+    Path(agreement_type): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    if !identity.has_access_to_realm(&realm_id) {
-        return Err(ApiError::forbidden(
-            "Identity does not belong to this realm",
-        ));
-    }
+    let realm_id = identity.realm_id();
     require_permission(
         &state,
         &realm_id,

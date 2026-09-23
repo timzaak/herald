@@ -199,7 +199,7 @@ describe('consentStatusQueryOptions', () => {
     const options = consentStatusQueryOptions('realm-1')
     await options.queryFn()
 
-    expect(getConsentStatus).toHaveBeenCalledWith({ path: { realmId: 'realm-1' } })
+    expect(getConsentStatus).toHaveBeenCalledWith({})
   })
 
   it('returns consent status response', async () => {
@@ -233,7 +233,7 @@ describe('legalAdminAgreementsQueryOptions', () => {
     const options = legalAdminAgreementsQueryOptions('realm-1')
     await options.queryFn()
 
-    expect(adminListAgreements).toHaveBeenCalledWith({ path: { realmId: 'realm-1' } })
+    expect(adminListAgreements).toHaveBeenCalledWith({})
   })
 
   it('returns admin agreements response', async () => {
@@ -265,7 +265,7 @@ describe('legalVersionQueryOptions', () => {
     await options.queryFn()
 
     expect(adminGetVersion).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', versionId: 'tos-v2' },
+      path: { versionId: 'tos-v2' },
     })
   })
 
@@ -300,7 +300,6 @@ describe('recordConsentMutation', () => {
     await recordConsentMutation('realm-1', request)
 
     expect(recordConsent).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1' },
       body: request,
     })
   })
@@ -378,7 +377,7 @@ describe('publishCustomAgreementMutation', () => {
     const result = await publishCustomAgreementMutation('realm-1', 'terms_of_service', body)
 
     expect(adminPublishCustom).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
       body,
     })
     expect(result).toEqual(publishResponse)
@@ -403,7 +402,7 @@ describe('revertToDefaultAgreementMutation', () => {
     const result = await revertToDefaultAgreementMutation('realm-1', 'terms_of_service')
 
     expect(adminRevertToDefault).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
     })
     expect(result).toEqual(revertResponse)
   })
@@ -423,7 +422,7 @@ describe('legalDraftQueryOptions', () => {
     const result = await options.queryFn()
 
     expect(adminGetDraft).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
     })
     expect(result).toEqual(draftResponse)
   })
@@ -477,7 +476,7 @@ describe('saveDraftMutation', () => {
     const result = await saveDraftMutation('realm-1', 'terms_of_service', body)
 
     expect(adminSaveDraft).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
       body,
     })
     expect(result).toEqual(draftResponse)
@@ -503,7 +502,7 @@ describe('discardDraftMutation', () => {
     await discardDraftMutation('realm-1', 'terms_of_service')
 
     expect(adminDiscardDraft).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
     })
   })
 
@@ -534,7 +533,7 @@ describe('publishFromDraftMutation', () => {
     const result = await publishFromDraftMutation('realm-1', 'terms_of_service')
 
     expect(adminPublishFromDraft).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
       body: {},
     })
     expect(result).toEqual(publishResponse)
@@ -544,7 +543,7 @@ describe('publishFromDraftMutation', () => {
     await publishFromDraftMutation('realm-1', 'terms_of_service', 'final label')
 
     expect(adminPublishFromDraft).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', agreementType: 'terms_of_service' },
+      path: { agreementType: 'terms_of_service' },
       body: { version_label: 'final label' },
     })
   })

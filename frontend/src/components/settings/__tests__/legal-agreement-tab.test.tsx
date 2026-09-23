@@ -36,7 +36,7 @@ function makeAgreementView(overrides?: Partial<AdminAgreementView>): AdminAgreem
 
 function setupAdminAgreementsHandler(response: { agreements: AdminAgreementView[] }, status = 200) {
   server.use(
-    http.get(`http://localhost:3000/api/legal/admin/${realmId}/agreements`, () =>
+    http.get(`http://localhost:3000/api/legal/admin/agreements`, () =>
       HttpResponse.json(response, { status })
     )
   )
@@ -48,11 +48,11 @@ function setupAdminAgreementsHandler(response: { agreements: AdminAgreementView[
 function setupDraftNotFound() {
   server.use(
     http.get(
-      `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
+      `http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`,
       () => new HttpResponse(null, { status: 404 })
     ),
     http.get(
-      `http://localhost:3000/api/legal/admin/${realmId}/agreements/privacy_policy/draft`,
+      `http://localhost:3000/api/legal/admin/agreements/privacy_policy/draft`,
       () => new HttpResponse(null, { status: 404 })
     )
   )
@@ -188,7 +188,7 @@ describe('LegalAgreementTab', () => {
     let publishCalls = 0
 
     server.use(
-      http.get(`http://localhost:3000/api/legal/admin/${realmId}/agreements`, () => {
+      http.get(`http://localhost:3000/api/legal/admin/agreements`, () => {
         listCalls += 1
         return HttpResponse.json({
           agreements: [
@@ -200,7 +200,7 @@ describe('LegalAgreementTab', () => {
         })
       }),
       http.put(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
+        `http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`,
         async ({ request }) => {
           saveDraftBody = await request.json()
           return HttpResponse.json({
@@ -212,7 +212,7 @@ describe('LegalAgreementTab', () => {
         }
       ),
       http.post(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/publish`,
+        `http://localhost:3000/api/legal/admin/agreements/terms_of_service/publish`,
         async ({ request }) => {
           publishCalls += 1
           publishBody = await request.json().catch(() => null)
@@ -263,13 +263,13 @@ describe('LegalAgreementTab', () => {
     let publishCalls = 0
 
     server.use(
-      http.get(`http://localhost:3000/api/legal/admin/${realmId}/agreements`, () =>
+      http.get(`http://localhost:3000/api/legal/admin/agreements`, () =>
         HttpResponse.json({
           agreements: [makeAgreementView({ source: 'default' })],
         })
       ),
       http.put(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
+        `http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`,
         async ({ request }) => {
           saveCalls += 1
           saveDraftBody = await request.json()
@@ -281,17 +281,14 @@ describe('LegalAgreementTab', () => {
           })
         }
       ),
-      http.post(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/publish`,
-        () => {
-          publishCalls += 1
-          return HttpResponse.json({
-            version_id: 'tos-v2',
-            version_no: 2,
-            effective_at: '2026-07-01T00:00:00Z',
-          })
-        }
-      )
+      http.post(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/publish`, () => {
+        publishCalls += 1
+        return HttpResponse.json({
+          version_id: 'tos-v2',
+          version_no: 2,
+          effective_at: '2026-07-01T00:00:00Z',
+        })
+      })
     )
 
     renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
@@ -345,15 +342,13 @@ describe('LegalAgreementTab', () => {
       agreements: [makeAgreementView({ source: 'default' })],
     })
     server.use(
-      http.get(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
-        () =>
-          HttpResponse.json({
-            agreement_type: 'terms_of_service',
-            content: { en: 'resumed draft body' },
-            version_label: 'resumed label',
-            updated_at: '2026-07-01T00:00:00Z',
-          })
+      http.get(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`, () =>
+        HttpResponse.json({
+          agreement_type: 'terms_of_service',
+          content: { en: 'resumed draft body' },
+          version_label: 'resumed label',
+          updated_at: '2026-07-01T00:00:00Z',
+        })
       )
     )
 
@@ -387,7 +382,7 @@ describe('LegalAgreementTab', () => {
     })
     server.use(
       http.get(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
+        `http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`,
         async () => {
           await draftGate
           return HttpResponse.json({
@@ -429,28 +424,23 @@ describe('LegalAgreementTab', () => {
     let discardCalled = false
 
     server.use(
-      http.get(`http://localhost:3000/api/legal/admin/${realmId}/agreements`, () =>
+      http.get(`http://localhost:3000/api/legal/admin/agreements`, () =>
         HttpResponse.json({
           agreements: [makeAgreementView({ source: 'default' })],
         })
       ),
-      http.get(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
-        () =>
-          HttpResponse.json({
-            agreement_type: 'terms_of_service',
-            content: { en: 'doomed draft' },
-            version_label: null,
-            updated_at: '2026-07-01T00:00:00Z',
-          })
+      http.get(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`, () =>
+        HttpResponse.json({
+          agreement_type: 'terms_of_service',
+          content: { en: 'doomed draft' },
+          version_label: null,
+          updated_at: '2026-07-01T00:00:00Z',
+        })
       ),
-      http.delete(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/draft`,
-        () => {
-          discardCalled = true
-          return new HttpResponse(null, { status: 204 })
-        }
-      )
+      http.delete(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`, () => {
+        discardCalled = true
+        return new HttpResponse(null, { status: 204 })
+      })
     )
 
     renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
@@ -474,7 +464,7 @@ describe('LegalAgreementTab', () => {
     let revertCalled = false
 
     server.use(
-      http.get(`http://localhost:3000/api/legal/admin/${realmId}/agreements`, () => {
+      http.get(`http://localhost:3000/api/legal/admin/agreements`, () => {
         listCalls += 1
         return HttpResponse.json({
           agreements: [
@@ -486,7 +476,7 @@ describe('LegalAgreementTab', () => {
         })
       }),
       http.delete(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/terms_of_service/custom`,
+        `http://localhost:3000/api/legal/admin/agreements/terms_of_service/custom`,
         () => {
           revertCalled = true
           return HttpResponse.json({
@@ -551,19 +541,16 @@ describe('LegalAgreementTab', () => {
       ],
     })
     server.use(
-      http.get(
-        `http://localhost:3000/api/legal/admin/${realmId}/agreements/versions/tos-v1`,
-        () => {
-          versionCalls += 1
-          return HttpResponse.json({
-            agreement_type: 'terms_of_service',
-            version_no: 1,
-            version_label: null,
-            content: { en: '# Old heading{enter}{enter}legacy body' },
-            effective_at: '2026-06-30T00:00:00Z',
-          })
-        }
-      )
+      http.get(`http://localhost:3000/api/legal/admin/agreements/versions/tos-v1`, () => {
+        versionCalls += 1
+        return HttpResponse.json({
+          agreement_type: 'terms_of_service',
+          version_no: 1,
+          version_label: null,
+          content: { en: '# Old heading{enter}{enter}legacy body' },
+          effective_at: '2026-06-30T00:00:00Z',
+        })
+      })
     )
 
     renderWithProviders(<LegalAgreementTab realmId={realmId} canManage={false} />)

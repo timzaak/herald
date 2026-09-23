@@ -124,7 +124,8 @@ pub(crate) async fn require_points_manage_permission(
     identity: &Identity,
     realm_id: &str,
 ) -> Result<(), ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), realm_id, "credit bucket management")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity.clone(), realm_id, "credit bucket management")?;
     admin.require_permission(state, "points", "manage").await
 }
 
@@ -234,12 +235,9 @@ fn bucket_detail_to_response(detail: CreditBucketDetail) -> BucketDetailResponse
 /// List all Credit Buckets for a realm.
 #[utoipa::path(
     get,
-    path = "/api/realms/{realmId}/billing/credit-buckets",
+    path = "/api/bill/credit-buckets",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Credit buckets listed successfully", body = [BucketResponse]),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -250,8 +248,8 @@ fn bucket_detail_to_response(detail: CreditBucketDetail) -> BucketDetailResponse
 pub async fn list_credit_buckets_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<Vec<BucketResponse>>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing credit buckets for realm: {}", realm_id);
 
     require_points_manage_permission(&state, &identity, &realm_id).await?;
@@ -276,10 +274,9 @@ pub async fn list_credit_buckets_handler(
 /// Get a single Credit Bucket with coverage set and attached mappings.
 #[utoipa::path(
     get,
-    path = "/api/realms/{realmId}/billing/credit-buckets/{bucketId}",
+    path = "/api/bill/credit-buckets/{bucketId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("bucketId" = Uuid, Path, description = "Credit Bucket ID")
     ),
     responses(
@@ -294,8 +291,9 @@ pub async fn list_credit_buckets_handler(
 pub async fn get_credit_bucket_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, bucket_id)): Path<(String, Uuid)>,
+    Path(bucket_id): Path<Uuid>,
 ) -> Result<Json<BucketDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Getting credit bucket {} for realm: {}",
         bucket_id,
@@ -417,12 +415,9 @@ fn overview_row_to_response(row: CreditBucketOverviewRow) -> OverviewRowResponse
 /// Create a Credit Bucket.
 #[utoipa::path(
     post,
-    path = "/api/realms/{realmId}/billing/credit-buckets",
+    path = "/api/bill/credit-buckets",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = CreateCreditBucketRequest,
+        request_body = CreateCreditBucketRequest,
     responses(
         (status = 201, description = "Credit bucket created", body = BucketDetailResponse),
         (status = 400, description = "Bad request - invalid bucketKey / empty coverage set", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -436,9 +431,9 @@ fn overview_row_to_response(row: CreditBucketOverviewRow) -> OverviewRowResponse
 pub async fn create_credit_bucket_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<CreateCreditBucketRequest>,
 ) -> Result<(StatusCode, Json<BucketDetailResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Creating credit bucket for realm: {}", realm_id);
 
     require_points_manage_permission(&state, &identity, &realm_id).await?;
@@ -473,10 +468,9 @@ pub async fn create_credit_bucket_handler(
 /// Update a Credit Bucket (PUT). Coverage set is fully replaced.
 #[utoipa::path(
     put,
-    path = "/api/realms/{realmId}/billing/credit-buckets/{bucketId}",
+    path = "/api/bill/credit-buckets/{bucketId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("bucketId" = Uuid, Path, description = "Credit Bucket ID")
     ),
     request_body = UpdateCreditBucketRequest,
@@ -494,9 +488,10 @@ pub async fn create_credit_bucket_handler(
 pub async fn update_credit_bucket_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, bucket_id)): Path<(String, Uuid)>,
+    Path(bucket_id): Path<Uuid>,
     Json(request): Json<UpdateCreditBucketRequest>,
 ) -> Result<Json<BucketDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Updating credit bucket {} for realm: {}",
         bucket_id,
@@ -538,10 +533,9 @@ pub async fn update_credit_bucket_handler(
 /// subscriptions, residual balances, rule references or history exist.
 #[utoipa::path(
     delete,
-    path = "/api/realms/{realmId}/billing/credit-buckets/{bucketId}",
+    path = "/api/bill/credit-buckets/{bucketId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("bucketId" = Uuid, Path, description = "Credit Bucket ID")
     ),
     responses(
@@ -557,8 +551,9 @@ pub async fn update_credit_bucket_handler(
 pub async fn delete_credit_bucket_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, bucket_id)): Path<(String, Uuid)>,
+    Path(bucket_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Deleting credit bucket {} for realm: {}",
         bucket_id,
@@ -582,12 +577,9 @@ pub async fn delete_credit_bucket_handler(
 /// is a SEPARATE top-level field, not appended to rows.
 #[utoipa::path(
     get,
-    path = "/api/realms/{realmId}/billing/credit-buckets/overview",
+    path = "/api/bill/credit-buckets/overview",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Overview matrix", body = BucketOverviewResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - points.manage required", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -598,8 +590,8 @@ pub async fn delete_credit_bucket_handler(
 pub async fn get_bucket_overview_handler(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<BucketOverviewResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Getting bucket overview for realm: {}", realm_id);
 
     require_points_manage_permission(&state, &identity, &realm_id).await?;

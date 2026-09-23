@@ -47,7 +47,7 @@ const clientApp: ClientAppItem = {
 
 function stubClientApps(apps: ClientAppItem[]) {
   server.use(
-    http.get('/api/client/:realmId', () =>
+    http.get('/api/client', () =>
       HttpResponse.json({ items: apps, total: apps.length, page: 0, pageSize: 100 })
     )
   )
@@ -61,7 +61,7 @@ function stubClientApps(apps: ClientAppItem[]) {
  */
 function stubSubscriptionsByApp(map: Record<string, SubscriptionDetailResponse | 404>) {
   server.use(
-    http.get('/api/bill/:realmId/client/:clientAppId/subscription', ({ params }) => {
+    http.get('/api/bill/client/:clientAppId/subscription', ({ params }) => {
       const sub = map[params.clientAppId as string]
       if (sub === 404) return new HttpResponse(null, { status: 404 })
       return HttpResponse.json(sub)

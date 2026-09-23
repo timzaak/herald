@@ -223,7 +223,7 @@ function setupDetailDialog(
   const endpoint =
     variant === 'user'
       ? `${BASE_URL}/api/user/bill/invoices/${invoice.id}`
-      : `${BASE_URL}/api/bill/${REALM_ID}/invoices/${invoice.id}`
+      : `${BASE_URL}/api/bill/invoices/${invoice.id}`
 
   server.use(
     http.get(endpoint, () => {
@@ -424,7 +424,7 @@ describe('InvoiceDetailDialog', () => {
 
       const pdfButton = await screen.findByTestId('invoice-download-pdf-button')
       const link = pdfButton.closest('a')
-      expect(link?.getAttribute('href')).toBe(`/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/pdf`)
+      expect(link?.getAttribute('href')).toBe(`/api/bill/invoices/${INVOICE_ID}/pdf`)
     })
   })
 
@@ -457,7 +457,7 @@ describe('InvoiceDetailDialog', () => {
   describe('loading state', () => {
     it('shows skeleton placeholders while fetching detail', async () => {
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}`, async () => {
+        http.get(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}`, async () => {
           await new Promise((resolve) => setTimeout(resolve, 500))
           return HttpResponse.json(makeInvoiceDetail())
         })
@@ -637,7 +637,7 @@ describe('InvoiceDetailDialog', () => {
   describe('invoice not found', () => {
     it('shows "Invoice Not Found" when API returns 404', async () => {
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}`, () => {
           return HttpResponse.json({ message: 'Invoice not found' }, { status: 404 })
         })
       )

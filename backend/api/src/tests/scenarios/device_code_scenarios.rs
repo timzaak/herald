@@ -1084,7 +1084,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let update_b = axum::http::Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", realm_id, app_id))
+            .uri(format!("/api/client/{}", app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(axum::body::Body::from(
@@ -1114,7 +1114,7 @@ mod tests {
         let app2 = ctx.create_unified_test_router();
         let update_c = axum::http::Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", realm_id, app_id))
+            .uri(format!("/api/client/{}", app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(axum::body::Body::from(
@@ -1166,7 +1166,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let create_request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(axum::body::Body::from(
@@ -1346,12 +1346,10 @@ mod tests {
 
     /// Publish a new custom ToS version as admin, making every existing
     /// user's ToS consent stale (including the admin's own).
-    async fn publish_new_tos_version(ctx: &SchemaTestContext, realm_id: &str, admin_token: &str) {
+    async fn publish_new_tos_version(ctx: &SchemaTestContext, _realm_id: &str, admin_token: &str) {
         let request = axum::http::Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/api/legal/admin/{realm_id}/agreements/terms_of_service"
-            ))
+            .uri("/api/legal/admin/agreements/terms_of_service".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {admin_token}"))
             .body(axum::body::Body::from(
@@ -1382,7 +1380,7 @@ mod tests {
             .oneshot(
                 axum::http::Request::builder()
                     .method("GET")
-                    .uri(format!("/api/legal/{realm_id}/agreements"))
+                    .uri(format!("/api/legal/public/{realm_id}/agreements"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -1408,7 +1406,7 @@ mod tests {
             .oneshot(
                 axum::http::Request::builder()
                     .method("POST")
-                    .uri(format!("/api/legal/{realm_id}/consent"))
+                    .uri("/api/user/consent".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {session_token}"))
                     .body(axum::body::Body::from(

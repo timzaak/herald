@@ -44,7 +44,6 @@ export function WechatConfigFormPage({ realmId, mode, initialValues }: WechatCon
     ],
     mutationFn: async (data) => {
       const response = await batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildWechatConfigRequest(data) },
       })
       if (response.error) throw response.error

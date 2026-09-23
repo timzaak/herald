@@ -16,12 +16,11 @@ use uuid::Uuid;
 /// Delete role
 #[utoipa::path(
     delete,
-    path = "/api/roles/{realmId}/define/{roleId}",
+    path = "/api/roles/define/{roleId}",
     tag = "role-definitions",
     summary = "Delete a role",
     description = "Delete a role definition. Built-in roles cannot be deleted. Requires `roles.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID")
     ),
     responses(
@@ -34,10 +33,11 @@ use uuid::Uuid;
 )]
 pub async fn delete_role(
     State(state): State<AppState>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "role definitions")?;
+    let realm_id = identity.realm_id();
+    let admin = AdminIdentity::require_in_realm(identity.clone(), &realm_id, "role definitions")?;
     admin.require_permission(&state, "roles", "manage").await?;
 
     // 3. Check if role is built-in

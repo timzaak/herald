@@ -451,7 +451,7 @@ async function cleanupSubscriptionPlans(
   options: CleanupDataOptions = {}
 ): Promise<void> {
   const { verbose = true } = options
-  const plansApiUrl = `${BASE_URL}/api/bill/${realmId}/plans`
+  const plansApiUrl = `${BASE_URL}/api/bill/plans`
 
   try {
     const listResponse = await page.request.get(plansApiUrl, {

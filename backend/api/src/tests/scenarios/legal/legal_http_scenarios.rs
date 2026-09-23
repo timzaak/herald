@@ -37,7 +37,7 @@ use uuid::Uuid;
 
 /// Build a bare (unauthenticated) request to the unified test router.
 ///
-/// Public legal endpoints (`/api/legal/{realmId}/agreements*`) take no
+/// Public legal endpoints (`/api/legal/public/{realmId}/agreements*`) take no
 /// Bearer authentication, so this is the canonical request shape for them.
 fn build_request(method: &str, path: &str) -> Request<Body> {
     Request::builder()
@@ -260,7 +260,7 @@ async fn test_public_list_agreements_without_login(ctx: &mut TestContext) {
     let resp = app
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_id}/agreements"),
+            &format!("/api/legal/public/{realm_id}/agreements"),
         ))
         .await
         .expect("request must dispatch");
@@ -326,7 +326,7 @@ async fn test_public_get_single_agreement_by_type(ctx: &mut TestContext) {
     let resp = app
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_id}/agreements/terms_of_service"),
+            &format!("/api/legal/public/{realm_id}/agreements/terms_of_service"),
         ))
         .await
         .expect("request must dispatch");
@@ -372,7 +372,7 @@ async fn test_public_get_agreement_unknown_type_is_400(ctx: &mut TestContext) {
     let resp = app
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_id}/agreements/not_a_type"),
+            &format!("/api/legal/public/{realm_id}/agreements/not_a_type"),
         ))
         .await
         .expect("request must dispatch");
@@ -416,7 +416,7 @@ async fn test_cross_realm_agreements_isolated(ctx: &mut TestContext) {
     let custom_body = json!({ "en": "realm-A custom ToS body (isolated)" });
     let publish_req = authed_request(
         "PUT",
-        &format!("/api/legal/admin/{realm_a}/agreements/terms_of_service"),
+        "/api/legal/admin/agreements/terms_of_service",
         &admin_token,
         Some(json!({ "content": custom_body }).to_string()),
     );
@@ -443,7 +443,7 @@ async fn test_cross_realm_agreements_isolated(ctx: &mut TestContext) {
         .clone()
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_a}/agreements/terms_of_service"),
+            &format!("/api/legal/public/{realm_a}/agreements/terms_of_service"),
         ))
         .await
         .expect("GET realm-A must dispatch");
@@ -461,7 +461,7 @@ async fn test_cross_realm_agreements_isolated(ctx: &mut TestContext) {
     let resp_b = app
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_b}/agreements/terms_of_service"),
+            &format!("/api/legal/public/{realm_b}/agreements/terms_of_service"),
         ))
         .await
         .expect("GET realm-B must dispatch");
@@ -515,7 +515,7 @@ async fn test_consent_status_needs_reconsent_true_after_admin_publish(ctx: &mut 
             .clone()
             .oneshot(authed_request(
                 "GET",
-                &format!("/api/legal/{realm_id}/agreements/terms_of_service"),
+                &format!("/api/legal/public/{realm_id}/agreements/terms_of_service"),
                 "",
                 None,
             ))
@@ -531,7 +531,7 @@ async fn test_consent_status_needs_reconsent_true_after_admin_publish(ctx: &mut 
 
     let consent_req = authed_request(
         "POST",
-        &format!("/api/legal/{realm_id}/consent"),
+        "/api/user/consent",
         &user_token,
         Some(json!({
             "agreements": [{ "agreement_type": "terms_of_service", "version_id": current_version_id }]
@@ -560,7 +560,7 @@ async fn test_consent_status_needs_reconsent_true_after_admin_publish(ctx: &mut 
 
     let publish_req = authed_request(
         "PUT",
-        &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+        "/api/legal/admin/agreements/terms_of_service",
         &admin_token,
         Some(json!({ "content": { "en": "amended ToS body" } }).to_string()),
     );
@@ -579,7 +579,7 @@ async fn test_consent_status_needs_reconsent_true_after_admin_publish(ctx: &mut 
     let status_resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/{realm_id}/consent/status"),
+            "/api/user/consent/status",
             &user_token,
             None,
         ))
@@ -628,7 +628,7 @@ async fn test_consent_status_needs_reconsent_false_when_consented_latest(ctx: &m
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(
                 json!({
@@ -651,7 +651,7 @@ async fn test_consent_status_needs_reconsent_false_when_consented_latest(ctx: &m
     let status_resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/{realm_id}/consent/status"),
+            "/api/user/consent/status",
             &user_token,
             None,
         ))
@@ -699,7 +699,7 @@ async fn test_post_consent_returns_204_on_current_version(ctx: &mut TestContext)
     let resp = app
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(
                 json!({
@@ -792,7 +792,7 @@ async fn test_post_consent_returns_409_on_stale_version(ctx: &mut TestContext) {
     let resp = app
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(
                 json!({
@@ -831,13 +831,13 @@ async fn test_post_consent_returns_409_on_stale_version(ctx: &mut TestContext) {
 #[tokio::test]
 async fn test_post_consent_requires_login(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
 
     // No Authorization header — the token identity layer must short-circuit.
     let resp = app
         .oneshot(build_request_bodyful(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             json!({
                 "agreements": [{
                     "agreement_type": "terms_of_service",
@@ -902,7 +902,7 @@ async fn test_admin_publish_creates_new_version_and_triggers_reconsent(ctx: &mut
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(
                 json!({
@@ -927,7 +927,7 @@ async fn test_admin_publish_creates_new_version_and_triggers_reconsent(ctx: &mut
     // Admin publishes.
     let publish_req = authed_request(
         "PUT",
-        &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+        "/api/legal/admin/agreements/terms_of_service",
         &admin_token,
         Some(
             json!({
@@ -964,7 +964,7 @@ async fn test_admin_publish_creates_new_version_and_triggers_reconsent(ctx: &mut
     let status_resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/{realm_id}/consent/status"),
+            "/api/user/consent/status",
             &user_token,
             None,
         ))
@@ -1019,7 +1019,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
             .clone()
             .oneshot(build_request(
                 "GET",
-                &format!("/api/legal/{realm_id}/agreements/terms_of_service"),
+                &format!("/api/legal/public/{realm_id}/agreements/terms_of_service"),
             ))
             .await
             .expect("baseline GET must dispatch");
@@ -1037,7 +1037,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
             .clone()
             .oneshot(authed_request(
                 "PUT",
-                &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+                "/api/legal/admin/agreements/terms_of_service",
                 &admin_token,
                 Some(json!({ "content": { "en": "realm custom N body" } }).to_string()),
             ))
@@ -1066,7 +1066,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(json!({
                 "agreements": [{ "agreement_type": "terms_of_service", "version_id": prior_version_id }]
@@ -1081,7 +1081,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
         .clone()
         .oneshot(authed_request(
             "DELETE",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/custom"),
+            "/api/legal/admin/agreements/terms_of_service/custom",
             &admin_token,
             None,
         ))
@@ -1111,7 +1111,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
             .clone()
             .oneshot(build_request(
                 "GET",
-                &format!("/api/legal/{realm_id}/agreements/terms_of_service"),
+                &format!("/api/legal/public/{realm_id}/agreements/terms_of_service"),
             ))
             .await
             .expect("GET must dispatch");
@@ -1131,7 +1131,7 @@ async fn test_admin_revert_snapshots_default_into_new_version(ctx: &mut TestCont
     let status_resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/{realm_id}/consent/status"),
+            "/api/user/consent/status",
             &user_token,
             None,
         ))
@@ -1181,7 +1181,7 @@ async fn test_admin_view_shows_source_and_history(ctx: &mut TestContext) {
             .clone()
             .oneshot(authed_request(
                 "PUT",
-                &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+                "/api/legal/admin/agreements/terms_of_service",
                 &admin_token,
                 Some(json!({ "content": { "en": label }, "version_label": label }).to_string()),
             ))
@@ -1193,7 +1193,7 @@ async fn test_admin_view_shows_source_and_history(ctx: &mut TestContext) {
     let resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements"),
+            "/api/legal/admin/agreements",
             &admin_token,
             None,
         ))
@@ -1275,10 +1275,15 @@ async fn test_admin_cross_realm_forbidden(ctx: &mut TestContext) {
         .await;
     grant_settings_role(ctx, &admin_user_id, &realm_a, "view").await;
 
+    // Cross-realm admin access is enforced by construction: the realm is
+    // pinned by the session token, so realm-A's admin can only ever read
+    // realm-A's agreements — there is no path segment through which realm-B
+    // could be requested. Assert the own-realm read succeeds to prove the
+    // endpoint still answers under the session-derived realm.
     let resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_b}/agreements"),
+            "/api/legal/admin/agreements",
             &admin_token,
             None,
         ))
@@ -1287,8 +1292,8 @@ async fn test_admin_cross_realm_forbidden(ctx: &mut TestContext) {
 
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "admin of realm-A must be 403 on realm-B (has_access_to_realm false)"
+        StatusCode::OK,
+        "admin of realm-A reads own realm's agreements via the session realm"
     );
 }
 
@@ -1322,7 +1327,7 @@ async fn test_admin_publish_requires_settings_manage(ctx: &mut TestContext) {
     let resp = app
         .oneshot(authed_request(
             "PUT",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+            "/api/legal/admin/agreements/terms_of_service",
             &token,
             Some(json!({ "content": { "en": "should not publish" } }).to_string()),
         ))
@@ -1353,7 +1358,7 @@ async fn test_admin_publish_requires_settings_manage(ctx: &mut TestContext) {
 #[tokio::test]
 async fn test_admin_view_requires_settings_view(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
 
     // A plain realm member (session established, belongs to realm, NO settings perm).
     let (token, _user_id) = crate::tests::helpers::auth_helpers::create_admin_session_with_user(
@@ -1366,7 +1371,7 @@ async fn test_admin_view_requires_settings_view(ctx: &mut TestContext) {
     let resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements"),
+            "/api/legal/admin/agreements",
             &token,
             None,
         ))
@@ -1408,7 +1413,7 @@ async fn read_effective_version_id(
         .clone()
         .oneshot(build_request(
             "GET",
-            &format!("/api/legal/{realm_id}/agreements/{agreement_type}"),
+            &format!("/api/legal/public/{realm_id}/agreements/{agreement_type}"),
         ))
         .await
         .expect("GET detail must dispatch");
@@ -1458,7 +1463,7 @@ async fn test_draft_save_get_and_discard_does_not_publish(ctx: &mut TestContext)
         .clone()
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             None,
         ))
@@ -1478,7 +1483,7 @@ async fn test_draft_save_get_and_discard_does_not_publish(ctx: &mut TestContext)
         .clone()
         .oneshot(authed_request(
             "PUT",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             Some(
                 json!({
@@ -1503,7 +1508,7 @@ async fn test_draft_save_get_and_discard_does_not_publish(ctx: &mut TestContext)
         .clone()
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             None,
         ))
@@ -1529,7 +1534,7 @@ async fn test_draft_save_get_and_discard_does_not_publish(ctx: &mut TestContext)
         .clone()
         .oneshot(authed_request(
             "DELETE",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             None,
         ))
@@ -1541,7 +1546,7 @@ async fn test_draft_save_get_and_discard_does_not_publish(ctx: &mut TestContext)
     let discard_again = app
         .oneshot(authed_request(
             "DELETE",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             None,
         ))
@@ -1579,7 +1584,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/{realm_id}/consent"),
+            "/api/user/consent",
             &user_token,
             Some(
                 json!({
@@ -1603,7 +1608,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/publish"),
+            "/api/legal/admin/agreements/terms_of_service/publish",
             &admin_token,
             Some(json!({}).to_string()),
         ))
@@ -1620,7 +1625,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
         .clone()
         .oneshot(authed_request(
             "PUT",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             Some(
                 json!({
@@ -1638,7 +1643,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
         .clone()
         .oneshot(authed_request(
             "POST",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/publish"),
+            "/api/legal/admin/agreements/terms_of_service/publish",
             &admin_token,
             Some(json!({ "version_label": "final override label" }).to_string()),
         ))
@@ -1663,7 +1668,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
         .clone()
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service/draft"),
+            "/api/legal/admin/agreements/terms_of_service/draft",
             &admin_token,
             None,
         ))
@@ -1679,7 +1684,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
     let status_resp = app
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/{realm_id}/consent/status"),
+            "/api/user/consent/status",
             &user_token,
             None,
         ))
@@ -1699,7 +1704,7 @@ async fn test_publish_from_draft_publishes_new_version_and_clears_draft(ctx: &mu
 
 /// User Story: US-RA-019 (admin views a past version's body)
 /// Covers: admin endpoint — `GET
-/// /api/legal/admin/{realmId}/agreements/versions/{versionId}` returns the
+/// /api/legal/admin/agreements/versions/{versionId}` returns the
 /// full localized `content` for a single history entry (the list endpoint only
 /// returns summaries, so the body is fetched on demand for the "view" dialog).
 /// Requires `settings.view` + `has_access_to_realm`. An unknown id → 404.
@@ -1731,7 +1736,7 @@ async fn test_admin_get_version_returns_full_body_and_404_for_unknown(ctx: &mut 
         .clone()
         .oneshot(authed_request(
             "PUT",
-            &format!("/api/legal/admin/{realm_id}/agreements/terms_of_service"),
+            "/api/legal/admin/agreements/terms_of_service",
             &admin_token,
             Some(
                 json!({ "content": { "en": "history body text" }, "version_label": "h1" })
@@ -1752,7 +1757,7 @@ async fn test_admin_get_version_returns_full_body_and_404_for_unknown(ctx: &mut 
         .clone()
         .oneshot(authed_request(
             "GET",
-            &format!("/api/legal/admin/{realm_id}/agreements/versions/{version_id}"),
+            &format!("/api/legal/admin/agreements/versions/{version_id}"),
             &admin_token,
             None,
         ))
@@ -1776,10 +1781,7 @@ async fn test_admin_get_version_returns_full_body_and_404_for_unknown(ctx: &mut 
     let missing = app
         .oneshot(authed_request(
             "GET",
-            &format!(
-                "/api/legal/admin/{realm_id}/agreements/versions/{}",
-                Uuid::now_v7()
-            ),
+            &format!("/api/legal/admin/agreements/versions/{}", Uuid::now_v7()),
             &admin_token,
             None,
         ))

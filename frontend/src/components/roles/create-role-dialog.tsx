@@ -26,7 +26,6 @@ export function CreateRoleDialog({
     },
     mutationFn: (data: CreateRoleFormData) =>
       createRole({
-        path: { realmId },
         body: {
           ...data,
           clientId: 'admin-web-console',

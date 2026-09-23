@@ -66,7 +66,7 @@ function renderAgreementPage() {
 
 function setupAgreementHandler(response: object, status = 200) {
   server.use(
-    http.get('/api/legal/:realmId/agreements/:agreementType', () =>
+    http.get('/api/legal/public/:realmId/agreements/:agreementType', () =>
       HttpResponse.json(response, { status })
     )
   )

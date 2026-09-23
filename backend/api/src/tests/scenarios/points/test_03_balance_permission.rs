@@ -97,10 +97,7 @@ async fn test_scenario_user_cannot_view_other_user_balance(ctx: &mut TestContext
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/points/{}/wallets/{}",
-            ctx._realm_id, user_b_id
-        ))
+        .uri(format!("/api/points/wallets/{}", user_b_id))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

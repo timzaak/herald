@@ -17,8 +17,8 @@
 // **相关 API 端点**:
 // - POST /api/realms - 创建 realm
 // - GET /api/realms - 查询 realm 列表
-// - GET /api/roles/{realmId}/users - 查询 realm 下的用户
-// - GET /api/roles/{realmId}/dashboard - 访问 realm dashboard
+// - GET /api/users - 查询 realm 下的用户
+// - GET /api/roles/dashboard - 访问 realm dashboard
 //
 // **运行方式**:
 // cargo nextest run --package herald-api realm_access
@@ -167,7 +167,7 @@ async fn test_scenario_create_multiple_realms_and_access_users(ctx: &mut TestCon
     // ============================================================================
     println!("[Step 3] 为 realm1 管理员铸造 FirstParty token 并访问 realm1 用户列表");
 
-    // /api/users/{realmId} 路由要求 FirstParty token；领域服务 create_realm 已把
+    // /api/users 路由要求 FirstParty token；领域服务 create_realm 已把
     // admin-web-console 置为 first-party，此处防御性再确认一次（幂等）。
     sqlx::query(
         "UPDATE client_app SET is_first_party = true WHERE realm_id = $1 AND client_id = 'admin-web-console'",
@@ -209,7 +209,7 @@ async fn test_scenario_create_multiple_realms_and_access_users(ctx: &mut TestCon
     // Access realm1 users
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}?page=0&pageSize=20", realm1_id))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(
             header::AUTHORIZATION,
             format!("Bearer {}", realm1_admin_token),
@@ -226,13 +226,16 @@ async fn test_scenario_create_multiple_realms_and_access_users(ctx: &mut TestCon
     println!("[Step 3] ✓ realm1 管理员可以访问 realm1 用户列表");
 
     // ============================================================================
-    // Step 4: realm1 admin tries to access realm2 users (should fail)
+    // Step 4: realm1 admin's user list must not contain realm2 users
     // ============================================================================
-    println!("[Step 4] realm1 管理员尝试访问 realm2 用户列表（应失败）");
+    // The realm is session-derived, so there is no path segment through
+    // which realm2 could be requested; isolation is asserted at the content
+    // level instead — realm2's seeded admin must never appear in realm1's list.
+    println!("[Step 4] realm1 管理员获取用户列表（不应包含 realm2 用户）");
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}?page=0&pageSize=20", realm2_id))
+        .uri("/api/users?page=0&pageSize=100".to_string())
         .header(
             header::AUTHORIZATION,
             format!("Bearer {}", realm1_admin_token),
@@ -243,10 +246,23 @@ async fn test_scenario_create_multiple_realms_and_access_users(ctx: &mut TestCon
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "realm1 管理员不应能访问 realm2 用户列表"
+        StatusCode::OK,
+        "realm1 管理员应能访问自己 realm 的用户列表"
     );
-    println!("[Step 4] ✓ realm1 管理员无法访问 realm2（Realm 隔离生效）");
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let items = list["items"].as_array().cloned().unwrap_or_default();
+    let leaked = items.iter().any(|u| {
+        u["realmId"].as_str().is_some_and(|r| r != realm1_id)
+            || u["email"].as_str().is_some_and(|e| e.contains("realm2"))
+    });
+    assert!(
+        !leaked,
+        "realm1 用户列表不应包含 realm2 用户（Realm 隔离生效）"
+    );
+    println!("[Step 4] ✓ realm1 用户列表不含 realm2 用户（Realm 隔离生效）");
 
     // ============================================================================
     // Cleanup

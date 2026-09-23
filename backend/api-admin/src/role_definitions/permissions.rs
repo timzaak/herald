@@ -43,10 +43,9 @@ async fn record_role_permission_failure(
 /// Assign permission to role
 #[utoipa::path(
     post,
-    path = "/api/roles/{realmId}/define/{roleId}/permissions",
+    path = "/api/roles/define/{roleId}/permissions",
     tag = "role-definitions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID")
     ),
     request_body = AssignPermissionRequest,
@@ -60,10 +59,11 @@ async fn record_role_permission_failure(
 pub async fn assign_permission_to_role(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, role_id)): Path<(String, Uuid)>,
+    Path(role_id): Path<Uuid>,
     Json(payload): Json<AssignPermissionRequest>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "role permissions")?;
+    let realm_id = identity.realm_id();
+    let admin = AdminIdentity::require_in_realm(identity.clone(), &realm_id, "role permissions")?;
     admin.require_permission(&state, "roles", "manage").await?;
 
     // role_id and permission_id are client-supplied primary keys: both must
@@ -199,10 +199,9 @@ pub async fn assign_permission_to_role(
 /// Remove permission from role
 #[utoipa::path(
     delete,
-    path = "/api/roles/{realmId}/define/{roleId}/permissions/{permissionId}",
+    path = "/api/roles/define/{roleId}/permissions/{permissionId}",
     tag = "role-definitions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID"),
         ("permissionId" = Uuid, Path, description = "Permission ID")
     ),
@@ -215,9 +214,10 @@ pub async fn assign_permission_to_role(
 pub async fn remove_permission_from_role(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, role_id, permission_id)): Path<(String, Uuid, Uuid)>,
+    Path((role_id, permission_id)): Path<(Uuid, Uuid)>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "role permissions")?;
+    let realm_id = identity.realm_id();
+    let admin = AdminIdentity::require_in_realm(identity.clone(), &realm_id, "role permissions")?;
     admin.require_permission(&state, "roles", "manage").await?;
     let role: Option<(String, bool)> =
         sqlx::query_as("SELECT name, is_builtin FROM roles WHERE id = $1 AND realm_id = $2")
@@ -368,10 +368,9 @@ pub async fn remove_permission_from_role(
 /// Get permissions for a role
 #[utoipa::path(
     get,
-    path = "/api/roles/{realmId}/define/{roleId}/permissions",
+    path = "/api/roles/define/{roleId}/permissions",
     tag = "role-definitions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID")
     ),
     responses(
@@ -383,9 +382,10 @@ pub async fn remove_permission_from_role(
 pub async fn get_role_permissions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, role_id)): Path<(String, Uuid)>,
+    Path(role_id): Path<Uuid>,
 ) -> Result<ApiResult<Vec<PermissionResponse>>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "role permissions")?;
+    let admin = AdminIdentity::require(identity, "role permissions")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "view").await?;
     let rows = sqlx::query_as::<_, PermissionResponse>(
         r#"

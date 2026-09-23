@@ -16,10 +16,9 @@ use herald_core::domain::client::ports::ClientService;
 /// Retrieves the details of a specific OAuth client application.
 #[utoipa::path(
     get,
-    path = "/api/client/{realmId}/{clientAppId}",
+    path = "/api/client/{clientAppId}",
     tag = "client",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("clientAppId" = Uuid, Path, description = "client app UUID"),
     ),
     responses(
@@ -31,10 +30,11 @@ use herald_core::domain::client::ports::ClientService;
 pub async fn get_client_app(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<ClientAppItem>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "client applications")?;
+    let admin = AdminIdentity::require(identity, "client applications")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "clients", "view").await?;
 
     tracing::debug!(

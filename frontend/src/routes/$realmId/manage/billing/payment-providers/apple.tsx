@@ -24,7 +24,7 @@ export function AppleConfigRoute() {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['payment-providers', realmId],
     queryFn: async () => {
-      const result = await listPaymentProviders({ path: { realmId } })
+      const result = await listPaymentProviders({})
       return result.data?.providers ?? []
     },
   })
@@ -36,7 +36,7 @@ export function AppleConfigRoute() {
     queryKey: ['apple-config', realmId],
     queryFn: async () => {
       if (!appleProvider) return null
-      const result = await listRealmConfigs({ path: { realmId } })
+      const result = await listRealmConfigs({})
       return parseAppleConfig(result.data ?? [])
     },
     enabled: !!appleProvider,

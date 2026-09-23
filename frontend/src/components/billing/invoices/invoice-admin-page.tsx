@@ -79,7 +79,7 @@ interface InvoiceAdminPageProps {
 }
 
 function createInvoiceColumns(
-  realmId: string,
+  _realmId: string,
   handlers: {
     onView?: (invoice: InvoiceResponse) => void
     onEdit?: (invoice: InvoiceResponse) => void
@@ -255,7 +255,7 @@ function createInvoiceColumns(
                   <DropdownMenuItem
                     onClick={() =>
                       downloadInvoicePdf(
-                        `/api/bill/${realmId}/invoices/${invoice.id}/pdf`,
+                        `/api/bill/invoices/${invoice.id}/pdf`,
                         `${invoice.invoiceNumber}.pdf`
                       )
                     }

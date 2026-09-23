@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // Tests for the Manual Credit Note creation endpoint
-// (POST /api/bill/{realmId}/invoices/{invoiceId}/credit-notes) covering:
+// (POST /api/bill/invoices/{invoiceId}/credit-notes) covering:
 //   - Normal creation (US-IF-010 scenario 1)
 //   - Amount overflow rejection (US-IF-010 scenario 3)
 //   - Provider mismatch rejection (US-IF-010 scenario 4)
@@ -67,7 +67,7 @@ mod tests {
     async fn create_draft_invoice(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         account_id: Uuid,
         unit_price: i64,
     ) -> serde_json::Value {
@@ -96,7 +96,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(payload.to_string()))
@@ -127,10 +127,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/issue",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/issue", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(json!({}).to_string()))
@@ -146,10 +143,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/mark-paid",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/mark-paid", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(json!({}).to_string()))
@@ -165,7 +159,7 @@ mod tests {
     async fn create_credit_note(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         invoice_id: &str,
         amount: i64,
         memo: &str,
@@ -179,10 +173,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/credit-notes",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/credit-notes", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(payload.to_string()))
@@ -198,17 +189,14 @@ mod tests {
     async fn void_invoice(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         invoice_id: &str,
     ) -> axum::response::Response {
         app.clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/void",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/void", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(json!({}).to_string()))
@@ -347,7 +335,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -589,7 +577,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),

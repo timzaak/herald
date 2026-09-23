@@ -32,7 +32,6 @@ import { useFormSubmit } from './use-form-submit'
 import { m } from '@/paraglide/messages'
 
 interface EmailConfigFormProps {
-  realmId: string
   initialConfig?: EmailConfigFormValues
   onSave: (config: EmailConfigFormValues) => Promise<void>
   isLoading?: boolean
@@ -47,7 +46,6 @@ interface EmailConfigFormProps {
 }
 
 export function EmailConfigForm({
-  realmId,
   initialConfig,
   onSave,
   isLoading,
@@ -100,7 +98,6 @@ export function EmailConfigForm({
   const testEmailMutation = useMutation({
     mutationFn: async (recipient: string) => {
       const response = await emailTest({
-        path: { realmId },
         body: { recipient },
       })
       return handleApiResponse(response)

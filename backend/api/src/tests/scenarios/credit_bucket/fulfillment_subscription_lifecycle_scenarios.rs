@@ -1395,7 +1395,7 @@ async fn dream_check_realm_history_lists_all_users_but_self_history_stays_scoped
         insert_attempt_with_bucket_snapshot(pool, &realm, user, mapping, Some(bucket)).await;
     }
     for (path, total) in [
-        (format!("/api/bill/{realm}/purchase/history"), 2),
+        ("/api/bill/purchase/history".to_string(), 2),
         ("/api/user/bill/purchase/history".to_string(), 1),
     ] {
         let (status, body) = auth_admin_request_via_api(ctx, "GET", &path, &token, None).await;
@@ -1410,13 +1410,7 @@ async fn dream_check_realm_history_lists_all_users_but_self_history_stays_scoped
             "only the authorized admin endpoint may omit the user filter"
         );
     }
-    let (status, _) = auth_admin_request_via_api(
-        ctx,
-        "GET",
-        "/api/bill/foreign-realm/purchase/history",
-        &token,
-        None,
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+    // Cross-realm READ isolation is enforced by construction: the realm
+    // comes from the session token, so a caller cannot ask for another
+    // realm's purchase history at all (no realm segment left in the path).
 }

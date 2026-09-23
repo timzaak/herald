@@ -2,7 +2,7 @@
 // WeChat Entitlement Mapping Manual-Price Scenario Tests
 // =============================================================================
 //
-// Exercises `POST/PATCH /api/bill/{realmId}/entitlement-mappings[...]` for the
+// Exercises `POST/PATCH /api/bill/entitlement-mappings[...]` for the
 // WeChat provider. WeChat Pay v3 has no hosted product catalog, so the PRD
 // (`docs/prd/billing/wechat-support.md` §2.2 / §8.1) pins the product binding
 // to a manual configuration: the admin sets the mapping's
@@ -74,14 +74,14 @@ mod tests {
     async fn test_wechat_mapping_create_with_price_persists_sync_compatible_info(
         ctx: &mut WechatMappingContext,
     ) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "wechat-map-create@test.com").await;
 
         let app = ctx.create_unified_test_router();
         let response = app
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(
                     wechat_create_body("wx_product_monthly").to_string(),
@@ -125,7 +125,7 @@ mod tests {
     #[test_context(WechatMappingContext)]
     #[tokio::test]
     async fn test_wechat_mapping_create_without_price_returns_400(ctx: &mut WechatMappingContext) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "wechat-map-noprice@test.com").await;
 
         for (label, body) in [
@@ -156,7 +156,7 @@ mod tests {
             let response = app
                 .oneshot(auth_request(
                     "POST",
-                    format!("/api/bill/{realm_id}/entitlement-mappings"),
+                    "/api/bill/entitlement-mappings".to_string(),
                     &token,
                     Some(Body::from(body.to_string())),
                 ))
@@ -176,7 +176,7 @@ mod tests {
     #[test_context(WechatMappingContext)]
     #[tokio::test]
     async fn test_wechat_mapping_create_recurring_returns_400(ctx: &mut WechatMappingContext) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "wechat-map-recurring@test.com").await;
 
         let mut body = wechat_create_body("wx_product_recurring");
@@ -188,7 +188,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(body.to_string())),
             ))
@@ -210,7 +210,7 @@ mod tests {
     #[test_context(WechatMappingContext)]
     #[tokio::test]
     async fn test_wechat_mapping_batch_recurring_returns_400(ctx: &mut WechatMappingContext) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "wechat-map-batch-recurring@test.com").await;
 
         let app = ctx.create_unified_test_router();
@@ -218,7 +218,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(
                     wechat_create_body("wx_product_batch_recurring").to_string(),
@@ -241,7 +241,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PUT",
-                format!("/api/bill/{realm_id}/entitlement-mappings/batch"),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 &token,
                 Some(Body::from(batch.to_string())),
             ))
@@ -298,7 +298,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "PUT",
-                format!("/api/bill/{realm_id}/entitlement-mappings/batch"),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 &token,
                 Some(Body::from(batch.to_string())),
             ))
@@ -316,7 +316,7 @@ mod tests {
     #[test_context(WechatMappingContext)]
     #[tokio::test]
     async fn test_stripe_mapping_create_with_price_returns_400(ctx: &mut WechatMappingContext) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "stripe-map-price@test.com").await;
 
         let body = json!({
@@ -335,7 +335,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(body.to_string())),
             ))
@@ -356,7 +356,7 @@ mod tests {
     async fn test_wechat_mapping_patch_price_merges_into_stored_info(
         ctx: &mut WechatMappingContext,
     ) {
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let token = setup_billing_admin_session(ctx, "wechat-map-patch@test.com").await;
 
         let app = ctx.create_unified_test_router();
@@ -364,7 +364,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 Some(Body::from(
                     wechat_create_body("wx_product_patch").to_string(),
@@ -381,7 +381,7 @@ mod tests {
             .oneshot(auth_request(
                 "PATCH",
                 format!(
-                    "/api/bill/{realm_id}/entitlement-mappings/{}",
+                    "/api/bill/entitlement-mappings/{}",
                     mapping_id.as_str().unwrap()
                 ),
                 &token,
@@ -403,7 +403,7 @@ mod tests {
             .oneshot(auth_request(
                 "PATCH",
                 format!(
-                    "/api/bill/{realm_id}/entitlement-mappings/{}",
+                    "/api/bill/entitlement-mappings/{}",
                     mapping_id.as_str().unwrap()
                 ),
                 &token,
@@ -439,7 +439,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &token,
                 Some(Body::from(json!({"price": 1990}).to_string())),
             ))

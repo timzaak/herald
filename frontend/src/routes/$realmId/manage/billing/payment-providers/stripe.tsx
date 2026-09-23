@@ -22,7 +22,7 @@ export function StripeConfigRoute() {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['payment-providers', realmId],
     queryFn: async () => {
-      const result = await listPaymentProviders({ path: { realmId } })
+      const result = await listPaymentProviders({})
       return result.data?.providers ?? []
     },
   })
@@ -34,7 +34,7 @@ export function StripeConfigRoute() {
     queryKey: ['stripe-config', realmId],
     queryFn: async () => {
       if (!stripeProvider) return null
-      const result = await listRealmConfigs({ path: { realmId } })
+      const result = await listRealmConfigs({})
       return parseStripeConfig(result.data ?? [])
     },
     enabled: !!stripeProvider,

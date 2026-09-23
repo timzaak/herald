@@ -494,7 +494,7 @@ mod tests {
         let put_config = |config_type: &str, config_key: &str, config_value: &str| {
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/configs/{realm_id}"))
+                .uri("/api/configs".to_string())
                 .header("content-type", "application/json")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::from(
@@ -689,7 +689,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{realm_id}/purchase/payment-attempts"))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header("Authorization", format!("Bearer {token}"))
                     .header("Content-Type", "application/json")
                     .body(Body::from(

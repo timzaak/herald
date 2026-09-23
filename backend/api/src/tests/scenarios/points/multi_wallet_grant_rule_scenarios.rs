@@ -430,7 +430,7 @@ async fn test_multi_wallet_grant_rule_realm_crud_and_permission_matrix(
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/points/{}/registration-rules", ctx._realm_id))
+                .uri("/api/points/registration-rules".to_string())
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(body.to_string()))
@@ -454,7 +454,7 @@ async fn test_multi_wallet_grant_rule_realm_crud_and_permission_matrix(
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/points/{}/registration-rules", ctx._realm_id))
+                .uri("/api/points/registration-rules".to_string())
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(invalid.to_string()))
@@ -757,7 +757,7 @@ async fn test_multi_wallet_disabling_rule_deactivates_bound_free_periodic_schedu
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(format!("/api/points/{}/registration-rules", realm_id))
+                .uri("/api/points/registration-rules".to_string())
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(body.to_string()))

@@ -47,7 +47,7 @@ describe('subscription query options - constructs correct request via client.get
     expect(client.get).toHaveBeenCalledTimes(1)
     const callArgs = vi.mocked(client.get).mock.calls[0][0]
 
-    expect(callArgs.url).toBe('/api/bill/realm-1/subscriptions')
+    expect(callArgs.url).toBe('/api/bill/subscriptions')
     expect(callArgs.query).toEqual({
       entitlementKey: 'pro-plan',
       status: 'active',
@@ -112,7 +112,7 @@ describe('entitlement mapping query options - constructs correct request via cli
     expect(client.get).toHaveBeenCalledTimes(1)
     const callArgs = vi.mocked(client.get).mock.calls[0][0]
 
-    expect(callArgs.url).toBe('/api/bill/realm-1/entitlement-mappings')
+    expect(callArgs.url).toBe('/api/bill/entitlement-mappings')
     expect(callArgs.query).toEqual({
       paymentProvider: 'stripe',
       enabled: true,
@@ -178,7 +178,7 @@ describe('entitlement mapping detail query option - uses generated SDK', () => {
 
     expect(getEntitlementMapping).toHaveBeenCalledTimes(1)
     expect(getEntitlementMapping).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', mappingId: 'mapping-1' },
+      path: { mappingId: 'mapping-1' },
     })
   })
 
@@ -227,7 +227,7 @@ describe('subscription detail query option - uses generated SDK', () => {
 
     expect(getSubscription).toHaveBeenCalledTimes(1)
     expect(getSubscription).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', subscriptionId: 'sub-1' },
+      path: { subscriptionId: 'sub-1' },
     })
   })
 

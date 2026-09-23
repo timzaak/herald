@@ -479,7 +479,7 @@ export async function createBucketViaApi(
   payload: CreateBucketApiPayload,
   apiContext?: APIRequestContext,
 ): Promise<{ status: number; body: CreditBucketListItem | Record<string, unknown> }> {
-  const url = `${backendBaseUrl()}/api/realms/${realmId}/billing/credit-buckets`
+  const url = `${backendBaseUrl()}/api/bill/credit-buckets`
   const ownsContext = !apiContext
   const requestContext = apiContext ?? (await createAdminBearerContext(page, realmId))
   try {
@@ -518,7 +518,7 @@ export async function listBucketsViaApi(
   realmId: string,
   requestContext?: APIRequestContext,
 ): Promise<CreditBucketListItem[]> {
-  const url = `${backendBaseUrl()}/api/realms/${realmId}/billing/credit-buckets`
+  const url = `${backendBaseUrl()}/api/bill/credit-buckets`
   const ownsContext = !requestContext
   const apiContext = requestContext ?? (await createAdminBearerContext(page, realmId))
   try {

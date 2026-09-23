@@ -29,7 +29,7 @@ export function EditRoleDialog({
     },
     mutationFn: (data: UpdateRoleFormData) =>
       updateRole({
-        path: { realmId, roleId: role.id },
+        path: { roleId: role.id },
         body: data,
       }),
     getSuccessMessage: (response) => {

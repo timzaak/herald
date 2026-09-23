@@ -123,7 +123,7 @@ async fn fetch_current_agreements(ctx: &SchemaTestContext) -> Vec<Value> {
     let response = send(
         ctx.create_unified_test_router(),
         "GET",
-        &format!("/api/legal/{}/agreements", ctx._realm_id),
+        &format!("/api/legal/public/{}/agreements", ctx._realm_id),
         None,
         Value::Null,
     )
@@ -611,7 +611,7 @@ async fn test_custom_user_ui_scope_upper_bound(ctx: &mut SchemaTestContext) {
     let clients = send(
         ctx.create_unified_test_router(),
         "GET",
-        &format!("/api/client/{}", ctx._realm_id),
+        "/api/client",
         Some(&tokens.access_token),
         Value::Null,
     )
@@ -638,7 +638,7 @@ async fn test_custom_user_ui_first_party_admin_rbac(ctx: &mut SchemaTestContext)
     let allowed = send(
         ctx.create_unified_test_router(),
         "GET",
-        &format!("/api/client/{}", ctx._realm_id),
+        "/api/client",
         Some(&admin_token),
         Value::Null,
     )
@@ -654,7 +654,7 @@ async fn test_custom_user_ui_first_party_admin_rbac(ctx: &mut SchemaTestContext)
     let denied = send(
         ctx.create_unified_test_router(),
         "GET",
-        &format!("/api/client/{}", ctx._realm_id),
+        "/api/client",
         Some(&plain_token),
         Value::Null,
     )
@@ -1406,7 +1406,7 @@ async fn test_custom_user_ui_client_app_disable_revokes_family(ctx: &mut SchemaT
     let disabled = send(
         ctx.create_unified_test_router(),
         "PUT",
-        &format!("/api/client/{}/{}", ctx._realm_id, app.id),
+        &format!("/api/client/{}", app.id),
         Some(&admin_token),
         json!({"enabled": false}),
     )

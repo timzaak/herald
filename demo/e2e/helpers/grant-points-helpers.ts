@@ -414,7 +414,7 @@ async function assignPermissionRoleToApiKey(
 ): Promise<void> {
   // 3a. Find the permission ID
   const permListResponse = await request.get(
-    `${backendUrl}/api/permission/${realmId}/define`,
+    `${backendUrl}/api/permission/define`,
   )
   if (!permListResponse.ok()) {
     throw new Error(
@@ -437,7 +437,7 @@ async function assignPermissionRoleToApiKey(
   // 3b. Create a custom role (is_builtin=false, required for API key assignment)
   const roleName = `test-${permission.replace('.', '-')}-${suffix}`
   const roleCreateResponse = await request.post(
-    `${backendUrl}/api/roles/${realmId}/define`,
+    `${backendUrl}/api/roles/define`,
     {
       data: {
         name: roleName,
@@ -456,7 +456,7 @@ async function assignPermissionRoleToApiKey(
 
   // 3c. Assign the permission to the new role
   const assignPermResponse = await request.post(
-    `${backendUrl}/api/roles/${realmId}/define/${roleId}/permissions`,
+    `${backendUrl}/api/roles/define/${roleId}/permissions`,
     {
       data: { permissionId: targetPerm.id },
     },
@@ -469,7 +469,7 @@ async function assignPermissionRoleToApiKey(
 
   // 3d. Assign the role to the API key
   const assignRoleResponse = await request.put(
-    `${backendUrl}/api/api-keys/${realmId}/${apiKeyId}/roles`,
+    `${backendUrl}/api/api-keys/${apiKeyId}/roles`,
     {
       data: { roleIds: [roleId] },
     },

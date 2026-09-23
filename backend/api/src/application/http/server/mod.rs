@@ -59,29 +59,48 @@ fn snapshot_origin_is_allowed(
 
 /// Extract the realm id from request paths that encode it as the first route
 /// parameter. Returns `None` for realm-less routes whose realm is carried by
-/// the Bearer token (or that have no realm at all): `/api/permission/check`,
-/// `/api/auth` (browser-token routes), and the personal-center `/api/user/*`
-/// routes. CORS runs before auth, so for these routes the realm cannot be
-/// recovered from the path; the predicate then falls back to a realm-agnostic
+/// the Bearer token (or that have no realm at all): the admin-console
+/// prefixes (`/api/users`, `/api/roles`, `/api/legal/admin`, …), `/api/auth`
+/// (browser-token routes), and the personal-center `/api/user/*` routes.
+/// CORS runs before auth, so for these routes the realm cannot be recovered
+/// from the path; the predicate then falls back to a realm-agnostic
 /// scan of every enabled Client App's `allowed_origins`.
 fn extract_realm_id_from_path(path: &str) -> Option<&str> {
     let parts: Vec<&str> = path.split('/').collect();
-    // Realm-less top-level routes (e.g. /api/permission/check, /api/auth)
+    // Realm-less top-level routes (e.g. /api/auth)
     if parts.len() < 4 {
         return None;
     }
-    // /api/legal/admin/{realmId} -> realm is the 4th segment
-    if parts.get(2) == Some(&"legal") && parts.get(3) == Some(&"admin") {
-        return parts.get(4).copied();
+    // Legal family: public agreement reads sit behind a static `public`
+    // segment, so the realm id is the 4th segment; admin management is
+    // session-scoped (first-party console only, realm in the token).
+    if parts.get(2) == Some(&"legal") {
+        if parts.get(3) == Some(&"public") {
+            return parts.get(4).copied();
+        }
+        if parts.get(3) == Some(&"admin") {
+            return None;
+        }
     }
-    // /api/permission/check is realm-less (no {realmId} segment)
-    if parts.get(2) == Some(&"permission") && parts.get(3) == Some(&"check") {
-        return None;
-    }
-    // Personal-center routes (/api/user/*) carry the realm inside the Bearer
-    // token, not in the URL. Treat them as realm-less for CORS so a registered
-    // Client App origin is matched across all realms.
-    if parts.get(2) == Some(&"user") {
+    // Admin-console and token-scoped prefixes carry the realm inside the
+    // Bearer token, not in the URL. Treat them as realm-less for CORS so a
+    // registered Client App origin is matched across all realms instead of
+    // misreading the next route word as a realm id.
+    if matches!(
+        parts.get(2),
+        Some(&"user")
+            | Some(&"users")
+            | Some(&"roles")
+            | Some(&"permission")
+            | Some(&"configs")
+            | Some(&"client")
+            | Some(&"api-keys")
+            | Some(&"oauth-configs")
+            | Some(&"audit")
+            | Some(&"dashboard")
+            | Some(&"points")
+            | Some(&"bill")
+    ) {
         return None;
     }
     // Realm-less /api/auth sub-routes: refresh/switch-client derive the realm
@@ -132,12 +151,38 @@ mod cors_origin_tests {
             extract_realm_id_from_path("/api/oauth/acme/authorize"),
             Some("acme")
         );
+        // Legal family: public reads live behind the static `public` segment
+        // (realm at position 4, including realms named "public" or "admin"),
+        // while admin management is session-scoped and realm-less.
         assert_eq!(
-            extract_realm_id_from_path("/api/legal/admin/acme"),
+            extract_realm_id_from_path("/api/legal/public/acme/agreements"),
             Some("acme")
         );
+        assert_eq!(
+            extract_realm_id_from_path("/api/legal/public/public/agreements"),
+            Some("public")
+        );
+        assert_eq!(
+            extract_realm_id_from_path("/api/legal/admin/agreements"),
+            None
+        );
+        assert_eq!(extract_realm_id_from_path("/api/user/consent/status"), None);
         assert_eq!(extract_realm_id_from_path("/api/permission/check"), None);
         assert_eq!(extract_realm_id_from_path("/api/auth"), None);
+        // Admin-console prefixes are realm-less: the realm is pinned by the
+        // admin console session, not the URL.
+        assert_eq!(extract_realm_id_from_path("/api/users"), None);
+        assert_eq!(extract_realm_id_from_path("/api/users/abc/roles"), None);
+        assert_eq!(extract_realm_id_from_path("/api/roles/define"), None);
+        assert_eq!(
+            extract_realm_id_from_path("/api/configs/email/status"),
+            None
+        );
+        assert_eq!(extract_realm_id_from_path("/api/oauth-configs"), None);
+        assert_eq!(extract_realm_id_from_path("/api/dashboard/stats"), None);
+        assert_eq!(extract_realm_id_from_path("/api/audit"), None);
+        assert_eq!(extract_realm_id_from_path("/api/points/wallets"), None);
+        assert_eq!(extract_realm_id_from_path("/api/bill/subscriptions"), None);
         // Realm-less /api/auth sub-routes (js-sdk session endpoints): the 4th
         // path segment is a route word, not a realm id — misreading it as one
         // would make the CORS snapshot lookup miss every Client App row and
@@ -642,14 +687,15 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             post(oauth::oidc_rotate_signing_key),
         )
         // Public legal agreement endpoints (no Bearer identity).
-        // Grouped separately from the consent nest below so the Bearer middleware
-        // layer never covers the public agreements routes.
+        // Grouped behind a static `public` segment so the parameterized
+        // realm id never competes with the admin nest below (static segments
+        // beat {realmId} in the router matcher).
         .route(
-            "/api/legal/{realmId}/agreements",
+            "/api/legal/public/{realmId}/agreements",
             get(legal::list_agreements),
         )
         .route(
-            "/api/legal/{realmId}/agreements/{agreementType}",
+            "/api/legal/public/{realmId}/agreements/{agreementType}",
             get(legal::get_agreement),
         )
         // OAuth routes
@@ -729,7 +775,7 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
         .nest(
-            "/api/oauth/{realmId}/configs",
+            "/api/oauth-configs",
             Router::new()
                 .route(
                     "/",
@@ -744,27 +790,25 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Realm Config routes
+        // Realm Config routes — realm is session-derived (admin console
+        // token pins it), no {realmId} path parameter.
         .nest(
             "/api/configs",
             Router::new()
                 .route(
-                    "/{realmId}",
+                    "/",
                     get(realm_config::list_realm_configs).put(realm_config::upsert_realm_config),
                 )
-                .route(
-                    "/{realmId}/batch",
-                    post(realm_config::batch_upsert_realm_configs),
-                )
+                .route("/batch", post(realm_config::batch_upsert_realm_configs))
                 // Email status and test routes (must be before parameterized {configType} routes)
-                .route("/{realmId}/email/status", get(realm_config::email_status))
-                .route("/{realmId}/email/test", post(realm_config::email_test))
+                .route("/email/status", get(realm_config::email_status))
+                .route("/email/test", post(realm_config::email_test))
                 .route(
-                    "/{realmId}/{configType}",
+                    "/{configType}",
                     get(realm_config::list_realm_configs_by_type),
                 )
                 .route(
-                    "/{realmId}/{configType}/{configKey}",
+                    "/{configType}/{configKey}",
                     get(realm_config::get_realm_config).delete(realm_config::delete_realm_config),
                 )
                 .layer(axum::middleware::from_fn(require_admin_console_token))
@@ -793,19 +837,22 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
         .nest(
-            "/api/client/{realmId}",
+            "/api/client",
             client_apps::router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
         .nest(
-            "/api/api-keys/{realmId}",
+            "/api/api-keys",
             api_keys::router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
         .nest("/api/roles", admin_routes)
-        // Personal center routes (tag = "user") - no realmId in prefix
+        // Personal center routes (tag = "user") - no realmId in prefix.
+        // Includes the self-service consent endpoints: the realm is pinned by
+        // the bearer token and the same identity layer covers them, so they
+        // live with the other personal-center actions.
         .nest(
             "/api/user",
             user::router()
@@ -814,11 +861,14 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .merge(herald_api_billing::routes::billing_user_routes())
                 .merge(herald_api_auth::user_passkey::router())
                 .merge(herald_api_auth::reauth_router())
+                .route("/consent/status", get(legal::get_consent_status))
+                .route("/consent", post(legal::record_consent))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Admin user management (tag = "users") - realm_id required
+        // Admin user management (tag = "users") — realm is session-derived
+        // (admin console token pins it), no {realmId} path parameter.
         .nest(
-            "/api/users/{realmId}",
+            "/api/users",
             admin::admin_users::router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
@@ -829,22 +879,15 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Self-service consent endpoints (WITH bearer identity).
-        // Distinct prefix from the public agreements routes above so the
-        // identity layer only covers consent, not the public agreement reads.
-        .nest(
-            "/api/legal/{realmId}/consent",
-            Router::new()
-                .route("/status", get(legal::get_consent_status))
-                .route("/", post(legal::record_consent))
-                .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
-        )
-        // Admin legal agreement management (WITH first-party bearer identity). Distinct
-        // `/admin` prefix keeps the public agreements routes above unguarded.
+        // Admin legal agreement management (WITH first-party bearer identity).
+        // Safe under the static `/api/legal/admin` segment because public
+        // reads live behind their own `/api/legal/public/` segment, so the
+        // parameterized route does not compete with this nest. The realm is
+        // session-derived (admin console token pins it).
         // Permission enforcement (settings.view / settings.manage) happens
         // inside each handler via `require_permission`.
         .nest(
-            "/api/legal/admin/{realmId}",
+            "/api/legal/admin",
             Router::new()
                 .route("/agreements", get(legal::admin_list_agreements))
                 .route(
@@ -875,16 +918,16 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Audit log query routes
+        // Audit log query routes — realm is session-derived
         .nest(
-            "/api/audit/{realmId}",
+            "/api/audit",
             audit_routes
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
-        // Dashboard statistics routes
+        // Dashboard statistics routes — realm is session-derived
         .nest(
-            "/api/dashboard/{realmId}",
+            "/api/dashboard",
             dashboard::dashboard_router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
@@ -905,9 +948,9 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
         // credential gate as every other admin router rejects API-key and
         // CustomUserUi identities: only first-party admin-console Bearer
         // tokens reach these handlers. Third-party API keys use
-        // /api/ext/points/*.
+        // /api/ext/points/*. Realm is session-derived.
         .nest(
-            "/api/points/{realmId}",
+            "/api/points",
             routes::points_router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state(

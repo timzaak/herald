@@ -22,7 +22,7 @@ export function CreemConfigRoute() {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['payment-providers', realmId],
     queryFn: async () => {
-      const result = await listPaymentProviders({ path: { realmId } })
+      const result = await listPaymentProviders({})
       return result.data?.providers ?? []
     },
   })
@@ -34,7 +34,7 @@ export function CreemConfigRoute() {
     queryKey: ['creem-config', realmId],
     queryFn: async () => {
       if (!creemProvider) return null
-      const result = await listRealmConfigs({ path: { realmId } })
+      const result = await listRealmConfigs({})
       return parseCreemConfig(result.data ?? [])
     },
     enabled: !!creemProvider,

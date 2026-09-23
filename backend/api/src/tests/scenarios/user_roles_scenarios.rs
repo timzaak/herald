@@ -387,7 +387,7 @@ async fn test_scenario_user_roles_hides_cross_realm_role_references(ctx: &mut Sc
 // Regression (audit run-1: manual-grant client-id provenance)
 // ============================================================================
 
-/// POST /api/permission/users/{id}/roles 与 PUT /api/users/{realmId}/{userId}/roles
+/// POST /api/permission/users/{id}/roles 与 PUT /api/users/{userId}/roles
 /// 是同一逻辑"手工授予"的两个授权写入面。manual 行的唯一键不含 client_id
 /// （0001_core.sql idx_user_roles_principal_role_manual），PUT replace 的文档
 /// 契约是"替换全部角色"——所以 POST 写入的授予必须能被 PUT 替换撤销，且重授
@@ -438,7 +438,7 @@ async fn test_scenario_permission_post_grant_is_revocable_by_put_replace(
     // 用户模块 PUT 面替换角色集：R → B
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/users/{}/{}/roles", ctx._realm_id, user_id))
+        .uri(format!("/api/users/{}/roles", user_id))
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::from(json!({ "roleIds": [role_b] }).to_string()))

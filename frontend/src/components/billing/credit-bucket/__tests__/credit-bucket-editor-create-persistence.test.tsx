@@ -48,7 +48,7 @@ describe('CreditBucketEditor (create) — value persistence across re-render', (
       ...creditBucketsHandlers,
       // POST create handler so a stray submit would not 500 — we do NOT submit
       // here, but the mutation is wired into the form's onSubmit.
-      http.post('http://localhost:3000/api/realms/:realmId/billing/credit-buckets', () =>
+      http.post('http://localhost:3000/api/bill/credit-buckets', () =>
         HttpResponse.json({ id: 'b-new' }, { status: 201 })
       )
     )

@@ -62,7 +62,6 @@ describe('API Key Query Options', () => {
       await options.queryFn!()
 
       expect(listApiKeys).toHaveBeenCalledWith({
-        path: { realmId: 'realm-1' },
         query: { page: 0, pageSize: 20 },
       })
     })
@@ -76,7 +75,6 @@ describe('API Key Query Options', () => {
       await options.queryFn!()
 
       expect(listApiKeys).toHaveBeenCalledWith({
-        path: { realmId: 'realm-1' },
         query: { page: 2, pageSize: 50 },
       })
     })
@@ -88,7 +86,6 @@ describe('API Key Query Options', () => {
       await options.queryFn!()
 
       expect(listApiKeys).toHaveBeenCalledWith({
-        path: { realmId: 'realm-1' },
         query: { page: 0, pageSize: 10 },
       })
     })
@@ -100,7 +97,6 @@ describe('API Key Query Options', () => {
       await options.queryFn!()
 
       expect(listApiKeys).toHaveBeenCalledWith({
-        path: { realmId: 'realm-1' },
         query: { page: 3, pageSize: 20 },
       })
     })
@@ -114,7 +110,7 @@ describe('API Key Query Options', () => {
       await options.queryFn!()
 
       expect(getApiKey).toHaveBeenCalledWith({
-        path: { realmId: 'realm-1', apiKeyId: 'key-42' },
+        path: { apiKeyId: 'key-42' },
       })
     })
   })

@@ -1,7 +1,7 @@
 use crate::admin::admin_users::types::{ErrorResponse, ListUsersQuery, UserResponse};
 use axum::{
     Extension,
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::HeaderMap,
 };
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
@@ -19,12 +19,11 @@ use sqlx::Row;
 /// Realm boundary check is enforced in Service layer
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}",
+    path = "/api/users",
     tag = "users",
     summary = "List users in the realm",
     description = "List users with pagination. Requires `users.view` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("page" = Option<i32>, Query, description = "Page number (0-based)"),
         ("pageSize" = Option<i32>, Query, description = "Page size"),
         ("email" = Option<String>, Query, description = "Filter users by email (partial match)"),
@@ -40,7 +39,6 @@ use sqlx::Row;
 pub async fn list_users(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<ListUsersQuery>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<PageResponse<UserResponse>>, ApiError> {
@@ -50,7 +48,8 @@ pub async fn list_users(
     {
         return Err(ApiError::bad_request("status must be between 0 and 3"));
     }
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "users", "view")
         .await

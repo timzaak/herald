@@ -422,7 +422,7 @@ async fn white_label_rejects_invalid_asset_url_and_gradient(ctx: &mut TestContex
 ///
 /// WHY: a `settings.manage` caller deleting `settings` (or the
 /// `previous_settings` recovery snapshot) through
-/// `DELETE /api/configs/{realm}/white_label/{key}` would clear published
+/// `DELETE /api/configs/white_label/{key}` would clear published
 /// branding and break restore without ever passing the dedicated surface's
 /// validation — the same bypass the upsert rejection exists to prevent, so
 /// every generic write path (PUT and DELETE alike) must refuse the type.
@@ -441,7 +441,7 @@ async fn white_label_rows_cannot_be_written_or_deleted_via_generic_configs_api(
 
     let put_req = authed_request(
         "PUT",
-        format!("/api/configs/{}", ctx._realm_id),
+        "/api/configs".to_string(),
         &token,
         Some(json!({
             "configType": "white_label",
@@ -455,7 +455,7 @@ async fn white_label_rows_cannot_be_written_or_deleted_via_generic_configs_api(
     for key in ["settings", "previous_settings"] {
         let delete_req = authed_request(
             "DELETE",
-            format!("/api/configs/{}/white_label/{}", ctx._realm_id, key),
+            format!("/api/configs/white_label/{}", key),
             &token,
             None,
         );

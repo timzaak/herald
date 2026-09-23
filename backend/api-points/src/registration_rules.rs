@@ -9,7 +9,7 @@
 
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
     http::StatusCode,
 };
 use uuid::Uuid;
@@ -260,8 +260,7 @@ fn rule_to_response(
 /// Get the Realm's registration distribution rules.
 #[utoipa::path(
     get,
-    path = "/api/points/{realmId}/registration-rules",
-    params(("realmId" = String, Path, description = "Realm ID")),
+    path = "/api/points/registration-rules",
     responses(
         (status = 200, description = "Registration rules retrieved", body = RegistrationRulesResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
@@ -273,9 +272,9 @@ fn rule_to_response(
 pub async fn get_registration_rules(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<RegistrationRulesResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "registration rules")?;
+    let admin = AdminIdentity::require(identity, "registration rules")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "points", "view").await?;
 
     let rules = state
@@ -292,8 +291,7 @@ pub async fn get_registration_rules(
 /// Atomically upsert the Realm's registration distribution rule set.
 #[utoipa::path(
     put,
-    path = "/api/points/{realmId}/registration-rules",
-    params(("realmId" = String, Path, description = "Realm ID")),
+    path = "/api/points/registration-rules",
     request_body = UpsertRegistrationRulesRequest,
     responses(
         (status = 200, description = "Registration rules upserted", body = RegistrationRulesResponse),
@@ -309,10 +307,10 @@ pub async fn get_registration_rules(
 pub async fn upsert_registration_rules(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<UpsertRegistrationRulesRequest>,
 ) -> Result<Json<RegistrationRulesResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "registration rules")?;
+    let admin = AdminIdentity::require(identity, "registration rules")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "points", "manage").await?;
 
     request

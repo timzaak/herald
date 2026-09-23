@@ -2,7 +2,7 @@
 // Scenario tests: Realm admin LDAP configuration via the generic configs CRUD
 // =============================================================================
 //
-// LDAP configuration rides the existing /api/configs/{realmId} CRUD surface
+// LDAP configuration rides the existing /api/configs CRUD surface
 // (DEC-005): two rows — `ldap/settings` (validated JSON, non-secret) and
 // `ldap/bind_password` (server-forced secret, masked on read, empty submit
 // preserves). The public enablement signal is
@@ -33,10 +33,10 @@ use tower::ServiceExt;
 // Local request helpers
 // ---------------------------------------------------------------------------
 
-fn batch_upsert_request(realm_id: &str, token: &str, configs: serde_json::Value) -> Request<Body> {
+fn batch_upsert_request(_realm_id: &str, token: &str, configs: serde_json::Value) -> Request<Body> {
     Request::builder()
         .method("POST")
-        .uri(format!("/api/configs/{realm_id}/batch"))
+        .uri("/api/configs/batch".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(json!({ "configs": configs }).to_string()))
@@ -44,13 +44,13 @@ fn batch_upsert_request(realm_id: &str, token: &str, configs: serde_json::Value)
 }
 
 async fn list_ldap_configs(
-    ctx: &TestContext,
+    _ctx: &TestContext,
     app: &axum::Router,
     token: &str,
 ) -> Vec<serde_json::Value> {
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/configs/{}/ldap", ctx._realm_id))
+        .uri("/api/configs/ldap".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
@@ -343,8 +343,11 @@ async fn test_scenario_ldap_config_bad_ca_cert_pem_rejected(ctx: &mut TestContex
 }
 
 /// User Story: US-LD-003
-/// Covers: US-LD-003 scenario 3 — an admin of realm A cannot manage realm
-/// B's LDAP configuration (cross-realm 403 via AdminIdentity).
+/// Covers: US-LD-003 scenario 3 — the realm is session-derived, so an
+/// admin of realm A can never even name realm B in a config write (there is
+/// no realm path segment left). The batch write below lands in the caller's
+/// own realm and must succeed; combined with the absent realm parameter this
+/// proves cross-realm writes are structurally impossible.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_ldap_config_cross_realm_rejected(ctx: &mut TestContext) {
@@ -353,11 +356,10 @@ async fn test_scenario_ldap_config_cross_realm_rejected(ctx: &mut TestContext) {
         create_admin_session_with_user(ctx, "ldap-cfg-cross@test.com", 1800).await;
     grant_realm_admin_role(ctx, &user_id).await;
 
-    let other_realm = uuid::Uuid::now_v7().to_string();
     let resp = app
         .clone()
         .oneshot(batch_upsert_request(
-            &other_realm,
+            &ctx._realm_id,
             &token,
             json!([{
                 "configType": "ldap",
@@ -371,21 +373,23 @@ async fn test_scenario_ldap_config_cross_realm_rejected(ctx: &mut TestContext) {
         .unwrap();
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "cross-realm config write must be 403"
+        StatusCode::OK,
+        "session-derived config write must succeed in the caller's own realm"
     );
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/configs/{other_realm}/ldap"))
+        .uri("/api/configs/ldap".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
+    // Reads are also session-scoped: the same token sees its own realm's
+    // LDAP config (the row written above), never another realm's.
     let resp = app.clone().oneshot(request).await.unwrap();
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "cross-realm config read must be 403"
+        StatusCode::OK,
+        "own-realm config read must succeed"
     );
 }
 

@@ -458,7 +458,7 @@ mod tests {
         use axum::http::{Request, StatusCode};
         use tower::ServiceExt;
 
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let app = ctx.create_unified_test_router();
 
         // Given: No mapping exists for this random UUID
@@ -472,7 +472,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header("Content-Type", "application/json")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Body::from(
@@ -537,7 +537,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header("Content-Type", "application/json")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Body::from(
@@ -628,7 +628,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/purchase/payment-attempts", realm_id))
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
                     .header("Content-Type", "application/json")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Body::from(

@@ -66,7 +66,7 @@ pub async fn require_billing_permission(
     realm_id: &str,
     action: &str,
 ) -> Result<(), ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), realm_id, "billing")?;
+    let admin = AdminIdentity::require_in_realm(identity.clone(), realm_id, "billing")?;
     admin.require_permission(state, "billing", action).await
 }
 
@@ -129,12 +129,9 @@ fn require_subscription_ownership(
 /// List subscriptions for a realm
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/subscriptions",
+    path = "/api/bill/subscriptions",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Subscriptions listed successfully", body = SubscriptionListResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions", body = ErrorResponse),
@@ -145,9 +142,9 @@ fn require_subscription_ownership(
 pub async fn list_subscriptions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<SubscriptionListQuery>,
 ) -> Result<Json<SubscriptionListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing subscriptions for realm: {}", realm_id);
 
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
@@ -198,10 +195,9 @@ pub async fn list_subscriptions(
 /// Get a specific subscription
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/subscriptions/{subscriptionId}",
+    path = "/api/bill/subscriptions/{subscriptionId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("subscriptionId" = Uuid, Path, description = "Subscription ID")
     ),
     responses(
@@ -216,8 +212,9 @@ pub async fn list_subscriptions(
 pub async fn get_subscription(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, subscription_id)): Path<(String, Uuid)>,
+    Path(subscription_id): Path<Uuid>,
 ) -> Result<Json<SubscriptionDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Getting subscription {} for realm: {}",
         subscription_id,
@@ -242,10 +239,9 @@ pub async fn get_subscription(
 /// Get subscription for a client app
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/client/{clientAppId}/subscription",
+    path = "/api/bill/client/{clientAppId}/subscription",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("clientAppId" = Uuid, Path, description = "Client App ID")
     ),
     responses(
@@ -261,8 +257,9 @@ pub async fn get_subscription_for_client_app(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path((realm_id, client_app_id)): Path<(String, Uuid)>,
+    Path(client_app_id): Path<Uuid>,
 ) -> Result<Json<SubscriptionDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Getting subscription for client app {} in realm: {}",
         client_app_id,
@@ -304,10 +301,9 @@ pub async fn get_subscription_for_client_app(
 /// them with 400.
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/client/{clientAppId}/subscription/cancel",
+    path = "/api/bill/client/{clientAppId}/subscription/cancel",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("clientAppId" = Uuid, Path, description = "Client App ID")
     ),
     request_body = CancelSubscriptionRequest,
@@ -325,9 +321,10 @@ pub async fn cancel_subscription_for_client_app(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path((realm_id, client_app_id)): Path<(String, Uuid)>,
+    Path(client_app_id): Path<Uuid>,
     Json(request): Json<CancelSubscriptionRequest>,
 ) -> Result<Json<CancelSubscriptionResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Canceling subscription for client app {} in realm: {}, cancel_at_period_end: {}",
         client_app_id,
@@ -501,10 +498,9 @@ fn mapping_to_purchase_option(
 /// dependency on `list_one_time_mappings` (which only covered one_time).
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/client/{clientAppId}/purchase-options",
+    path = "/api/bill/client/{clientAppId}/purchase-options",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("clientAppId" = Uuid, Path, description = "Client App ID")
     ),
     responses(
@@ -519,8 +515,9 @@ pub async fn list_purchase_options(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path((realm_id, client_app_id)): Path<(String, Uuid)>,
+    Path(client_app_id): Path<Uuid>,
 ) -> Result<Json<PurchaseOptionListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Listing purchase options for client app {} in realm {}",
         client_app_id,

@@ -157,7 +157,7 @@ async function putLdapConfig(
     })
   }
 
-  const response = await api.post(`${BASE_URL}/api/configs/${realmId}/batch`, {
+  const response = await api.post(`${BASE_URL}/api/configs/batch`, {
     data: { configs },
   })
   if (!response.ok()) {
@@ -275,7 +275,7 @@ export async function resetLdapRowsForRealm(
     const api = await createAdminApiContext(page, demoLogger, realmId)
     try {
       for (const key of ['settings', 'bind_password']) {
-        const response = await api.delete(`${BASE_URL}/api/configs/${realmId}/ldap/${key}`)
+        const response = await api.delete(`${BASE_URL}/api/configs/ldap/${key}`)
         if (!response.ok() && response.status() !== 404) {
           const body = await response.text().catch(() => '')
           throw new Error(

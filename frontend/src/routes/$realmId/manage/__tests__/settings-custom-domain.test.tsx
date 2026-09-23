@@ -134,8 +134,8 @@ function installSiblingTabHandlers() {
     http.get(`${API_BASE_URL}/api/realms/test-realm`, () =>
       HttpResponse.json({ id: 'test-realm', name: 'Test Realm', description: '' })
     ),
-    http.get(`${API_BASE_URL}/api/configs/test-realm`, () => HttpResponse.json([])),
-    http.get(`${API_BASE_URL}/api/configs/test-realm/email/status`, () =>
+    http.get(`${API_BASE_URL}/api/configs`, () => HttpResponse.json([])),
+    http.get(`${API_BASE_URL}/api/configs/email/status`, () =>
       HttpResponse.json({ configured: false })
     ),
     http.get(`${API_BASE_URL}/api/realms/test-realm/config/passkey`, () =>

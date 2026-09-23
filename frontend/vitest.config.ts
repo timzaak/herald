@@ -46,8 +46,9 @@ export default defineConfig({
     // Enable global test utilities
     globals: true,
 
-    // Minimal reporter: only failed tests and errors, optimized for AI agents
-    reporters: ['minimal'],
+    // Agent reporter (alias of 'minimal'): only failed tests and errors, optimized
+    // for AI agents. Explicit so it applies regardless of agent environment detection.
+    reporters: ['agent'],
 
     // Keep enough per-test budget for the full suite under parallel JSDOM load.
     testTimeout: 15000,

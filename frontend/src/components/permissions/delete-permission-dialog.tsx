@@ -24,7 +24,7 @@ export function DeletePermissionDialog({
   const { isSubmitting, mutate } = useFormMutation({
     mutationFn: (permissionId: string) =>
       deletePermission({
-        path: { realmId, permissionDefinitionId: permissionId },
+        path: { permissionDefinitionId: permissionId },
       }),
     getSuccessMessage: () => `Permission "${permission.name}" deleted successfully`,
     invalidateQueries: [queryKeys.permissions(realmId)],

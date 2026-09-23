@@ -71,7 +71,7 @@ async fn create_client_app_with_turnstile(
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/api/client/{}", ctx._realm_id))
+        .uri("/api/client".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::from(payload.to_string()))
@@ -151,7 +151,7 @@ async fn test_scenario_client_app_create_with_turnstile_fields(ctx: &mut TestCon
     });
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/api/client/{}/{}", ctx._realm_id, app_id))
+        .uri(format!("/api/client/{}", app_id))
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::from(update.to_string()))
@@ -197,7 +197,7 @@ async fn test_scenario_client_app_item_does_not_echo_secret(ctx: &mut TestContex
     let update = json!({ "name": "renamed" });
     let request = Request::builder()
         .method("PUT")
-        .uri(format!("/api/client/{}/{}", ctx._realm_id, app_id))
+        .uri(format!("/api/client/{}", app_id))
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::from(update.to_string()))
@@ -219,7 +219,7 @@ async fn test_scenario_client_app_item_does_not_echo_secret(ctx: &mut TestContex
     // GET (list / item) response must not echo the secret either.
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/client/{}", ctx._realm_id))
+        .uri("/api/client".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::empty())
         .unwrap();

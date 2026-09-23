@@ -301,12 +301,9 @@ fn fulfillment_result_to_response(result: FulfillmentResult) -> FulfillPaymentRe
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/purchase/payment-attempts",
+    path = "/api/bill/purchase/payment-attempts",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body(
+        request_body(
         content = CreatePaymentAttemptRequest,
         description = "Creates a payment attempt. Optional `flow`: \"hosted\" (default) returns the provider's hosted checkout URL; \"payment_intent\" (stripe + one-time purchases only) returns a raw PaymentIntent clientSecret for mobile wallet SDK confirmation (Apple Pay / Google Pay)."
     ),
@@ -323,9 +320,9 @@ pub async fn create_payment_attempt(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path(realm_id): Path<String>,
     Json(input): Json<CreatePaymentAttemptRequest>,
 ) -> Result<(StatusCode, Json<CreatePaymentAttemptResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::PurchaseInitiate)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,
@@ -376,10 +373,9 @@ pub async fn create_payment_attempt(
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/purchase/payment-attempts/{attemptId}",
+    path = "/api/bill/purchase/payment-attempts/{attemptId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("attemptId" = Uuid, Path, description = "Payment Attempt ID")
     ),
     responses(
@@ -392,10 +388,11 @@ pub async fn create_payment_attempt(
 )]
 pub async fn get_payment_attempt_status(
     State(state): State<AppState>,
-    Path((realm_id, attempt_id)): Path<(String, Uuid)>,
+    Path(attempt_id): Path<Uuid>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
 ) -> Result<Json<PaymentAttemptStatusResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::PurchaseStatusRead)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,
@@ -430,10 +427,9 @@ pub async fn get_payment_attempt_status(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/purchase/payment-attempts/{attemptId}/cancel",
+    path = "/api/bill/purchase/payment-attempts/{attemptId}/cancel",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("attemptId" = Uuid, Path, description = "Payment Attempt ID")
     ),
     responses(
@@ -447,10 +443,11 @@ pub async fn get_payment_attempt_status(
 )]
 pub async fn cancel_payment_attempt(
     State(state): State<AppState>,
-    Path((realm_id, attempt_id)): Path<(String, Uuid)>,
+    Path(attempt_id): Path<Uuid>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
 ) -> Result<Json<PaymentAttemptStatusResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::PurchaseInitiate)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,
@@ -566,9 +563,9 @@ pub async fn get_purchase_history(
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/purchase/history",
+    path = "/api/bill/purchase/history",
     tag = "billing",
-    params(("realmId" = String, Path, description = "Realm ID"), PurchaseHistoryQuery),
+    params(PurchaseHistoryQuery),
     responses(
         (status = 200, description = "Realm purchase history", body = PurchaseHistoryResponse),
         (status = 403, description = "Forbidden")
@@ -578,9 +575,9 @@ pub async fn get_purchase_history(
 pub async fn get_realm_purchase_history(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(filters): Query<PurchaseHistoryQuery>,
 ) -> Result<Json<PurchaseHistoryResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
     purchase_history_response(&state, &realm_id, None, filters).await
 }

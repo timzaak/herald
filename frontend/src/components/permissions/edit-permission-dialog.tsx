@@ -29,7 +29,7 @@ export function EditPermissionDialog({
     },
     mutationFn: (data: UpdatePermissionFormData) =>
       updatePermission({
-        path: { realmId, permissionDefinitionId: permission.id },
+        path: { permissionDefinitionId: permission.id },
         body: data,
       }),
     getSuccessMessage: (response) => {

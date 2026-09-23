@@ -61,10 +61,10 @@ mod tests {
     // =========================================================================
 
     /// Build a CustomUserUi bearer request to the IAP receipt endpoint.
-    fn iap_receipt_request(realm_id: &str, token: &str, body: Value) -> Request<Body> {
+    fn iap_receipt_request(_realm_id: &str, token: &str, body: Value) -> Request<Body> {
         Request::builder()
             .method("POST")
-            .uri(format!("/api/bill/{realm_id}/purchase/iap/receipt"))
+            .uri("/api/bill/purchase/iap/receipt".to_string())
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .body(Body::from(json!(body).to_string()))
@@ -72,10 +72,10 @@ mod tests {
     }
 
     /// Build a Realm-Admin bearer request to the entitlement-mapping endpoint.
-    fn mapping_request(method: &str, realm_id: &str, token: &str, body: Value) -> Request<Body> {
+    fn mapping_request(method: &str, _realm_id: &str, token: &str, body: Value) -> Request<Body> {
         Request::builder()
             .method(method)
-            .uri(format!("/api/bill/{realm_id}/entitlement-mappings"))
+            .uri("/api/bill/entitlement-mappings".to_string())
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .body(Body::from(body.to_string()))

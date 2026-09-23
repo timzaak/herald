@@ -8,5 +8,8 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.test.ts'],
     setupFiles: ['./tests/setup.ts'],
+    // Agent reporter (alias of 'minimal'): only failed tests and errors — explicit,
+    // so AI-friendly output does not depend on agent environment detection.
+    reporters: ['agent'],
   },
 })

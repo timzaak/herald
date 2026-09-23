@@ -9,7 +9,7 @@ export function useRevokeUserSession(realmId: string, userId: string) {
   return useMutation({
     mutationFn: async (familyId: string) => {
       const result = await revokeUserSession({
-        path: { realmId, userId, familyId },
+        path: { userId, familyId },
       })
       if (result.error) throw result.error
       return result.data
@@ -26,7 +26,7 @@ export function useRevokeAllUserSessions(realmId: string, userId: string) {
   return useMutation({
     mutationFn: async () => {
       const result = await revokeAllUserSessions({
-        path: { realmId, userId },
+        path: { userId },
       })
       if (result.error) throw result.error
       return result.data as RevokeAllSessionsResponse

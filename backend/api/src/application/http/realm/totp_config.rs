@@ -75,7 +75,8 @@ pub async fn handle_update_realm_totp_config(
     headers: HeaderMap,
     Valid(Json(req)): Valid<Json<UpdateRealmTotpConfigRequest>>,
 ) -> Result<ApiResult<UpdateRealmTotpConfigResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "realm TOTP configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity.clone(), &realm_id, "realm TOTP configuration")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -223,7 +224,7 @@ pub async fn handle_get_realm_totp_config(
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<GetRealmTotpConfigResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm TOTP configuration")?;
+    let admin = AdminIdentity::require_in_realm(identity, &realm_id, "realm TOTP configuration")?;
     admin.require_permission(&state, "settings", "view").await?;
 
     // Use RealmConfigService to get TOTP configuration

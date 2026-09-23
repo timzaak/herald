@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Query, State};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -82,10 +82,9 @@ impl From<PointsConsumptionStats> for PointsConsumptionStatsResponse {
 /// transaction's creation day.
 #[utoipa::path(
     get,
-    path = "/api/points/{realmId}/stats/consumption",
+    path = "/api/points/stats/consumption",
     tag = "points",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         PointsConsumptionStatsQuery,
     ),
     responses(
@@ -100,13 +99,13 @@ impl From<PointsConsumptionStats> for PointsConsumptionStatsResponse {
 pub async fn get_points_consumption_stats(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<PointsConsumptionStatsQuery>,
 ) -> Result<ApiResult<PointsConsumptionStatsResponse>, ApiError> {
     let window = StatsWindow::from_days(query.days)
         .ok_or_else(|| ApiError::bad_request("days must be 7 or 30"))?;
 
-    let admin = AdminIdentity::require(identity, &realm_id, "statistics")?;
+    let admin = AdminIdentity::require(identity, "statistics")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "points", "view").await?;
 
     let repo = PostgresBillingStatisticsRepository::new(state.pool.clone());

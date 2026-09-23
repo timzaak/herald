@@ -30,7 +30,7 @@
 //       fields are PRESENT (intended contract) but tolerate `null`.
 //   (c) There is NO distinct `/users/me/points/wallets` or
 //       `/billing/points/wallets` route — a single
-//       `GET /api/points/{realmId}/wallets` handler (gated on `points.view`)
+//       `GET /api/points/wallets` handler (gated on `points.view`)
 //       that groups by `(bucket_id, user_id)`. The user-facing and admin
 //       scenarios both exercise the real route; the admin scenario additionally
 //       seeds a second user's wallet to prove the `(user, bucket)` per-row
@@ -134,13 +134,7 @@ async fn user_wallets_grouped_by_bucket_with_cross_bucket_total(ctx: &mut TestCo
     admin_grant_to_bucket(ctx, &realm_id, user_id, bucket_a, amount_a, None).await;
     admin_grant_to_bucket(ctx, &realm_id, user_id, bucket_b, amount_b, None).await;
 
-    let (status, body) = auth_user_get_via_api(
-        ctx,
-        &format!("/api/points/{}/wallets", realm_id),
-        "",
-        &token,
-    )
-    .await;
+    let (status, body) = auth_user_get_via_api(ctx, "/api/points/wallets", "", &token).await;
 
     assert_eq!(
         status,
@@ -256,13 +250,7 @@ async fn user_wallets_single_bucket_no_cross_bucket_total_degradation(ctx: &mut 
     let amount: i64 = 80;
     admin_grant_to_bucket(ctx, &realm_id, user_id, bucket, amount, None).await;
 
-    let (status, body) = auth_user_get_via_api(
-        ctx,
-        &format!("/api/points/{}/wallets", realm_id),
-        "",
-        &token,
-    )
-    .await;
+    let (status, body) = auth_user_get_via_api(ctx, "/api/points/wallets", "", &token).await;
 
     assert_eq!(
         status,
@@ -305,17 +293,11 @@ async fn user_wallets_single_bucket_no_cross_bucket_total_degradation(ctx: &mut 
 #[test_context(TestContext)]
 #[tokio::test]
 async fn user_wallets_empty_when_no_buckets(ctx: &mut TestContext) {
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
     let (token, _user_id) =
         setup_billing_admin_session_with_user(ctx, "cb_t05_wallets_empty@example.com").await;
 
-    let (status, body) = auth_user_get_via_api(
-        ctx,
-        &format!("/api/points/{}/wallets", realm_id),
-        "",
-        &token,
-    )
-    .await;
+    let (status, body) = auth_user_get_via_api(ctx, "/api/points/wallets", "", &token).await;
 
     assert_eq!(
         status,
@@ -386,7 +368,7 @@ async fn user_transactions_include_bucket_id_field(ctx: &mut TestContext) {
 
     let (status, body) = auth_user_get_via_api(
         ctx,
-        &format!("/api/points/{}/transactions", realm_id),
+        "/api/points/transactions",
         &format!("userId={}", user_id),
         &token,
     )
@@ -503,13 +485,8 @@ async fn user_transactions_filtered_by_bucket_id(ctx: &mut TestContext) {
     .await;
 
     let query = format!("userId={}&bucketId={}", user_id, bucket_keep);
-    let (status, body) = auth_user_get_via_api(
-        ctx,
-        &format!("/api/points/{}/transactions", realm_id),
-        &query,
-        &token,
-    )
-    .await;
+    let (status, body) =
+        auth_user_get_via_api(ctx, "/api/points/transactions", &query, &token).await;
 
     assert_eq!(
         status,
@@ -602,13 +579,7 @@ async fn admin_wallets_cross_tenant_with_user_id(ctx: &mut TestContext) {
     admin_grant_to_bucket(ctx, &realm_id, user_a, shared_bucket, 60, None).await;
     admin_grant_to_bucket(ctx, &realm_id, user_b, shared_bucket, 90, None).await;
 
-    let (status, body) = auth_user_get_via_api(
-        ctx,
-        &format!("/api/points/{}/wallets", realm_id),
-        "",
-        &admin_token,
-    )
-    .await;
+    let (status, body) = auth_user_get_via_api(ctx, "/api/points/wallets", "", &admin_token).await;
 
     assert_eq!(
         status,
@@ -692,7 +663,7 @@ async fn admin_wallets_cross_tenant_with_user_id(ctx: &mut TestContext) {
 // which is exactly why the original Gap #2 (service gated on can_manage_points)
 // 403'd real end-users undetected. This scenario closes that blind spot by
 // exercising the self-service `GET /api/user/wallets` endpoint (the admin
-// `GET /api/points/{realmId}/wallets` route is manage-gated):
+// `GET /api/points/wallets` route is manage-gated):
 //   - A points.view-only (non-admin) caller MUST get 200 (view-gated, not
 //     manage-gated) and MUST see only its own wallet rows.
 //   - `?search=<other-user>` MUST NOT leak the other user's rows
@@ -887,7 +858,7 @@ async fn test_multi_wallet_grant_rule_bucket_references_and_user_non_leak(ctx: &
     let (status, body) = crate::tests::helpers::credit_bucket_helpers::auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!("/api/realms/{realm_id}/billing/credit-buckets/{bucket}"),
+        &format!("/api/bill/credit-buckets/{bucket}"),
         &token,
         None,
     )
@@ -918,7 +889,7 @@ async fn test_multi_wallet_grant_rule_bucket_references_and_user_non_leak(ctx: &
     let (status, empty) = crate::tests::helpers::credit_bucket_helpers::auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!("/api/realms/{realm_id}/billing/credit-buckets/{empty_bucket}"),
+        &format!("/api/bill/credit-buckets/{empty_bucket}"),
         &token,
         None,
     )

@@ -26,7 +26,6 @@ export function CreatePermissionDialog({
     },
     mutationFn: (data: CreatePermissionFormData) =>
       createPermissionDefinition({
-        path: { realmId },
         body: data,
       }),
     getSuccessMessage: (response) => {

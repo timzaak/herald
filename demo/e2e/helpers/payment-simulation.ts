@@ -133,7 +133,7 @@ export async function fulfillPayment(
   // Fetch additional details
   try {
     const response = await request.get(
-      `${BASE_URL}/api/bill/${realmId}/purchase/payment-attempts/${attemptId}`,
+      `${BASE_URL}/api/bill/purchase/payment-attempts/${attemptId}`,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -208,7 +208,7 @@ export async function waitForPaymentStatus(
   while (Date.now() - startTime < timeout) {
     try {
       const response = await request.get(
-        `${BASE_URL}/api/bill/${realmId}/purchase/payment-attempts/${attemptId}`,
+        `${BASE_URL}/api/bill/purchase/payment-attempts/${attemptId}`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -258,7 +258,7 @@ export async function getPaymentStatus(
 } | null> {
   try {
     const response = await request.get(
-      `${BASE_URL}/api/bill/${realmId}/purchase/payment-attempts/${attemptId}`,
+      `${BASE_URL}/api/bill/purchase/payment-attempts/${attemptId}`,
       {
         headers: {
           'Content-Type': 'application/json',

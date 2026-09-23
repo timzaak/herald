@@ -57,7 +57,6 @@ export function invoiceListQueryOptions(
     queryKey: invoiceKeys.list(realmId, query),
     queryFn: async () => {
       const response = await listInvoices({
-        path: { realmId },
         query,
       })
       if (response.error) throw response.error
@@ -74,7 +73,7 @@ export function invoiceDetailQueryOptions(realmId: string, invoiceId: string) {
     queryKey: invoiceKeys.detail(realmId, invoiceId),
     queryFn: async () => {
       const response = await getInvoice({
-        path: { realmId, invoiceId },
+        path: { invoiceId },
       })
       if (response.error) throw response.error
       return response.data as InvoiceDetailResponse
@@ -88,9 +87,7 @@ export function sellerConfigQueryOptions(realmId: string) {
   return queryOptions({
     queryKey: invoiceKeys.sellerConfig(realmId),
     queryFn: async () => {
-      const response = await getSellerConfig({
-        path: { realmId },
-      })
+      const response = await getSellerConfig({})
       // 404 is expected when no config exists yet (first-time setup)
       if (response.error) {
         const status = (response.error as { status?: number }).status
@@ -148,7 +145,7 @@ export function invoicePolicyConfigQueryOptions(realmId: string) {
     queryKey: invoiceKeys.policyConfig(realmId),
     queryFn: async () => {
       const response = await listRealmConfigsByType({
-        path: { realmId, configType: 'invoice_policy' },
+        path: { configType: 'invoice_policy' },
       })
       if (response.error) {
         const status = (response.error as { status?: number }).status

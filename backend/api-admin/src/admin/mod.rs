@@ -14,7 +14,7 @@ pub mod permission_definitions;
 
 /// Admin router with permission middleware applied
 /// This is the secure version that should be used in production
-/// Routes are mounted at /api/roles/{realmId}/...
+/// Routes are mounted at /api/roles/...
 ///
 /// **Architecture Note**: Permission checks are performed in Service layer (HTTP handlers)
 /// NOT in HTTP middleware, following six-sided architecture principles.
@@ -24,17 +24,10 @@ pub fn admin_router_with_middleware(state: AppState) -> Router<AppState> {
     Router::new()
         // RBAC 元数据管理 - 仅主管理员可访问
         // Permission checks are done in Service layer or HTTP handlers
+        // Realm is session-derived: the admin console token pins it.
         .nest(
-            "/{realmId}/define",
+            "/define",
             role_definitions::role_defs_router()
-                .layer(axum::middleware::from_fn(require_admin_console_token))
-                .layer(from_fn_with_state(state.clone(), inject_token_identity)),
-        )
-        // 用户管理 - 主管理员 + 次管理员可访问
-        // Permission checks are done in HTTP handlers using enforce()
-        .nest(
-            "/{realmId}/users",
-            admin_users::router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state(state.clone(), inject_token_identity)),
         )

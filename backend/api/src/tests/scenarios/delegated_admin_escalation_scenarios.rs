@@ -4,7 +4,7 @@
 /// 不能通过任何 RBAC 管理端点获得自己未持有的权限：
 /// - POST /api/permission/roles/{roleId}/policies（add_policy_to_role）
 ///   只能附加自己持有的权限
-/// - PUT /api/roles/{realmId}/define/{roleId}/permissions
+/// - PUT /api/roles/define/{roleId}/permissions
 ///   （assign_permission_to_role）只能附加自己持有的权限
 /// - POST /api/permission/users/{userId}/roles（assign_roles_to_user）
 ///   不能授予自己未持有其全部权限的 builtin 角色
@@ -194,10 +194,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri(format!(
-                "/api/roles/{}/define/{}/permissions",
-                ctx._realm_id, victim_role
-            ))
+            .uri(format!("/api/roles/define/{}/permissions", victim_role))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", sub_token))
             .body(Body::from(
@@ -225,10 +222,7 @@ mod tests {
         // 正向对照：realm-admin 挂载成功
         let req = Request::builder()
             .method("POST")
-            .uri(format!(
-                "/api/roles/{}/define/{}/permissions",
-                ctx._realm_id, victim_role
-            ))
+            .uri(format!("/api/roles/define/{}/permissions", victim_role))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(

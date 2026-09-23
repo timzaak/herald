@@ -22,11 +22,10 @@ use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 /// Optionally regenerate the client secret.
 #[utoipa::path(
     put,
-    path = "/api/client/{realmId}/{clientAppId}",
+    path = "/api/client/{clientAppId}",
     tag = "client",
     request_body = ClientAppUpdateRequest,
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("clientAppId" = Uuid, Path, description = "client app UUID"),
     ),
     responses(
@@ -38,11 +37,12 @@ use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 pub async fn update_client_app(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
     _headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<ClientAppUpdateRequest>>,
 ) -> Result<ApiResult<ClientAppItem>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "client applications")?;
+    let admin = AdminIdentity::require(identity, "client applications")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "clients", "manage")
         .await?;

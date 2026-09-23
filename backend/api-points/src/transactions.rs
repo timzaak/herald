@@ -1,6 +1,6 @@
 // Points Transaction Handlers
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Query, State};
 use uuid::Uuid;
 
 use crate::types::{ListTransactionsQuery, PointsTransactionResponse, UserTransactionsQuery};
@@ -18,9 +18,8 @@ use herald_core::domain::points::ports::TransactionFilters;
 /// List points transactions with filters
 #[utoipa::path(
     get,
-    path = "/api/points/{realmId}/transactions",
+    path = "/api/points/transactions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Option<String>, Query, description = "Filter by user ID"),
         ("transactionType" = Option<String>, Query, description = "Filter by transaction type"),
         ("clientAppId" = Option<String>, Query, description = "Filter by client app ID"),
@@ -46,9 +45,9 @@ use herald_core::domain::points::ports::TransactionFilters;
 pub async fn list_transactions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<ListTransactionsQuery>,
 ) -> Result<ApiResult<PageResponse<PointsTransactionResponse>>, ApiError> {
+    let realm_id = identity.realm_id();
     let user_id = require_authenticated_user_in_realm(&identity, &realm_id, "points transactions")?;
     state
         .points_service

@@ -40,7 +40,6 @@ export function GooglePlayConfigFormPage({
     isEditing,
     mutationFn: async (data) => {
       const response = await batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildGoogleConfigRequest(data) },
       })
       if (response.error) throw response.error

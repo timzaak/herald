@@ -61,7 +61,7 @@ export function UserRolesDialog({ open, onOpenChange, userId, userEmail }: UserR
     try {
       // Use PUT to replace all roles at once
       await updateUserRoles({
-        path: { realmId: realmId, userId: userId },
+        path: { userId: userId },
         body: { roleIds: newRoleIds },
       })
 

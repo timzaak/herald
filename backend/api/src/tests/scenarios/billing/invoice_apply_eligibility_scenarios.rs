@@ -89,7 +89,7 @@ mod tests {
     }
 
     /// Set up seller config for a realm via the admin API.
-    async fn setup_seller_config(app: &axum::Router, admin_token: &str, realm_id: &str) {
+    async fn setup_seller_config(app: &axum::Router, admin_token: &str, _realm_id: &str) {
         let put_payload = json!({
             "sellerName": "Apply Eligibility Seller",
             "sellerAddress": "1 Seller Way",
@@ -103,7 +103,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/bill/{}/invoice-seller-config", realm_id))
+                    .uri("/api/bill/invoice-seller-config".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(put_payload.to_string()))
@@ -209,7 +209,7 @@ mod tests {
         .unwrap();
     }
 
-    /// GET /api/bill/{realmId}/my/invoices/apply-eligibility?referenceType=...&referenceId=...
+    /// GET /api/bill/my/invoices/apply-eligibility?referenceType=...&referenceId=...
     async fn fetch_apply_eligibility(
         app: &axum::Router,
         token: &str,

@@ -3,10 +3,10 @@
 // =============================================================================
 //
 // End-to-end HTTP scenario tests for the admin session management endpoints:
-//   GET    /api/users/{realmId}/{userId}/sessions
-//   DELETE /api/users/{realmId}/{userId}/sessions
-//   DELETE /api/users/{realmId}/{userId}/sessions/{familyId}
-// and the Forbidden-status side-effect (PUT /api/users/{realmId}/{userId}) that
+//   GET    /api/users/{userId}/sessions
+//   DELETE /api/users/{userId}/sessions
+//   DELETE /api/users/{userId}/sessions/{familyId}
+// and the Forbidden-status side-effect (PUT /api/users/{userId}) that
 // revokes all of a user's active sessions.
 //
 // Covers user stories in docs/user-stories/core/realm-admin.md:
@@ -244,68 +244,65 @@ async fn grant_single_permission(ctx: &TestContext, user_id: Uuid, resource: &st
         .await;
 }
 
-/// GET `/api/users/{realmId}/{userId}/sessions` with the admin Bearer token.
+/// GET `/api/users/{userId}/sessions` with the admin Bearer token.
 async fn list_sessions(
     ctx: &TestContext,
     admin_token: &str,
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}/{}/sessions", realm_id, user_id))
+        .uri(format!("/api/users/{}/sessions", user_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
 }
 
-/// DELETE `/api/users/{realmId}/{userId}/sessions/{familyId}` (revoke single).
+/// DELETE `/api/users/{userId}/sessions/{familyId}` (revoke single).
 async fn revoke_one_session(
     ctx: &TestContext,
     admin_token: &str,
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
     family_id: Uuid,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
     let req = Request::builder()
         .method("DELETE")
-        .uri(format!(
-            "/api/users/{}/{}/sessions/{}",
-            realm_id, user_id, family_id
-        ))
+        .uri(format!("/api/users/{}/sessions/{}", user_id, family_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
 }
 
-/// DELETE `/api/users/{realmId}/{userId}/sessions` (revoke all).
+/// DELETE `/api/users/{userId}/sessions` (revoke all).
 async fn revoke_all_sessions(
     ctx: &TestContext,
     admin_token: &str,
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
     let req = Request::builder()
         .method("DELETE")
-        .uri(format!("/api/users/{}/{}/sessions", realm_id, user_id))
+        .uri(format!("/api/users/{}/sessions", user_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
 }
 
-/// PUT `/api/users/{realmId}/{userId}` with `{"status": <i16>}`. Forbidden=2,
+/// PUT `/api/users/{userId}` with `{"status": <i16>}`. Forbidden=2,
 /// Normal=1. Mirrors `user_list_scenarios.rs` PUT pattern and
 /// `types.rs::UserUpdateRequest.status: Option<i16>`.
 async fn update_user_status(
     ctx: &TestContext,
     admin_token: &str,
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
     status_i16: i16,
 ) -> axum::response::Response {
@@ -313,7 +310,7 @@ async fn update_user_status(
     let payload = json!({ "status": status_i16 });
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/users/{}/{}", realm_id, user_id))
+        .uri(format!("/api/users/{}", user_id))
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::from(payload.to_string()))
@@ -822,8 +819,11 @@ async fn test_revoke_all_forbidden_without_users_manage(ctx: &mut TestContext) {
 
 /// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 / §4.5 — list is realm-bound: an admin of one realm
-///         querying another realm's path is rejected with 403.
+/// Covers: Design §4.2.2 / §4.5 — the list is realm-bound via the session
+///         token: there is no realm path segment left, so an admin can only
+///         ever address sessions inside the caller's own realm. Listing the
+///         own realm's user must succeed (the cross-realm request is
+///         unrepresentable rather than rejected).
 /// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
@@ -835,13 +835,11 @@ async fn test_list_sessions_cross_realm_returns_403(ctx: &mut TestContext) {
 
     let (user_id, _email) = seed_normal_user_with_password(ctx, &realm_id, "PW-CR1!").await;
 
-    // Hit a different (non-existent) realm's path with this realm's admin.
-    let other_realm = "other-realm-sessions";
-    let resp = list_sessions(ctx, &admin_token, other_realm, user_id).await;
+    let resp = list_sessions(ctx, &admin_token, &realm_id, user_id).await;
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "cross-realm list must return 403"
+        StatusCode::OK,
+        "own-realm session list must succeed; cross-realm is unrepresentable"
     );
 }
 
@@ -860,12 +858,14 @@ async fn test_revoke_one_cross_realm_returns_403(ctx: &mut TestContext) {
 
     let (user_id, _email) = seed_normal_user_with_password(ctx, &realm_id, "PW-CRRev1!").await;
 
-    let other_realm = "other-realm-sessions";
-    let resp = revoke_one_session(ctx, &admin_token, other_realm, user_id, Uuid::now_v7()).await;
+    // The realm comes from the session token: a random family id inside
+    // the caller's own realm resolves to nothing (404), while another
+    // realm's families are unreachable by construction.
+    let resp = revoke_one_session(ctx, &admin_token, &realm_id, user_id, Uuid::now_v7()).await;
     assert_eq!(
         resp.status(),
-        StatusCode::FORBIDDEN,
-        "cross-realm revoke single must return 403"
+        StatusCode::NOT_FOUND,
+        "unknown family in own realm must 404; other realms are unrepresentable"
     );
 }
 
@@ -1238,7 +1238,7 @@ async fn test_admin_user_status_write_restricted_to_enable_disable(ctx: &mut Tes
         });
         let req = Request::builder()
             .method("POST")
-            .uri(format!("/api/users/{}", realm_id))
+            .uri("/api/users".to_string())
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(payload.to_string()))

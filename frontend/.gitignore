@@ -21,3 +21,6 @@ src/paraglide/
 
 # Test coverage
 coverage/
+
+# TypeScript incremental build info
+*.tsbuildinfo

@@ -17,12 +17,11 @@ use uuid::Uuid;
 /// Update role
 #[utoipa::path(
     put,
-    path = "/api/roles/{realmId}/define/{roleId}",
+    path = "/api/roles/define/{roleId}",
     tag = "role-definitions",
     summary = "Update a role",
     description = "Update role definition name and description. Requires `roles.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID")
     ),
     request_body = RoleUpdateRequest,
@@ -37,11 +36,12 @@ use uuid::Uuid;
 )]
 pub async fn update_role(
     State(state): State<AppState>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
     Extension(identity): Extension<Identity>,
     Valid(Json(payload)): Valid<Json<RoleUpdateRequest>>,
 ) -> Result<ApiResult<RoleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "role definitions")?;
+    let realm_id = identity.realm_id();
+    let admin = AdminIdentity::require_in_realm(identity.clone(), &realm_id, "role definitions")?;
     admin.require_permission(&state, "roles", "manage").await?;
     // Check if role exists and get current data
     let current_role: Option<(bool, String)> =

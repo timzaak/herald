@@ -1,8 +1,5 @@
 use crate::role_definitions::types::{ErrorResponse, RoleResponse};
-use axum::{
-    Extension,
-    extract::{Path, State},
-};
+use axum::{Extension, extract::State};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
@@ -11,14 +8,11 @@ use herald_core::domain::authentication::Identity;
 /// List roles by realm_id for admin-web-console client
 #[utoipa::path(
     get,
-    path = "/api/roles/{realmId}/define",
+    path = "/api/roles/define",
     tag = "role-definitions",
     summary = "List roles in the realm",
     description = "List all role definitions for the admin-web-console client. Requires `roles.view` permission.",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "List of roles", body = Vec<RoleResponse>),
         (status = 403, description = "Forbidden - Insufficient permissions (requires roles.view)", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -28,9 +22,9 @@ use herald_core::domain::authentication::Identity;
 pub async fn list_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<ApiResult<Vec<RoleResponse>>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "role definitions")?;
+    let admin = AdminIdentity::require(identity, "role definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "view").await?;
     // Use the client_id string directly (not the UUID)
     // roles.client_id stores the client identifier string (e.g., 'admin-web-console')

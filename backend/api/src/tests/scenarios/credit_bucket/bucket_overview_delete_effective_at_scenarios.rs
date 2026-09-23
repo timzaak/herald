@@ -40,7 +40,7 @@
 //     ledger rows are future-effective.
 //
 // All scenarios exercise the real production HTTP path through the unified test
-// router (`/api/realms/{realmId}/billing/credit-buckets...`) gated on Realm
+// router (`/api/bill/credit-buckets...`) gated on Realm
 // Admin `points.manage`. Derived balance is asserted via direct SQL mirroring
 // the production `compute_bucket_available_balances` predicate (the
 // helper), NOT by reading any Stored wallet column.
@@ -277,7 +277,7 @@ async fn test_bucket_overview_excludes_future_effective(ctx: &mut TestContext) {
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "GET",
-        &format!("/api/realms/{}/billing/credit-buckets/overview", realm_id),
+        "/api/bill/credit-buckets/overview",
         &token,
         None,
     )
@@ -405,7 +405,7 @@ async fn test_bucket_delete_rejected_when_only_future_effective(ctx: &mut TestCo
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -542,7 +542,7 @@ async fn test_bucket_delete_rejected_when_has_effective_balance(ctx: &mut TestCo
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )
@@ -656,7 +656,7 @@ async fn test_bucket_delete_rejected_when_has_active_subscription(ctx: &mut Test
     let (status, body) = auth_admin_request_via_api(
         ctx,
         "DELETE",
-        &format!("/api/realms/{}/billing/credit-buckets/{}", realm_id, bucket),
+        &format!("/api/bill/credit-buckets/{}", bucket),
         &token,
         None,
     )

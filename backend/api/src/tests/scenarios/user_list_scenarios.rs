@@ -5,7 +5,7 @@
 // 测试用户列表 API 的功能性和错误处理
 //
 // **问题背景**：
-// API 端点：GET /api/roles/{realmId}/users?page=0&pageSize=20
+// API 端点：GET /api/users?page=0&pageSize=20
 // 错误：返回 500 Internal Server Error
 //
 // **测试目标**：
@@ -77,17 +77,11 @@ async fn test_scenario_admin_list_users_success(ctx: &mut TestContext) {
     // ============================================================================
     // Step 1: 调用用户列表 API
     // ============================================================================
-    println!(
-        "[Step 1] 调用 GET /api/roles/{}/users?page=0&pageSize=20",
-        ctx._realm_id
-    );
+    println!("[Step 1] 调用 GET /api/users?page=0&pageSize=20");
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/roles/{}/users?page=0&pageSize=20",
-            ctx._realm_id
-        ))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -357,7 +351,7 @@ async fn test_scenario_user_list_includes_nicknames(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/users/admin/{}", user1_id))
+        .uri(format!("/api/users/{}", user1_id))
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::from(serde_json::to_string(&update_payload).unwrap()))
@@ -369,10 +363,7 @@ async fn test_scenario_user_list_includes_nicknames(ctx: &mut TestContext) {
     // Fetch user list
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/roles/{}/users?page=0&pageSize=20",
-            ctx._realm_id
-        ))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();

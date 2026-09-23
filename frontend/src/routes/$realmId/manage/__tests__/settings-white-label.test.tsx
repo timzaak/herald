@@ -205,9 +205,9 @@ function installSiblingTabHandlers() {
       HttpResponse.json({ id: 'test-realm', name: 'Test Realm', description: '' })
     ),
     // listRealmConfigs (TOTP/Turnstile/Registration/Email parse from this)
-    http.get(`${API_BASE_URL}/api/configs/test-realm`, () => HttpResponse.json([])),
+    http.get(`${API_BASE_URL}/api/configs`, () => HttpResponse.json([])),
     // email status
-    http.get(`${API_BASE_URL}/api/configs/test-realm/email/status`, () =>
+    http.get(`${API_BASE_URL}/api/configs/email/status`, () =>
       HttpResponse.json({ configured: false })
     ),
     // passkey realm config

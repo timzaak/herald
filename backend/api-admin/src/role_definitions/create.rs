@@ -1,8 +1,5 @@
 use crate::role_definitions::types::{ErrorResponse, RoleCreateRequest, RoleResponse};
-use axum::{
-    Extension, Json,
-    extract::{Path, State},
-};
+use axum::{Extension, Json, extract::State};
 use axum_valid::Valid;
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
@@ -16,14 +13,11 @@ use herald_core::domain::authentication::Identity;
 /// Create a new role
 #[utoipa::path(
     post,
-    path = "/api/roles/{realmId}/define",
+    path = "/api/roles/define",
     tag = "role-definitions",
     summary = "Create a new role",
     description = "Create a new role definition. Requires `roles.manage` permission.",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = RoleCreateRequest,
+        request_body = RoleCreateRequest,
     responses(
         (status = 201, description = "Role created", body = RoleResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -33,12 +27,12 @@ use herald_core::domain::authentication::Identity;
     security(("bearer_auth" = []))
 )]
 pub async fn create_role(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Valid(Json(payload)): Valid<Json<RoleCreateRequest>>,
 ) -> Result<ApiResult<RoleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "role definitions")?;
+    let admin = AdminIdentity::require(identity, "role definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "manage").await?;
     let insert = sqlx::query_as::<_, RoleResponse>(
         r#"

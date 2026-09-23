@@ -3,8 +3,8 @@
 // =============================================================================
 //
 // Verifies API Key role assignment endpoints:
-//   GET  /api/api-keys/{realmId}/{apiKeyId}/roles  -> requires api_keys.view
-//   PUT  /api/api-keys/{realmId}/{apiKeyId}/roles  -> requires roles.manage
+//   GET  /api/api-keys/{apiKeyId}/roles  -> requires api_keys.view
+//   PUT  /api/api-keys/{apiKeyId}/roles  -> requires roles.manage
 //
 // User Stories covered:
 // - US-RA-006: User role assignment (API Key reuses same model)
@@ -168,7 +168,7 @@ async fn seed_role(ctx: &TestContext, name: &str) -> uuid::Uuid {
 // Covers: US-RA-006, US-TP-012
 //
 // Given an API Key with assigned roles,
-// When calling GET /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling GET /api/api-keys/{apiKeyId}/roles,
 // Then response is 200 OK with the full role list.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -190,7 +190,7 @@ async fn test_get_api_key_roles_with_roles(ctx: &mut TestContext) {
     // When: calling GET roles endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -205,7 +205,7 @@ async fn test_get_api_key_roles_with_roles(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -244,7 +244,7 @@ async fn test_get_api_key_roles_with_roles(ctx: &mut TestContext) {
 // Covers: US-RA-006
 //
 // Given an API Key with no roles assigned,
-// When calling GET /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling GET /api/api-keys/{apiKeyId}/roles,
 // Then response is 200 OK with an empty roles array.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -262,7 +262,7 @@ async fn test_get_api_key_roles_empty(ctx: &mut TestContext) {
     // When: calling GET roles endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -294,7 +294,7 @@ async fn test_get_api_key_roles_empty(ctx: &mut TestContext) {
 // Covers: US-RA-006
 //
 // Given a nonexistent API Key ID,
-// When calling GET /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling GET /api/api-keys/{apiKeyId}/roles,
 // Then response is 404 Not Found.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -312,10 +312,7 @@ async fn test_get_api_key_roles_not_found(ctx: &mut TestContext) {
     // When: calling GET roles for nonexistent key
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/api-keys/{}/{}/roles",
-            ctx._realm_id, fake_key_id
-        ))
+        .uri(format!("/api/api-keys/{}/roles", fake_key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -338,7 +335,7 @@ async fn test_get_api_key_roles_not_found(ctx: &mut TestContext) {
 // Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
 //
 // Given an API Key with no roles and a valid role in the realm,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with the role ID,
+// When calling PUT /api/api-keys/{apiKeyId}/roles with the role ID,
 // Then roles are assigned and a subsequent GET confirms the assignment.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -357,7 +354,7 @@ async fn test_replace_api_key_roles_add(ctx: &mut TestContext) {
     // When: calling PUT to add the role
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -375,7 +372,7 @@ async fn test_replace_api_key_roles_add(ctx: &mut TestContext) {
     // And: GET confirms the role is assigned
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -399,7 +396,7 @@ async fn test_replace_api_key_roles_add(ctx: &mut TestContext) {
 // Covers: US-RA-006
 //
 // Given an API Key with existing roles,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with an empty array,
+// When calling PUT /api/api-keys/{apiKeyId}/roles with an empty array,
 // Then all roles are cleared and GET returns an empty array.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -420,7 +417,7 @@ async fn test_replace_api_key_roles_clear(ctx: &mut TestContext) {
     let empty_roles: Vec<uuid::Uuid> = vec![];
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": empty_roles }).to_string()))
@@ -438,7 +435,7 @@ async fn test_replace_api_key_roles_clear(ctx: &mut TestContext) {
     // And: GET confirms no roles
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -461,7 +458,7 @@ async fn test_replace_api_key_roles_clear(ctx: &mut TestContext) {
 // Covers: US-RA-006, US-TP-013
 //
 // Given an API Key with role A assigned,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with role B (and not A),
+// When calling PUT /api/api-keys/{apiKeyId}/roles with role B (and not A),
 // Then only role B remains assigned.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -482,7 +479,7 @@ async fn test_replace_api_key_roles_swap(ctx: &mut TestContext) {
     // When: calling PUT to swap to role B only
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_b] }).to_string()))
@@ -500,7 +497,7 @@ async fn test_replace_api_key_roles_swap(ctx: &mut TestContext) {
     // And: GET confirms only role B
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -524,7 +521,7 @@ async fn test_replace_api_key_roles_swap(ctx: &mut TestContext) {
 // Covers: US-RA-006
 //
 // Given an API Key and a nonexistent role UUID,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with that UUID,
+// When calling PUT /api/api-keys/{apiKeyId}/roles with that UUID,
 // Then response is 400 Bad Request.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -543,7 +540,7 @@ async fn test_replace_api_key_roles_not_found_role(ctx: &mut TestContext) {
     // When: calling PUT with the nonexistent role
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [fake_role_id] }).to_string()))
@@ -567,7 +564,7 @@ async fn test_replace_api_key_roles_not_found_role(ctx: &mut TestContext) {
 // Covers: US-RA-006, design section 4.2.2 builtin role rejection
 //
 // Given an API Key and a builtin role (is_builtin=true),
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with that role,
+// When calling PUT /api/api-keys/{apiKeyId}/roles with that role,
 // Then response is 400 Bad Request and no role bindings are written.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -598,7 +595,7 @@ async fn test_replace_api_key_roles_rejects_builtin_roles(ctx: &mut TestContext)
     // When: calling PUT with the builtin role
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
@@ -618,7 +615,7 @@ async fn test_replace_api_key_roles_rejects_builtin_roles(ctx: &mut TestContext)
     // And: no roles are assigned (GET returns empty)
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -644,7 +641,7 @@ async fn test_replace_api_key_roles_rejects_builtin_roles(ctx: &mut TestContext)
 // Covers: US-RA-006, design section 4.5 permission enforcement
 //
 // Given a user without api_keys.view permission,
-// When calling GET /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling GET /api/api-keys/{apiKeyId}/roles,
 // Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -662,7 +659,7 @@ async fn test_get_api_key_roles_forbidden(ctx: &mut TestContext) {
     // When: calling GET roles without api_keys.view
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -685,7 +682,7 @@ async fn test_get_api_key_roles_forbidden(ctx: &mut TestContext) {
 // Covers: US-RA-006, design section 4.5 permission enforcement
 //
 // Given a user without roles.manage permission,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling PUT /api/api-keys/{apiKeyId}/roles,
 // Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -704,7 +701,7 @@ async fn test_replace_api_key_roles_forbidden(ctx: &mut TestContext) {
     // When: calling PUT roles without roles.manage
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -728,7 +725,7 @@ async fn test_replace_api_key_roles_forbidden(ctx: &mut TestContext) {
 // Covers: US-RA-006, design section 4.5 cache invalidation, US-TP-012
 //
 // Given an API Key with cached permission data,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles,
+// When calling PUT /api/api-keys/{apiKeyId}/roles,
 // Then the principal role cache is invalidated so subsequent permission
 // checks reflect the new role assignments immediately.
 #[test_context(TestContext)]
@@ -773,7 +770,7 @@ async fn test_api_key_roles_cache_invalidation(ctx: &mut TestContext) {
     // When: calling PUT to assign the role (this must invalidate cache)
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -845,7 +842,7 @@ async fn test_api_key_roles_cache_invalidation_on_remove(ctx: &mut TestContext) 
     // Step 1: Assign the role to the API key
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -876,7 +873,7 @@ async fn test_api_key_roles_cache_invalidation_on_remove(ctx: &mut TestContext) 
     // Step 3: Remove the role (empty roleIds)
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [] }).to_string()))
@@ -942,7 +939,7 @@ async fn seed_scoped_client_app(ctx: &TestContext, client_id: &str, name: &str) 
 // Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
 //
 // Given: Realm has built-in API Key Client App (client_id='admin-api-client', enabled=true)
-// When: POST /api/api-keys/{realmId} to create new API Key
+// When: POST /api/api-keys to create new API Key
 // Then: 201 Created, DB row client_api_keys.client_app_id points to built-in Client App UUID
 #[test_context(TestContext)]
 #[tokio::test]
@@ -960,7 +957,7 @@ async fn test_create_api_key_uses_realm_api_key_client(ctx: &mut TestContext) {
     // When: creating an API Key via POST endpoint
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
@@ -1009,7 +1006,7 @@ async fn test_create_api_key_returns_plaintext_when_role_binding_fails(ctx: &mut
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
@@ -1051,7 +1048,7 @@ async fn test_create_api_key_returns_plaintext_when_role_binding_fails(ctx: &mut
 // Covers: US-RA-018
 //
 // Given: Realm has an ordinary Client App
-// When: POST /api/api-keys/{realmId} with clientAppId
+// When: POST /api/api-keys with clientAppId
 // Then: 201 Created, response and DB row point to the selected Client App
 #[test_context(TestContext)]
 #[tokio::test]
@@ -1069,7 +1066,7 @@ async fn test_create_api_key_accepts_client_app_scope(ctx: &mut TestContext) {
     // When: creating an API Key with clientAppId
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
@@ -1126,7 +1123,7 @@ async fn test_create_api_key_accepts_client_app_scope(ctx: &mut TestContext) {
 // Covers: US-RA-006, US-TP-012
 //
 // Given: Realm's built-in Client App does not exist
-// When: POST /api/api-keys/{realmId} to create new API Key
+// When: POST /api/api-keys to create new API Key
 // Then: Error response (400), no new API Key created
 #[test_context(TestContext)]
 #[tokio::test]
@@ -1157,7 +1154,7 @@ async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut T
     // When: attempting to create an API Key
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
@@ -1197,7 +1194,7 @@ async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut T
 // Covers: US-RA-006, US-TP-014
 //
 // Given: API Key exists linked to built-in Client App
-// When: DELETE /api/api-keys/{realmId}/{apiKeyId}
+// When: DELETE /api/api-keys/{apiKeyId}
 // Then: 204 No Content, built-in Client App still exists, API Key removed
 #[test_context(TestContext)]
 #[tokio::test]
@@ -1231,7 +1228,7 @@ async fn test_delete_api_key_keeps_realm_api_key_client(ctx: &mut TestContext) {
     // When: deleting the API Key
     let req = Request::builder()
         .method("DELETE")
-        .uri(format!("/api/api-keys/{}/{}", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -1334,7 +1331,7 @@ async fn test_disable_api_key_does_not_update_realm_api_key_client(ctx: &mut Tes
     // When: disabling the API Key (PUT with enabled=false)
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "enabled": false }).to_string()))
@@ -1390,7 +1387,7 @@ async fn test_disable_api_key_does_not_update_realm_api_key_client(ctx: &mut Tes
 // Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
 //
 // Given: API Key exists, realm has built-in Client App (client_id='admin-api-client')
-// When: PUT /api/api-keys/{realmId}/{apiKeyId}/roles with valid role IDs
+// When: PUT /api/api-keys/{apiKeyId}/roles with valid role IDs
 // Then: user_roles rows have client_id='admin-api-client', principal_type='api_key',
 //       principal_id=api_key_id, user_id=NULL
 #[test_context(TestContext)]
@@ -1413,7 +1410,7 @@ async fn test_api_key_roles_use_realm_api_key_client_id(ctx: &mut TestContext) {
     // When: assigning role via PUT endpoint
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -1483,7 +1480,7 @@ async fn test_api_key_roles_use_realm_api_key_client_id(ctx: &mut TestContext) {
 //
 // Given a caller holding roles.manage but NOT users.manage,
 // And a custom role carrying users.manage,
-// When calling PUT /api/api-keys/{realmId}/{apiKeyId}/roles with that role,
+// When calling PUT /api/api-keys/{apiKeyId}/roles with that role,
 // Then response is 403 Forbidden and no roles are assigned;
 // After the caller is granted users.manage, the same PUT succeeds.
 #[test_context(TestContext)]
@@ -1530,7 +1527,7 @@ async fn test_replace_api_key_roles_grantor_must_hold_target_role_permissions(
     // When: the under-privileged grantor assigns the role.
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))
@@ -1545,7 +1542,7 @@ async fn test_replace_api_key_roles_grantor_must_hold_target_role_permissions(
     // And: nothing was assigned.
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -1561,7 +1558,7 @@ async fn test_replace_api_key_roles_grantor_must_hold_target_role_permissions(
     grant_single_permission(ctx, &admin_id, "users", "manage").await;
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/api-keys/{}/{}/roles", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}/roles", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json!({ "roleIds": [role_id] }).to_string()))

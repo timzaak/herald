@@ -319,7 +319,7 @@ async function fetchWalletsByBucket(
   // legacy admin endpoint path (kept for backward compat; 401s → null → 0).
   const url = apiContext
     ? `${walletsApiBaseUrl()}/api/user/wallets`
-    : `${walletsApiBaseUrl()}/api/points/${realmId}/wallets`
+    : `${walletsApiBaseUrl()}/api/points/wallets`
   const resp = await requestContext.get(url)
   if (!resp.ok()) return null
   const body = await resp.json()

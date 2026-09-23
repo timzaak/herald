@@ -12,10 +12,9 @@ use uuid::Uuid;
 /// Get role by ID
 #[utoipa::path(
     get,
-    path = "/api/roles/{realmId}/define/{roleId}",
+    path = "/api/roles/define/{roleId}",
     tag = "role-definitions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("roleId" = Uuid, Path, description = "Role ID")
     ),
     responses(
@@ -28,9 +27,10 @@ use uuid::Uuid;
 pub async fn get_role(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
 ) -> Result<ApiResult<RoleResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "role definitions")?;
+    let admin = AdminIdentity::require(identity, "role definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "view").await?;
     let row = sqlx::query_as::<_, RoleResponse>(
         r#"

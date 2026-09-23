@@ -36,7 +36,7 @@ export async function seedOAuthConfig(
   input: OAuthSeedInput,
 ): Promise<void> {
   const response = await request.post(
-    `${BASE_URL}/api/oauth/${realmId}/configs`,
+    `${BASE_URL}/api/oauth-configs`,
     {
       data: {
         providerType: input.providerType,
@@ -54,7 +54,7 @@ export async function seedOAuthConfig(
       `[realm-seed] OAuth config for "${input.providerType}" already exists in realm "${realmId}", updating...`,
     )
     const updateResponse = await request.put(
-      `${BASE_URL}/api/oauth/${realmId}/configs/${input.providerType}`,
+      `${BASE_URL}/api/oauth-configs/${input.providerType}`,
       {
         data: {
           clientId: input.clientId,
@@ -103,7 +103,7 @@ async function seedBatchConfigs(
   configs: BatchConfigItem[],
 ): Promise<void> {
   const response = await request.post(
-    `${BASE_URL}/api/configs/${realmId}/batch`,
+    `${BASE_URL}/api/configs/batch`,
     {
       data: {
         configs: configs.map((c) => ({

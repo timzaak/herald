@@ -12,13 +12,9 @@ pub mod user_roles;
 pub fn permission_router() -> Router<AppState> {
     Router::new()
         // Note: /check endpoint is defined at server level without auth middleware
-        // Permission definitions (moved from /api/system)
-        .nest(
-            "/{realmId}/define",
-            crate::admin::permission_definitions::router(),
-        )
-        // Role policies (moved from /api/system)
+        // Permission definitions — realm is
+        // session-derived (admin console token pins it).
+        .nest("/define", crate::admin::permission_definitions::router())
         .nest("/roles", role_policies::router())
-        // User roles (moved from /api/system)
         .nest("/users", user_roles::router())
 }

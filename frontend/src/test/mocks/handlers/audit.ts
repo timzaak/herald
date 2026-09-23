@@ -47,34 +47,31 @@ const MOCK_AUDIT_DETAIL = {
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
 }
 
-export const getAuditListHandler = http.get(
-  `${API_BASE_URL}/api/audit/:realmId`,
-  ({ request, params }) => {
-    const url = new URL(request.url)
-    const page = parseInt(url.searchParams.get('page') || '0')
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '20')
-    const category = url.searchParams.get('category')
-    const action = url.searchParams.get('action')
+export const getAuditListHandler = http.get(`${API_BASE_URL}/api/audit`, ({ request, params }) => {
+  const url = new URL(request.url)
+  const page = parseInt(url.searchParams.get('page') || '0')
+  const pageSize = parseInt(url.searchParams.get('pageSize') || '20')
+  const category = url.searchParams.get('category')
+  const action = url.searchParams.get('action')
 
-    let filtered = MOCK_AUDIT_LIST.items
-    if (category) {
-      filtered = filtered.filter((item) => item.category === category)
-    }
-    if (action) {
-      filtered = filtered.filter((item) => item.action === action)
-    }
-
-    return HttpResponse.json({
-      items: filtered,
-      page,
-      pageSize,
-      total: filtered.length,
-    })
+  let filtered = MOCK_AUDIT_LIST.items
+  if (category) {
+    filtered = filtered.filter((item) => item.category === category)
   }
-)
+  if (action) {
+    filtered = filtered.filter((item) => item.action === action)
+  }
+
+  return HttpResponse.json({
+    items: filtered,
+    page,
+    pageSize,
+    total: filtered.length,
+  })
+})
 
 export const getAuditDetailHandler = http.get(
-  `${API_BASE_URL}/api/audit/:realmId/:eventId`,
+  `${API_BASE_URL}/api/audit/:eventId`,
   ({ params }) => {
     const { eventId } = params
     if (eventId === 'not-found') {

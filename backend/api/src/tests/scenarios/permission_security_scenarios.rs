@@ -104,7 +104,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let create_req = Request::builder()
             .method("POST")
-            .uri(format!("/api/permission/{}/define", ctx._realm_id))
+            .uri("/api/permission/define".to_string())
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -164,10 +164,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let delete_response = Request::builder()
             .method("DELETE")
-            .uri(format!(
-                "/api/permission/{}/define/{}",
-                ctx._realm_id, permission_id
-            ))
+            .uri(format!("/api/permission/define/{}", permission_id))
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
@@ -324,10 +321,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let delete_response = Request::builder()
             .method("DELETE")
-            .uri(format!(
-                "/api/roles/{}/define/{}",
-                ctx._realm_id, test_role_id
-            ))
+            .uri(format!("/api/roles/define/{}", test_role_id))
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();
@@ -358,14 +352,14 @@ mod tests {
     /// 构造更新权限定义的 PUT 请求（供下方 in-use rename 场景复用）
     fn put_permission_request(
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         permission_id: &str,
         name: &str,
         description: &str,
     ) -> Request<Body> {
         Request::builder()
             .method("PUT")
-            .uri(format!("/api/permission/{realm_id}/define/{permission_id}"))
+            .uri(format!("/api/permission/define/{permission_id}"))
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::from(
@@ -403,7 +397,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let create_req = Request::builder()
             .method("POST")
-            .uri(format!("/api/permission/{}/define", ctx._realm_id))
+            .uri("/api/permission/define".to_string())
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -516,7 +510,7 @@ mod tests {
         let app = ctx.create_unified_test_router();
         let create_req = Request::builder()
             .method("POST")
-            .uri(format!("/api/permission/{}/define", ctx._realm_id))
+            .uri("/api/permission/define".to_string())
             .header("content-type", "application/json")
             .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -542,7 +536,7 @@ mod tests {
         .await
         .expect("Failed to link permission to role");
 
-        let delete_uri = format!("/api/permission/{}/define/{}", ctx._realm_id, permission_id);
+        let delete_uri = format!("/api/permission/define/{}", permission_id);
         let delete_req = Request::builder()
             .method("DELETE")
             .uri(&delete_uri)

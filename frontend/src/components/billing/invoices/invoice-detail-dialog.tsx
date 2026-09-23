@@ -91,7 +91,7 @@ export function InvoiceDetailDialog({
   const pdfUrl = invoiceId
     ? variant === 'user'
       ? `/api/user/bill/invoices/${invoiceId}/pdf`
-      : `/api/bill/${realmId}/invoices/${invoiceId}/pdf`
+      : `/api/bill/invoices/${invoiceId}/pdf`
     : null
   const provider = invoice?.provider
   const isExternal = invoice ? isExternalInvoice(provider!) : false

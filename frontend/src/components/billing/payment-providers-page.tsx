@@ -88,9 +88,7 @@ export function PaymentProvidersPage({ realmId }: PaymentProvidersPageProps) {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['payment-providers', realmId],
     queryFn: async () => {
-      const result = await listPaymentProviders({
-        path: { realmId },
-      })
+      const result = await listPaymentProviders()
       return result.data?.providers ?? []
     },
   })
@@ -104,7 +102,7 @@ export function PaymentProvidersPage({ realmId }: PaymentProvidersPageProps) {
       // Delete all keys, ignoring 404s for keys that don't exist
       await Promise.all(
         configKeys.map((k) =>
-          deleteRealmConfig({ path: { realmId, ...k } }).catch((e) => {
+          deleteRealmConfig({ path: { ...k } }).catch((e) => {
             if (e?.status !== 404) throw e
           })
         )

@@ -52,7 +52,7 @@ export function ClientAppsPage() {
   const { mutate: deleteMutate } = useFormMutation({
     mutationFn: (app: ClientAppItem) =>
       deleteClientApp({
-        path: { realmId, clientAppId: app.id },
+        path: { clientAppId: app.id },
       }).then((response) => {
         if (response.error) throw response.error
         return response.data
@@ -64,7 +64,7 @@ export function ClientAppsPage() {
   const { mutate: toggleMutate } = useFormMutation({
     mutationFn: (app: ClientAppItem) =>
       updateClientApp({
-        path: { realmId, clientAppId: app.id },
+        path: { clientAppId: app.id },
         body: { enabled: !app.enabled },
       }).then((response) => {
         if (response.error) throw response.error

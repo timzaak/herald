@@ -10,10 +10,9 @@ use herald_api_base::application::http::state::AppState;
 /// Get a single audit event by ID
 #[utoipa::path(
     get,
-    path = "/api/audit/{realmId}/{eventId}",
+    path = "/api/audit/{eventId}",
     tag = "audit",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("eventId" = String, Path, description = "Audit event ID"),
     ),
     responses(
@@ -26,11 +25,12 @@ use herald_api_base::application::http::state::AppState;
     security(("bearer_auth" = []))
 )]
 pub async fn get_audit_event(
-    Path((realm_id, event_id_str)): Path<(String, String)>,
+    Path(event_id_str): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<AuditEventDetailResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "audit logs")?;
+    let admin = AdminIdentity::require(identity, "audit logs")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "audit", "view").await?;
 
     let event_id = uuid::Uuid::parse_str(&event_id_str)

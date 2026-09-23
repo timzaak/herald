@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Query, State};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult, PageResponse};
 use herald_api_base::application::http::state::AppState;
@@ -14,10 +14,9 @@ use crate::api_keys::types::{ApiKeyListItem, ApiKeyRoleSummary, ListQuery};
 /// Returns a paginated list of API keys. Hash and plaintext are never exposed.
 #[utoipa::path(
     get,
-    path = "/api/api-keys/{realmId}",
+    path = "/api/api-keys",
     tag = "api-keys",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("page" = Option<i64>, Query, description = "Page number (0-based, default 0)"),
         ("pageSize" = Option<i64>, Query, description = "Page size (default 20)"),
     ),
@@ -30,10 +29,10 @@ use crate::api_keys::types::{ApiKeyListItem, ApiKeyRoleSummary, ListQuery};
 pub async fn list_api_keys(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> Result<ApiResult<PageResponse<ApiKeyListItem>>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "api_keys", "view").await?;
 
     let offset = (query.page * query.page_size) as u64;

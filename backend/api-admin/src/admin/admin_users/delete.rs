@@ -17,12 +17,11 @@ use uuid::Uuid;
 /// Delete user
 #[utoipa::path(
     delete,
-    path = "/api/users/{realmId}/{userId}",
+    path = "/api/users/{userId}",
     tag = "users",
     summary = "Delete a user",
     description = "Delete a user from the realm. Requires `users.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -36,11 +35,12 @@ use uuid::Uuid;
 pub async fn delete_user(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "manage").await?;
 
     tracing::info!(

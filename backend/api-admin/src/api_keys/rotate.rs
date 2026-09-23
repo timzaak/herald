@@ -14,10 +14,9 @@ use crate::api_keys::types::RotateApiKeyResponse;
 /// The old key is immediately invalidated. Returns the new plaintext key (shown once).
 #[utoipa::path(
     post,
-    path = "/api/api-keys/{realmId}/{apiKeyId}/rotate",
+    path = "/api/api-keys/{apiKeyId}/rotate",
     tag = "api-keys",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("apiKeyId" = String, Path, description = "API Key ID"),
     ),
     responses(
@@ -30,9 +29,10 @@ use crate::api_keys::types::RotateApiKeyResponse;
 pub async fn rotate_api_key(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, api_key_id)): Path<(String, String)>,
+    Path(api_key_id): Path<String>,
 ) -> Result<ApiResult<RotateApiKeyResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "api_keys", "manage")
         .await?;

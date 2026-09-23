@@ -35,7 +35,6 @@ export function CreemConfigFormPage({ realmId, mode, initialValues }: CreemConfi
     isEditing,
     mutationFn: async (data) => {
       const response = await batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildCreemConfigRequest(data) },
       })
       if (response.error) throw response.error

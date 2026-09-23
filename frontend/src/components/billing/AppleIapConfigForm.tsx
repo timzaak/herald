@@ -48,7 +48,6 @@ export function AppleIapConfigFormPage({
     isEditing,
     mutationFn: async (data) => {
       const response = await batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildAppleConfigRequest(data) },
       })
       if (response.error) throw response.error

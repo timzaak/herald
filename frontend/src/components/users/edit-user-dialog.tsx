@@ -46,7 +46,7 @@ export function EditUserDialog({
   const { isSubmitting, mutate } = useFormMutation({
     mutationFn: (data: UpdateUserFormData) =>
       updateUser({
-        path: { realmId, userId: user.id },
+        path: { userId: user.id },
         body: data,
       }),
     getSuccessMessage: () => m['users.user_updated']({ email: user.email }),

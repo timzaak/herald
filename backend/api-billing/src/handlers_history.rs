@@ -29,10 +29,9 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 /// Get subscription history for a specific subscription
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/subscriptions/{subscriptionId}/history",
+    path = "/api/bill/subscriptions/{subscriptionId}/history",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("subscriptionId" = Uuid, Path, description = "Subscription ID")
     ),
     responses(
@@ -47,8 +46,9 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 pub async fn get_subscription_history(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, subscription_id)): Path<(String, Uuid)>,
+    Path(subscription_id): Path<Uuid>,
 ) -> Result<Json<SubscriptionHistoryResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     if !identity.has_access_to_realm(&realm_id) {
         return Err(ApiError::forbidden(
             "Access denied: cannot access billing from a different realm".to_string(),
@@ -90,10 +90,9 @@ pub async fn get_subscription_history(
 /// Get current user's subscription history for a specific subscription
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/my/subscriptions/{subscriptionId}/history",
+    path = "/api/bill/my/subscriptions/{subscriptionId}/history",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("subscriptionId" = Uuid, Path, description = "Subscription ID")
     ),
     responses(
@@ -109,8 +108,9 @@ pub async fn get_my_subscription_history(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path((realm_id, subscription_id)): Path<(String, Uuid)>,
+    Path(subscription_id): Path<Uuid>,
 ) -> Result<Json<SubscriptionHistoryResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::SubscriptionRead)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,
@@ -152,10 +152,9 @@ pub async fn get_my_subscription_history(
 /// List subscription history with filtering and pagination
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/subscriptions/history",
+    path = "/api/bill/subscriptions/history",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Option<Uuid>, Query, description = "Filter by user ID (client_app_id)"),
         ("entitlementKey" = Option<String>, Query, description = "Filter by entitlement key"),
         ("eventType" = Option<String>, Query, description = "Filter by event type"),
@@ -179,9 +178,9 @@ pub async fn get_my_subscription_history(
 pub async fn list_subscription_history(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<SubscriptionHistoryListQuery>,
 ) -> Result<Json<SubscriptionHistoryListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     if !identity.has_access_to_realm(&realm_id) {
         return Err(ApiError::forbidden(
             "Access denied: cannot access billing from a different realm".to_string(),
@@ -245,10 +244,9 @@ pub async fn list_subscription_history(
 /// List current user's subscription history with filtering and pagination
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/my/subscriptions/history",
+    path = "/api/bill/my/subscriptions/history",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("entitlementKey" = Option<String>, Query, description = "Filter by entitlement key"),
         ("eventType" = Option<String>, Query, description = "Filter by event type"),
         ("subscriptionStatus" = Option<String>, Query, description = "Filter by subscription status"),
@@ -272,9 +270,9 @@ pub async fn list_my_subscription_history(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path(realm_id): Path<String>,
     Query(query): Query<SubscriptionHistoryListQuery>,
 ) -> Result<Json<SubscriptionHistoryListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::SubscriptionRead)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,

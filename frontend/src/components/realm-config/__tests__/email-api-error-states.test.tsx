@@ -55,7 +55,6 @@ function InnerFormWrapper({
 
   return (
     <EmailConfigForm
-      realmId={REALM_ID}
       onSave={onSave ?? vi.fn().mockResolvedValue(undefined)}
       initialConfig={initialConfig}
       isLoading={isLoading}
@@ -76,7 +75,7 @@ describe('Email API error states', () => {
   describe('email status endpoint returns 500', () => {
     it('shows email-status-error and keeps form usable', async () => {
       server.use(
-        http.get('*/api/configs/:realmId/email/status', () =>
+        http.get('*/api/configs/email/status', () =>
           HttpResponse.json(
             { status: 500, code: 'internal_error', message: 'Internal server error' },
             { status: 500 }
@@ -102,7 +101,7 @@ describe('Email API error states', () => {
   describe('test email endpoint returns 500', () => {
     it('shows email-test-error and keeps form usable', async () => {
       server.use(
-        http.post(`http://localhost:3000/api/configs/${REALM_ID}/email/test`, () =>
+        http.post(`http://localhost:3000/api/configs/email/test`, () =>
           HttpResponse.json(
             { status: 500, code: 'internal_error', message: 'Failed to send test email' },
             { status: 500 }
@@ -110,7 +109,7 @@ describe('Email API error states', () => {
         )
       )
 
-      renderWithProviders(<EmailConfigForm realmId={REALM_ID} onSave={mockOnSave} />)
+      renderWithProviders(<EmailConfigForm onSave={mockOnSave} />)
 
       // Fill in a recipient and trigger test email
       await userEvent.type(screen.getByTestId('email-test-recipient-input'), 'test@example.com')
@@ -130,7 +129,7 @@ describe('Email API error states', () => {
   describe('test email endpoint returns 400', () => {
     it('shows email-test-error with server message when email not configured', async () => {
       server.use(
-        http.post(`http://localhost:3000/api/configs/${REALM_ID}/email/test`, () =>
+        http.post(`http://localhost:3000/api/configs/email/test`, () =>
           HttpResponse.json(
             {
               status: 400,
@@ -142,7 +141,7 @@ describe('Email API error states', () => {
         )
       )
 
-      renderWithProviders(<EmailConfigForm realmId={REALM_ID} onSave={mockOnSave} />)
+      renderWithProviders(<EmailConfigForm onSave={mockOnSave} />)
 
       await userEvent.type(screen.getByTestId('email-test-recipient-input'), 'test@example.com')
       await userEvent.click(screen.getByTestId('email-test-button'))
@@ -155,14 +154,12 @@ describe('Email API error states', () => {
 
   describe('network error on save', () => {
     it('shows email-save-error and allows retry', async () => {
-      server.use(
-        http.post(`http://localhost:3000/api/configs/${REALM_ID}/batch`, () => HttpResponse.error())
-      )
+      server.use(http.post(`http://localhost:3000/api/configs/batch`, () => HttpResponse.error()))
 
       // onSave calls batchUpsertRealmConfigs which will trigger MSW network error
       const failingSave = vi.fn().mockRejectedValue(new Error('Network error'))
 
-      renderWithProviders(<EmailConfigForm realmId={REALM_ID} onSave={failingSave} />)
+      renderWithProviders(<EmailConfigForm onSave={failingSave} />)
 
       // Fill required field and submit
       await userEvent.type(screen.getByTestId('email-from-address-input'), 'noreply@example.com')

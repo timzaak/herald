@@ -425,11 +425,11 @@ pub async fn count_ledger_outside_bucket(
 //
 // =============================================================================
 
-/// Build a `POST /api/points/{realmId}/grant` (admin) request. When
+/// Build a `POST /api/points/grant` (admin) request. When
 /// `bucket_id` is `None` the field is omitted entirely so the handler exercises
 /// the missing-bucketId rejection path.
 pub fn grant_points_admin_request_with_bucket(
-    realm_id: &str,
+    _realm_id: &str,
     user_id: Uuid,
     amount: i64,
     reason: &str,
@@ -451,7 +451,7 @@ pub fn grant_points_admin_request_with_bucket(
 
     Request::builder()
         .method("POST")
-        .uri(format!("/api/points/{}/grant", realm_id))
+        .uri("/api/points/grant".to_string())
         .header("content-type", "application/json")
         .header(
             axum::http::header::AUTHORIZATION,
@@ -853,7 +853,7 @@ pub async fn auth_admin_request_via_api(
 //
 // HTTP request builders for the query contracts. The user-facing and
 // admin-facing query endpoints are served by a single handler at
-// `GET /api/points/{realmId}/wallets` (and `.../transactions`) gated on
+// `GET /api/points/wallets` (and `.../transactions`) gated on
 // `points.view`; both group rows by `(bucket_id, user_id)` (the admin view
 // `/users/me/points/wallets` / `/billing/points/wallets` distinct routes are a
 // KNOWN contract gap (recorded in `open_questions`); tests exercise the

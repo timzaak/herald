@@ -410,12 +410,9 @@ fn parse_optional_paid_at(
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/invoice-seller-config",
+    path = "/api/bill/invoice-seller-config",
     tag = "billing-invoice",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Seller config found", body = SellerConfigResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden", body = ErrorResponse),
@@ -427,8 +424,8 @@ fn parse_optional_paid_at(
 pub async fn get_seller_config(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<SellerConfigResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Getting seller config for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
@@ -443,12 +440,9 @@ pub async fn get_seller_config(
 
 #[utoipa::path(
     put,
-    path = "/api/bill/{realmId}/invoice-seller-config",
+    path = "/api/bill/invoice-seller-config",
     tag = "billing-invoice",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = SellerConfigRequest,
+        request_body = SellerConfigRequest,
     responses(
         (status = 200, description = "Seller config saved", body = SellerConfigResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -461,9 +455,9 @@ pub async fn get_seller_config(
 pub async fn upsert_seller_config(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<SellerConfigRequest>,
 ) -> Result<Json<SellerConfigResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Upserting seller config for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
     request
@@ -499,12 +493,9 @@ pub async fn upsert_seller_config(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/invoices",
+    path = "/api/bill/invoices",
     tag = "billing-invoice",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = CreateInvoiceRequest,
+        request_body = CreateInvoiceRequest,
     responses(
         (status = 201, description = "Invoice created", body = InvoiceDetailResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -517,9 +508,9 @@ pub async fn upsert_seller_config(
 pub async fn create_invoice(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<CreateInvoiceRequest>,
 ) -> Result<(StatusCode, Json<InvoiceDetailResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Creating invoice for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
     request
@@ -600,10 +591,9 @@ pub async fn create_invoice(
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/invoices",
+    path = "/api/bill/invoices",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         InvoiceListQuery
     ),
     responses(
@@ -617,9 +607,9 @@ pub async fn create_invoice(
 pub async fn list_invoices(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<InvoiceListQuery>,
 ) -> Result<Json<InvoiceListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing invoices for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
@@ -660,12 +650,9 @@ struct PaymentWithoutInvoiceRow {
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/invoice-attribution/anomalies",
+    path = "/api/bill/invoice-attribution/anomalies",
     tag = "billing-invoice",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Attribution anomalies", body = AttributionAnomaliesResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
         (status = 403, description = "Forbidden - billing.view required", body = ErrorResponse),
@@ -689,8 +676,8 @@ struct PaymentWithoutInvoiceRow {
 pub async fn list_attribution_anomalies(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<AttributionAnomaliesResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing attribution anomalies for realm: {}", realm_id);
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
@@ -778,10 +765,9 @@ pub async fn list_attribution_anomalies(
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}",
+    path = "/api/bill/invoices/{invoiceId}",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     responses(
@@ -796,8 +782,9 @@ pub async fn list_attribution_anomalies(
 pub async fn get_invoice(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Getting invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
 
@@ -815,10 +802,9 @@ pub async fn get_invoice(
 
 #[utoipa::path(
     patch,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}",
+    path = "/api/bill/invoices/{invoiceId}",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     request_body = UpdateInvoiceRequest,
@@ -836,9 +822,10 @@ pub async fn get_invoice(
 pub async fn update_invoice(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
     Json(request): Json<UpdateInvoiceRequest>,
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Updating invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
     require_invoice_policy_allows_writes(&state, &realm_id).await?;
@@ -905,10 +892,9 @@ pub async fn update_invoice(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}/issue",
+    path = "/api/bill/invoices/{invoiceId}/issue",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     request_body = IssueInvoiceRequest,
@@ -926,9 +912,10 @@ pub async fn update_invoice(
 pub async fn issue_invoice(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
     Json(request): Json<IssueInvoiceRequest>,
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Issuing invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
     require_invoice_policy_allows_writes(&state, &realm_id).await?;
@@ -1002,10 +989,9 @@ pub async fn issue_invoice(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}/void",
+    path = "/api/bill/invoices/{invoiceId}/void",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     request_body = VoidInvoiceRequest,
@@ -1023,9 +1009,10 @@ pub async fn issue_invoice(
 pub async fn void_invoice(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
     Json(request): Json<VoidInvoiceRequest>,
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Voiding invoice {} for realm: {}", invoice_id, realm_id);
     require_billing_permission(&state, &identity, &realm_id, "manage").await?;
     require_invoice_policy_allows_writes(&state, &realm_id).await?;
@@ -1095,10 +1082,9 @@ pub async fn void_invoice(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}/mark-paid",
+    path = "/api/bill/invoices/{invoiceId}/mark-paid",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     request_body = MarkPaidRequest,
@@ -1116,9 +1102,10 @@ pub async fn void_invoice(
 pub async fn mark_paid(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
     Json(request): Json<MarkPaidRequest>,
 ) -> Result<Json<InvoiceDetailResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Marking invoice {} as paid for realm: {}",
         invoice_id,
@@ -1166,10 +1153,9 @@ pub async fn mark_paid(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}/credit-notes",
+    path = "/api/bill/invoices/{invoiceId}/credit-notes",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     request_body = CreateCreditNoteRequest,
@@ -1186,9 +1172,10 @@ pub async fn mark_paid(
 pub async fn create_credit_note(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
     Json(request): Json<CreateCreditNoteRequest>,
 ) -> Result<(StatusCode, Json<CreditNoteResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Creating manual credit note for invoice {} in realm: {}",
         invoice_id,
@@ -1761,10 +1748,9 @@ fn resolve_external_pdf_response(detail: &InvoiceDetail) -> Option<Result<Respon
 
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/invoices/{invoiceId}/pdf",
+    path = "/api/bill/invoices/{invoiceId}/pdf",
     tag = "billing-invoice",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("invoiceId" = Uuid, Path, description = "Invoice ID")
     ),
     responses(
@@ -1780,8 +1766,9 @@ fn resolve_external_pdf_response(detail: &InvoiceDetail) -> Option<Result<Respon
 pub async fn download_invoice_pdf(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, invoice_id)): Path<(String, Uuid)>,
+    Path(invoice_id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Downloading invoice PDF {} for realm: {}",
         invoice_id,

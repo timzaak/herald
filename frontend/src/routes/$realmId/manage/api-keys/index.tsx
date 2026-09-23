@@ -54,7 +54,7 @@ export function ApiKeysPage() {
   const { mutate: deleteMutate } = useFormMutation({
     mutationFn: (key: ApiKeyListItem) =>
       deleteApiKey({
-        path: { realmId, apiKeyId: key.id },
+        path: { apiKeyId: key.id },
       }).then((response) => {
         if (response.error) throw response.error
         return response.data
@@ -66,7 +66,7 @@ export function ApiKeysPage() {
   const { mutate: toggleMutate } = useFormMutation({
     mutationFn: (key: ApiKeyListItem) =>
       updateApiKey({
-        path: { realmId, apiKeyId: key.id },
+        path: { apiKeyId: key.id },
         body: { enabled: !key.enabled },
       }).then((response) => {
         if (response.error) throw response.error

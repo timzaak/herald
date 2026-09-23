@@ -77,7 +77,6 @@ export function ClientAppFormPage({ mode, realmId, clientApp }: ClientAppFormPag
             : {}),
         }
         return createClientApp({
-          path: { realmId },
           body: createBody,
         }).then((response) => {
           if (response.error) throw response.error
@@ -96,7 +95,7 @@ export function ClientAppFormPage({ mode, realmId, clientApp }: ClientAppFormPag
           : {}),
       }
       return updateClientApp({
-        path: { realmId, clientAppId: clientApp!.id },
+        path: { clientAppId: clientApp!.id },
         body: updateBody,
       }).then((response) => {
         if (response.error) throw response.error

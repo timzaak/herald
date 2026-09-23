@@ -75,7 +75,7 @@ async fn fetch_audit_events_raw(
 /// Covers: User create via admin API records user.create audit event
 ///
 /// Given an admin with users.manage permission,
-/// When creating a user via POST /api/users/{realmId},
+/// When creating a user via POST /api/users,
 /// Then an audit event with action=user.create is recorded in the database
 /// and target_id matches the newly created user's ID.
 #[test_context(TestContext)]
@@ -112,7 +112,7 @@ async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/users/{}", realm_id))
+        .uri("/api/users".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::from(create_payload.to_string()))
@@ -172,7 +172,7 @@ async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
 /// Covers: User update via admin API records user.update audit event
 ///
 /// Given an admin with users.manage permission and an existing user,
-/// When updating the user via PUT /api/users/{realmId}/{userId},
+/// When updating the user via PUT /api/users/{userId},
 /// Then an audit event with action=user.update is recorded.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -204,7 +204,7 @@ async fn test_scenario_user_update_produces_audit_event(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("PUT")
-        .uri(format!("/api/users/{}/{}", realm_id, target_user_id))
+        .uri(format!("/api/users/{}", target_user_id))
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::from(update_payload.to_string()))
@@ -244,7 +244,7 @@ async fn test_scenario_user_update_produces_audit_event(ctx: &mut TestContext) {
 /// Covers: User delete via admin API records user.delete audit event
 ///
 /// Given an admin with users.manage permission and an existing user,
-/// When deleting the user via DELETE /api/users/{realmId}/{userId},
+/// When deleting the user via DELETE /api/users/{userId},
 /// Then an audit event with action=user.delete is recorded.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -272,7 +272,7 @@ async fn test_scenario_user_delete_produces_audit_event(ctx: &mut TestContext) {
     // Act: delete the user
     let req = Request::builder()
         .method("DELETE")
-        .uri(format!("/api/users/{}/{}", realm_id, target_user_id))
+        .uri(format!("/api/users/{}", target_user_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();

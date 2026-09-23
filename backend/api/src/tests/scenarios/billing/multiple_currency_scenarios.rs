@@ -362,7 +362,7 @@ mod tests {
         let (status, body) = send_json(
             &app,
             "POST",
-            format!("/api/bill/{}/purchase/payment-attempts", realm_id),
+            "/api/bill/purchase/payment-attempts".to_string(),
             Some(&token),
             None,
             Some(json!({

@@ -27,10 +27,9 @@ use uuid::Uuid;
 /// (including those inherited from roles), use `/effective-permissions`.
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}/{userId}/permissions",
+    path = "/api/users/{userId}/permissions",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -43,10 +42,11 @@ use uuid::Uuid;
 pub async fn get_user_permissions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id)): Path<(String, Uuid)>,
+    Path(user_id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<UserPermissionsResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
+    let admin = AdminIdentity::require(identity, "user permission management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "view").await?;
 
     // Get user's direct permissions from role_policies table
@@ -86,10 +86,9 @@ pub async fn get_user_permissions(
 /// - Cannot create "All" or wildcard policies (privileged policies)
 #[utoipa::path(
     post,
-    path = "/api/users/{realmId}/{userId}/permissions",
+    path = "/api/users/{userId}/permissions",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     request_body = DirectPermissionRequest,
@@ -104,11 +103,12 @@ pub async fn get_user_permissions(
 pub async fn assign_user_permission(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     _headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<DirectPermissionRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
+    let admin = AdminIdentity::require(identity, "user permission management")?;
+    let realm_id = admin.realm_id().to_string();
     let current_user_id = admin.user_id_string();
     let permission_checker = &state.permission_checker;
 
@@ -243,10 +243,9 @@ pub async fn assign_user_permission(
 /// Removes a directly assigned permission from a user.
 #[utoipa::path(
     delete,
-    path = "/api/users/{realmId}/{userId}/permissions",
+    path = "/api/users/{userId}/permissions",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     request_body = DirectPermissionRequest,
@@ -260,11 +259,12 @@ pub async fn assign_user_permission(
 pub async fn remove_user_permission(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     _headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<DirectPermissionRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
+    let admin = AdminIdentity::require(identity, "user permission management")?;
+    let realm_id = admin.realm_id().to_string();
 
     tracing::info!(
         realm_id = %realm_id,
@@ -358,10 +358,9 @@ pub async fn remove_user_permission(
 /// Each permission includes its source (role name or "direct").
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}/{userId}/effective-permissions",
+    path = "/api/users/{userId}/effective-permissions",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -374,10 +373,11 @@ pub async fn remove_user_permission(
 pub async fn get_effective_permissions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<EffectivePermissionsResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user permission management")?;
+    let admin = AdminIdentity::require(identity, "user permission management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "view").await?;
 
     let user_permission_service = &state.user_permission_service;

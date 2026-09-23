@@ -66,7 +66,6 @@ export function ApiKeyFormPage({ mode, realmId, apiKey }: ApiKeyFormPageProps) {
     mutationFn: (data) => {
       if (isCreate) {
         return createApiKey({
-          path: { realmId },
           body: data as CreateApiKeyFormData,
         }).then((response) => {
           if (response.error) throw response.error
@@ -74,7 +73,7 @@ export function ApiKeyFormPage({ mode, realmId, apiKey }: ApiKeyFormPageProps) {
         })
       }
       return updateApiKey({
-        path: { realmId, apiKeyId: apiKey!.id },
+        path: { apiKeyId: apiKey!.id },
         body: data as UpdateApiKeyFormData,
       }).then((response) => {
         if (response.error) throw response.error

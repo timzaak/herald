@@ -1185,7 +1185,7 @@ async function listInvoices(
   let total = 0
   for (let page = 1; ; page += 1) {
     const qs = new URLSearchParams({ ...base, page: String(page) }).toString()
-    const resp = await request.get(`${BASE_URL}/api/bill/${realmId}/invoices?${qs}`)
+    const resp = await request.get(`${BASE_URL}/api/bill/invoices?${qs}`)
     if (!resp.ok()) {
       throw new Error(`listInvoices failed: ${resp.status()} ${await resp.text().catch(() => '')}`)
     }
@@ -1242,7 +1242,7 @@ async function getAttributionAnomalies(
   request: import('@playwright/test').APIRequestContext,
   realmId: string,
 ): Promise<AttributionAnomaliesResponse> {
-  const resp = await request.get(`${BASE_URL}/api/bill/${realmId}/invoice-attribution/anomalies`)
+  const resp = await request.get(`${BASE_URL}/api/bill/invoice-attribution/anomalies`)
   if (!resp.ok()) {
     throw new Error(
       `getAttributionAnomalies failed: ${resp.status()} ${await resp.text().catch(() => '')}`,

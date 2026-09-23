@@ -264,7 +264,7 @@ describe('LoginPage Google One Tap gating', () => {
     await userEvent.click(await screen.findByTestId('one-tap-trigger'))
 
     // Consent view mounted; the restricted family was applied so the Agree
-    // action can call POST /api/legal/{realmId}/consent with it.
+    // action can call POST /api/user/consent with it.
     expect(await screen.findByTestId('login-reconsent-view')).toBeInTheDocument()
     expect(applyTokenSet).toHaveBeenCalledWith(
       expect.objectContaining({ accessToken: 'restricted-at', refreshToken: 'restricted-rt' })

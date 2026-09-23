@@ -20,11 +20,10 @@ use uuid::Uuid;
 /// Returns the list of roles assigned to a specific user.
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}/{userId}/roles",
+    path = "/api/users/{userId}/roles",
     tag = "users",
     operation_id = "adminGetUserRoles",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -37,10 +36,11 @@ use uuid::Uuid;
 pub async fn get_user_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id)): Path<(String, Uuid)>,
+    Path(user_id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<UserRolesResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user role management")?;
+    let admin = AdminIdentity::require(identity, "user role management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "users", "view").await?;
 
     let role_assignment_service = &state.role_assignment_service;
@@ -86,10 +86,9 @@ pub async fn get_user_roles(
 /// - Realm-admin can only assign "user" role, not "realm-admin"
 #[utoipa::path(
     put,
-    path = "/api/users/{realmId}/{userId}/roles",
+    path = "/api/users/{userId}/roles",
     tag = "users",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     request_body = UpdateUserRolesRequest,
@@ -104,11 +103,12 @@ pub async fn get_user_roles(
 pub async fn update_user_roles(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     _headers: HeaderMap,
     Valid(Json(payload)): Valid<Json<UpdateUserRolesRequest>>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "user role management")?;
+    let admin = AdminIdentity::require(identity, "user role management")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "roles", "manage").await?;
 
     let role_assignment_service = &state.role_assignment_service;

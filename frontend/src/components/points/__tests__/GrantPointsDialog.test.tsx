@@ -126,7 +126,7 @@ describe('GrantPointsDialog', () => {
     // has a selectable option. The list endpoint returns a bare BucketResponse[]
     // (creditBucketsListQueryOptions casts response.data as BucketResponse[]).
     server.use(
-      http.get('http://localhost:3000/api/realms/:realmId/billing/credit-buckets', () =>
+      http.get('http://localhost:3000/api/bill/credit-buckets', () =>
         HttpResponse.json([
           {
             id: 'bucket-1',
@@ -174,7 +174,7 @@ describe('GrantPointsDialog', () => {
       const user = userEvent.setup()
       // Use a delayed handler to ensure loading state is visible
       server.use(
-        http.get('http://localhost:3000/api/users/:realmId', async () => {
+        http.get('http://localhost:3000/api/users', async () => {
           await new Promise((resolve) => setTimeout(resolve, 200))
           return HttpResponse.json({
             items: [
@@ -244,7 +244,7 @@ describe('GrantPointsDialog', () => {
     it('does not fire query when input is empty', async () => {
       let queryMade = false
       server.use(
-        http.get('http://localhost:3000/api/users/:realmId', () => {
+        http.get('http://localhost:3000/api/users', () => {
           queryMade = true
           return HttpResponse.json({ items: [], page: 0, pageSize: 20, total: 0 })
         })

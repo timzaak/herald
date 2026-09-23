@@ -76,11 +76,8 @@ fn to_response(config: OAuthProviderConfig) -> OAuthConfigResponse {
 /// List all OAuth provider configurations for a realm
 #[utoipa::path(
     get,
-    path = "/api/oauth/{realmId}/configs",
+    path = "/api/oauth-configs",
     tag = "oauth",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     responses(
         (status = 200, description = "List of OAuth provider configurations", body = Vec<OAuthConfigResponse>),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
@@ -89,27 +86,24 @@ fn to_response(config: OAuthProviderConfig) -> OAuthConfigResponse {
     )
 )]
 pub async fn list_oauth_configs(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<Vec<OAuthConfigResponse>>, ApiError> {
     let oauth_config_service = state.service.oauth_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    // In-handler gate mirroring the service-layer policy (settings.view) so
+    // the handler layer stays protected even if the wired policy regresses to
+    // an AllowAll test double. The realm is pinned by the session token.
+    let admin = AdminIdentity::require(identity.clone(), "oauth configs")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
+    let current_user_id = identity.user_id();
     tracing::debug!(
-        realm_id = %identity_realm_id,
+        realm_id = %realm_id,
         user_id = %current_user_id,
         "Listing OAuth configs"
     );
-
-    // In-handler gate mirroring the service-layer policy (settings.view +
-    // realm match) so the handler layer stays protected even if the wired
-    // policy regresses to an AllowAll test double.
-    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
-        .require_permission(&state, "settings", "view")
-        .await?;
 
     let configs = oauth_config_service
         .list_configs(identity, &realm_id)
@@ -131,10 +125,9 @@ pub async fn list_oauth_configs(
 /// Get OAuth provider configuration by provider type
 #[utoipa::path(
     get,
-    path = "/api/oauth/{realmId}/configs/{providerType}",
+    path = "/api/oauth-configs/{providerType}",
     tag = "oauth",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("providerType" = String, Path, description = "Provider type (google, github, facebook, apple)")
     ),
     responses(
@@ -146,24 +139,22 @@ pub async fn list_oauth_configs(
     )
 )]
 pub async fn get_oauth_config(
-    Path((realm_id, provider_type)): Path<(String, String)>,
+    Path(provider_type): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<OAuthConfigResponse>, ApiError> {
     let oauth_config_service = state.service.oauth_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "oauth configs")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
+    let current_user_id = identity.user_id();
     tracing::debug!(
-        realm_id = %identity_realm_id,
+        realm_id = %realm_id,
         user_id = %current_user_id,
         "Getting OAuth config"
     );
-
-    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
-        .require_permission(&state, "settings", "view")
-        .await?;
 
     let config = oauth_config_service
         .get_config(identity, &realm_id, &provider_type)
@@ -187,11 +178,8 @@ pub async fn get_oauth_config(
 /// Create OAuth provider configuration
 #[utoipa::path(
     post,
-    path = "/api/oauth/{realmId}/configs",
+    path = "/api/oauth-configs",
     tag = "oauth",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     request_body = CreateOAuthConfigRequest,
     responses(
         (status = 201, description = "OAuth provider configuration created", body = OAuthConfigResponse),
@@ -203,7 +191,6 @@ pub async fn get_oauth_config(
     )
 )]
 pub async fn create_oauth_config(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
@@ -223,18 +210,18 @@ pub async fn create_oauth_config(
 
     let oauth_config_service = state.service.oauth_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "oauth configs")?;
+    admin
+        .require_permission(&state, "settings", "manage")
+        .await?;
+    let realm_id = admin.realm_id().to_string();
 
+    let current_user_id = identity.user_id();
     tracing::debug!(
-        realm_id = %identity_realm_id,
+        realm_id = %realm_id,
         user_id = %current_user_id,
         "Creating OAuth config"
     );
-
-    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
-        .require_permission(&state, "settings", "manage")
-        .await?;
 
     let request = CreateOAuthProviderConfigRequest {
         realm_id,
@@ -273,10 +260,9 @@ pub async fn create_oauth_config(
 /// Update OAuth provider configuration
 #[utoipa::path(
     put,
-    path = "/api/oauth/{realmId}/configs/{providerType}",
+    path = "/api/oauth-configs/{providerType}",
     tag = "oauth",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("providerType" = String, Path, description = "Provider type")
     ),
     request_body = UpdateOAuthConfigRequest,
@@ -290,7 +276,7 @@ pub async fn create_oauth_config(
     )
 )]
 pub async fn update_oauth_config(
-    Path((realm_id, provider_type)): Path<(String, String)>,
+    Path(provider_type): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
@@ -305,18 +291,18 @@ pub async fn update_oauth_config(
 
     let oauth_config_service = state.service.oauth_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "oauth configs")?;
+    admin
+        .require_permission(&state, "settings", "manage")
+        .await?;
+    let realm_id = admin.realm_id().to_string();
 
+    let current_user_id = identity.user_id();
     tracing::debug!(
-        realm_id = %identity_realm_id,
+        realm_id = %realm_id,
         user_id = %current_user_id,
         "Updating OAuth config"
     );
-
-    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
-        .require_permission(&state, "settings", "manage")
-        .await?;
 
     // Get existing config to obtain its ID
     let existing_config = oauth_config_service
@@ -368,10 +354,9 @@ pub async fn update_oauth_config(
 /// Delete OAuth provider configuration
 #[utoipa::path(
     delete,
-    path = "/api/oauth/{realmId}/configs/{providerType}",
+    path = "/api/oauth-configs/{providerType}",
     tag = "oauth",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("providerType" = String, Path, description = "Provider type")
     ),
     responses(
@@ -383,7 +368,7 @@ pub async fn update_oauth_config(
     )
 )]
 pub async fn delete_oauth_config(
-    Path((realm_id, provider_type)): Path<(String, String)>,
+    Path(provider_type): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
@@ -392,18 +377,18 @@ pub async fn delete_oauth_config(
     let ctx = AuditContext::admin(&identity, ip, user_agent_from_headers(&headers));
     let oauth_config_service = state.service.oauth_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "oauth configs")?;
+    admin
+        .require_permission(&state, "settings", "manage")
+        .await?;
+    let realm_id = admin.realm_id().to_string();
 
+    let current_user_id = identity.user_id();
     tracing::debug!(
-        realm_id = %identity_realm_id,
+        realm_id = %realm_id,
         user_id = %current_user_id,
         "Deleting OAuth config"
     );
-
-    AdminIdentity::require(identity.clone(), &realm_id, "oauth configs")?
-        .require_permission(&state, "settings", "manage")
-        .await?;
 
     // Get existing config to obtain its ID
     let existing_config = oauth_config_service

@@ -2,7 +2,7 @@
  * Test fixtures for the user-sessions management feature.
  *
  * `UserSessionResponse` is the camelCase API contract returned by
- * `GET /api/users/{realmId}/{userId}/sessions` and consumed by the sessions
+ * `GET /api/users/{userId}/sessions` and consumed by the sessions
  * dialog. Centralizing the field set here keeps list-render assertions readable
  * and lets a test override a single field (e.g. drop `clientAppName` to `null`
  * to exercise the name-missing fallback) while keeping the rest valid.

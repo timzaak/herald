@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::extract::{Extension, Path, State};
+use axum::extract::{Extension, State};
 use axum::routing::get;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::dashboard::DashboardRepository;
@@ -40,9 +40,8 @@ pub struct DashboardStatsResponse {
 /// Get dashboard statistics for a realm
 #[utoipa::path(
     get,
-    path = "/api/dashboard/{realmId}/stats",
+    path = "/api/dashboard/stats",
     tag = "dashboard",
-    params(("realmId" = String, Path, description = "Realm ID")),
     responses(
         (status = 200, description = "Dashboard statistics", body = DashboardStatsResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -53,10 +52,10 @@ pub struct DashboardStatsResponse {
 )]
 pub async fn get_dashboard_stats(
     State(state): State<AppState>,
-    Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<DashboardStatsResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "dashboard statistics")?;
+    let admin = AdminIdentity::require(identity, "dashboard statistics")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "dashboard", "view")
         .await?;

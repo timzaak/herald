@@ -54,7 +54,7 @@ mod tests {
     async fn create_draft_invoice(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
         account_id: Uuid,
         line_items: Vec<serde_json::Value>,
         billing_name: &str,
@@ -78,7 +78,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::from(payload.to_string()))
@@ -182,7 +182,7 @@ mod tests {
     // Covers: US-IV-009 -- admin download issued invoice returns application/pdf
     //
     // Given: An admin with billing.view permission and an issued invoice
-    // When: GET /api/bill/{realmId}/invoices/{invoiceId}/pdf
+    // When: GET /api/bill/invoices/{invoiceId}/pdf
     // Then: Returns 200 with Content-Type: application/pdf
 
     #[test_context(InvoiceTestContext)]
@@ -219,10 +219,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/issue",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/issue", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(json!({}).to_string()))
@@ -238,10 +235,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/pdf",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/pdf", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -276,7 +270,7 @@ mod tests {
     // Covers: US-IV-009 -- draft invoice PDF download returns 409
     //
     // Given: An admin with billing.view permission and a draft invoice
-    // When: GET /api/bill/{realmId}/invoices/{invoiceId}/pdf
+    // When: GET /api/bill/invoices/{invoiceId}/pdf
     // Then: Returns 409 Conflict
 
     #[test_context(InvoiceTestContext)]
@@ -313,10 +307,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/pdf",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/pdf", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -335,7 +326,7 @@ mod tests {
     // Covers: US-IV-009 -- Content-Disposition has correct filename format
     //
     // Given: An admin and an issued invoice with number INV-YYYY-NNNN
-    // When: GET /api/bill/{realmId}/invoices/{invoiceId}/pdf
+    // When: GET /api/bill/invoices/{invoiceId}/pdf
     // Then: Content-Disposition header contains "attachment; filename=\"INV-YYYY-NNNN.pdf\""
 
     #[test_context(InvoiceTestContext)]
@@ -372,10 +363,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/issue",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/issue", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(json!({}).to_string()))
@@ -391,10 +379,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/pdf",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/pdf", invoice_id))
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -426,7 +411,7 @@ mod tests {
     // Covers: US-IV-009 -- user downloads own issued invoice PDF
     //
     // Given: A regular user with an issued invoice they own
-    // When: GET /api/bill/{realmId}/my/invoices/{invoiceId}/pdf
+    // When: GET /api/bill/my/invoices/{invoiceId}/pdf
     // Then: Returns 200 with Content-Type: application/pdf
 
     #[test_context(InvoiceTestContext)]
@@ -482,7 +467,7 @@ mod tests {
     // Covers: US-IV-009 -- user cannot download other users' invoice PDF
     //
     // Given: User A and User B, User B has an issued invoice
-    // When: User A calls GET /api/bill/{realmId}/my/invoices/{user_b_invoice_id}/pdf
+    // When: User A calls GET /api/bill/my/invoices/{user_b_invoice_id}/pdf
     // Then: Returns 403 Forbidden
 
     #[test_context(InvoiceTestContext)]
@@ -525,7 +510,7 @@ mod tests {
     // Covers: US-IV-009 -- user tries to download their own draft invoice PDF
     //
     // Given: A regular user with a draft invoice they own
-    // When: GET /api/bill/{realmId}/my/invoices/{invoiceId}/pdf
+    // When: GET /api/bill/my/invoices/{invoiceId}/pdf
     // Then: Returns 409 Conflict
 
     #[test_context(InvoiceTestContext)]

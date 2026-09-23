@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
 };
 use herald_api_base::application::http::common::auth_utils::{
     require_authenticated_user_in_realm, require_token_scope,
@@ -93,11 +93,8 @@ struct FeatureFacts {
 
 #[utoipa::path(
     get,
-    path = "/api/realms/{realmId}/feature-availability",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+    path = "/api/bill/feature-availability",
+        responses(
         (status = 200, description = "Feature availability summary", body = FeatureAvailabilityResponse),
         (status = 401, description = "Unauthorized"),
         (status = 403, description = "Forbidden")
@@ -107,9 +104,9 @@ struct FeatureFacts {
 )]
 pub async fn get_feature_availability(
     State(state): State<AppState>,
-    Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<FeatureAvailabilityResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     let user_id =
         require_authenticated_user_in_realm(&identity, &realm_id, "feature availability")?;
     let (can_view_billing, can_view_points) = tokio::try_join!(

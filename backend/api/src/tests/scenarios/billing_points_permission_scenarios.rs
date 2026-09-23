@@ -11,8 +11,8 @@
 // Reference: docs/user-stories/core/realm-admin.md (US-RA-009)
 //
 // Routes:
-//   GET  /api/bill/{realmId}/subscriptions/history     -> requires billing.view
-//   GET  /api/third/pay/{realmId}/providers            -> any authenticated realm member; returns all configured providers
+//   GET  /api/bill/subscriptions/history     -> requires billing.view
+//   GET  /api/bill/providers            -> any authenticated realm member; returns all configured providers
 //
 // =============================================================================
 
@@ -95,7 +95,7 @@ async fn grant_single_permission(ctx: &TestContext, user_id: &str, resource: &st
 // Covers: User with billing.view can access subscription history endpoint
 //
 // Given a user with ONLY billing.view permission,
-// When calling GET /api/bill/{realmId}/subscriptions/history,
+// When calling GET /api/bill/subscriptions/history,
 // Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -110,10 +110,7 @@ async fn test_scenario_billing_view_grants_history_access(ctx: &mut TestContext)
     // When: calling subscription history endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/bill/{}/subscriptions/history?page=1&pageSize=20",
-            ctx._realm_id
-        ))
+        .uri("/api/bill/subscriptions/history?page=1&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -136,7 +133,7 @@ async fn test_scenario_billing_view_grants_history_access(ctx: &mut TestContext)
 // Covers: Authenticated realm member can list configured payment providers
 //
 // Given an authenticated realm member,
-// When calling GET /api/third/pay/{realmId}/providers,
+// When calling GET /api/bill/providers,
 // Then response is 200 OK (returns all configured providers).
 #[test_context(TestContext)]
 #[tokio::test]
@@ -151,7 +148,7 @@ async fn test_scenario_can_list_payment_providers(ctx: &mut TestContext) {
     // When: calling payment providers list endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/third/pay/{}/providers", ctx._realm_id))
+        .uri("/api/bill/providers".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -176,7 +173,7 @@ async fn test_scenario_can_list_payment_providers(ctx: &mut TestContext) {
 // ever exposed; the secret key / webhook secret must not leak through this route.
 //
 // Given a realm with Stripe configured (publishable_key + api_key rows),
-// When calling GET /api/third/pay/{realmId}/providers,
+// When calling GET /api/bill/providers,
 // Then the stripe entry carries publishableKey with the stored pk_ value.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -207,7 +204,7 @@ async fn test_list_payment_providers_stripe_publishable_key(ctx: &mut TestContex
     // When: listing providers
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/third/pay/{}/providers", ctx._realm_id))
+        .uri("/api/bill/providers".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -246,7 +243,7 @@ async fn test_list_payment_providers_stripe_publishable_key(ctx: &mut TestContex
 // into thinking Creem supports the PaymentIntent flow.
 //
 // Given a realm with Creem configured (api_key row, no publishable_key row),
-// When calling GET /api/third/pay/{realmId}/providers,
+// When calling GET /api/bill/providers,
 // Then the creem entry has no publishableKey member at all.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -271,7 +268,7 @@ async fn test_list_payment_providers_creem_omits_publishable_key(ctx: &mut TestC
     // When: listing providers
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/third/pay/{}/providers", ctx._realm_id))
+        .uri("/api/bill/providers".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();

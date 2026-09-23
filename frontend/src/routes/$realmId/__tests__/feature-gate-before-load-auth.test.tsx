@@ -142,7 +142,7 @@ const FEATURE_GATED_ROUTES = [
 
 function installFeatureHandlers() {
   server.use(
-    http.get(`${API_BASE_URL}/api/realms/admin/feature-availability`, () => {
+    http.get(`${API_BASE_URL}/api/bill/feature-availability`, () => {
       authGate.events.push('feature-request')
       return HttpResponse.json({
         admin: {

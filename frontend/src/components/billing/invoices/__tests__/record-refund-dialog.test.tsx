@@ -227,7 +227,7 @@ function setupDetailDialog(
   const endpoint =
     variant === 'user'
       ? `${BASE_URL}/api/user/bill/invoices/${invoice.id}`
-      : `${BASE_URL}/api/bill/${REALM_ID}/invoices/${invoice.id}`
+      : `${BASE_URL}/api/bill/invoices/${invoice.id}`
 
   server.use(
     http.get(endpoint, () => {
@@ -351,14 +351,11 @@ describe('record refund dialog submission', () => {
     let postCalled = false
 
     server.use(
-      http.post(
-        `${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`,
-        async ({ request }) => {
-          postCalled = true
-          requestBody = await request.json()
-          return HttpResponse.json(makeCreditNote(), { status: 201 })
-        }
-      )
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, async ({ request }) => {
+        postCalled = true
+        requestBody = await request.json()
+        return HttpResponse.json(makeCreditNote(), { status: 201 })
+      })
     )
 
     const queryClient = createTestQueryClient()
@@ -400,7 +397,7 @@ describe('record refund dialog submission', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`, () => {
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, () => {
         return HttpResponse.json(
           { message: 'Refund amount exceeds remaining payable' },
           { status: 400 }
@@ -430,7 +427,7 @@ describe('record refund dialog submission', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`, () => {
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, () => {
         return HttpResponse.json(
           { message: 'Only manual invoices support credit notes' },
           { status: 403 }
@@ -460,7 +457,7 @@ describe('record refund dialog submission', () => {
     const user = userEvent.setup()
 
     server.use(
-      http.post(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`, () => {
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, () => {
         return HttpResponse.json({ message: 'Invoice is not paid' }, { status: 400 })
       })
     )
@@ -488,13 +485,10 @@ describe('record refund dialog submission', () => {
     let postCalled = false
 
     server.use(
-      http.post(
-        `${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`,
-        async () => {
-          postCalled = true
-          return HttpResponse.json(makeCreditNote(), { status: 201 })
-        }
-      )
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, async () => {
+        postCalled = true
+        return HttpResponse.json(makeCreditNote(), { status: 201 })
+      })
     )
 
     renderWithProviders(
@@ -522,13 +516,10 @@ describe('record refund dialog submission', () => {
     let postCalled = false
 
     server.use(
-      http.post(
-        `${BASE_URL}/api/bill/${REALM_ID}/invoices/${INVOICE_ID}/credit-notes`,
-        async () => {
-          postCalled = true
-          return HttpResponse.json(makeCreditNote(), { status: 201 })
-        }
-      )
+      http.post(`${BASE_URL}/api/bill/invoices/${INVOICE_ID}/credit-notes`, async () => {
+        postCalled = true
+        return HttpResponse.json(makeCreditNote(), { status: 201 })
+      })
     )
 
     renderWithProviders(

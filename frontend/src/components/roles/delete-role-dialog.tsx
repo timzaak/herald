@@ -24,7 +24,7 @@ export function DeleteRoleDialog({
   const { isSubmitting, mutate } = useFormMutation({
     mutationFn: (_: void) =>
       deleteRole({
-        path: { realmId, roleId: role.id },
+        path: { roleId: role.id },
       }),
     getSuccessMessage: () => m['roles.deleted_success']({ name: role.name }),
     invalidateQueries: [queryKeys.roles(realmId)],

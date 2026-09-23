@@ -22,7 +22,6 @@ import { handleApiResponse } from '@/lib/api-utils'
 describe('EmailConfigForm', () => {
   const mockOnSave = vi.fn()
   const defaultProps = {
-    realmId: 'test-realm',
     onSave: mockOnSave,
     isLoading: false,
   }

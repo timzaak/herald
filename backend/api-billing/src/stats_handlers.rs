@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Query, State};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -109,10 +109,9 @@ impl From<PaymentStats> for PaymentStatsResponse {
 /// initiation day (`created_at`). Requires the `billing.view` permission.
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/stats/payments",
+    path = "/api/bill/stats/payments",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         PaymentStatsQuery,
     ),
     responses(
@@ -127,9 +126,9 @@ impl From<PaymentStats> for PaymentStatsResponse {
 pub async fn get_payment_stats(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<PaymentStatsQuery>,
 ) -> Result<ApiResult<PaymentStatsResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     let window = StatsWindow::from_days(query.days)
         .ok_or_else(|| ApiError::bad_request("days must be 7 or 30"))?;
 

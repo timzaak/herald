@@ -27,7 +27,7 @@ const PAYMENT_ATTEMPT_ID = '11111111-1111-1111-1111-111111111111'
 const SUBSCRIPTION_ID = '22222222-2222-2222-2222-222222222222'
 
 function sellerConfigHandler() {
-  return http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoice-seller-config`, () => {
+  return http.get(`${BASE_URL}/api/bill/invoice-seller-config`, () => {
     return HttpResponse.json({
       sellerName: 'Seller Corp',
       sellerAddress: '789 Seller Ave',

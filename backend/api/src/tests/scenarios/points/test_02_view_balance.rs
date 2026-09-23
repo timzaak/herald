@@ -8,7 +8,7 @@
 //
 // **Scenario**: Admin views a user's wallet via the admin-console surface
 //
-// `GET /api/points/{realmId}/wallets/{userId}` is the admin wallet view: it
+// `GET /api/points/wallets/{userId}` is the admin wallet view: it
 // sits behind the `require_admin_console_token` gate, so callers need a
 // FirstParty admin-console token (plain HTTP login tokens are
 // CredentialClass::CustomUserUi and are rejected by design). The regular-user
@@ -24,7 +24,7 @@
 // - An admin (points.view) admin-console session
 //
 // **When**:
-// - The admin calls `GET /api/points/{realmId}/wallets/{userId}`
+// - The admin calls `GET /api/points/wallets/{userId}`
 //
 // **Then**:
 // - The response returns balance: 5000
@@ -52,7 +52,7 @@ use tower::ServiceExt;
 
 /// Mint an admin-console (FirstParty) session for a caller with points.view.
 ///
-/// `GET /api/points/{realmId}/wallets/{userId}` is the admin wallet view: it
+/// `GET /api/points/wallets/{userId}` is the admin wallet view: it
 /// sits behind the `require_admin_console_token` gate, so a plain HTTP login
 /// token (CredentialClass::CustomUserUi since the credential-class split) is
 /// rejected with 403 by design. The regular-user "view my own balance" story
@@ -114,7 +114,7 @@ async fn test_scenario_admin_view_user_wallet(ctx: &mut TestContext) {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/points/{}/wallets/{}", ctx._realm_id, user_id))
+        .uri(format!("/api/points/wallets/{}", user_id))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -211,7 +211,7 @@ async fn test_scenario_get_wallet_auto_creates_empty_wallet(ctx: &mut TestContex
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/points/{}/wallets/{}", ctx._realm_id, user_id))
+        .uri(format!("/api/points/wallets/{}", user_id))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
@@ -342,7 +342,7 @@ async fn test_user_balance_excludes_future_effective(ctx: &mut TestContext) {
 
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/points/{}/wallets/{}", realm_id, user_id))
+        .uri(format!("/api/points/wallets/{}", user_id))
         .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

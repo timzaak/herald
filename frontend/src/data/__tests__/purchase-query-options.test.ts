@@ -191,7 +191,7 @@ describe('paymentAttemptStatusQueryOptions', () => {
     await options.queryFn()
 
     expect(getPaymentAttemptStatus).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', attemptId: 'attempt-001' },
+      path: { attemptId: 'attempt-001' },
     })
   })
 
@@ -281,9 +281,7 @@ describe('paymentProvidersQueryOptions', () => {
     const options = paymentProvidersQueryOptions('realm-1')
     await options.queryFn()
 
-    expect(listPaymentProviders).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1' },
-    })
+    expect(listPaymentProviders).toHaveBeenCalledWith({})
   })
 
   it('returns providers array from response', async () => {

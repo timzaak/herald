@@ -20,7 +20,7 @@ export function useOauthToggleMutation(realmId: string) {
   return useMutation({
     mutationFn: async (config: OAuthConfigResponse) => {
       const response = await updateOauthConfig({
-        path: { realmId, providerType: config.providerType },
+        path: { providerType: config.providerType },
         body: {
           enabled: !config.enabled,
         },
@@ -49,7 +49,7 @@ export function useOauthDeleteMutation(realmId: string, onDeleteSuccess?: () => 
   return useMutation({
     mutationFn: async (providerType: string) => {
       const response = await deleteOauthConfig({
-        path: { realmId, providerType },
+        path: { providerType },
       })
       if (response.error) throw response.error
       return response.data
@@ -105,7 +105,7 @@ export function useOauthSaveMutation({
           body: updateData,
         })
         const response = await updateOauthConfig({
-          path: { realmId, providerType: editingConfig.providerType },
+          path: { providerType: editingConfig.providerType },
           body: updateData,
         })
         console.log('[OAuth Save Mutation] PUT response received', response)
@@ -127,7 +127,6 @@ export function useOauthSaveMutation({
           body: createData,
         })
         const response = await createOauthConfig({
-          path: { realmId },
           body: createData,
         })
         console.log('[OAuth Save Mutation] POST response received', response)

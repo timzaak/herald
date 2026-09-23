@@ -20,7 +20,6 @@ export function useCreateCreditBucket(realmId: string) {
   return useMutation({
     mutationFn: async (body: CreateCreditBucketRequest) => {
       const response = await createCreditBucketHandler({
-        path: { realmId },
         body,
       })
       if (response.error) throw response.error
@@ -39,7 +38,7 @@ export function useUpdateCreditBucket(realmId: string, bucketId: string) {
   return useMutation({
     mutationFn: async (body: UpdateCreditBucketRequest) => {
       const response = await updateCreditBucketHandler({
-        path: { realmId, bucketId },
+        path: { bucketId },
         body,
       })
       if (response.error) throw response.error
@@ -62,7 +61,7 @@ export function useDeleteCreditBucket(realmId: string) {
   return useMutation({
     mutationFn: async (bucketId: string) => {
       const response = await deleteCreditBucketHandler({
-        path: { realmId, bucketId },
+        path: { bucketId },
       })
       if (response.error) throw response.error
       return response.data

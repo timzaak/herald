@@ -5,8 +5,8 @@
 // Verifies the two read-only statistics endpoints backing the admin billing
 // statistics page:
 //
-//   GET /api/bill/{realmId}/stats/payments      -> billing.view
-//   GET /api/points/{realmId}/stats/consumption -> points.view
+//   GET /api/bill/stats/payments      -> billing.view
+//   GET /api/points/stats/consumption -> points.view
 //
 // =============================================================================
 
@@ -202,7 +202,7 @@ async fn get_json(app: axum::Router, uri: String, token: &str) -> (StatusCode, s
 ///
 /// Given a realm with finalized attempts across two days, two providers and
 /// two currencies plus one pending attempt,
-/// When calling GET /api/bill/{realmId}/stats/payments,
+/// When calling GET /api/bill/stats/payments,
 /// Then counts, per-currency amounts, provider groups and the daily trend
 /// reflect only the finalized attempts and the response carries no
 /// cross-currency amount field.
@@ -291,12 +291,7 @@ async fn test_scenario_payment_stats_aggregates_by_currency_provider_and_day(
     .await;
     seed_payment_attempt(ctx, &realm_id, payer, "stripe", "USD", 999, "Pending", now).await;
 
-    let (status, body) = get_json(
-        app,
-        format!("/api/bill/{realm_id}/stats/payments"),
-        &admin_token,
-    )
-    .await;
+    let (status, body) = get_json(app, "/api/bill/stats/payments".to_string(), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "Expected 200 OK, body: {body}");
 
     assert_eq!(body["windowDays"].as_i64(), Some(7));
@@ -416,11 +411,11 @@ async fn test_scenario_stats_rejects_invalid_window(ctx: &mut TestContext) {
     let (admin_token, admin_user_id) =
         create_admin_session_with_user(ctx, "stats-window@test.com", 1800).await;
     grant_realm_admin_role(ctx, &admin_user_id).await;
-    let realm_id = ctx._realm_id.clone();
+    let _realm_id = ctx._realm_id.clone();
 
     for endpoint in [
-        format!("/api/bill/{realm_id}/stats/payments"),
-        format!("/api/points/{realm_id}/stats/consumption"),
+        "/api/bill/stats/payments".to_string(),
+        "/api/points/stats/consumption".to_string(),
     ] {
         for days in ["45", "0", "-7", "8", "abc"] {
             let (status, _) =
@@ -498,7 +493,7 @@ async fn test_scenario_stats_window_boundary(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app.clone(),
-        format!("/api/bill/{realm_id}/stats/payments?days=30"),
+        "/api/bill/stats/payments?days=30".to_string(),
         &admin_token,
     )
     .await;
@@ -511,7 +506,7 @@ async fn test_scenario_stats_window_boundary(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app.clone(),
-        format!("/api/bill/{realm_id}/stats/payments?days=7"),
+        "/api/bill/stats/payments?days=7".to_string(),
         &admin_token,
     )
     .await;
@@ -525,7 +520,7 @@ async fn test_scenario_stats_window_boundary(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app.clone(),
-        format!("/api/points/{realm_id}/stats/consumption?days=30"),
+        "/api/points/stats/consumption?days=30".to_string(),
         &admin_token,
     )
     .await;
@@ -538,7 +533,7 @@ async fn test_scenario_stats_window_boundary(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app,
-        format!("/api/points/{realm_id}/stats/consumption?days=7"),
+        "/api/points/stats/consumption?days=7".to_string(),
         &admin_token,
     )
     .await;
@@ -557,7 +552,7 @@ async fn test_scenario_stats_window_boundary(ctx: &mut TestContext) {
 ///
 /// Given consume, recharge and refund_revoke transactions in the same window
 /// across two users and two buckets,
-/// When calling GET /api/points/{realmId}/stats/consumption,
+/// When calling GET /api/points/stats/consumption,
 /// Then totals, trend and buckets reflect only the consume rows and
 /// consumingUsers counts distinct users.
 #[test_context(TestContext)]
@@ -586,7 +581,7 @@ async fn test_scenario_points_stats_count_consume_only(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app,
-        format!("/api/points/{realm_id}/stats/consumption"),
+        "/api/points/stats/consumption".to_string(),
         &admin_token,
     )
     .await;
@@ -662,7 +657,7 @@ async fn test_scenario_stats_permissions_are_separate(ctx: &mut TestContext) {
 
     let (status, _) = get_json(
         app.clone(),
-        format!("/api/bill/{realm_id}/stats/payments"),
+        "/api/bill/stats/payments".to_string(),
         &billing_token,
     )
     .await;
@@ -674,7 +669,7 @@ async fn test_scenario_stats_permissions_are_separate(ctx: &mut TestContext) {
 
     let (status, _) = get_json(
         app.clone(),
-        format!("/api/points/{realm_id}/stats/consumption"),
+        "/api/points/stats/consumption".to_string(),
         &billing_token,
     )
     .await;
@@ -686,7 +681,7 @@ async fn test_scenario_stats_permissions_are_separate(ctx: &mut TestContext) {
 
     let (status, _) = get_json(
         app.clone(),
-        format!("/api/points/{realm_id}/stats/consumption"),
+        "/api/points/stats/consumption".to_string(),
         &points_token,
     )
     .await;
@@ -696,12 +691,7 @@ async fn test_scenario_stats_permissions_are_separate(ctx: &mut TestContext) {
         "points.view covers the consumption endpoint"
     );
 
-    let (status, _) = get_json(
-        app,
-        format!("/api/bill/{realm_id}/stats/payments"),
-        &points_token,
-    )
-    .await;
+    let (status, _) = get_json(app, "/api/bill/stats/payments".to_string(), &points_token).await;
     assert_eq!(
         status,
         StatusCode::FORBIDDEN,
@@ -730,7 +720,7 @@ async fn test_scenario_stats_realm_isolation(ctx: &mut TestContext) {
         create_admin_session_with_user(ctx, "stats-isolation@test.com", 1800).await;
     grant_realm_admin_role(ctx, &admin_user_id).await;
 
-    let realm_1 = ctx._realm_id.clone();
+    let _realm_1 = ctx._realm_id.clone();
     let realm_2 = format!("stats-realm-{}", uuid::Uuid::now_v7().simple());
     seed_realm(ctx, &realm_2, "Statistics Isolation Realm").await;
     let foreign_user = create_test_user(ctx, &realm_2, "stats-foreign@test.com").await;
@@ -762,7 +752,7 @@ async fn test_scenario_stats_realm_isolation(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app.clone(),
-        format!("/api/bill/{realm_1}/stats/payments"),
+        "/api/bill/stats/payments".to_string(),
         &admin_token,
     )
     .await;
@@ -775,7 +765,7 @@ async fn test_scenario_stats_realm_isolation(ctx: &mut TestContext) {
 
     let (status, body) = get_json(
         app.clone(),
-        format!("/api/points/{realm_1}/stats/consumption"),
+        "/api/points/stats/consumption".to_string(),
         &admin_token,
     )
     .await;
@@ -786,31 +776,9 @@ async fn test_scenario_stats_realm_isolation(ctx: &mut TestContext) {
         "realm-2 consumption must not leak into realm-1 stats"
     );
 
-    // Realm boundary: a realm-1 identity querying realm-2's path is rejected
-    // before any data access.
-    let (status, _) = get_json(
-        app.clone(),
-        format!("/api/bill/{realm_2}/stats/payments"),
-        &admin_token,
-    )
-    .await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "cross-realm stats query must be 403"
-    );
-
-    let (status, _) = get_json(
-        app,
-        format!("/api/points/{realm_2}/stats/consumption"),
-        &admin_token,
-    )
-    .await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "cross-realm stats query must be 403"
-    );
+    // Realm boundary is enforced by construction: the stats realm comes
+    // from the session token, so realm-2's seeded data can never be queried
+    // through realm-1's token (asserted above by the zero-leak expectations).
 }
 
 // =============================================================================
@@ -853,12 +821,8 @@ async fn test_scenario_stats_empty_realm_returns_zeros(ctx: &mut TestContext) {
     .await;
     let token = mint_first_party_session(ctx, empty_admin).await;
 
-    let (status, body) = get_json(
-        app.clone(),
-        format!("/api/bill/{empty_realm}/stats/payments"),
-        &token,
-    )
-    .await;
+    let (status, body) =
+        get_json(app.clone(), "/api/bill/stats/payments".to_string(), &token).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -890,12 +854,7 @@ async fn test_scenario_stats_empty_realm_returns_zeros(ctx: &mut TestContext) {
             .all(|p| p["succeededCount"] == 0 && p["failedCount"] == 0)
     );
 
-    let (status, body) = get_json(
-        app,
-        format!("/api/points/{empty_realm}/stats/consumption"),
-        &token,
-    )
-    .await;
+    let (status, body) = get_json(app, "/api/points/stats/consumption".to_string(), &token).await;
     assert_eq!(
         status,
         StatusCode::OK,

@@ -12,7 +12,6 @@ export function useGrantPoints(realmId: string) {
   return useMutation({
     mutationFn: async (values: GrantPointsFormData) => {
       const response = await grantPoints({
-        path: { realmId },
         body: {
           userId: values.userId,
           amount: values.amount,

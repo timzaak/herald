@@ -94,8 +94,11 @@ pub async fn handle_update_realm_email_otp_config(
     headers: HeaderMap,
     Valid(Json(req)): Valid<Json<UpdateRealmEmailOtpConfigRequest>>,
 ) -> Result<ApiResult<UpdateRealmEmailOtpConfigResponse>, ApiError> {
-    let admin =
-        AdminIdentity::require(identity.clone(), &realm_id, "realm Email OTP configuration")?;
+    let admin = AdminIdentity::require_in_realm(
+        identity.clone(),
+        &realm_id,
+        "realm Email OTP configuration",
+    )?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
@@ -216,7 +219,8 @@ pub async fn handle_get_realm_email_otp_config(
     Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<GetRealmEmailOtpConfigResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "realm Email OTP configuration")?;
+    let admin =
+        AdminIdentity::require_in_realm(identity, &realm_id, "realm Email OTP configuration")?;
     admin.require_permission(&state, "settings", "view").await?;
 
     let service = state.service.realm_config_service();

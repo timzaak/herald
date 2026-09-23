@@ -475,11 +475,8 @@ fn to_response(config: RealmConfig) -> RealmConfigResponse {
 /// Get all configs for a given realm
 #[utoipa::path(
     get,
-    path = "/api/configs/{realmId}",
+    path = "/api/configs",
     tag = "realm_config",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     responses(
         (status = 200, description = "List of all configs", body = Vec<RealmConfigResponse>),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
@@ -488,29 +485,26 @@ fn to_response(config: RealmConfig) -> RealmConfigResponse {
     )
 )]
 pub async fn list_realm_configs(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<Vec<RealmConfigResponse>>, ApiError> {
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    // Mirror the write handlers' in-handler gate so reads do not depend solely
+    // on the service-layer policy wiring (which tests replace with AllowAll).
+    // The realm is pinned by the session token.
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
     tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
         "Listing realm configs"
     );
 
-    // Mirror the write handlers' in-handler gate so reads do not depend solely
-    // on the service-layer policy wiring (which tests replace with AllowAll).
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
-        .require_permission(&state, "settings", "view")
-        .await?;
-
     let configs = realm_config_service
-        .get_all_configs(identity, realm_id)
+        .get_all_configs(identity, realm_id.clone())
         .await
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
@@ -529,10 +523,9 @@ pub async fn list_realm_configs(
 /// Get all configs of a given type
 #[utoipa::path(
     get,
-    path = "/api/configs/{realmId}/{configType}",
+    path = "/api/configs/{configType}",
     tag = "realm_config",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("configType" = String, Path, description = "Config type (oauth, turnstile, registration, …)")
     ),
     responses(
@@ -543,27 +536,24 @@ pub async fn list_realm_configs(
     )
 )]
 pub async fn list_realm_configs_by_type(
-    Path((realm_id, config_type)): Path<(String, String)>,
+    Path(config_type): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<Vec<RealmConfigResponse>>, ApiError> {
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
     tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
         "Listing realm configs by type"
     );
 
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
-        .require_permission(&state, "settings", "view")
-        .await?;
-
     let configs = realm_config_service
-        .get_configs_by_type(identity, realm_id, config_type)
+        .get_configs_by_type(identity, realm_id.clone(), config_type)
         .await
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
@@ -582,10 +572,9 @@ pub async fn list_realm_configs_by_type(
 /// Get a single config
 #[utoipa::path(
     get,
-    path = "/api/configs/{realmId}/{configType}/{configKey}",
+    path = "/api/configs/{configType}/{configKey}",
     tag = "realm_config",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("configType" = String, Path, description = "Config type"),
         ("configKey" = String, Path, description = "Config key")
     ),
@@ -598,27 +587,24 @@ pub async fn list_realm_configs_by_type(
     )
 )]
 pub async fn get_realm_config(
-    Path((realm_id, config_type, config_key)): Path<(String, String, String)>,
+    Path((config_type, config_key)): Path<(String, String)>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<RealmConfigResponse>, ApiError> {
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
     tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
         "Getting realm config"
     );
 
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
-        .require_permission(&state, "settings", "view")
-        .await?;
-
     let config = realm_config_service
-        .get_config(identity, realm_id, config_type, config_key)
+        .get_config(identity, realm_id.clone(), config_type, config_key)
         .await
         .map_err(|e| match e {
             herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
@@ -640,11 +626,8 @@ pub async fn get_realm_config(
 /// Create or update a config (upsert)
 #[utoipa::path(
     put,
-    path = "/api/configs/{realmId}",
+    path = "/api/configs",
     tag = "realm_config",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     request_body = UpsertRealmConfigValidator,
     responses(
         (status = 200, description = "Config created or updated", body = RealmConfigResponse),
@@ -655,7 +638,6 @@ pub async fn get_realm_config(
     )
 )]
 pub async fn upsert_realm_config(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
@@ -668,21 +650,21 @@ pub async fn upsert_realm_config(
 
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
-
-    tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
-        "Upserting realm config"
-    );
-
     // Authorization must run before the email-configured guard below: the
     // guard's 400 message discloses whether the realm has email configured,
     // which must not reach a caller from another realm (error-shape oracle).
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+    // The realm itself is pinned by the session token.
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin
         .require_permission(&state, "settings", "manage")
         .await?;
+    let realm_id = admin.realm_id().to_string();
+
+    tracing::debug!(
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
+        "Upserting realm config"
+    );
 
     let config_type = parse_config_type(payload.config_type)?;
     reject_non_admin_platform_signup(&realm_id, &config_type)?;
@@ -792,11 +774,8 @@ pub async fn upsert_realm_config(
 /// Batch create or update configs
 #[utoipa::path(
     post,
-    path = "/api/configs/{realmId}/batch",
+    path = "/api/configs/batch",
     tag = "realm_config",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     request_body = BatchUpsertRealmConfigRequest,
     responses(
         (status = 200, description = "Batch configs created or updated", body = Vec<RealmConfigResponse>),
@@ -807,39 +786,34 @@ pub async fn upsert_realm_config(
     )
 )]
 pub async fn batch_upsert_realm_configs(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
     Json(payload): Json<BatchUpsertRealmConfigValidator>,
 ) -> Result<Json<Vec<RealmConfigResponse>>, ApiError> {
-    tracing::debug!(
-        realm_id = %realm_id,
-        config_count = payload.configs.len(),
-        "Received batch upsert request"
-    );
     payload
         .validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
-
-    tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
-        "Batch upserting realm configs"
-    );
-
     // Authorization must run before the email-configured guard below: the
     // guard's 400 message discloses whether the realm has email configured,
     // which must not reach a caller from another realm (error-shape oracle).
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+    // The realm itself is pinned by the session token.
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin
         .require_permission(&state, "settings", "manage")
         .await?;
+    let realm_id = admin.realm_id().to_string();
+
+    tracing::debug!(
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
+        config_count = payload.configs.len(),
+        "Batch upserting realm configs"
+    );
 
     let mut skipped_existing = Vec::new();
     let mut requests: Vec<UpsertRealmConfigRequest> = Vec::new();
@@ -1022,10 +996,9 @@ pub async fn batch_upsert_realm_configs(
 /// Delete a config
 #[utoipa::path(
     delete,
-    path = "/api/configs/{realmId}/{configType}/{configKey}",
+    path = "/api/configs/{configType}/{configKey}",
     tag = "realm_config",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("configType" = String, Path, description = "Config type"),
         ("configKey" = String, Path, description = "Config key")
     ),
@@ -1038,7 +1011,7 @@ pub async fn batch_upsert_realm_configs(
     )
 )]
 pub async fn delete_realm_config(
-    Path((realm_id, config_type, config_key)): Path<(String, String, String)>,
+    Path((config_type, config_key)): Path<(String, String)>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     ClientIp(ip): ClientIp,
@@ -1046,21 +1019,21 @@ pub async fn delete_realm_config(
 ) -> Result<StatusCode, ApiError> {
     let realm_config_service = state.service.realm_config_service();
 
-    let identity_realm_id = identity.realm_id();
-    let current_user_id = identity.user_id();
-
-    tracing::debug!(
-        realm_id = %identity_realm_id,
-        user_id = %current_user_id,
-        "Deleting realm config"
-    );
-
     // Authorization must run before the provider-deletion guard below: the
     // guard's 400 message discloses per-provider subscription state, which
     // must not reach a caller from another realm (error-shape oracle).
-    AdminIdentity::require(identity.clone(), &realm_id, "realm configs")?
+    // The realm itself is pinned by the session token.
+    let admin = AdminIdentity::require(identity.clone(), "realm configs")?;
+    admin
         .require_permission(&state, "settings", "manage")
         .await?;
+    let realm_id = admin.realm_id().to_string();
+
+    tracing::debug!(
+        realm_id = %realm_id,
+        user_id = admin.user_id_string(),
+        "Deleting realm config"
+    );
 
     let parsed_config_type = parse_config_type(config_type.clone())?;
     reject_non_admin_platform_signup(&realm_id, &parsed_config_type)?;
@@ -1132,11 +1105,8 @@ pub async fn delete_realm_config(
 /// Get email configuration status for a realm
 #[utoipa::path(
     get,
-    path = "/api/configs/{realmId}/email/status",
+    path = "/api/configs/email/status",
     tag = "realm_config",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     responses(
         (status = 200, description = "Email configuration status", body = EmailStatusResponse),
         (status = 401, description = "Unauthorized", body = ErrorResponse),
@@ -1145,13 +1115,12 @@ pub async fn delete_realm_config(
     )
 )]
 pub async fn email_status(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
 ) -> Result<Json<EmailStatusResponse>, ApiError> {
-    AdminIdentity::require(identity, &realm_id, "email status")?
-        .require_permission(&state, "settings", "view")
-        .await?;
+    let admin = AdminIdentity::require(identity, "email status")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
 
     let status = EmailService::is_email_configured(&state.pool, &realm_id)
         .await
@@ -1171,11 +1140,8 @@ pub async fn email_status(
 /// Send a test email for a realm
 #[utoipa::path(
     post,
-    path = "/api/configs/{realmId}/email/test",
+    path = "/api/configs/email/test",
     tag = "realm_config",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
     request_body = EmailTestRequest,
     responses(
         (status = 200, description = "Test email result", body = EmailTestResponse),
@@ -1187,15 +1153,15 @@ pub async fn email_status(
     )
 )]
 pub async fn email_test(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Json(payload): Json<EmailTestRequest>,
 ) -> Result<Json<EmailTestResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "email test")?;
+    let admin = AdminIdentity::require(identity, "email test")?;
     admin
         .require_permission(&state, "settings", "manage")
         .await?;
+    let realm_id = admin.realm_id().to_string();
 
     rate_limit_hit_forced(
         &state,

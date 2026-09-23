@@ -1,7 +1,4 @@
-use axum::{
-    Extension, Json,
-    extract::{Path, State},
-};
+use axum::{Extension, Json, extract::State};
 use axum_valid::Valid;
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_core::domain::authentication::Identity;
@@ -16,15 +13,12 @@ use herald_core::domain::audit::{AuditAction, AuditResult};
 /// Create a new permission
 #[utoipa::path(
     post,
-    path = "/api/permission/{realmId}/define",
+    path = "/api/permission/define",
     tag = "permission-definitions",
     operation_id = "create_permission_definition",
     summary = "Create a new permission",
     description = "Create a new permission definition. Permission name must be in format 'resource.action' (e.g., 'users.manage'). Requires `permissions.manage` permission.",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = PermissionCreateRequest,
+        request_body = PermissionCreateRequest,
     responses(
         (status = 201, description = "Permission created", body = PermissionResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
@@ -34,12 +28,12 @@ use herald_core::domain::audit::{AuditAction, AuditResult};
     security(("bearer_auth" = []))
 )]
 pub async fn create_permission(
-    Path(realm_id): Path<String>,
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Valid(Json(payload)): Valid<Json<PermissionCreateRequest>>,
 ) -> Result<ApiResult<PermissionResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "permission definitions")?;
+    let admin = AdminIdentity::require(identity, "permission definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "permissions", "manage")
         .await?;

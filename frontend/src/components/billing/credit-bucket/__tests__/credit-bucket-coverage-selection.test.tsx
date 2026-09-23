@@ -49,10 +49,10 @@ function useClientAppsHandler(initial: ReturnType<typeof app>[]) {
   const items = [...initial]
   return {
     handler: [
-      http.get(`${API_BASE_URL}/api/client/:realmId`, () =>
+      http.get(`${API_BASE_URL}/api/client`, () =>
         HttpResponse.json({ items, page: 0, pageSize: 100, total: items.length })
       ),
-      http.post(`${API_BASE_URL}/api/client/:realmId`, async ({ request }) => {
+      http.post(`${API_BASE_URL}/api/client`, async ({ request }) => {
         const body = (await request.json()) as { clientId: string; name: string }
         const created = {
           id: 'id-created',
@@ -122,7 +122,7 @@ describe('CreditBucketEditor — coverage client app selection', () => {
       // Realm has ONLY built-in apps: nothing selectable without creating one.
       ...useClientAppsHandler([...BUILT_IN_APPS]).handler,
       ...creditBucketsHandlers,
-      http.post(`${API_BASE_URL}/api/realms/:realmId/billing/credit-buckets`, () =>
+      http.post(`${API_BASE_URL}/api/bill/credit-buckets`, () =>
         HttpResponse.json({ id: 'b-new' }, { status: 201 })
       )
     )

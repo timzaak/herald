@@ -25,7 +25,7 @@ use tower::ServiceExt;
 ///
 pub async fn create_role(
     ctx: &TestContext,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
     name: &str,
     description: &str,
@@ -41,7 +41,7 @@ pub async fn create_role(
 
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/roles/{}/define", realm_id))
+        .uri("/api/roles/define".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(req_body))

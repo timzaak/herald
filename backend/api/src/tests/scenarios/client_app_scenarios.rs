@@ -37,7 +37,7 @@ mod tests {
         // 创建一个 Client App
         let request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -88,7 +88,7 @@ mod tests {
 
         let request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -125,7 +125,7 @@ mod tests {
 
         let request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -159,7 +159,7 @@ mod tests {
         // 先创建一个 Client App
         let create_request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -182,7 +182,7 @@ mod tests {
         // 更新 redirect_uris
         let update_request = Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", ctx._realm_id, client_app_id))
+            .uri(format!("/api/client/{}", client_app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -229,7 +229,7 @@ mod tests {
         // 创建一个启用的 Client App
         let create_request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -253,7 +253,7 @@ mod tests {
         // 禁用 Client App
         let disable_request = Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", ctx._realm_id, client_app_id))
+            .uri(format!("/api/client/{}", client_app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -280,7 +280,7 @@ mod tests {
         // 重新启用
         let enable_request = Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", ctx._realm_id, client_app_id))
+            .uri(format!("/api/client/{}", client_app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -317,7 +317,7 @@ mod tests {
         // 创建 Client App
         let create_request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -341,7 +341,7 @@ mod tests {
         // 重新生成 secret
         let update_request = Request::builder()
             .method("PUT")
-            .uri(format!("/api/client/{}/{}", ctx._realm_id, client_app_id))
+            .uri(format!("/api/client/{}", client_app_id))
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -376,7 +376,7 @@ mod tests {
         // 尝试创建低于 1 天最小值的 Client App
         let request = Request::builder()
             .method("POST")
-            .uri(format!("/api/client/{}", ctx._realm_id))
+            .uri("/api/client".to_string())
             .header("content-type", "application/json")
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::from(
@@ -412,7 +412,7 @@ mod tests {
 
         let request = Request::builder()
             .method("DELETE")
-            .uri(format!("/api/client/{}/{}", ctx._realm_id, builtin_id))
+            .uri(format!("/api/client/{}", builtin_id))
             .header("authorization", format!("Bearer {}", admin_token))
             .body(Body::empty())
             .unwrap();

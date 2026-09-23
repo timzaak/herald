@@ -2,7 +2,7 @@
 
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -34,11 +34,8 @@ fn grant_bucket_required_error() -> ApiError {
 /// Grant points to a user (admin)
 #[utoipa::path(
     post,
-    path = "/api/points/{realmId}/grant",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = GrantPointsRequest,
+    path = "/api/points/grant",
+        request_body = GrantPointsRequest,
     responses(
         (status = 200, description = "Points granted successfully", body = GrantPointsResponse),
         (status = 400, description = "Bad request (invalid amount, invalid user ID, empty reason, missing/invalid bucketId → code=grant_bucket_required)", body = ErrorResponse),
@@ -59,10 +56,10 @@ fn grant_bucket_required_error() -> ApiError {
 pub async fn grant_points(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<GrantPointsRequest>,
 ) -> Result<Json<GrantPointsResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "points grant")?;
+    let admin = AdminIdentity::require(identity, "points grant")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "points", "manage").await?;
 
     // Parse user_id as UUID

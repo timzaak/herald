@@ -130,7 +130,7 @@ function makeFeatureAvailabilityEligible() {
 
 describe('InvoiceAdminPage', () => {
   const defaultHandlers = [
-    http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, ({ request }) => {
+    http.get(`${BASE_URL}/api/bill/invoices`, ({ request }) => {
       const url = new URL(request.url)
       const status = url.searchParams.get('status')
       const source = url.searchParams.get('source')
@@ -194,7 +194,7 @@ describe('InvoiceAdminPage', () => {
 
       return HttpResponse.json(makeListResponse(invoices, { page, total: invoices.length }))
     }),
-    http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+    http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
       return HttpResponse.json(makeFeatureAvailabilityEligible())
     }),
   ]
@@ -225,7 +225,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-draft', status: 'draft' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -251,7 +251,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-issued', status: 'issued' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -277,7 +277,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-paid', status: 'paid' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -303,7 +303,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-overdue', status: 'overdue' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -329,7 +329,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-void', status: 'void' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -364,7 +364,7 @@ describe('InvoiceAdminPage', () => {
       let capturedPage: number | null = null
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, ({ request }) => {
+        http.get(`${BASE_URL}/api/bill/invoices`, ({ request }) => {
           const url = new URL(request.url)
           capturedPage = parseInt(url.searchParams.get('page') ?? '0', 10)
 
@@ -421,7 +421,7 @@ describe('InvoiceAdminPage', () => {
       const invoice = makeInvoice({ id: 'inv-cb', status: 'draft' })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         })
       )
@@ -450,7 +450,7 @@ describe('InvoiceAdminPage', () => {
   describe('Create Invoice eligibility gating', () => {
     function overrideFeatureAvailability(overrides: Record<string, unknown>) {
       server.use(
-        http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+        http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
           return HttpResponse.json({
             ...makeFeatureAvailabilityEligible(),
             invoiceEligibility: {
@@ -522,12 +522,12 @@ describe('InvoiceAdminPage', () => {
       let capturedAttribution: string | null = undefined
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, ({ request }) => {
+        http.get(`${BASE_URL}/api/bill/invoices`, ({ request }) => {
           const url = new URL(request.url)
           capturedAttribution = url.searchParams.get('attribution')
           return HttpResponse.json(makeListResponse([makeInvoice()]))
         }),
-        http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+        http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
           return HttpResponse.json(makeFeatureAvailabilityEligible())
         })
       )
@@ -592,10 +592,10 @@ describe('InvoiceAdminPage', () => {
       },
     ])('$name', async ({ invoice, expectBadge }) => {
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         }),
-        http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+        http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
           return HttpResponse.json(makeFeatureAvailabilityEligible())
         })
       )
@@ -671,10 +671,10 @@ describe('InvoiceAdminPage', () => {
       },
     ])('$name', async ({ invoice, expectChip }) => {
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         }),
-        http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+        http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
           return HttpResponse.json(makeFeatureAvailabilityEligible())
         })
       )
@@ -705,10 +705,10 @@ describe('InvoiceAdminPage', () => {
       })
 
       server.use(
-        http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, () => {
+        http.get(`${BASE_URL}/api/bill/invoices`, () => {
           return HttpResponse.json(makeListResponse([invoice]))
         }),
-        http.get(`${BASE_URL}/api/realms/${REALM_ID}/feature-availability`, () => {
+        http.get(`${BASE_URL}/api/bill/feature-availability`, () => {
           return HttpResponse.json(makeFeatureAvailabilityEligible())
         })
       )

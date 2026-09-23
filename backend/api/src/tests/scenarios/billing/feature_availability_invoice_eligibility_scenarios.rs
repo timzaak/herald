@@ -40,18 +40,18 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    /// GET /api/realms/{realmId}/feature-availability as the given token.
+    /// GET /api/bill/feature-availability as the given token.
     async fn fetch_feature_availability(
         app: &axum::Router,
         token: &str,
-        realm_id: &str,
+        _realm_id: &str,
     ) -> serde_json::Value {
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/realms/{}/feature-availability", realm_id))
+                    .uri("/api/bill/feature-availability".to_string())
                     .header("authorization", format!("Bearer {}", token))
                     .body(Body::empty())
                     .unwrap(),
@@ -226,7 +226,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/bill/{}/invoice-seller-config", realm_id))
+                    .uri("/api/bill/invoice-seller-config".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(put_payload.to_string()))

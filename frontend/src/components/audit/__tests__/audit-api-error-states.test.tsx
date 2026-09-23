@@ -47,7 +47,7 @@ describe('Audit API error states', () => {
   describe('List endpoint errors', () => {
     test('shows error when list endpoint returns 500', async () => {
       server.use(
-        http.get(`${API_BASE_URL}/api/audit/:realmId`, () => {
+        http.get(`${API_BASE_URL}/api/audit`, () => {
           return HttpResponse.json({ message: 'Internal Server Error' }, { status: 500 })
         })
       )
@@ -69,7 +69,7 @@ describe('Audit API error states', () => {
   describe('Detail endpoint errors', () => {
     test('shows error message when detail endpoint returns 404', async () => {
       server.use(
-        http.get(`${API_BASE_URL}/api/audit/:realmId/:eventId`, () => {
+        http.get(`${API_BASE_URL}/api/audit/:eventId`, () => {
           return HttpResponse.json({ message: 'Event not found' }, { status: 404 })
         })
       )

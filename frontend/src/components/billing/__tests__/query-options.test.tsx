@@ -38,9 +38,7 @@ describe('featureAvailabilityQueryOptions', () => {
     const options = featureAvailabilityQueryOptions('realm-1')
     await options.queryFn?.({} as never)
 
-    expect(getFeatureAvailability).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1' },
-    })
+    expect(getFeatureAvailability).toHaveBeenCalledWith({})
   })
 })
 
@@ -74,7 +72,7 @@ describe('subscriptionHistoryQueryOptions', () => {
     await getSubscriptionHistory('realm-1', 'sub-1')
 
     expect(getSubscriptionHistoryApi).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1', subscriptionId: 'sub-1' },
+      path: { subscriptionId: 'sub-1' },
     })
   })
 })
@@ -125,7 +123,6 @@ describe('Filter Parameter Handling', () => {
     )
 
     expect(listSubscriptionHistory).toHaveBeenCalledWith({
-      path: { realmId: 'realm-1' },
       query: {
         userId: 'user-1',
         entitlementKey: 'basic',

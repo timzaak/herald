@@ -90,7 +90,7 @@ const handleCheckout = async ({ request }: { request: Request }) => {
 
 export const stripeHandlers = [
   // ===== Checkout Creation Handler =====
-  http.post('/api/:realmId/client/:clientAppId/checkout', handleCheckout),
+  http.post('/api/bill/client/:clientAppId/checkout', handleCheckout),
 
   // ===== Realm Config Handlers =====
 
@@ -234,7 +234,7 @@ export function simulateNetworkFailure(
   statusCode: number = 503,
   delayMs: number = 100
 ) {
-  return http.post('/api/:realmId/client/:clientAppId/checkout', async () => {
+  return http.post('/api/bill/client/:clientAppId/checkout', async () => {
     await delay(delayMs)
     return HttpResponse.json(
       {
@@ -253,7 +253,7 @@ export function simulateNetworkFailure(
  */
 export function simulateRetryScenario(failCount: number, delayMs: number = 100) {
   let attempts = 0
-  return http.post('/api/:realmId/client/:clientAppId/checkout', async () => {
+  return http.post('/api/bill/client/:clientAppId/checkout', async () => {
     await delay(delayMs)
     attempts++
 

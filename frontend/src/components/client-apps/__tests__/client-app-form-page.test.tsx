@@ -160,10 +160,8 @@ describe('ClientAppFormPage — Turnstile fields (FE-D03)', () => {
       expect(createClientAppMock).toHaveBeenCalledTimes(1)
     })
     const call = createClientAppMock.mock.calls[0][0] as {
-      path: { realmId: string }
       body: Record<string, unknown>
     }
-    expect(call.path.realmId).toBe(REALM_ID)
     expect(call.body.turnstileEnabled).toBe(true)
     expect(call.body.turnstileSiteKey).toBe('site-key-abc')
     expect(call.body.turnstileSecretKey).toBe('secret-key-xyz')
@@ -233,7 +231,7 @@ describe('ClientAppFormPage — Turnstile fields (FE-D03)', () => {
       expect(updateClientAppMock).toHaveBeenCalledTimes(1)
     })
     const call = updateClientAppMock.mock.calls[0][0] as {
-      path: { realmId: string; clientAppId: string }
+      path: { clientAppId?: string }
       body: Record<string, unknown>
     }
     expect(call.path.clientAppId).toBe('app-uuid-1')

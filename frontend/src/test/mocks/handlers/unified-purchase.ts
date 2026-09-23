@@ -12,7 +12,7 @@ import { mockPaymentAttempts } from '@/test/fixtures/unified-purchase'
  */
 export const paymentAttemptHandlers = [
   // Create payment attempt
-  http.post('/api/bill/:realmId/purchase/payment-attempts', async ({ request }) => {
+  http.post('/api/bill/purchase/payment-attempts', async ({ request }) => {
     const body = (await request.json()) as any
     const attempt = {
       ...mockPaymentAttempts.pending,
@@ -24,7 +24,7 @@ export const paymentAttemptHandlers = [
   }),
 
   // Get payment attempt status
-  http.get('/api/bill/:realmId/purchase/payment-attempts/:attemptId', ({ params }) => {
+  http.get('/api/bill/purchase/payment-attempts/:attemptId', ({ params }) => {
     const attemptId = params.attemptId as string
     const attempt = Object.values(mockPaymentAttempts).find((a) => a.id === attemptId)
 
@@ -36,7 +36,7 @@ export const paymentAttemptHandlers = [
   }),
 
   // Cancel payment attempt
-  http.post('/api/bill/:realmId/purchase/payment-attempts/:attemptId/cancel', ({ params }) => {
+  http.post('/api/bill/purchase/payment-attempts/:attemptId/cancel', ({ params }) => {
     const attemptId = params.attemptId as string
     const attempt = Object.values(mockPaymentAttempts).find((a) => a.id === attemptId)
 

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Extension, Query, State},
     http::HeaderMap,
 };
 use herald_core::domain::authentication::Identity;
@@ -15,12 +15,11 @@ use herald_core::domain::client::ports::ClientService;
 /// Returns a list of OAuth client applications configured for the specified realm.
 #[utoipa::path(
     get,
-    path = "/api/client/{realmId}",
+    path = "/api/client",
     tag = "client",
     summary = "List client applications",
     description = "List all OAuth client applications configured for the specified realm with pagination. Requires `clients.view` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("page" = Option<i64>, Query, description = "Page number (0-based, default 0)"),
         ("pageSize" = Option<i64>, Query, description = "Page size (default 20)"),
     ),
@@ -34,11 +33,11 @@ use herald_core::domain::client::ports::ClientService;
 pub async fn list_client_apps(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<ListQuery>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<PageResponse<ClientAppItem>>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "client applications")?;
+    let admin = AdminIdentity::require(identity, "client applications")?;
+    let realm_id = admin.realm_id().to_string();
     admin.require_permission(&state, "clients", "view").await?;
 
     tracing::debug!(

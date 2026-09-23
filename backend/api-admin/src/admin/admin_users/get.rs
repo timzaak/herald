@@ -16,12 +16,11 @@ use uuid::Uuid;
 /// Realm boundary check is enforced in Service layer
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}/{userId}",
+    path = "/api/users/{userId}",
     tag = "users",
     summary = "Get user by ID",
     description = "Get detailed information about a specific user. Requires `users.view` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -35,12 +34,12 @@ use uuid::Uuid;
 pub async fn get_user(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, target_user_id)): Path<(String, Uuid)>,
+    Path(target_user_id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<UserDetailResponse>, ApiError> {
     use herald_core::domain::common::entities::app_errors::CoreError;
 
-    let admin = AdminIdentity::require(identity, &realm_id, "user management")?;
+    let admin = AdminIdentity::require(identity, "user management")?;
     admin.require_permission(&state, "users", "view").await?;
 
     // Call UserService - Realm boundary check is enforced in Service layer

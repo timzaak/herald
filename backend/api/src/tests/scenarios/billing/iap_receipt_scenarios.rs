@@ -2,7 +2,7 @@
 // IAP Receipt Submission Scenario Tests (Apple + Google)
 // =============================================================================
 //
-// Exercises `POST /api/bill/{realmId}/purchase/iap/receipt`
+// Exercises `POST /api/bill/purchase/iap/receipt`
 // (`api-billing/src/iap_handlers.rs::submit_iap_receipt`) end-to-end through
 // the unified test router.
 //
@@ -55,10 +55,10 @@ mod tests {
     // =========================================================================
 
     /// Build a CustomUserUi bearer request to the IAP receipt endpoint.
-    fn iap_receipt_request(realm_id: &str, token: &str, body: Value) -> Request<Body> {
+    fn iap_receipt_request(_realm_id: &str, token: &str, body: Value) -> Request<Body> {
         Request::builder()
             .method("POST")
-            .uri(format!("/api/bill/{realm_id}/purchase/iap/receipt"))
+            .uri("/api/bill/purchase/iap/receipt".to_string())
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .body(Body::from(json!(body).to_string()))

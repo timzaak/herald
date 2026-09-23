@@ -83,7 +83,6 @@ export function DeviceVerificationView({ realmId, initialCode }: DeviceVerificat
             version_id: a.version_id,
           })),
         },
-        path: { realmId },
       })
       if (response.error) throw response.error
     },

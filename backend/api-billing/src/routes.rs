@@ -71,16 +71,18 @@ pub fn billing_public_routes() -> Router<AppState> {
         )
 }
 
+/// Admin billing endpoints. The realm is session-derived: the admin console
+/// token pins it, so no `{realmId}` path parameter.
 pub fn billing_routes() -> Router<AppState> {
     Router::new()
         .route(
-            "/api/bill/{realmId}/purchase/history",
+            "/api/bill/purchase/history",
             get(get_realm_purchase_history),
         )
-        .route("/api/bill/{realmId}/stats/payments", get(get_payment_stats))
+        .route("/api/bill/stats/payments", get(get_payment_stats))
         // ===== Feature Availability =====
         .route(
-            "/api/realms/{realmId}/feature-availability",
+            "/api/bill/feature-availability",
             get(get_feature_availability),
         )
         // ===== Credit Bucket Directory =====
@@ -88,92 +90,80 @@ pub fn billing_routes() -> Router<AppState> {
         // segment is matched unambiguously (Axum matchit prefers static over
         // dynamic, but explicit ordering keeps the intent legible).
         .route(
-            "/api/realms/{realmId}/billing/credit-buckets",
+            "/api/bill/credit-buckets",
             get(list_credit_buckets_handler).post(create_credit_bucket_handler),
         )
         .route(
-            "/api/realms/{realmId}/billing/credit-buckets/overview",
+            "/api/bill/credit-buckets/overview",
             get(get_bucket_overview_handler),
         )
         .route(
-            "/api/realms/{realmId}/billing/credit-buckets/{bucketId}",
+            "/api/bill/credit-buckets/{bucketId}",
             get(get_credit_bucket_handler)
                 .put(update_credit_bucket_handler)
                 .delete(delete_credit_bucket_handler),
         )
         // ===== Entitlement Mapping =====
         .route(
-            "/api/bill/{realmId}/entitlement-mappings",
+            "/api/bill/entitlement-mappings",
             get(list_entitlement_mappings).post(create_entitlement_mapping),
         )
+        .route("/api/bill/one-time-mappings", get(list_one_time_mappings))
         .route(
-            "/api/bill/{realmId}/one-time-mappings",
-            get(list_one_time_mappings),
-        )
-        .route(
-            "/api/bill/{realmId}/entitlement-mappings/sync",
+            "/api/bill/entitlement-mappings/sync",
             post(sync_provider_products),
         )
         // Static `batch` segment is registered BEFORE `/{mappingId}` so it is
         // matched unambiguously (same convention as `/overview` above).
         .route(
-            "/api/bill/{realmId}/entitlement-mappings/batch",
+            "/api/bill/entitlement-mappings/batch",
             put(batch_update_entitlement_mappings),
         )
         .route(
-            "/api/bill/{realmId}/entitlement-mappings/{mappingId}",
+            "/api/bill/entitlement-mappings/{mappingId}",
             get(get_entitlement_mapping).patch(update_entitlement_mapping),
         )
         // ===== Subscription List/Detail =====
-        .route("/api/bill/{realmId}/subscriptions", get(list_subscriptions))
+        .route("/api/bill/subscriptions", get(list_subscriptions))
         .route(
-            "/api/bill/{realmId}/subscriptions/{subscriptionId}",
+            "/api/bill/subscriptions/{subscriptionId}",
             get(get_subscription),
         )
         // ===== Subscription History =====
         .route(
-            "/api/bill/{realmId}/subscriptions/{subscriptionId}/history",
+            "/api/bill/subscriptions/{subscriptionId}/history",
             get(get_subscription_history),
         )
         .route(
-            "/api/bill/{realmId}/subscriptions/history",
+            "/api/bill/subscriptions/history",
             get(list_subscription_history),
         )
         // ===== Invoice Management =====
         .route(
-            "/api/bill/{realmId}/invoice-seller-config",
+            "/api/bill/invoice-seller-config",
             get(get_seller_config).put(upsert_seller_config),
         )
         .route(
-            "/api/bill/{realmId}/invoice-attribution/anomalies",
+            "/api/bill/invoice-attribution/anomalies",
             get(list_attribution_anomalies),
         )
         .route(
-            "/api/bill/{realmId}/invoices",
+            "/api/bill/invoices",
             get(list_invoices).post(create_invoice),
         )
         .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}",
+            "/api/bill/invoices/{invoiceId}",
             get(get_invoice).patch(update_invoice),
         )
+        .route("/api/bill/invoices/{invoiceId}/issue", post(issue_invoice))
+        .route("/api/bill/invoices/{invoiceId}/void", post(void_invoice))
+        .route("/api/bill/invoices/{invoiceId}/mark-paid", post(mark_paid))
         .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}/issue",
-            post(issue_invoice),
-        )
-        .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}/void",
-            post(void_invoice),
-        )
-        .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}/mark-paid",
-            post(mark_paid),
-        )
-        .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}/pdf",
+            "/api/bill/invoices/{invoiceId}/pdf",
             get(download_invoice_pdf),
         )
         .route(
-            "/api/bill/{realmId}/invoices/{invoiceId}/credit-notes",
+            "/api/bill/invoices/{invoiceId}/credit-notes",
             post(create_credit_note),
         )
 }
@@ -181,11 +171,12 @@ pub fn billing_routes() -> Router<AppState> {
 /// Browser-token billing endpoints from the CustomUserUi allowlist.
 ///
 /// Mounted separately from `billing_routes` so a CustomUserUi credential can
-/// never enter the admin billing router.
+/// never enter the admin billing router. The realm is pinned by the browser
+/// token, so no `{realmId}` path parameter.
 pub fn billing_browser_routes() -> Router<AppState> {
     Router::new()
         .route(
-            "/api/bill/{realmId}/client/{clientAppId}/subscription",
+            "/api/bill/client/{clientAppId}/subscription",
             get(get_subscription_for_client_app),
         )
         // User self-service cancel: calls provider cancel API (Stripe/Creem),
@@ -193,19 +184,19 @@ pub fn billing_browser_routes() -> Router<AppState> {
         // browser token with the SubscriptionCancel scope may cancel the user's
         // own subscription; admin console no longer cancels directly.
         .route(
-            "/api/bill/{realmId}/client/{clientAppId}/subscription/cancel",
+            "/api/bill/client/{clientAppId}/subscription/cancel",
             post(cancel_subscription_for_client_app),
         )
         .route(
-            "/api/bill/{realmId}/client/{clientAppId}/purchase-options",
+            "/api/bill/client/{clientAppId}/purchase-options",
             get(list_purchase_options),
         )
         .route(
-            "/api/bill/{realmId}/purchase/payment-attempts",
+            "/api/bill/purchase/payment-attempts",
             post(create_payment_attempt),
         )
         .route(
-            "/api/bill/{realmId}/purchase/payment-attempts/{attemptId}",
+            "/api/bill/purchase/payment-attempts/{attemptId}",
             get(get_payment_attempt_status),
         )
         // User self-service attempt cancel: the purchase page renders a cancel
@@ -214,25 +205,19 @@ pub fn billing_browser_routes() -> Router<AppState> {
         // browser router alongside create/get — the admin router mount 403'd
         // CustomUserUi tokens.
         .route(
-            "/api/bill/{realmId}/purchase/payment-attempts/{attemptId}/cancel",
+            "/api/bill/purchase/payment-attempts/{attemptId}/cancel",
             post(cancel_payment_attempt),
         )
         // IAP receipt submission (design support-iap §5.2). CustomUserUi token
         // + `PurchaseInitiate` scope enforced inside the handler.
+        .route("/api/bill/purchase/iap/receipt", post(submit_iap_receipt))
+        .route("/api/bill/providers", get(list_payment_providers))
         .route(
-            "/api/bill/{realmId}/purchase/iap/receipt",
-            post(submit_iap_receipt),
-        )
-        .route(
-            "/api/third/pay/{realmId}/providers",
-            get(list_payment_providers),
-        )
-        .route(
-            "/api/bill/{realmId}/my/subscriptions/history",
+            "/api/bill/my/subscriptions/history",
             get(list_my_subscription_history),
         )
         .route(
-            "/api/bill/{realmId}/my/subscriptions/{subscriptionId}/history",
+            "/api/bill/my/subscriptions/{subscriptionId}/history",
             get(get_my_subscription_history),
         )
 }

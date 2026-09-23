@@ -102,12 +102,11 @@ async fn require_target_user(
 /// not see the session list). Read-only: no audit event is recorded.
 #[utoipa::path(
     get,
-    path = "/api/users/{realmId}/{userId}/sessions",
+    path = "/api/users/{userId}/sessions",
     tag = "users",
     summary = "List a user's active sessions",
     description = "List active browser-token sessions for a specific user. Requires `users.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -121,10 +120,12 @@ async fn require_target_user(
 pub async fn list_user_sessions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id)): Path<(String, Uuid)>,
+    Path(user_id): Path<Uuid>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<Vec<UserSessionResponse>>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "user session management")?;
+    let realm_id = identity.realm_id();
+    let admin =
+        AdminIdentity::require_in_realm(identity.clone(), &realm_id, "user session management")?;
     admin.require_permission(&state, "users", "manage").await?;
 
     require_target_user(&state, identity, &realm_id, user_id).await?;
@@ -167,12 +168,11 @@ pub async fn list_user_sessions(
 /// permission. An audit event is recorded best-effort.
 #[utoipa::path(
     delete,
-    path = "/api/users/{realmId}/{userId}/sessions/{familyId}",
+    path = "/api/users/{userId}/sessions/{familyId}",
     tag = "users",
     summary = "Revoke a single user session",
     description = "Revoke a single browser-token session family for a user. Requires `users.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID"),
         ("familyId" = Uuid, Path, description = "Token family ID")
     ),
@@ -187,11 +187,13 @@ pub async fn list_user_sessions(
 pub async fn revoke_user_session(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id, family_id)): Path<(String, Uuid, Uuid)>,
+    Path((user_id, family_id)): Path<(Uuid, Uuid)>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "user session management")?;
+    let realm_id = identity.realm_id();
+    let admin =
+        AdminIdentity::require_in_realm(identity.clone(), &realm_id, "user session management")?;
     admin.require_permission(&state, "users", "manage").await?;
 
     require_target_user(&state, identity.clone(), &realm_id, user_id).await?;
@@ -308,12 +310,11 @@ pub async fn revoke_user_session(
 /// active at the moment of the call. An audit event is recorded best-effort.
 #[utoipa::path(
     delete,
-    path = "/api/users/{realmId}/{userId}/sessions",
+    path = "/api/users/{userId}/sessions",
     tag = "users",
     summary = "Revoke all sessions for a user",
     description = "Revoke every active browser-token session for a user. Requires `users.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID")
     ),
     responses(
@@ -327,11 +328,13 @@ pub async fn revoke_user_session(
 pub async fn revoke_all_user_sessions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id)): Path<(String, Uuid)>,
+    Path(user_id): Path<Uuid>,
     ClientIp(ip): ClientIp,
     headers: HeaderMap,
 ) -> Result<ApiResult<RevokeAllSessionsResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity.clone(), &realm_id, "user session management")?;
+    let realm_id = identity.realm_id();
+    let admin =
+        AdminIdentity::require_in_realm(identity.clone(), &realm_id, "user session management")?;
     admin.require_permission(&state, "users", "manage").await?;
 
     require_target_user(&state, identity.clone(), &realm_id, user_id).await?;

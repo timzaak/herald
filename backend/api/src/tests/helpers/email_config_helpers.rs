@@ -105,20 +105,17 @@ pub async fn delete_email_config_direct(pool: &PgPool, realm_id: &str) {
         .expect("Failed to delete email config");
 }
 
-/// GET /api/configs/{realmId}/email/status via the test router.
+/// GET /api/configs/email/status via the test router.
 ///
 /// Returns the parsed JSON response body.
 pub async fn get_email_status(
     app: &axum::Router,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
 ) -> serde_json::Value {
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/configs/{realmId}/email/status",
-            realmId = realm_id
-        ))
+        .uri("/api/configs/email/status".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
@@ -132,22 +129,19 @@ pub async fn get_email_status(
     crate::tests::response_json(resp).await
 }
 
-/// POST /api/configs/{realmId}/email/test with a recipient address.
+/// POST /api/configs/email/test with a recipient address.
 ///
 /// Returns the raw response for the caller to assert status and body.
 pub async fn send_test_email(
     app: &axum::Router,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
     recipient: &str,
 ) -> axum::response::Response {
     let payload = serde_json::json!({ "recipient": recipient });
     let req = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/api/configs/{realmId}/email/test",
-            realmId = realm_id
-        ))
+        .uri("/api/configs/email/test".to_string())
         .header("content-type", "application/json")
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(payload.to_string()))

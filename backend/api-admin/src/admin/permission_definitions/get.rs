@@ -13,10 +13,9 @@ use herald_api_base::application::http::state::AppState;
 /// Get permission by ID
 #[utoipa::path(
     get,
-    path = "/api/permission/{realmId}/define/{permissionDefinitionId}",
+    path = "/api/permission/define/{permissionDefinitionId}",
     tag = "permission-definitions",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("permissionDefinitionId" = Uuid, Path, description = "Permission ID")
     ),
     responses(
@@ -28,9 +27,10 @@ use herald_api_base::application::http::state::AppState;
 pub async fn get_permission(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
 ) -> Result<ApiResult<PermissionResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "permission definitions")?;
+    let admin = AdminIdentity::require(identity, "permission definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "permissions", "view")
         .await?;

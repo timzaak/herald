@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
 };
 use axum_valid::Valid;
 use chrono::Utc;
@@ -22,12 +22,9 @@ use crate::api_keys::types::{CreateApiKeyRequest, CreateApiKeyResponse};
 /// only in this response and cannot be retrieved later.
 #[utoipa::path(
     post,
-    path = "/api/api-keys/{realmId}",
+    path = "/api/api-keys",
     tag = "api-keys",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = CreateApiKeyRequest,
+        request_body = CreateApiKeyRequest,
     responses(
         (status = 201, description = "API Key created", body = CreateApiKeyResponse),
         (status = 400, description = "Bad request", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -38,10 +35,10 @@ use crate::api_keys::types::{CreateApiKeyRequest, CreateApiKeyResponse};
 pub async fn create_api_key(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Valid(Json(payload)): Valid<Json<CreateApiKeyRequest>>,
 ) -> Result<ApiResult<CreateApiKeyResponse>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "api keys")?;
+    let admin = AdminIdentity::require(identity, "api keys")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "api_keys", "manage")
         .await?;

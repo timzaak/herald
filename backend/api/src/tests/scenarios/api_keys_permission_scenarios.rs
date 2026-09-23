@@ -11,10 +11,10 @@
 // Reference: docs/user-stories/core/realm-admin.md (US-RA-009)
 //
 // Routes:
-//   GET    /api/api-keys/{realmId}              → requires api_keys.view
-//   GET    /api/api-keys/{realmId}/{apiKeyId}   → requires api_keys.view
-//   POST   /api/api-keys/{realmId}              → requires api_keys.manage
-//   DELETE /api/api-keys/{realmId}/{apiKeyId}   → requires api_keys.manage
+//   GET    /api/api-keys              → requires api_keys.view
+//   GET    /api/api-keys/{apiKeyId}   → requires api_keys.view
+//   POST   /api/api-keys              → requires api_keys.manage
+//   DELETE /api/api-keys/{apiKeyId}   → requires api_keys.manage
 //
 // =============================================================================
 
@@ -121,7 +121,7 @@ async fn seed_api_key(ctx: &TestContext) -> String {
 // Covers: User with api_keys.view can list API keys
 //
 // Given a user with ONLY api_keys.view permission,
-// When calling GET /api/api-keys/{realmId},
+// When calling GET /api/api-keys,
 // Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -136,7 +136,7 @@ async fn test_scenario_api_keys_view_grants_list(ctx: &mut TestContext) {
     // When: calling API keys list endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -159,7 +159,7 @@ async fn test_scenario_api_keys_view_grants_list(ctx: &mut TestContext) {
 // Covers: User with api_keys.view can get API key detail
 //
 // Given a user with ONLY api_keys.view permission and an existing API key,
-// When calling GET /api/api-keys/{realmId}/{apiKeyId},
+// When calling GET /api/api-keys/{apiKeyId},
 // Then response is 200 OK.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -180,7 +180,7 @@ async fn test_scenario_api_keys_view_grants_get_detail(ctx: &mut TestContext) {
     // When: calling API key detail endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}/{}", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -203,7 +203,7 @@ async fn test_scenario_api_keys_view_grants_get_detail(ctx: &mut TestContext) {
 // Covers: User with api_keys.view only cannot create API keys
 //
 // Given a user with ONLY api_keys.view permission,
-// When calling POST /api/api-keys/{realmId},
+// When calling POST /api/api-keys,
 // Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -219,7 +219,7 @@ async fn test_scenario_api_keys_view_cannot_create(ctx: &mut TestContext) {
     let body = r#"{"name": "should-not-succeed"}"#;
     let req = Request::builder()
         .method("POST")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
@@ -243,7 +243,7 @@ async fn test_scenario_api_keys_view_cannot_create(ctx: &mut TestContext) {
 // Covers: User with api_keys.view only cannot delete API keys
 //
 // Given a user with ONLY api_keys.view permission and an existing API key,
-// When calling DELETE /api/api-keys/{realmId}/{apiKeyId},
+// When calling DELETE /api/api-keys/{apiKeyId},
 // Then response is 403 Forbidden.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -264,7 +264,7 @@ async fn test_scenario_api_keys_view_cannot_delete(ctx: &mut TestContext) {
     // When: attempting to delete the API key
     let req = Request::builder()
         .method("DELETE")
-        .uri(format!("/api/api-keys/{}/{}", ctx._realm_id, key_id))
+        .uri(format!("/api/api-keys/{}", key_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -287,7 +287,7 @@ async fn test_scenario_api_keys_view_cannot_delete(ctx: &mut TestContext) {
 // Covers: api_keys.manage hierarchy grants api_keys.view access
 //
 // Given a user with ONLY api_keys.manage permission (no explicit api_keys.view),
-// When calling GET /api/api-keys/{realmId},
+// When calling GET /api/api-keys,
 // Then response is 200 OK (manage hierarchy grants view).
 #[test_context(TestContext)]
 #[tokio::test]
@@ -302,7 +302,7 @@ async fn test_scenario_api_keys_manage_covers_view(ctx: &mut TestContext) {
     // When: calling API keys list endpoint (which requires api_keys.view)
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/api-keys/{}", ctx._realm_id))
+        .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();

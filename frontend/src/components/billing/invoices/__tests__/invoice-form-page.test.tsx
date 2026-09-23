@@ -117,7 +117,7 @@ function sellerConfigHandler(
     sellerTaxId: 'TAX999',
   }
 ) {
-  return http.get(`${BASE_URL}/api/bill/${REALM_ID}/invoice-seller-config`, () => {
+  return http.get(`${BASE_URL}/api/bill/invoice-seller-config`, () => {
     if (config === null) {
       return HttpResponse.json({ message: 'Not found' }, { status: 404 })
     }
@@ -135,13 +135,13 @@ function sellerConfigHandler(
 
 // Mutation handlers
 function createInvoiceHandler() {
-  return http.post(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, async () => {
+  return http.post(`${BASE_URL}/api/bill/invoices`, async () => {
     return HttpResponse.json(makeInvoiceDetail(), { status: 201 })
   })
 }
 
 function updateInvoiceHandler(invoiceId: string = 'inv-1') {
-  return http.patch(`${BASE_URL}/api/bill/${REALM_ID}/invoices/${invoiceId}`, async () => {
+  return http.patch(`${BASE_URL}/api/bill/invoices/${invoiceId}`, async () => {
     return HttpResponse.json(makeInvoiceDetail())
   })
 }
@@ -469,7 +469,7 @@ describe('InvoiceFormPage', () => {
       let capturedBody: unknown = null
       server.use(
         sellerConfigHandler(),
-        http.post(`${BASE_URL}/api/bill/${REALM_ID}/invoices`, async ({ request }) => {
+        http.post(`${BASE_URL}/api/bill/invoices`, async ({ request }) => {
           capturedBody = await request.json()
           return HttpResponse.json(makeInvoiceDetail(), { status: 201 })
         })
@@ -547,13 +547,10 @@ describe('InvoiceFormPage', () => {
       let capturedBody: unknown = null
       const invoiceId = 'inv-edit-1'
       server.use(
-        http.patch(
-          `${BASE_URL}/api/bill/${REALM_ID}/invoices/${invoiceId}`,
-          async ({ request }) => {
-            capturedBody = await request.json()
-            return HttpResponse.json(makeInvoiceDetail({ id: invoiceId }))
-          }
-        )
+        http.patch(`${BASE_URL}/api/bill/invoices/${invoiceId}`, async ({ request }) => {
+          capturedBody = await request.json()
+          return HttpResponse.json(makeInvoiceDetail({ id: invoiceId }))
+        })
       )
 
       const user = userEvent.setup()

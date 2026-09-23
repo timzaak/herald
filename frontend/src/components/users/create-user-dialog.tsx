@@ -59,7 +59,6 @@ export function CreateUserDialog({
   const { isSubmitting, mutate } = useFormMutation({
     mutationFn: (data: CreateUserFormData) =>
       createUser2({
-        path: { realmId },
         body: data, // Direct pass - no manual mapping needed
       }),
     getSuccessMessage: (response) => {

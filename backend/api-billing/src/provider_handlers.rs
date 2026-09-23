@@ -7,7 +7,7 @@
 
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
 };
 
 use crate::provider_common_types::{PaymentProviderInfo, PaymentProvidersResponse};
@@ -21,11 +21,8 @@ use herald_core::domain::realm_config::RealmConfigRepository;
 
 #[utoipa::path(
     get,
-    path = "/api/third/pay/{realmId}/providers",
-    params(
-        ("realmId" = String, Path, description = "Realm UUID")
-    ),
-    responses(
+    path = "/api/bill/providers",
+        responses(
         (status = 200, description = "Payment providers retrieved successfully. Stripe entries include the non-secret publishableKey (pk_...) for mobile wallet SDK initialization; other providers omit it.", body = PaymentProvidersResponse),
         (status = 401, description = "Unauthorized - No valid authentication token"),
         (status = 403, description = "Forbidden - User does not have access to this realm"),
@@ -36,10 +33,10 @@ use herald_core::domain::realm_config::RealmConfigRepository;
 )]
 pub async fn list_payment_providers(
     State(state): State<AppState>,
-    Path(realm_id): Path<String>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
 ) -> Result<Json<PaymentProvidersResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::PurchaseRead)?;
     let _user_id = require_authenticated_user_in_realm_with_token(
         &identity,

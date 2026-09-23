@@ -1012,10 +1012,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!(
-                    "/api/bill/{}/client/{}/subscription",
-                    realm_id, client_app_id
-                ),
+                format!("/api/bill/client/{}/subscription", client_app_id),
                 &token,
                 None,
             ))
@@ -1059,10 +1056,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!(
-                    "/api/bill/{}/client/{}/subscription",
-                    realm_id, client_app_id
-                ),
+                format!("/api/bill/client/{}/subscription", client_app_id),
                 &token,
                 None,
             ))
@@ -1118,10 +1112,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!(
-                    "/api/bill/{}/client/{}/subscription",
-                    realm_id, client_app_id
-                ),
+                format!("/api/bill/client/{}/subscription", client_app_id),
                 &token,
                 None,
             ))

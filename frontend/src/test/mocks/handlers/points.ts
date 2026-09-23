@@ -5,7 +5,7 @@ const API_BASE_URL = 'http://localhost:3000'
 // ===== Grant Points Handlers =====
 
 export const grantPointsHandler = http.post(
-  `${API_BASE_URL}/api/points/:realmId/grant`,
+  `${API_BASE_URL}/api/points/grant`,
   async ({ request, params }) => {
     const body = (await request.json()) as any
 
@@ -43,21 +43,18 @@ const DEFAULT_USERS = [
   },
 ]
 
-export const userSearchHandler = http.get(
-  `${API_BASE_URL}/api/users/:realmId`,
-  ({ request, params }) => {
-    const url = new URL(request.url)
-    const email = url.searchParams.get('email') ?? ''
-    const filtered = email ? DEFAULT_USERS.filter((u) => u.email.includes(email)) : DEFAULT_USERS
+export const userSearchHandler = http.get(`${API_BASE_URL}/api/users`, ({ request, params }) => {
+  const url = new URL(request.url)
+  const email = url.searchParams.get('email') ?? ''
+  const filtered = email ? DEFAULT_USERS.filter((u) => u.email.includes(email)) : DEFAULT_USERS
 
-    return HttpResponse.json({
-      items: filtered,
-      page: 0,
-      pageSize: 20,
-      total: filtered.length,
-    })
-  }
-)
+  return HttpResponse.json({
+    items: filtered,
+    page: 0,
+    pageSize: 20,
+    total: filtered.length,
+  })
+})
 
 // ===== Export Handlers Array =====
 
@@ -66,13 +63,13 @@ export const pointsHandlers = [grantPointsHandler]
 // ===== Error Scenario Helpers =====
 
 export function createGrantPointsErrorHandler(status: number, message: string) {
-  return http.post(`${API_BASE_URL}/api/points/:realmId/grant`, () => {
+  return http.post(`${API_BASE_URL}/api/points/grant`, () => {
     return HttpResponse.json({ message }, { status })
   })
 }
 
 export function createUserSearchEmptyHandler() {
-  return http.get(`${API_BASE_URL}/api/users/:realmId`, () => {
+  return http.get(`${API_BASE_URL}/api/users`, () => {
     return HttpResponse.json({
       items: [],
       page: 0,

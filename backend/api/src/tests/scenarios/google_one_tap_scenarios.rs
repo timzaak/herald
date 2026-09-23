@@ -803,7 +803,7 @@ async fn google_one_tap_blocked_when_registration_disabled(ctx: &mut TestContext
 /// Recovery: the provider credential is single-use, so the login cannot be
 /// replayed with agreements inline — instead the restricted browser family
 /// (profile-read/delete-account/logout scopes only) posts an explicit consent
-/// to /api/legal/{realmId}/consent (the endpoint intentionally has no scope
+/// to /api/user/consent (the endpoint intentionally has no scope
 /// check: it is the consent recovery path), and the user re-triggers One Tap,
 /// which then issues the full token family.
 ///
@@ -887,7 +887,7 @@ async fn google_one_tap_consent_gate_withholds_tokens_until_consent(ctx: &mut Te
         .collect();
     let consent_request = Request::builder()
         .method("POST")
-        .uri(format!("/api/legal/{}/consent", ctx._realm_id))
+        .uri("/api/user/consent".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {restricted_access_token}"))
         .header("x-forwarded-for", "5.5.5.5")

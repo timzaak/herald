@@ -21,7 +21,7 @@ export function makeDashboardStats(
 }
 
 export const getDashboardStatsHandler = http.get(
-  `${API_BASE_URL}/api/dashboard/:realmId/stats`,
+  `${API_BASE_URL}/api/dashboard/stats`,
   ({ params }) => {
     const { realmId } = params
     if (realmId === 'forbidden-realm') {

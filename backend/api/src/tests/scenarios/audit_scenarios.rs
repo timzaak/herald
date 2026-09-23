@@ -12,8 +12,8 @@
 // Design: .ai/design/audit.md
 //
 // Routes:
-//   GET /api/audit/{realmId}          -- list with pagination + filters
-//   GET /api/audit/{realmId}/{eventId} -- detail view
+//   GET /api/audit          -- list with pagination + filters
+//   GET /api/audit/{eventId} -- detail view
 //
 // =============================================================================
 
@@ -80,7 +80,7 @@ fn make_event(
 /// Covers: 验收标准 - 按操作时间倒序展示审计日志列表
 ///
 /// Given a realm with audit events,
-/// When admin queries GET /api/audit/{realmId},
+/// When admin queries GET /api/audit,
 /// Then paginated results returned sorted by created_at DESC.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -127,7 +127,7 @@ async fn test_scenario_audit_list_paginated_sorted_by_time_desc(ctx: &mut TestCo
     // When: admin queries the audit list
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -177,7 +177,7 @@ async fn test_scenario_audit_list_empty_when_no_events(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -262,10 +262,7 @@ async fn test_scenario_audit_filter_by_category(ctx: &mut TestContext) {
     // When: filter by category=auth
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/audit/{}?page=0&pageSize=20&category=auth",
-            realm_id
-        ))
+        .uri("/api/audit?page=0&pageSize=20&category=auth".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -343,8 +340,8 @@ async fn test_scenario_audit_filter_by_actor_id(ctx: &mut TestContext) {
     let req = Request::builder()
         .method("GET")
         .uri(format!(
-            "/api/audit/{}?page=0&pageSize=20&actorId={}",
-            realm_id, admin_user_id
+            "/api/audit?page=0&pageSize=20&actorId={}",
+            admin_user_id
         ))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
@@ -406,8 +403,8 @@ async fn test_scenario_audit_filter_by_time_range(ctx: &mut TestContext) {
     let req = Request::builder()
         .method("GET")
         .uri(format!(
-            "/api/audit/{}?page=0&pageSize=20&startTime={}&endTime={}",
-            realm_id, start_time, end_time
+            "/api/audit?page=0&pageSize=20&startTime={}&endTime={}",
+            start_time, end_time
         ))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
@@ -433,8 +430,8 @@ async fn test_scenario_audit_filter_by_time_range(ctx: &mut TestContext) {
     let req = Request::builder()
         .method("GET")
         .uri(format!(
-            "/api/audit/{}?page=0&pageSize=20&startTime={}&endTime={}",
-            realm_id, past_start, past_end
+            "/api/audit?page=0&pageSize=20&startTime={}&endTime={}",
+            past_start, past_end
         ))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
@@ -460,7 +457,7 @@ async fn test_scenario_audit_filter_by_time_range(ctx: &mut TestContext) {
 /// Covers: 验收标准 - 完整详情包含 details JSONB, userAgent, traceId
 ///
 /// Given an event exists,
-/// When admin queries GET /api/audit/{realmId}/{eventId},
+/// When admin queries GET /api/audit/{eventId},
 /// Then full details returned including details JSONB, userAgent, traceId.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -495,7 +492,7 @@ async fn test_scenario_audit_detail_returns_full_fields(ctx: &mut TestContext) {
     // When: admin queries the detail endpoint
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}/{}", realm_id, event_id))
+        .uri(format!("/api/audit/{}", event_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -589,7 +586,7 @@ async fn test_scenario_audit_list_realm_isolation(ctx: &mut TestContext) {
     // When: admin queries audit list for their own realm
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -642,14 +639,11 @@ async fn test_scenario_audit_detail_cross_realm_returns_404(ctx: &mut TestContex
     .expect("Failed to insert event in other realm");
 
     // When: admin tries to fetch detail of the cross-realm event
-    // Note: the handler uses identity.realm_id() to filter, not the path param.
-    // The path includes the admin's realm_id (which identity will override anyway).
+    // Note: the handler derives the realm from the session identity; the
+    // cross-realm event must 404 because it belongs to another realm.
     let req = Request::builder()
         .method("GET")
-        .uri(format!(
-            "/api/audit/{}/{}",
-            ctx._realm_id, cross_realm_event_id
-        ))
+        .uri(format!("/api/audit/{}", cross_realm_event_id))
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -685,7 +679,7 @@ async fn test_scenario_audit_list_non_admin_forbidden(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/audit?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();
@@ -738,7 +732,7 @@ async fn test_scenario_audit_pagination_metadata(ctx: &mut TestContext) {
     // Request page 0, pageSize 2
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=0&pageSize=2", realm_id))
+        .uri("/api/audit?page=0&pageSize=2".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -759,7 +753,7 @@ async fn test_scenario_audit_pagination_metadata(ctx: &mut TestContext) {
     // Request page 1
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/audit/{}?page=1&pageSize=2", realm_id))
+        .uri("/api/audit?page=1&pageSize=2".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();

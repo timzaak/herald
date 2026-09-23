@@ -93,7 +93,7 @@ interface ConsentStep {
    * Absent for OAuth direct-login entrances (Google One Tap): the provider
    * credential is single-use, so the submission cannot be replayed with
    * agreements attached. Agree instead records explicit consent via
-   * `POST /api/legal/{realmId}/consent` using the restricted session the gate
+   * `POST /api/user/consent` using the restricted session the gate
    * returned, and the user re-triggers the entrance for the full session.
    */
   originalPayload?: LoginMutationValues
@@ -335,7 +335,7 @@ export function LoginPage() {
    * Records explicit consent for the OAuth direct-login consent-gate variant
    * (`consentStep` without `originalPayload`). The gate response applied a
    * restricted-session token family (profile-read/delete-account/logout
-   * scopes), which is exactly what `POST /api/legal/{realmId}/consent` needs;
+   * scopes), which is exactly what `POST /api/user/consent` needs;
    * recording cannot replay the login because the provider credential is
    * single-use. On success the user re-triggers the entrance (e.g. clicks One
    * Tap again) to obtain the full session.

@@ -57,7 +57,7 @@ export function RolePermissionsDialog({
     mutationFn: async () => {
       const assignRequests = addedIds.map((permissionId) =>
         assignPermissionToRole({
-          path: { realmId, roleId: role.id },
+          path: { roleId: role.id },
           body: { permissionId },
         }).then((response) => {
           if (response.error) throw response.error
@@ -67,7 +67,7 @@ export function RolePermissionsDialog({
 
       const removeRequests = removedIds.map((permissionId) =>
         removePermissionFromRole({
-          path: { realmId, roleId: role.id, permissionId },
+          path: { roleId: role.id, permissionId },
         }).then((response) => {
           if (response.error) throw response.error
           return response.data

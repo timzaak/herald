@@ -67,7 +67,7 @@ describe('dashboardStatsQueryOptions', () => {
 
     it('should enter error state on 403 Forbidden', async () => {
       server.use(
-        http.get(`${API_BASE_URL}/api/dashboard/:realmId/stats`, () => {
+        http.get(`${API_BASE_URL}/api/dashboard/stats`, () => {
           return HttpResponse.json({ message: 'Forbidden' }, { status: 403 })
         })
       )

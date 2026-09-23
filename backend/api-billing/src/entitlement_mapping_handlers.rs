@@ -309,12 +309,9 @@ fn to_provider_product_info(v: Option<serde_json::Value>) -> Option<ProviderProd
 /// List entitlement mappings for a realm
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/entitlement-mappings",
+    path = "/api/bill/entitlement-mappings",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "Entitlement mappings listed successfully", body = EntitlementMappingListResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -325,9 +322,9 @@ fn to_provider_product_info(v: Option<serde_json::Value>) -> Option<ProviderProd
 pub async fn list_entitlement_mappings(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<EntitlementMappingQuery>,
 ) -> Result<Json<EntitlementMappingListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing entitlement mappings for realm: {}", realm_id);
 
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
@@ -378,10 +375,9 @@ pub async fn list_entitlement_mappings(
 /// Get a single entitlement mapping
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/entitlement-mappings/{mappingId}",
+    path = "/api/bill/entitlement-mappings/{mappingId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("mappingId" = Uuid, Path, description = "Mapping ID")
     ),
     responses(
@@ -396,8 +392,9 @@ pub async fn list_entitlement_mappings(
 pub async fn get_entitlement_mapping(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, mapping_id)): Path<(String, Uuid)>,
+    Path(mapping_id): Path<Uuid>,
 ) -> Result<Json<EntitlementMappingResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Getting entitlement mapping {} for realm: {}",
         mapping_id,
@@ -448,12 +445,9 @@ pub async fn get_entitlement_mapping(
 /// `uq_pem_realm_provider_product_price` and surfaces as HTTP 409.
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/entitlement-mappings",
+    path = "/api/bill/entitlement-mappings",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = CreateEntitlementMappingRequest,
+        request_body = CreateEntitlementMappingRequest,
     responses(
         (status = 201, description = "Entitlement mapping created", body = EntitlementMappingResponse),
         (status = 400, description = "Bad request, including invalid distribution rules", body = DistributionRuleErrorResponse),
@@ -467,9 +461,9 @@ pub async fn get_entitlement_mapping(
 pub async fn create_entitlement_mapping(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<CreateEntitlementMappingRequest>,
 ) -> Result<(StatusCode, Json<EntitlementMappingResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         provider = %request.payment_provider,
         external_product_id = %request.external_product_id,
@@ -588,10 +582,9 @@ pub async fn create_entitlement_mapping(
 /// Update an entitlement mapping
 #[utoipa::path(
     patch,
-    path = "/api/bill/{realmId}/entitlement-mappings/{mappingId}",
+    path = "/api/bill/entitlement-mappings/{mappingId}",
     tag = "billing",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("mappingId" = Uuid, Path, description = "Mapping ID")
     ),
     request_body = UpdateEntitlementMappingRequest,
@@ -609,9 +602,10 @@ pub async fn create_entitlement_mapping(
 pub async fn update_entitlement_mapping(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, mapping_id)): Path<(String, Uuid)>,
+    Path(mapping_id): Path<Uuid>,
     Json(request): Json<UpdateEntitlementMappingRequest>,
 ) -> Result<Json<EntitlementMappingResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Updating entitlement mapping {} for realm: {}",
         mapping_id,
@@ -829,12 +823,9 @@ pub async fn update_entitlement_mapping(
 /// List enabled one-time entitlement mappings for a realm
 #[utoipa::path(
     get,
-    path = "/api/bill/{realmId}/one-time-mappings",
+    path = "/api/bill/one-time-mappings",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "One-time mappings listed successfully", body = OneTimeMappingListResponse),
         (status = 401, description = "Unauthorized", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 403, description = "Forbidden - Insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -845,8 +836,8 @@ pub async fn update_entitlement_mapping(
 pub async fn list_one_time_mappings(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<Json<OneTimeMappingListResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!("Listing one-time mappings for realm: {}", realm_id);
 
     require_billing_permission(&state, &identity, &realm_id, "view").await?;
@@ -894,12 +885,9 @@ pub async fn list_one_time_mappings(
 /// Sync provider products into entitlement mappings
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/entitlement-mappings/sync",
+    path = "/api/bill/entitlement-mappings/sync",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = SyncProviderRequest,
+        request_body = SyncProviderRequest,
     responses(
         (status = 200, description = "Provider products synced successfully", body = SyncProviderResponse),
         (status = 400, description = "Bad request - Provider not configured", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -912,9 +900,9 @@ pub async fn list_one_time_mappings(
 pub async fn sync_provider_products(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<SyncProviderRequest>,
 ) -> Result<Json<SyncProviderResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         "Syncing provider products for provider '{}' in realm: {}",
         request.payment_provider,
@@ -965,12 +953,9 @@ pub async fn sync_provider_products(
 /// `{ activeSubscriptions }`). Cross-realm/product `mapping_id` tampering surfaces as 400.
 #[utoipa::path(
     put,
-    path = "/api/bill/{realmId}/entitlement-mappings/batch",
+    path = "/api/bill/entitlement-mappings/batch",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = BatchUpdateEntitlementMappingsRequest,
+        request_body = BatchUpdateEntitlementMappingsRequest,
     responses(
         (status = 201, description = "Batch saved successfully", body = BatchUpdateEntitlementMappingsResponse),
         (status = 400, description = "Bad request - invalid credit strategy or mapping_id not in this product/realm", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
@@ -984,9 +969,9 @@ pub async fn sync_provider_products(
 pub async fn batch_update_entitlement_mappings(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Json(request): Json<BatchUpdateEntitlementMappingsRequest>,
 ) -> Result<(StatusCode, Json<BatchUpdateEntitlementMappingsResponse>), ApiError> {
+    let realm_id = identity.realm_id();
     tracing::info!(
         provider = %request.payment_provider,
         product = %request.external_product_id,

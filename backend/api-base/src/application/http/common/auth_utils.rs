@@ -72,7 +72,11 @@ pub struct AdminIdentity {
 }
 
 impl AdminIdentity {
-    pub fn require(identity: Identity, realm_id: &str, context: &str) -> Result<Self, ApiError> {
+    /// Build the admin identity from the session alone: the realm is the one
+    /// pinned on the bearer token (already cross-checked against the user row
+    /// by the identity middleware), so admin-console routes never need a
+    /// `{realmId}` path parameter.
+    pub fn require(identity: Identity, context: &str) -> Result<Self, ApiError> {
         if !identity.is_user() {
             return Err(ApiError::forbidden(format!(
                 "Access denied: authenticated user token required for {}",
@@ -80,21 +84,35 @@ impl AdminIdentity {
             )));
         }
 
-        if identity.realm_id() != realm_id {
-            return Err(ApiError::forbidden(format!(
-                "Access denied: cannot access {} from a different realm",
-                context
-            )));
-        }
-
+        let realm_id = identity.realm_id();
         let user_id = Uuid::parse_str(&identity.user_id())
             .map_err(|_| ApiError::internal("Invalid user ID"))?;
 
         Ok(Self {
             identity,
-            realm_id: realm_id.to_string(),
+            realm_id,
             user_id,
         })
+    }
+
+    /// Build the admin identity and verify it belongs to `realm_id`. Use this
+    /// only when `realm_id` names a *resource's* realm (e.g. loaded from the
+    /// target user/role row), where the mismatch check is real security
+    /// boundary. When the realm is just the caller's own scope, use
+    /// [`AdminIdentity::require`].
+    pub fn require_in_realm(
+        identity: Identity,
+        realm_id: &str,
+        context: &str,
+    ) -> Result<Self, ApiError> {
+        let admin = Self::require(identity, context)?;
+        if admin.realm_id != realm_id {
+            return Err(ApiError::forbidden(format!(
+                "Access denied: cannot access {} from a different realm",
+                context
+            )));
+        }
+        Ok(admin)
     }
 
     pub fn identity(&self) -> &Identity {
@@ -475,7 +493,7 @@ mod tests {
 
         assert!(require_token_scope(&identity, &context, CredentialScope::InvoiceApply).is_ok());
         require_first_party_credential(&context).unwrap();
-        let error = AdminIdentity::require(identity, "realm2", "admin")
+        let error = AdminIdentity::require_in_realm(identity, "realm2", "admin")
             .expect_err("scope bypass must not bypass the existing realm/RBAC entry gate");
         assert!(error.to_string().contains("different realm"));
     }
@@ -572,7 +590,7 @@ mod tests {
     #[test]
     fn test_admin_identity_requires_same_realm() {
         let user = create_test_user("user123", "realm1");
-        let result = AdminIdentity::require(Identity::User(user), "realm2", "admin test");
+        let result = AdminIdentity::require_in_realm(Identity::User(user), "realm2", "admin test");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("different realm"));
@@ -582,7 +600,8 @@ mod tests {
     fn test_admin_identity_wraps_same_realm_user() {
         let user = create_test_user("user123", "realm1");
         let expected_id = user.id;
-        let result = AdminIdentity::require(Identity::User(user), "realm1", "admin test").unwrap();
+        let result =
+            AdminIdentity::require_in_realm(Identity::User(user), "realm1", "admin test").unwrap();
 
         assert_eq!(result.realm_id(), "realm1");
         assert_eq!(result.user_id(), expected_id);

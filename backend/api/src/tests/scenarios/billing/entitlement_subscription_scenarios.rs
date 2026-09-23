@@ -48,7 +48,7 @@ mod tests {
     }
 
     // =========================================================================
-    // GET /api/bill/{realmId}/subscriptions (US-EM-006)
+    // GET /api/bill/subscriptions (US-EM-006)
     // =========================================================================
 
     /// User Story: US-EM-006
@@ -77,7 +77,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/subscriptions", realm_id),
+                "/api/bill/subscriptions".to_string(),
                 &token,
                 None,
             ))
@@ -168,10 +168,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!(
-                    "/api/bill/{}/subscriptions?entitlementKey=basic-plan",
-                    realm_id
-                ),
+                "/api/bill/subscriptions?entitlementKey=basic-plan".to_string(),
                 &token,
                 None,
             ))
@@ -240,7 +237,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/subscriptions?status=active", realm_id),
+                "/api/bill/subscriptions?status=active".to_string(),
                 &token,
                 None,
             ))
@@ -260,7 +257,7 @@ mod tests {
     }
 
     // =========================================================================
-    // GET /api/bill/{realmId}/subscriptions/{subscriptionId} (US-EM-006)
+    // GET /api/bill/subscriptions/{subscriptionId} (US-EM-006)
     // =========================================================================
 
     /// User Story: US-EM-006
@@ -295,7 +292,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/subscriptions/{}", realm_id, sub_id),
+                format!("/api/bill/subscriptions/{}", sub_id),
                 &token,
                 None,
             ))
@@ -341,14 +338,14 @@ mod tests {
     async fn test_get_subscription_detail_not_found(ctx: &mut SubTestContext) {
         let app = ctx.create_unified_test_router();
         let token = setup_billing_admin_session(ctx, "sub-notfound@test.com").await;
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
         let fake_id = Uuid::now_v7();
 
         let response = app
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/subscriptions/{}", realm_id, fake_id),
+                format!("/api/bill/subscriptions/{}", fake_id),
                 &token,
                 None,
             ))
@@ -359,7 +356,7 @@ mod tests {
     }
 
     // =========================================================================
-    // POST /api/bill/{realmId}/client/{clientAppId}/subscription/cancel
+    // POST /api/bill/client/{clientAppId}/subscription/cancel
     // =========================================================================
     //
     // User self-service cancel. The route calls the provider cancel API and
@@ -458,10 +455,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!(
-                    "/api/bill/{}/client/{}/subscription/cancel",
-                    realm_id, client_app_id
-                ),
+                format!("/api/bill/client/{}/subscription/cancel", client_app_id),
                 &token,
                 Some(Body::from(
                     serde_json::to_vec(&json!({"cancelAtPeriodEnd": false})).unwrap(),
@@ -513,10 +507,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!(
-                    "/api/bill/{}/client/{}/subscription/cancel",
-                    realm_id, client_app_id
-                ),
+                format!("/api/bill/client/{}/subscription/cancel", client_app_id),
                 &token,
                 Some(Body::from(
                     serde_json::to_vec(&json!({"cancelAtPeriodEnd": false})).unwrap(),

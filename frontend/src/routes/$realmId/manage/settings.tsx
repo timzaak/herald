@@ -217,7 +217,7 @@ export function SettingsPage() {
   } = useQuery({
     queryKey: queryKeys.realmConfigs(realmId),
     queryFn: async () => {
-      const response = await listRealmConfigs({ path: { realmId } })
+      const response = await listRealmConfigs({})
       if (response.error) {
         throw response.error
       }
@@ -246,7 +246,7 @@ export function SettingsPage() {
   })
 
   // LDAP directory config rows via the generic configs by-type list
-  // (GET /api/configs/{realmId}/ldap). Requires `settings.view`; consumed by
+  // (GET /api/configs/ldap). Requires `settings.view`; consumed by
   // the Settings "Corporate directory (LDAP)" tab. Dedicated query (instead of
   // the page-wide list-all) so saving only invalidates the LDAP keys.
   const { data: ldapConfigData, isLoading: isLdapConfigLoading } = useQuery({
@@ -276,7 +276,6 @@ export function SettingsPage() {
   const mutation = useMutation({
     mutationFn: (configs: UpsertRealmConfigRequest[]) =>
       batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs },
       }),
     onSuccess: () => {
@@ -348,7 +347,6 @@ export function SettingsPage() {
   const ldapMutation = useMutation({
     mutationFn: (config: LdapConfigForm) =>
       batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildLdapConfigRequest(config) },
       }).then((response) => {
         if (response.error) throw response.error
@@ -734,7 +732,6 @@ export function SettingsPage() {
 
         <TabsContent value="email">
           <EmailConfigFormComponent
-            realmId={realmId}
             initialConfig={emailConfig}
             onSave={saveEmailConfig}
             isLoading={isLoading}

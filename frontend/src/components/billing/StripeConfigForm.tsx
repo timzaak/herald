@@ -232,7 +232,6 @@ export function StripeConfigFormPage({ realmId, mode, initialValues }: StripeCon
     isEditing,
     mutationFn: async (data) => {
       const response = await batchUpsertRealmConfigs({
-        path: { realmId },
         body: { configs: buildStripeConfigRequest(data) },
       })
       if (response.error) throw response.error

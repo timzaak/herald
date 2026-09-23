@@ -864,7 +864,7 @@ async function findRoleIdByName(
   realmId: string,
   roleName: string,
 ): Promise<string | null> {
-  const resp = await request.get(`${backendBaseUrl()}/api/roles/${realmId}/define`)
+  const resp = await request.get(`${backendBaseUrl()}/api/roles/define`)
   if (!resp.ok()) {
     throw new Error(
       `could not list roles in ${realmId}: ${resp.status()} ${await resp.text()}`,
@@ -912,7 +912,7 @@ async function resolveMappingId(
   priceKey: string,
 ): Promise<string> {
   const direct = await request.get(
-    `${backendBaseUrl()}/api/bill/${realmId}/entitlement-mappings/${priceKey}`,
+    `${backendBaseUrl()}/api/bill/entitlement-mappings/${priceKey}`,
   )
   if (direct.ok()) {
     return priceKey
@@ -922,7 +922,7 @@ async function resolveMappingId(
       `could not resolve mapping ${priceKey} in ${realmId}: ${direct.status()} ${await direct.text()}`,
     )
   }
-  const list = await request.get(`${backendBaseUrl()}/api/bill/${realmId}/entitlement-mappings`)
+  const list = await request.get(`${backendBaseUrl()}/api/bill/entitlement-mappings`)
   if (!list.ok()) {
     throw new Error(
       `could not list mappings in ${realmId}: ${list.status()} ${await list.text()}`,
@@ -1073,7 +1073,7 @@ async function manuallyGrantRoles(
   roleIds: string[],
 ): Promise<boolean> {
   const resp = await request.put(
-    `${backendBaseUrl()}/api/users/${realmId}/${userId}/roles`,
+    `${backendBaseUrl()}/api/users/${userId}/roles`,
     { headers: { 'Content-Type': 'application/json' }, data: { roleIds } },
   )
   if (!resp.ok()) {
@@ -1096,7 +1096,7 @@ async function readUserRoles(
   realmId: string,
   userId: string,
 ): Promise<string[]> {
-  const resp = await request.get(`${backendBaseUrl()}/api/users/${realmId}/${userId}/roles`)
+  const resp = await request.get(`${backendBaseUrl()}/api/users/${userId}/roles`)
   if (!resp.ok()) {
     const body = await resp.text().catch(() => '')
     throw new Error(

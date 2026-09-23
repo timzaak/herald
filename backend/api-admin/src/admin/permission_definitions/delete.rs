@@ -12,12 +12,11 @@ use herald_core::domain::audit::{AuditAction, AuditResult};
 /// Delete permission
 #[utoipa::path(
     delete,
-    path = "/api/permission/{realmId}/define/{permissionDefinitionId}",
+    path = "/api/permission/define/{permissionDefinitionId}",
     tag = "permission-definitions",
     summary = "Delete a permission",
     description = "Delete a permission definition. Built-in permissions cannot be deleted. Requires `permissions.manage` permission.",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("permissionDefinitionId" = Uuid, Path, description = "Permission ID")
     ),
     responses(
@@ -31,10 +30,11 @@ use herald_core::domain::audit::{AuditAction, AuditResult};
 )]
 pub async fn delete_permission(
     State(state): State<AppState>,
-    Path((realm_id, id)): Path<(String, Uuid)>,
+    Path(id): Path<Uuid>,
     Extension(identity): Extension<Identity>,
 ) -> Result<ApiResult<()>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "permission definitions")?;
+    let admin = AdminIdentity::require(identity, "permission definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "permissions", "manage")
         .await?;

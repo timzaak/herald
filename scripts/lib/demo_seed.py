@@ -413,7 +413,7 @@ def _ensure_points_user(opener: urllib.request.OpenerDirector, logger: "Logger |
         status, body = _http_json(
             opener,
             "POST",
-            _backend_url(f"/api/users/{POINTS_REALM_ID}"),
+            _backend_url("/api/users"),
             payload=payload,
             expected_statuses=(201,),
         )
@@ -438,7 +438,7 @@ def _ensure_points_user(opener: urllib.request.OpenerDirector, logger: "Logger |
     status, body = _http_json(
         opener,
         "PUT",
-        _backend_url(f"/api/users/{POINTS_REALM_ID}/{user_id}/roles"),
+        _backend_url(f"/api/users/{user_id}/roles"),
         payload={"roleIds": [user_role_id]},
         expected_statuses=(200,),
     )
@@ -1394,7 +1394,7 @@ def _ensure_subscription_history_demo_data(admin_opener: urllib.request.OpenerDi
         status, body = _http_json(
             admin_opener,
             "POST",
-            _backend_url(f"/api/users/{ADMIN_REALM}"),
+            _backend_url("/api/users"),
             payload=payload,
             expected_statuses=(201,),
         )

@@ -94,7 +94,7 @@ pub async fn get_role_policies(
 
     let realm_id = role.realm_id;
 
-    let admin = AdminIdentity::require(identity, &realm_id, "role policies")?;
+    let admin = AdminIdentity::require_in_realm(identity, &realm_id, "role policies")?;
     admin.require_permission(&state, "policies", "view").await?;
     // Query role_policies
     let policies = role_policies::Entity::find()
@@ -166,7 +166,7 @@ pub async fn add_policy_to_role(
 
     let realm_id = role.realm_id;
 
-    let admin = AdminIdentity::require(identity, &realm_id, "role policies")?;
+    let admin = AdminIdentity::require_in_realm(identity, &realm_id, "role policies")?;
     admin
         .require_permission(&state, "policies", "manage")
         .await?;
@@ -279,7 +279,7 @@ pub async fn remove_policy_from_role(
     let policy = policy.ok_or_else(|| ApiError::not_found("Policy not found"))?;
     let realm_id = policy.realm_id.clone();
 
-    let admin = AdminIdentity::require(identity, &realm_id, "role policies")?;
+    let admin = AdminIdentity::require_in_realm(identity, &realm_id, "role policies")?;
     admin
         .require_permission(&state, "policies", "manage")
         .await?;

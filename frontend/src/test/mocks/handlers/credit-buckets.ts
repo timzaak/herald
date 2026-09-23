@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw'
 
 const API_BASE_URL = 'http://localhost:3000'
-const BASE = `${API_BASE_URL}/api/realms/:realmId/billing/credit-buckets`
+const BASE = `${API_BASE_URL}/api/bill/credit-buckets`
 
 export interface BucketInUseErrorBody {
   code: 'bucket_in_use'
@@ -28,12 +28,12 @@ export const creditBucketsHandlers = [
   ),
   http.get(`${BASE}/overview`, () => HttpResponse.json({ rows: [], grandTotal: {} })),
   // Client apps pulled by the editor multiselect (`listClientApps` →
-  // /api/client/{realmId}). Empty list is enough — the editor's multiselect
+  // /api/client). Empty list is enough — the editor's multiselect
   // renders from it and we don't exercise it here.
   // The mapping-list query is served by the shared `entitlementMappingHandlers`
   // module (registered globally in handlers.ts); its default also returns an
   // empty list.
-  http.get(`${API_BASE_URL}/api/client/:realmId`, () =>
+  http.get(`${API_BASE_URL}/api/client`, () =>
     HttpResponse.json({ items: [], page: 0, pageSize: 100, total: 0 })
   ),
 ]

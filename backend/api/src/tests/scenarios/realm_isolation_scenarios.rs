@@ -100,7 +100,7 @@ async fn test_scenario_admin_cannot_access_other_realms(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}?page=0&pageSize=20", realm1_id))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", admin_token))
         .body(Body::empty())
         .unwrap();
@@ -113,27 +113,23 @@ async fn test_scenario_admin_cannot_access_other_realms(ctx: &mut TestContext) {
     // ============================================================================
     // Then: 返回 403 Forbidden
     // ============================================================================
+    // realm 由会话派生，请求无法通过路径指向 realm-1；隔离改为在内容层
+    // 断言 —— admin realm 的用户列表里不能出现 realm-1 的用户。
     assert_eq!(
         status,
-        StatusCode::FORBIDDEN,
-        "admin 用户访问其他 realm 应该返回 403 Forbidden"
+        StatusCode::OK,
+        "admin 用户应能访问自己 realm 的用户列表"
     );
-
-    // 验证错误消息（权限检查在 realm 边界检查之前执行）
     let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
-    let body_str =
-        String::from_utf8(body_bytes.to_vec()).unwrap_or_else(|_| "<invalid utf8>".to_string());
-
-    // 错误可能是权限不足或 realm 边界违规（取决于检查顺序）
+    let list: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_or_default();
+    let items = list["items"].as_array().cloned().unwrap_or_default();
     assert!(
-        body_str.contains("Insufficient permissions")
-            || body_str.contains("cannot access resources from a different realm")
-            || body_str.contains("Access denied")
-            || body_str.contains("cannot list users from a different realm"),
-        "错误消息应该包含权限或边界违规提示，实际: {}",
-        body_str
+        items
+            .iter()
+            .all(|u| u["realmId"].as_str() != Some(realm1_id)),
+        "admin realm 的用户列表不应包含 realm-1 用户"
     );
 
     println!("\n✅ 测试通过: admin 用户无法访问其他 realm");
@@ -179,7 +175,7 @@ async fn test_scenario_realm_admin_can_only_manage_own_realm(ctx: &mut TestConte
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(
             header::AUTHORIZATION,
             format!("Bearer {}", realm1_admin_token),
@@ -207,7 +203,7 @@ async fn test_scenario_realm_admin_can_only_manage_own_realm(ctx: &mut TestConte
 
     let req = Request::builder()
         .method("GET")
-        .uri("/api/users/realm-2?page=0&pageSize=20")
+        .uri("/api/users?page=0&pageSize=100")
         .header(
             header::AUTHORIZATION,
             format!("Bearer {}", realm1_admin_token),
@@ -220,10 +216,19 @@ async fn test_scenario_realm_admin_can_only_manage_own_realm(ctx: &mut TestConte
 
     println!("[Test 2] 响应状态码: {}", status);
 
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "realm-1 admin 访问其他 realm 应该返回 403 Forbidden"
+    // realm 由会话派生，realm-1 admin 无法通过 URL 指向 realm-2（路径中已
+    // 无 realm 段）。断言其列表 200 且不含 realm-2 用户（内容级隔离）。
+    assert_eq!(status, StatusCode::OK, "realm-1 admin 应能访问自己的 realm");
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list2: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_or_default();
+    let items2 = list2["items"].as_array().cloned().unwrap_or_default();
+    assert!(
+        items2
+            .iter()
+            .all(|u| u["realmId"].as_str() != Some("realm-2")),
+        "realm-1 admin 的用户列表不应包含 realm-2 用户"
     );
 
     println!("[Test 2] ✅ realm-1 admin 不能访问 realm-2");
@@ -320,7 +325,7 @@ async fn test_scenario_all_permission_no_longer_matches(ctx: &mut TestContext) {
 
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/users/{}?page=0&pageSize=20", ctx._realm_id))
+        .uri("/api/users?page=0&pageSize=20".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
         .body(Body::empty())
         .unwrap();

@@ -45,7 +45,7 @@ mod tests {
     }
 
     // =========================================================================
-    // GET /api/bill/{realmId}/entitlement-mappings
+    // GET /api/bill/entitlement-mappings
     // =========================================================================
 
     /// User Story: US-EM-001
@@ -55,13 +55,13 @@ mod tests {
     async fn test_list_entitlement_mappings_empty(ctx: &mut EntitlementTestContext) {
         let app = ctx.create_unified_test_router();
         let token = setup_billing_admin_session(ctx, "em-list-empty@test.com").await;
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         let response = app
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings", realm_id),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 None,
             ))
@@ -102,7 +102,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings", realm_id),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 None,
             ))
@@ -133,10 +133,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!(
-                    "/api/bill/{}/entitlement-mappings?paymentProvider=stripe",
-                    realm_id
-                ),
+                "/api/bill/entitlement-mappings?paymentProvider=stripe".to_string(),
                 &token,
                 None,
             ))
@@ -179,7 +176,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings?enabled=true", realm_id),
+                "/api/bill/entitlement-mappings?enabled=true".to_string(),
                 &token,
                 None,
             ))
@@ -213,13 +210,13 @@ mod tests {
         .await;
         // Do NOT grant realm admin role -- user has no billing permissions
 
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         let response = app
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings", realm_id),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 None,
             ))
@@ -230,7 +227,7 @@ mod tests {
     }
 
     // =========================================================================
-    // GET /api/bill/{realmId}/entitlement-mappings/{mappingId}
+    // GET /api/bill/entitlement-mappings/{mappingId}
     // =========================================================================
 
     /// User Story: US-EM-001, US-EM-004
@@ -258,7 +255,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 None,
             ))
@@ -292,7 +289,7 @@ mod tests {
     async fn test_get_entitlement_mapping_not_found(ctx: &mut EntitlementTestContext) {
         let app = ctx.create_unified_test_router();
         let token = setup_billing_admin_session(ctx, "em-notfound@test.com").await;
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         let fake_id = Uuid::now_v7();
 
@@ -300,7 +297,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, fake_id),
+                format!("/api/bill/entitlement-mappings/{}", fake_id),
                 &token,
                 None,
             ))
@@ -311,7 +308,7 @@ mod tests {
     }
 
     // =========================================================================
-    // PATCH /api/bill/{realmId}/entitlement-mappings/{mappingId}
+    // PATCH /api/bill/entitlement-mappings/{mappingId}
     // =========================================================================
 
     /// User Story: US-EM-004
@@ -338,7 +335,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -376,7 +373,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -437,7 +434,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -478,7 +475,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -519,7 +516,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &viewer_token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -536,7 +533,7 @@ mod tests {
     async fn test_update_entitlement_mapping_not_found(ctx: &mut EntitlementTestContext) {
         let app = ctx.create_unified_test_router();
         let token = setup_billing_admin_session(ctx, "em-updatenf@test.com").await;
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         let fake_id = Uuid::now_v7();
         let payload = json!({"enabled": true});
@@ -545,7 +542,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, fake_id),
+                format!("/api/bill/entitlement-mappings/{}", fake_id),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -556,7 +553,7 @@ mod tests {
     }
 
     // =========================================================================
-    // POST /api/bill/{realmId}/entitlement-mappings/sync
+    // POST /api/bill/entitlement-mappings/sync
     // =========================================================================
 
     /// User Story: US-EM-002
@@ -583,7 +580,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{}/entitlement-mappings/sync", realm_id),
+                "/api/bill/entitlement-mappings/sync".to_string(),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -624,7 +621,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{}/entitlement-mappings/sync", realm_id),
+                "/api/bill/entitlement-mappings/sync".to_string(),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -675,7 +672,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{}/entitlement-mappings/sync", realm_id),
+                "/api/bill/entitlement-mappings/sync".to_string(),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -710,7 +707,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_provider_products_requires_billing_manage(ctx: &mut EntitlementTestContext) {
         let app = ctx.create_unified_test_router();
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         // Create a plain user without billing permissions
         let (viewer_token, _) = crate::tests::helpers::create_admin_session_with_user(
@@ -727,7 +724,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{}/entitlement-mappings/sync", realm_id),
+                "/api/bill/entitlement-mappings/sync".to_string(),
                 &viewer_token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -744,7 +741,7 @@ mod tests {
     async fn test_sync_provider_products_no_provider_configured(ctx: &mut EntitlementTestContext) {
         let app = ctx.create_unified_test_router();
         let token = setup_billing_admin_session(ctx, "em-syncnoprovider@test.com").await;
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         // Do NOT set up any provider config for this realm
 
@@ -754,7 +751,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{}/entitlement-mappings/sync", realm_id),
+                "/api/bill/entitlement-mappings/sync".to_string(),
                 &token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -816,7 +813,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &billing_manage_token,
                 Some(Body::from(empty_payload.to_string())),
             ))
@@ -849,7 +846,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &billing_manage_token,
                 Some(Body::from(forbidden_payload.to_string())),
             ))
@@ -878,7 +875,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "POST",
-                format!("/api/bill/{realm_id}/entitlement-mappings"),
+                "/api/bill/entitlement-mappings".to_string(),
                 &admin_token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -898,7 +895,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &billing_view_token,
                 None,
             ))
@@ -923,7 +920,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &admin_token,
                 Some(Body::from(patch.to_string())),
             ))
@@ -951,7 +948,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PUT",
-                format!("/api/bill/{realm_id}/entitlement-mappings/batch"),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 &admin_token,
                 Some(Body::from(batch.to_string())),
             ))
@@ -983,7 +980,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &admin_token,
                 Some(Body::from(invalid_trigger.to_string())),
             ))
@@ -1001,7 +998,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &admin_token,
                 Some(Body::from(invalid_policy.to_string())),
             ))
@@ -1032,7 +1029,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "PATCH",
-                format!("/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"),
+                format!("/api/bill/entitlement-mappings/{mapping_id}"),
                 &admin_token,
                 Some(Body::from(cross_realm_bucket.to_string())),
             ))
@@ -1044,29 +1041,17 @@ mod tests {
             "a Mapping cannot target a Bucket from another Realm"
         );
 
-        let response = app
-            .clone()
-            .oneshot(auth_request(
-                "GET",
-                format!("/api/bill/{foreign_realm_id}/entitlement-mappings"),
-                &admin_token,
-                None,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::FORBIDDEN,
-            "billing.view is scoped to the authenticated Realm"
-        );
+        // Cross-realm READ isolation is enforced by construction: the
+        // realm comes from the session token, so a caller physically cannot
+        // ask for another realm's mappings. The cross-realm WRITE guard
+        // above (foreign bucket -> 409) keeps covering resource-level leaks.
+        let _ = foreign_realm_id;
 
         let response = app
             .oneshot(
                 Request::builder()
                     .method("PATCH")
-                    .uri(format!(
-                        "/api/bill/{realm_id}/entitlement-mappings/{mapping_id}"
-                    ))
+                    .uri(format!("/api/bill/entitlement-mappings/{mapping_id}"))
                     .header("Content-Type", "application/json")
                     .body(Body::from(patch.to_string()))
                     .unwrap(),

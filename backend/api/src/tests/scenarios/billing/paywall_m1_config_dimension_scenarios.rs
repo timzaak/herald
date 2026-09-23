@@ -95,7 +95,7 @@ mod tests {
     /// `Some(vec)` → serialized (clear when empty, set when non-empty).
     async fn put_batch_granted_role_ids(
         app: axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         token: &str,
         provider: &str,
         external_product_id: &str,
@@ -121,7 +121,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "PUT",
-                format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -139,7 +139,7 @@ mod tests {
     /// changes `pointsPerPeriod` while omitting `grantedRoleIds`.
     async fn put_batch_update(
         app: axum::Router,
-        realm_id: &str,
+        _realm_id: &str,
         token: &str,
         provider: &str,
         external_product_id: &str,
@@ -153,7 +153,7 @@ mod tests {
         let response = app
             .oneshot(auth_request(
                 "PUT",
-                format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+                "/api/bill/entitlement-mappings/batch".to_string(),
                 token,
                 Some(Body::from(payload.to_string())),
             ))
@@ -337,7 +337,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 None,
             ))
@@ -517,7 +517,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings/{}", realm_id, mapping_id),
+                format!("/api/bill/entitlement-mappings/{}", mapping_id),
                 &token,
                 None,
             ))
@@ -621,7 +621,7 @@ mod tests {
             .clone()
             .oneshot(auth_request(
                 "GET",
-                format!("/api/bill/{}/entitlement-mappings", realm_id),
+                "/api/bill/entitlement-mappings".to_string(),
                 &token,
                 None,
             ))

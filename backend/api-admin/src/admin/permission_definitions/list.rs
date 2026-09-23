@@ -1,7 +1,4 @@
-use axum::{
-    Extension,
-    extract::{Path, State},
-};
+use axum::{Extension, extract::State};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_core::domain::authentication::Identity;
 
@@ -12,14 +9,11 @@ use herald_api_base::application::http::state::AppState;
 /// List permissions by realm_id
 #[utoipa::path(
     get,
-    path = "/api/permission/{realmId}/define",
+    path = "/api/permission/define",
     tag = "permission-definitions",
     summary = "List permissions in the realm",
     description = "List all permission definitions in the realm. Requires `permissions.view` permission.",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    responses(
+        responses(
         (status = 200, description = "List of permissions", body = Vec<PermissionResponse>),
         (status = 403, description = "Forbidden - Insufficient permissions (requires permissions.view)", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -29,9 +23,9 @@ use herald_api_base::application::http::state::AppState;
 pub async fn list_permissions(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
 ) -> Result<ApiResult<Vec<PermissionResponse>>, ApiError> {
-    let admin = AdminIdentity::require(identity, &realm_id, "permission definitions")?;
+    let admin = AdminIdentity::require(identity, "permission definitions")?;
+    let realm_id = admin.realm_id().to_string();
     admin
         .require_permission(&state, "permissions", "view")
         .await?;

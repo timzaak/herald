@@ -94,7 +94,7 @@ async function ensureEmailChannelNotConfigured(
   demoLogger: UnifiedLogger,
   realmId: string
 ): Promise<void> {
-  const statusUrl = `${BASE_URL}/api/configs/${realmId}/email/status`
+  const statusUrl = `${BASE_URL}/api/configs/email/status`
   const statusResponse = await api.get(statusUrl)
   if (!statusResponse.ok()) {
     const body = await statusResponse.text().catch(() => '')
@@ -118,7 +118,7 @@ async function ensureEmailChannelNotConfigured(
   )
   for (const key of EMAIL_CONFIG_KEYS) {
     const deleteResponse = await api.delete(
-      `${BASE_URL}/api/configs/${realmId}/email/${key}`
+      `${BASE_URL}/api/configs/email/${key}`
     )
     // 404 = the key was never stored; everything else must fail loud.
     if (!deleteResponse.ok() && deleteResponse.status() !== 404) {

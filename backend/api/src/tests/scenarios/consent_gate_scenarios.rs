@@ -11,8 +11,8 @@
 // HTTP routes used (no new paths per BE-D08):
 //   POST /api/auth/{realmId}/login
 //   POST /api/auth/{realmId}/register
-//   POST /api/legal/{realmId}/consent   (existing consent endpoint, BE-D05)
-//   PUT  /api/legal/admin/{realmId}/agreements/{type}   (admin publish)
+//   POST /api/user/consent   (existing consent endpoint, BE-D05)
+//   PUT  /api/legal/admin/agreements/{type}   (admin publish)
 //
 // User stories: docs/user-stories/core/legal-consent-account-deletion.md
 //   US-RU-011, US-RU-012, US-RU-015
@@ -170,10 +170,10 @@ async fn seed_enabled_totp(ctx: &TestContext, realm_id: &str, user_id: Uuid) -> 
     secret
 }
 
-/// POST /api/legal/{realmId}/consent on behalf of an already-authenticated user.
+/// POST /api/user/consent on behalf of an already-authenticated user.
 async fn consent_to_current(
     ctx: &TestContext,
-    realm_id: &str,
+    _realm_id: &str,
     token: &str,
     items: &[(AgreementType, Uuid)],
 ) {
@@ -191,7 +191,7 @@ async fn consent_to_current(
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/api/legal/{realm_id}/consent"))
+        .uri("/api/user/consent".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {token}"))
         .header("x-forwarded-for", "3.3.3.3")
@@ -217,7 +217,7 @@ async fn consent_to_current(
 async fn current_version_ids(ctx: &TestContext, realm_id: &str) -> Vec<(AgreementType, Uuid)> {
     let request = Request::builder()
         .method("GET")
-        .uri(format!("/api/legal/{realm_id}/agreements"))
+        .uri(format!("/api/legal/public/{realm_id}/agreements"))
         .body(Body::empty())
         .expect("failed to build agreements request");
 
@@ -262,7 +262,7 @@ async fn current_version_ids(ctx: &TestContext, realm_id: &str) -> Vec<(Agreemen
 /// the newly minted `version_id`.
 async fn publish_new_version_as_admin(
     ctx: &TestContext,
-    realm_id: &str,
+    _realm_id: &str,
     agreement_type: &str,
 ) -> Uuid {
     let admin_email = format!("admin-consent-gate-{}@test.com", Uuid::now_v7());
@@ -277,9 +277,7 @@ async fn publish_new_version_as_admin(
 
     let request = Request::builder()
         .method("PUT")
-        .uri(format!(
-            "/api/legal/admin/{realm_id}/agreements/{agreement_type}"
-        ))
+        .uri(format!("/api/legal/admin/agreements/{agreement_type}"))
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {admin_token}"))
         .header("x-forwarded-for", "3.3.3.3")
@@ -591,7 +589,7 @@ async fn test_login_signs_session_after_consent_recorded(ctx: &mut TestContext) 
     // The user's consent/status now flags ToS as needing re-consent.
     let status_request = Request::builder()
         .method("GET")
-        .uri(format!("/api/legal/{realm_id}/consent/status"))
+        .uri("/api/user/consent/status".to_string())
         .header("authorization", format!("Bearer {token}"))
         .body(Body::empty())
         .expect("failed to build status request");

@@ -854,7 +854,7 @@ async fn webhook_fails_loud_on_ambiguous_price(ctx: &mut SchemaTestContext) {
 // registered on `create_unified_test_router` and reachable):
 //   * `batch_save_keeps_entitlement_key_readonly` and
 //     `disable_protected_price_rejected_with_active_subs` drive the REAL
-//     `PUT /api/bill/{realmId}/entitlement-mappings/batch` route via
+//     `PUT /api/bill/entitlement-mappings/batch` route via
 //     `tower::ServiceExt::oneshot` against `create_unified_test_router`, with
 //     a realm-admin session cookie (billing.manage + points.manage). The
 //     assertions are on the HTTP status code (201 / 409) AND on the DB row
@@ -901,7 +901,7 @@ async fn webhook_fails_loud_on_ambiguous_price(ctx: &mut SchemaTestContext) {
 /// Mirrors the `auth_request` helper in
 /// `api/tests/scenarios/billing/entitlement_mapping_crud_scenarios.rs`: a
 /// realm-admin session cookie + JSON body. Used by the batch scenarios to drive
-/// the REAL `PUT /api/bill/{realmId}/entitlement-mappings/batch` route.
+/// the REAL `PUT /api/bill/entitlement-mappings/batch` route.
 fn auth_json_request(
     method: &str,
     uri: String,
@@ -1190,7 +1190,7 @@ async fn batch_save_keeps_entitlement_key_readonly(ctx: &mut SchemaTestContext) 
     let response = app
         .oneshot(auth_json_request(
             "PUT",
-            format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+            "/api/bill/entitlement-mappings/batch".to_string(),
             &token,
             body,
         ))
@@ -1336,7 +1336,7 @@ async fn disable_protected_price_rejected_with_active_subs(ctx: &mut SchemaTestC
     let response = app
         .oneshot(auth_json_request(
             "PUT",
-            format!("/api/bill/{}/entitlement-mappings/batch", realm_id),
+            "/api/bill/entitlement-mappings/batch".to_string(),
             &token,
             body,
         ))

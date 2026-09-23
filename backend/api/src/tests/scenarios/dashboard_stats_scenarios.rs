@@ -10,7 +10,7 @@
 // Reference: docs/user-stories/ (dashboard-redesign)
 //
 // Routes:
-//   GET /api/dashboard/{realmId}/stats
+//   GET /api/dashboard/stats
 //
 // =============================================================================
 
@@ -116,7 +116,7 @@ async fn seed_realm(ctx: &TestContext, realm_id: &str, name: &str) {
 /// Covers: totalUsers, newUsers (within 7 days), activeUsers (distinct actors with successful logins)
 ///
 /// Given a realm with known users (some recent, some older) and known audit events,
-/// When calling GET /api/dashboard/{realmId}/stats,
+/// When calling GET /api/dashboard/stats,
 /// Then response contains correct totalUsers, newUsers, and activeUsers counts.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -151,7 +151,7 @@ async fn test_scenario_dashboard_stats_basic_metrics_returned(ctx: &mut TestCont
     // When: admin calls dashboard stats
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::empty())
         .unwrap();
@@ -209,7 +209,7 @@ async fn test_scenario_dashboard_stats_basic_metrics_returned(ctx: &mut TestCont
 /// Covers: authTrend array with correct date grouping, success_count and failure_count per day
 ///
 /// Given a realm with audit events spanning multiple days (auth.login and auth.login_failed),
-/// When calling GET /api/dashboard/{realmId}/stats,
+/// When calling GET /api/dashboard/stats,
 /// Then response contains authTrend with correct daily aggregation.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -243,7 +243,7 @@ async fn test_scenario_dashboard_stats_auth_trend_aggregated(ctx: &mut TestConte
     // When: admin calls dashboard stats
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {admin_token}"))
         .body(Body::empty())
         .unwrap();
@@ -305,7 +305,7 @@ async fn test_scenario_dashboard_stats_auth_trend_aggregated(ctx: &mut TestConte
 /// Covers: newly created realm with no data returns zeroed metrics and empty trend
 ///
 /// Given a newly created realm with no users and no audit events,
-/// When calling GET /api/dashboard/{realmId}/stats,
+/// When calling GET /api/dashboard/stats,
 /// Then response contains totalUsers=0, newUsers=0, activeUsers=0, authTrend=[].
 #[test_context(TestContext)]
 #[tokio::test]
@@ -395,7 +395,7 @@ async fn test_scenario_dashboard_stats_empty_realm_returns_zeros(ctx: &mut TestC
     // When: admin calls dashboard stats for the empty realm
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", empty_realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {empty_token}"))
         .body(Body::empty())
         .unwrap();
@@ -541,7 +541,7 @@ async fn test_scenario_dashboard_stats_realm_isolation_no_leakage(ctx: &mut Test
     // When: calling stats API for Realm B
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", realm_b_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(
             header::AUTHORIZATION,
             format!("Bearer {realm_b_session_token}"),
@@ -615,7 +615,7 @@ async fn test_scenario_dashboard_stats_non_admin_forbidden(ctx: &mut TestContext
     // When: regular user calls dashboard stats
     let req = Request::builder()
         .method("GET")
-        .uri(format!("/api/dashboard/{}/stats", ctx._realm_id))
+        .uri("/api/dashboard/stats".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {user_token}"))
         .body(Body::empty())
         .unwrap();

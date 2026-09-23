@@ -275,9 +275,8 @@ async fn group_wallets_by_bucket(
 /// List points wallets. Regular users see their own wallets; managers see all wallets in the realm.
 #[utoipa::path(
     get,
-    path = "/api/points/{realmId}/wallets",
+    path = "/api/points/wallets",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("status" = Option<String>, Query, description = "Filter by wallet status"),
         ("search" = Option<String>, Query, description = "Search by user ID"),
         ("bucketId" = Option<String>, Query, description = "Filter by Credit Bucket ID"),
@@ -296,9 +295,9 @@ async fn group_wallets_by_bucket(
 pub async fn list_wallets(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path(realm_id): Path<String>,
     Query(query): Query<ListWalletsQuery>,
 ) -> Result<ApiResult<ListWalletsByBucketResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     let _user_id = require_authenticated_user_in_realm(&identity, &realm_id, "points wallets")?;
     state
         .points_service
@@ -407,9 +406,8 @@ pub async fn list_user_wallets(
 /// Get points wallet for a specific user
 #[utoipa::path(
     get,
-    path = "/api/points/{realmId}/wallets/{userId}",
+    path = "/api/points/wallets/{userId}",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = String, Path, description = "User ID")
     ),
     responses(
@@ -425,8 +423,9 @@ pub async fn list_user_wallets(
 pub async fn get_wallet(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id)): Path<(String, String)>,
+    Path(user_id): Path<String>,
 ) -> Result<Json<PointsWalletResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     let _user_id = require_authenticated_user_in_realm(&identity, &realm_id, "points wallet")?;
 
     let user_uuid = user_id
@@ -457,9 +456,8 @@ pub async fn get_wallet(
 
 #[utoipa::path(
     patch,
-    path = "/api/points/{realmId}/wallets/{userId}/{bucketId}/status",
+    path = "/api/points/wallets/{userId}/{bucketId}/status",
     params(
-        ("realmId" = String, Path, description = "Realm ID"),
         ("userId" = Uuid, Path, description = "User ID"),
         ("bucketId" = Uuid, Path, description = "Credit Bucket ID")
     ),
@@ -475,9 +473,10 @@ pub async fn get_wallet(
 pub async fn update_wallet_status(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Path((realm_id, user_id, bucket_id)): Path<(String, Uuid, Uuid)>,
+    Path((user_id, bucket_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<UpdateWalletStatusRequest>,
 ) -> Result<Json<PointsWalletResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     let status = request
         .status
         .parse::<WalletStatus>()

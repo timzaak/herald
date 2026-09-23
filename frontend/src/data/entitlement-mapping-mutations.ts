@@ -147,7 +147,7 @@ export function useUpdateEntitlementMapping(realmId: string, mappingId: string) 
         currency: values.currency,
       }
       const response = await updateEntitlementMapping({
-        path: { realmId, mappingId },
+        path: { mappingId },
         body,
       })
       if (response.error) throw response.error
@@ -175,7 +175,6 @@ export function useSyncProviderProducts(realmId: string) {
   return useMutation({
     mutationFn: async ({ paymentProvider }: { paymentProvider: string }) => {
       const response = await syncProviderProducts({
-        path: { realmId },
         body: { paymentProvider },
       })
       if (response.error) throw response.error
@@ -214,7 +213,6 @@ export function useBatchUpdateEntitlementMappings(realmId: string) {
   return useMutation({
     mutationFn: async (body: BatchUpdateEntitlementMappingsRequest) => {
       const response = await batchUpdateEntitlementMappings({
-        path: { realmId },
         body,
       })
       if (response.error) throw response.error
@@ -308,7 +306,6 @@ export function useCreateEntitlementMapping(realmId: string) {
   return useMutation({
     mutationFn: async (body: CreateEntitlementMappingRequest) => {
       const response = await createEntitlementMapping({
-        path: { realmId },
         body,
       })
       if (response.error) throw response.error

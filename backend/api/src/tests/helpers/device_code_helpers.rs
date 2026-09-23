@@ -14,13 +14,13 @@ use tower::ServiceExt;
 
 /// Create a Client App with device code grant settings via the API.
 ///
-/// Sends POST `/api/client/{realmId}` with admin session cookie and JSON body
+/// Sends POST `/api/client` with admin session cookie and JSON body
 /// including `deviceCodeGrantEnabled` field.
 ///
 /// Returns the raw HTTP response.
 pub async fn create_client_app_with_device_code_grant(
     ctx: &mut SchemaTestContext,
-    realm_id: &str,
+    _realm_id: &str,
     admin_token: &str,
     client_id: &str,
     name: &str,
@@ -31,7 +31,7 @@ pub async fn create_client_app_with_device_code_grant(
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!("/api/client/{}", realm_id))
+        .uri("/api/client".to_string())
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {}", admin_token))
         .body(Body::from(

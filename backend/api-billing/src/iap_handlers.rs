@@ -481,12 +481,9 @@ async fn apple_refund_or_revoke_recorded(
 
 #[utoipa::path(
     post,
-    path = "/api/bill/{realmId}/purchase/iap/receipt",
+    path = "/api/bill/purchase/iap/receipt",
     tag = "billing",
-    params(
-        ("realmId" = String, Path, description = "Realm ID")
-    ),
-    request_body = IapReceiptRequest,
+        request_body = IapReceiptRequest,
     responses(
         (status = 200, description = "Receipt processed", body = IapReceiptResponse),
         (status = 400, description = "Invalid request (provider / receipt / productId / targetId missing)"),
@@ -501,9 +498,9 @@ pub async fn submit_iap_receipt(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
     Extension(context): Extension<TokenCredentialContext>,
-    Path(realm_id): Path<String>,
     Json(input): Json<IapReceiptRequest>,
 ) -> Result<Json<IapReceiptResponse>, ApiError> {
+    let realm_id = identity.realm_id();
     require_token_scope(&identity, &context, CredentialScope::PurchaseInitiate)?;
     let user_id = require_authenticated_user_in_realm_with_token(
         &identity,

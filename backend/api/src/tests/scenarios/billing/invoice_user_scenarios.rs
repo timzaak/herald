@@ -64,7 +64,7 @@ mod tests {
     }
 
     /// Helper: set up seller config for a realm via admin API.
-    async fn setup_seller_config(app: &axum::Router, admin_token: &str, realm_id: &str) {
+    async fn setup_seller_config(app: &axum::Router, admin_token: &str, _realm_id: &str) {
         let put_payload = json!({
             "sellerName": "Test Seller Corp",
             "sellerAddress": "456 Commerce St",
@@ -78,7 +78,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/bill/{}/invoice-seller-config", realm_id))
+                    .uri("/api/bill/invoice-seller-config".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(put_payload.to_string()))
@@ -642,7 +642,7 @@ mod tests {
     #[tokio::test]
     async fn test_regular_user_cannot_use_admin_endpoints(ctx: &mut InvoiceTestContext) {
         let app = ctx.create_unified_test_router();
-        let realm_id = ctx._realm_id.clone();
+        let _realm_id = ctx._realm_id.clone();
 
         // Create a regular user
         let (user_token, _user_id) =
@@ -654,7 +654,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("authorization", format!("Bearer {}", user_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -687,7 +687,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/bill/{}/invoices", realm_id))
+                    .uri("/api/bill/invoices".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", user_token))
                     .body(Body::from(create_payload.to_string()))
@@ -708,7 +708,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(format!("/api/bill/{}/invoice-seller-config", realm_id))
+                    .uri("/api/bill/invoice-seller-config".to_string())
                     .header("authorization", format!("Bearer {}", user_token))
                     .body(Body::empty())
                     .unwrap(),
@@ -734,7 +734,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/bill/{}/invoice-seller-config", realm_id))
+                    .uri("/api/bill/invoice-seller-config".to_string())
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", user_token))
                     .body(Body::from(seller_payload.to_string()))
@@ -762,8 +762,8 @@ mod tests {
                     Request::builder()
                         .method(method)
                         .uri(format!(
-                            "/api/bill/{}/invoices/{}{}",
-                            realm_id, fake_invoice_id, path_suffix
+                            "/api/bill/invoices/{}{}",
+                            fake_invoice_id, path_suffix
                         ))
                         .header("content-type", "application/json")
                         .header("authorization", format!("Bearer {}", user_token))
@@ -934,7 +934,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("PATCH")
-                    .uri(format!("/api/bill/{}/invoices/{}", realm_id, invoice_id))
+                    .uri(format!("/api/bill/invoices/{}", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(patch_payload.to_string()))
@@ -951,10 +951,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/api/bill/{}/invoices/{}/issue",
-                        realm_id, invoice_id
-                    ))
+                    .uri(format!("/api/bill/invoices/{}/issue", invoice_id))
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {}", admin_token))
                     .body(Body::from(json!({}).to_string()))
