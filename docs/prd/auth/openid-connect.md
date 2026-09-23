@@ -101,7 +101,7 @@ Herald 的第三方接入原本面向"为 Herald 开发的应用"（自有 SDK +
 - 仅当授权请求携带 openid 语义时签发 id_token；不含 openid 语义的既有请求响应保持不变（兼容性硬约束）
 - openid 检测只认区分大小写的 `openid` scope token；其余 scope token 一律透传不解析不拒绝
 - id_token 的签发时机与授权码一致，同受登录同意闸门约束：同意缺失或版本过期时不签发（沿用 [docs/prd/core/legal-consent-account-deletion.md](/docs/prd/core/legal-consent-account-deletion.md) §4.1 登录即同意规则，不因 OIDC 豁免）
-- id_token 声明使用最小固定集：稳定用户标识（sub）、签发者、受众（Client App）、有效期、签发时间、邮箱与验证状态、昵称、nonce 回显（如授权请求携带）
+- id_token 声明使用最小固定集：稳定用户标识（sub）、签发者、受众（Client App）、有效期、签发时间、邮箱与验证状态、昵称、nonce 回显（如授权请求携带）；其中昵称为条件字段——取自用户 profile 行，profile 缺失或未设置昵称时省略该 claim（不回显空昵称；discovery 的 `claims_supported` 仍无条件广告）
 - 授权请求携带 nonce 时回显到 id_token（协议安全参数，供客户端绑定请求防重放）
 - 用户账号处于禁用/删除状态时不签发任何令牌（openid 路径在令牌交换时复查用户状态）
 - TOTP、Passkey 等二次认证与授权码流程的既有组合在 OIDC 场景下行为不变；全部登录支路（密码、TOTP、Passkey、LDAP、社交登录 broker）均透传 openid 语义

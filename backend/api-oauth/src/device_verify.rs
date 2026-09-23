@@ -134,7 +134,8 @@ pub async fn device_verify(
         .await
         .map_err(|_| ApiError::internal("Internal server error"))?;
 
-    // Lookup device_code from user_code index
+    // Lookup device_code from user_code index (immutable for the code's
+    // lifetime, so reading it outside the function cannot race).
     let user_code_key = format!("deviceUserCode:{}", user_code);
     let device_code: Option<String> = conn.get(&user_code_key).await.map_err(|e| {
         tracing::error!(error = %e, "Redis GET failed: user code lookup");
@@ -151,112 +152,69 @@ pub async fn device_verify(
         ));
     };
 
-    // Lookup device state
+    // Atomic pending -> verified transition (device-code PRD: state
+    // transitions are irreversible; a different user verifying an already
+    // verified code gets already_used). One FCALL closes the GET -> decide
+    // -> SET race between concurrent verifies of the same pending code.
     let device_key = format!("device:{}", device_code);
-    let state_json: Option<String> = conn.get(&device_key).await.map_err(|e| {
-        tracing::error!(error = %e, "Redis GET failed: device state lookup");
+    let result: String = redis::cmd("FCALL")
+        .arg("device_verify_transition")
+        .arg(1) // num_keys
+        .arg(&device_key)
+        .arg(&realm_id)
+        .arg(identity.user_id())
+        .query_async(&mut conn)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Redis FCALL device_verify_transition failed");
+            ApiError::internal("Internal server error")
+        })?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&result).map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse Redis function result");
         ApiError::internal("Internal server error")
     })?;
 
-    let Some(state_json) = state_json else {
-        return Err(ApiError::with_json(
-            axum::http::StatusCode::NOT_FOUND,
-            DeviceVerifyErrorResponse {
-                error: "not_found".to_string(),
-                error_description: "Device code not found or expired".to_string(),
-            },
-        ));
-    };
-
-    let mut device_state: serde_json::Value = serde_json::from_str(&state_json).map_err(|e| {
-        tracing::error!(error = %e, "Failed to parse device state JSON");
-        ApiError::internal("Internal server error")
-    })?;
-
-    // Validate realm isolation
-    let stored_realm_id = device_state
-        .get("realm_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if stored_realm_id != realm_id {
-        return Err(ApiError::bad_request_json(DeviceVerifyErrorResponse {
-            error: "invalid_request".to_string(),
-            error_description: "Realm mismatch".to_string(),
-        }));
-    }
-
-    let status = device_state
-        .get("status")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let stored_user_id = device_state
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    match status {
-        // Terminal states: already confirmed/denied/consumed
-        "denied" | "consumed" | "authorized" => {
-            return Err(ApiError::conflict_json(DeviceVerifyErrorResponse {
+    let client_id = if parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        parsed
+            .get("client_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        let error = parsed
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("not_found");
+        return Err(match error {
+            "already_confirmed" => ApiError::conflict_json(DeviceVerifyErrorResponse {
                 error: "already_confirmed".to_string(),
                 error_description: "Device code has already been confirmed or denied".to_string(),
-            }));
-        }
-        // Idempotent: same user re-verifying
-        "verified" if stored_user_id == identity.user_id() => {
-            // Fall through to query client app and return
-        }
-        // Different user already verified this code
-        "verified" => {
-            return Err(ApiError::conflict_json(DeviceVerifyErrorResponse {
+            }),
+            "already_used" => ApiError::conflict_json(DeviceVerifyErrorResponse {
                 error: "already_used".to_string(),
                 error_description: "Device code has already been used by another user".to_string(),
-            }));
-        }
-        // Fresh pending code: verify it
-        "pending" => {
-            device_state["status"] = serde_json::Value::String("verified".to_string());
-            device_state["user_id"] = serde_json::Value::String(identity.user_id());
-
-            let updated_json = serde_json::to_string(&device_state).map_err(|e| {
-                tracing::error!(error = %e, "Failed to serialize device state");
-                ApiError::internal("Internal server error")
-            })?;
-
-            // Write back preserving TTL
-            redis::cmd("SET")
-                .arg(&device_key)
-                .arg(&updated_json)
-                .arg("KEEPTTL")
-                .query_async::<String>(&mut conn)
-                .await
-                .map_err(|e| {
-                    tracing::error!(error = %e, "Redis SET KEEPTTL failed");
-                    ApiError::internal("Internal server error")
-                })?;
-        }
-        _ => {
-            return Err(ApiError::with_json(
+            }),
+            "realm_mismatch" => ApiError::bad_request_json(DeviceVerifyErrorResponse {
+                error: "invalid_request".to_string(),
+                error_description: "Realm mismatch".to_string(),
+            }),
+            _ => ApiError::with_json(
                 axum::http::StatusCode::NOT_FOUND,
                 DeviceVerifyErrorResponse {
                     error: "not_found".to_string(),
                     error_description: "Device code not found or expired".to_string(),
                 },
-            ));
-        }
-    }
+            ),
+        });
+    };
 
     // Query client app for name and icon_url
-    let client_id = device_state
-        .get("client_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
     let client_row = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT name, icon_url FROM client_app WHERE realm_id = $1 AND client_id = $2",
     )
     .bind(&realm_id)
-    .bind(client_id)
+    .bind(&client_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {

@@ -90,7 +90,7 @@ pub async fn evaluate_realm_invoice_eligibility(
 // =============================================================================
 //
 // The per-resource endpoint (GET
-// /api/bill/{realmId}/my/invoices/apply-eligibility) resolves the facts and
+// /api/user/bill/invoices/apply-eligibility) resolves the facts and
 // delegates here. Keeping this pure makes the rules trivially unit-testable and
 // guarantees the read-path and write-path (`apply_invoice` →
 // `validate_invoice_creation_policy` + seller-config check) stay in lockstep.

@@ -36,7 +36,7 @@ pub use application::http::state::AppState;
 pub use herald_api_base::application::http::real_ip::RealIpConfig;
 pub use herald_api_billing::WebhookEventProcessorImpl;
 
-use application::http::oauth::device_token::init_device_token_function;
+use application::http::oauth::device_functions::init_device_functions;
 use application::http::rate_limit::init_rate_limit_function;
 use application::http::server;
 use config::ApiConfig;
@@ -568,10 +568,10 @@ pub async fn build_app_state_with_migrations(
         .map_err(|e| anyhow::anyhow!("Failed to initialize Redis Functions: {:?}", e))?;
     info!("Redis Functions initialized");
 
-    init_device_token_function(&state).await.map_err(|e| {
-        anyhow::anyhow!("Failed to initialize device token Redis Function: {:?}", e)
+    init_device_functions(&state).await.map_err(|e| {
+        anyhow::anyhow!("Failed to initialize device-flow Redis Functions: {:?}", e)
     })?;
-    info!("Device token Redis Function initialized");
+    info!("Device-flow Redis Functions initialized");
 
     init_idempotency_function(&state.redis_manager)
         .await

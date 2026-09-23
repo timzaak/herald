@@ -41,7 +41,7 @@ pub struct DeviceConfirmResponse {
     pub status: String,
     /// Present when the login consent gate blocked an approval: the device was
     /// NOT authorized. The browser session must record consent (POST
-    /// /api/legal/{realmId}/consent) for the listed agreements and re-confirm;
+    /// /api/user/consent) for the listed agreements and re-confirm;
     /// the device state stays "verified" so the retry completes without
     /// restarting the device flow.
     pub consent_required: Option<bool>,
@@ -117,80 +117,15 @@ pub async fn device_confirm(
         ));
     };
 
-    // Lookup device state
-    let device_key = format!("device:{}", device_code);
-    let state_json: Option<String> = conn.get(&device_key).await.map_err(|e| {
-        tracing::error!(error = %e, "Redis GET failed: device state lookup");
-        ApiError::internal("Internal server error")
-    })?;
-
-    let Some(state_json) = state_json else {
-        return Err(ApiError::with_json(
-            axum::http::StatusCode::NOT_FOUND,
-            DeviceConfirmErrorResponse {
-                error: "not_found".to_string(),
-                error_description: "Device code not found or expired".to_string(),
-            },
-        ));
-    };
-
-    let mut device_state: serde_json::Value = serde_json::from_str(&state_json).map_err(|e| {
-        tracing::error!(error = %e, "Failed to parse device state JSON");
-        ApiError::internal("Internal server error")
-    })?;
-
-    // Validate status is "verified"
-    let status = device_state
-        .get("status")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if status != "verified" {
-        if status == "pending" {
-            return Err(ApiError::bad_request_json(DeviceConfirmErrorResponse {
-                error: "invalid_request".to_string(),
-                error_description: "Device code has not been verified yet".to_string(),
-            }));
-        }
-        // authorized, denied, consumed
-        return Err(ApiError::conflict_json(DeviceConfirmErrorResponse {
-            error: "already_used".to_string(),
-            error_description: "Device code has already been authorized, denied, or consumed"
-                .to_string(),
-        }));
-    }
-
-    // Validate realm isolation
-    let stored_realm_id = device_state
-        .get("realm_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if stored_realm_id != realm_id {
-        return Err(ApiError::bad_request_json(DeviceConfirmErrorResponse {
-            error: "invalid_request".to_string(),
-            error_description: "Realm mismatch".to_string(),
-        }));
-    }
-
-    // Validate same-user constraint
-    let stored_user_id = device_state
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if stored_user_id != identity.user_id() {
-        return Err(ApiError::conflict_json(DeviceConfirmErrorResponse {
-            error: "already_used".to_string(),
-            error_description: "Device code was verified by a different user".to_string(),
-        }));
-    }
-
     // Login consent gate (legal-consent PRD §4.1 — the rule covers every login
     // entrance, device code included): approving a device authorization is a
     // business function whose poll endpoint mints a full token family for the
     // CLI, so a stale-consent session (including a consent-restricted family)
-    // must not pass it. The device state deliberately stays "verified" — the
-    // user records consent via POST /api/legal/{realmId}/consent and simply
-    // re-confirms. Denials are not gated: they issue nothing.
+    // must not pass it. The gate runs on the session identity only — the
+    // device state is validated solely by the FCALL below. The device state
+    // deliberately stays "verified" — the user records consent via
+    // POST /api/user/consent and simply re-confirms. Denials are not gated:
+    // they issue nothing.
     if payload.approved {
         let confirm_user_id = uuid::Uuid::parse_str(&identity.user_id())
             .map_err(|_| ApiError::unauthorized("Invalid session identity"))?;
@@ -216,30 +151,64 @@ pub async fn device_confirm(
         }
     }
 
-    // Transition to authorized or denied
-    let new_status = if payload.approved {
-        "authorized"
-    } else {
-        "denied"
-    };
-    device_state["status"] = serde_json::Value::String(new_status.to_string());
+    // Transition to authorized or denied. The FCALL is the single validation
+    // authority: status/realm/user are checked atomically with the write, so
+    // a concurrent confirm cannot overwrite a terminal state (device-code
+    // PRD: transitions are irreversible) — the losing caller gets
+    // already_used.
+    let device_key = format!("device:{}", device_code);
+    let result: String = redis::cmd("FCALL")
+        .arg("device_confirm_transition")
+        .arg(1) // num_keys
+        .arg(&device_key)
+        .arg(&realm_id)
+        .arg(identity.user_id())
+        .arg(if payload.approved { "1" } else { "0" })
+        .query_async(&mut conn)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Redis FCALL device_confirm_transition failed");
+            ApiError::internal("Internal server error")
+        })?;
 
-    let updated_json = serde_json::to_string(&device_state).map_err(|e| {
-        tracing::error!(error = %e, "Failed to serialize device state");
+    let parsed: serde_json::Value = serde_json::from_str(&result).map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse Redis function result");
         ApiError::internal("Internal server error")
     })?;
 
-    // Write back preserving TTL
-    redis::cmd("SET")
-        .arg(&device_key)
-        .arg(&updated_json)
-        .arg("KEEPTTL")
-        .query_async::<String>(&mut conn)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Redis SET KEEPTTL failed");
-            ApiError::internal("Internal server error")
-        })?;
+    if !parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let error = parsed
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("not_found");
+        return Err(match error {
+            "not_verified" => ApiError::bad_request_json(DeviceConfirmErrorResponse {
+                error: "invalid_request".to_string(),
+                error_description: "Device code has not been verified yet".to_string(),
+            }),
+            "realm_mismatch" => ApiError::bad_request_json(DeviceConfirmErrorResponse {
+                error: "invalid_request".to_string(),
+                error_description: "Realm mismatch".to_string(),
+            }),
+            "already_used" => ApiError::conflict_json(DeviceConfirmErrorResponse {
+                error: "already_used".to_string(),
+                error_description: "Device code was verified by a different user, or has already been authorized, denied, or consumed"
+                    .to_string(),
+            }),
+            _ => ApiError::with_json(
+                axum::http::StatusCode::NOT_FOUND,
+                DeviceConfirmErrorResponse {
+                    error: "not_found".to_string(),
+                    error_description: "Device code not found or expired".to_string(),
+                },
+            ),
+        });
+    }
+
+    let new_status = parsed
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("authorized");
 
     Ok(Json(DeviceConfirmResponse {
         status: new_status.to_string(),

@@ -14,21 +14,24 @@ use super::{
     wallets::{get_wallet, list_user_wallets, list_wallets, update_wallet_status},
 };
 
-/// Points admin router for `/api/points/{realmId}`
+/// Points admin router for `/api/points`
 ///
 /// Nested in server/mod.rs under BOTH the flexible auth layer (Bearer or API
 /// key) and `require_admin_console_token`. The admin-console credential gate
 /// rejects API-key identities (`Identity::ThirdParty` gets a synthetic
 /// CustomUserUi context), so effective access is a first-party admin-console
 /// Bearer credential only. Third-party API-key callers use `/api/ext/points/*`.
+/// The realm is session-derived (the admin console token pins it), so the
+/// paths carry no `{realmId}` segment.
 ///
-/// Routes (when nested under /api/points/{realmId}):
-/// - GET /api/points/{realmId}/wallets - List wallets (admin console)
-/// - GET /api/points/{realmId}/wallets/{userId} - Get wallet (admin console)
-/// - GET /api/points/{realmId}/transactions - List transactions (admin console)
-/// - GET /api/points/{realmId}/registration-rules - Get Realm registration rules (points.view)
-/// - PUT /api/points/{realmId}/registration-rules - Upsert Realm registration rules (points.manage)
-/// - POST /api/points/{realmId}/grant - Grant points to user (admin session only)
+/// Routes (when nested under /api/points):
+/// - GET /api/points/wallets - List wallets (admin console)
+/// - GET /api/points/wallets/{userId} - Get wallet (admin console)
+/// - PATCH /api/points/wallets/{userId}/{bucketId}/status - Update wallet status
+/// - GET /api/points/transactions - List transactions (admin console)
+/// - GET /api/points/registration-rules - Get Realm registration rules (points.view)
+/// - PUT /api/points/registration-rules - Upsert Realm registration rules (points.manage)
+/// - POST /api/points/grant - Grant points to user (admin session only)
 ///
 /// Note: Balance and consume endpoints have been moved to /api/ext/points/ for SDK compatibility.
 /// Note: The old default-config / user-configs endpoints have been removed;

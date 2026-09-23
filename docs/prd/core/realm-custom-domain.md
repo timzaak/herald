@@ -107,6 +107,7 @@
 
 - **Realm 隔离**：自定义域名属于 Realm 级别，一个自定义域名关联唯一一个 Realm；不同 Realm 的自定义域名配置相互独立
 - **域名全局唯一**：同一精确域名不可被多个 Realm 同时占用；后配置的 Realm 在保存时被拒绝并提示域名已被占用
+- **部署保留域名拒绝**：`localhost`、部署 `public_base_url` 主机与 Herald CNAME target 主机是平台基础设施名，租户 claim 这些域名时被拒绝（防止把平台宿主的 realm 解析/白标面/OIDC issuer 重定向到租户 realm）；部署 URL 配置畸形时 fail-closed 禁止全部 claim
 - **精确域名匹配**：本期仅支持精确域名匹配（如 `login.acme.com`），不支持多级/通配域名（如 `*.acme.com`）
 - **域名规范化**：hostname 服务端强制小写化、去尾点、拒绝含协议/端口/路径/通配的输入，防止通过大小写或尾点绕过唯一约束；随后经 UTS #46 IDNA 严格模式归一化为 Punycode A-label 存储——Unicode 原文（U-label）与既有 Punycode 拼写视为同一域名，跨 Realm 冲突判定按归一化后的存储值比较
 - **权限要求**：仅 Realm Admin（持有 `settings.manage` 写 / `settings.view` 读）可查看和配置本 Realm 的自定义域名；Regular User 无配置入口

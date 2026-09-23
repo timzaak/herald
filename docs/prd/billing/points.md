@@ -307,7 +307,7 @@
 - 积极策略复用同步支付的积分履约，并记录本次支付是否已经发放。
 - 异步成功确认不重复履约；异步失败按原发放记录回收并记录交易。
 - 余额不足时只扣减现有余额，剩余金额形成可查询的负债记录。
-- 管理员可通过 `PATCH /api/points/{realmId}/wallets/{userId}/{bucketId}/status` 将具体钱包设置为 `active`、`frozen` 或 `closed`；目标用户、账户与调用身份均按 Realm 校验。
+- 管理员可通过 `PATCH /api/points/wallets/{userId}/{bucketId}/status`（路径无 realm 段，realm 由 admin 会话钉定）将具体钱包设置为 `active`、`frozen` 或 `closed`；目标用户、账户与调用身份均按 Realm 校验。
 
 - 积分钱包按 (用户, 积分账户) 懒创建：用户创建时不预建单一积分账户，首次对该账户发放或消费时在事务内确保钱包存在（多钱包模型，支持多租户隔离）
 - SDK 提供消耗积分的异步接口，需 API Key 授权，使用 ThirdParty 身份认证

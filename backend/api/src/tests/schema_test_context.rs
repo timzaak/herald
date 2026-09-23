@@ -7,7 +7,7 @@
 //
 // =============================================================================
 
-use crate::application::http::oauth::device_token::init_device_token_function;
+use crate::application::http::oauth::device_functions::init_device_functions;
 use crate::application::http::rate_limit::init_rate_limit_function;
 use crate::application::http::state::AppState;
 use crate::tests::shared::SharedContainers;
@@ -32,7 +32,7 @@ const TEST_JWT_SECRET: &str = "test-jwt-secret-key-for-integration-tests-32b";
 
 /// 确保 Redis Functions 只初始化一次
 static RATE_LIMIT_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-static DEVICE_TOKEN_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+static DEVICE_FUNCTIONS_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 static IDEMPOTENCY_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 static AUTHENTICATION_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
@@ -490,11 +490,11 @@ impl AsyncTestContext for SchemaTestContext {
             })
             .await;
 
-        DEVICE_TOKEN_INIT
+        DEVICE_FUNCTIONS_INIT
             .get_or_init(|| async {
-                init_device_token_function(&app_state)
+                init_device_functions(&app_state)
                     .await
-                    .expect("Failed to initialize device token Redis Function");
+                    .expect("Failed to initialize device-flow Redis Functions");
             })
             .await;
 

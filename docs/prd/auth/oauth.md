@@ -179,7 +179,7 @@
 - API Key 可绑定到特定 Client App（Client App Scope），绑定后只能访问该 Client App 所属资源
 - Admin API Client（`admin-api-client`）的 API Key 不受 Client App Scope 限制，可跨 App 访问
 - 未绑定 Client App 的 API Key 也不受 Client App Scope 限制
-- API Key 支持轮换（Rotate），调用 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 生成新密钥，旧密钥立即失效（轮换主动驱逐旧密钥的认证缓存条目——更新前后各一次以防竞态回填；驱逐失败时认证侧因 Redis 不可用本就 fail closed，缓存 TTL 仅作兜底）
+- API Key 支持轮换（Rotate），调用 `POST /api/api-keys/{apiKeyId}/rotate`（路径无 realm 段，realm 由 admin 会话钉定）生成新密钥，旧密钥立即失效（轮换主动驱逐旧密钥的认证缓存条目——更新前后各一次以防竞态回填；驱逐失败时认证侧因 Redis 不可用本就 fail closed，缓存 TTL 仅作兜底）
 - API Key 有启用/禁用和过期时间控制
 - 记录 API Key 最后使用时间（节流更新：每分钟最多一次写库）
 - 无效或缺失 API Key 返回 401；过期或禁用 API Key 返回 401
@@ -202,7 +202,7 @@
 
 **第一方直登分支（无 downstream_state）:**
 - Provider 回调 / Google One Tap / Apple 原生登录 / WeChat 直登在无下游上下文时为第一方直登：校验通过后为用户签发第一方浏览器 token family（完整会话）
-- 直登分支同样执行登录同意闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」，直登不豁免）：同意缺失或版本过期时不签发完整会话，响应改为 `consentRequired: true` + 当前生效协议摘要 + 受限会话（仅资料读取/注销账户/退出登录 scope，无 token 字段）；因 provider 凭据一次性、不可携带同意重放登录，补全路径为受限会话显式记录同意（`POST /api/legal/{realmId}/consent`）后重新触发登录入口
+- 直登分支同样执行登录同意闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1「登录即同意」，直登不豁免）：同意缺失或版本过期时不签发完整会话，响应改为 `consentRequired: true` + 当前生效协议摘要 + 受限会话（仅资料读取/注销账户/退出登录 scope，无 token 字段）；因 provider 凭据一次性、不可携带同意重放登录，补全路径为受限会话显式记录同意（`POST /api/user/consent`）后重新触发登录入口
 - **闸门降级口径**：上述各分支（下游授权、第一方直登、设备授权码流）的同意状态/生效协议查询发生存储故障时，闸门按 legal-consent PRD §4.1 的既定取舍 fail-open 放行并记录告警（可用性优先），不视为同意已记录
 
 **TOTP + OAuth 兼容:**
@@ -251,7 +251,7 @@
 **第三方 API 接入:**
 - API Key 认证系统：提取验证 X-API-Key header，校验 API Key 有效且未过期，更新使用统计
 - API Key Client App Scope 校验：绑定了 Client App 的 API Key 仅能访问该 App 的资源，Admin API Client 的 Key 除外
-- API Key 轮换：通过 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate` 轮换密钥，旧密钥失效（缓存驱逐为 best-effort：驱逐失败时旧密钥最长残留 300s 缓存 TTL，见 api-key-roles PRD 同条说明），返回新明文密钥（仅展示一次）
+- API Key 轮换：通过 `POST /api/api-keys/{apiKeyId}/rotate` 轮换密钥，旧密钥失效（缓存驱逐为 best-effort：驱逐失败时旧密钥最长残留 300s 缓存 TTL，见 api-key-roles PRD 同条说明），返回新明文密钥（仅展示一次）
 - 权限检查：第三方应用使用 API Key + 用户 session token，检查用户对指定资源的权限，支持 batch 检查
 - 订阅状态查询：第三方应用使用 API Key 查询客户端应用的订阅状态，无订阅时返回 free tier 信息
 - Ext API 完整能力：除权限检查和订阅查询外，还提供 Realm（创建/列表/查询）、User（创建/列表/查询）、Client App（创建/列表/查询）、Billing（订阅计划/分配查询）、Points（余额查询/消费/交易查询）管理接口。详细内容参考各自独立 PRD
@@ -282,7 +282,7 @@
 - 第三方 API 接入使用独立的 API Key 认证体系（X-API-Key header），与 session token 认证分离
 - API Key 绑定 realm，第三方接口只能访问所属 realm 的资源
 - API Key 可绑定 Client App（Client App Scope），绑定后仅能访问该 Client App 资源；Admin API Client 和未绑定 Client App 的 Key 不受此限制
-- API Key 轮换端点 `POST /api/api-keys/{realmId}/{apiKeyId}/rotate`，需要 `api_keys.manage` 权限
+- API Key 轮换端点 `POST /api/api-keys/{apiKeyId}/rotate`（realm 由 admin 会话钉定），需要 `api_keys.manage` 权限
 - 权限检查接口支持 batch 模式（多个 rules），无效 session token 返回 `allowed: false` 而非报错
 - 订阅查询接口在无订阅时返回 free tier 信息
 - Client App 禁用时拒绝所有 OAuth 授权请求

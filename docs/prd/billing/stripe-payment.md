@@ -39,7 +39,7 @@
 ### 2.1 包含功能
 
 - Stripe 作为支付平台选项之一（与 Creem 并列）
-- Stripe 配置管理——通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）统一管理，支持 api_key、webhook_secret、publishable_key、timeout、webhook_endpoint_id、async_points_strategy 配置项；base_url 仅用于测试替换 Stripe 服务地址，生产环境在配置写入层直接拒绝（400）
+- Stripe 配置管理——通过通用 `realm_config` API（`/api/configs`，realm 由 admin 会话钉定，ConfigType::Stripe）统一管理，支持 api_key、webhook_secret、publishable_key、timeout、webhook_endpoint_id、async_points_strategy 配置项；base_url 仅用于测试替换 Stripe 服务地址，生产环境在配置写入层直接拒绝（400）
 - 订阅支付处理（周期性计费）
 - 一次性支付处理（Payment Intents）
 - Webhook 事件处理（支付状态同步）
@@ -86,7 +86,7 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 4.1 业务规则
 
-- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，仅作配置记录，当前不参与验签——验签以 webhook_secret 为准）
+- **配置管理规则**：每个 Realm 可配置独立的 Stripe 账户；通过通用 `realm_config` API（`/api/configs`，realm 由 admin 会话钉定，ConfigType::Stripe）管理，配置项包括 api_key（Secret Key）、webhook_secret（Webhook Signing Secret）、publishable_key（Publishable Key）、timeout（HTTP 请求超时秒数）、webhook_endpoint_id（Webhook 端点 ID，仅作配置记录，当前不参与验签——验签以 webhook_secret 为准）
   - **配置项差异说明**：支持 `async_points_strategy`；`base_url` 仅供测试替换 Stripe 服务地址，生产环境在配置写入层直接拒绝（400，防 SSRF）。Account ID 未作为独立 config_key 实现；Herald 不解析或校验 `sk_test_*` / `sk_live_*` 前缀（密钥原样交给 Stripe，实际环境由 Stripe 密钥本身决定，见 §8.2）；Webhook Endpoint URL 由 `public_base_url` 动态拼接，不作为独立配置项
 - **凭据存储**：凭据以 realm_config 明文存储并以 `is_secret` 标记（响应脱敏、不回显），应用层加密为后续统一工作（若所有 provider 凭据统一加密，Stripe 一并受益）
 - **密钥脱敏**：Secret Key 查看时显示脱敏信息
@@ -108,12 +108,12 @@ Stripe 支付集成是 Herald 系统支付平台选项之一，与 Creem（模�
 
 ### 5.1 核心需求
 
-- **Stripe 配置管理**：每个 Realm 通过通用 `realm_config` API（`/api/configs/{realmId}`，ConfigType::Stripe）配置独立 Stripe 账户，支持创建、查看（脱敏）、更新、删除配置
+- **Stripe 配置管理**：每个 Realm 通过通用 `realm_config` API（`/api/configs`，realm 由 admin 会话钉定，ConfigType::Stripe）配置独立 Stripe 账户，支持创建、查看（脱敏）、更新、删除配置
 - **一次性支付处理**：创建 Payment Intent → 获取 Client Secret → 确认支付 → 处理支付结果
 - **订阅支付处理**：创建 Stripe Subscription → 处理首次支付 → 处理续费事件 → 取消订阅
 - **Webhook 事件处理**：验证 Stripe Signature（HMAC-SHA256 + 时间戳重放防护）→ 解析事件类型 → 执行业务逻辑 → 更新本地状态 → 记录事件日志；事件覆盖：checkout.session.completed/expired/async_payment_succeeded/async_payment_failed、customer.subscription.created/updated/deleted/paused/resumed、charge.refunded、charge.dispute.created/closed、credit_note.created/updated/voided、payment_intent.succeeded、payment_intent.payment_failed、invoice.payment_succeeded、invoice.payment_failed、invoice.payment_action_required、invoice.created/finalized/paid/voided
 - **一次性购买发票同步**：checkout.session.completed（mode=payment）事件处理中，为一次性购买创建 provider=stripe 的外部发票记录（与 Creem inline 同步模式一致）
-- **支付历史查询**：用户通过 `/api/user/bill/purchase/history` 查看自己的成功支付历史；持 `billing.view` 的 Realm 管理员通过 `/api/bill/{realmId}/purchase/history` 查看该 Realm 全部用户的成功支付记录。两者支持 `start_date`、`end_date`、`payment_provider`、`page`、`page_size` 筛选和分页，记录包含 `userId`。
+- **支付历史查询**：用户通过 `/api/user/bill/purchase/history` 查看自己的成功支付历史；持 `billing.view` 的 Realm 管理员通过 `/api/bill/purchase/history`（realm 由 admin 会话钉定）查看该 Realm 全部用户的成功支付记录。两者支持 `start_date`、`end_date`、`payment_provider`、`page`、`page_size` 筛选和分页，记录包含 `userId`。
 
 ### 5.2 验收目标
 

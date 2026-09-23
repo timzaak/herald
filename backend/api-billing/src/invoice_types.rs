@@ -142,7 +142,7 @@ impl From<InvoiceHistory> for InvoiceHistoryResponse {
 
 /// Per-resource invoice apply-eligibility (read-only, context-level).
 ///
-/// Returned by `GET /api/bill/{realmId}/my/invoices/apply-eligibility` so the
+/// Returned by `GET /api/user/bill/invoices/apply-eligibility` so the
 /// frontend can gate the Apply Invoice button BEFORE submit. Users consume
 /// this verdict; they do NOT read admin config/policy APIs directly.
 #[derive(Debug, Serialize, ToSchema)]
@@ -525,7 +525,7 @@ pub struct InvoiceListResponse {
 
 /// A succeeded payment attempt with no invoice linked via `payment_attempt_id`.
 ///
-/// Surfaced by `GET /api/bill/{realmId}/invoice-attribution/anomalies` so an
+/// Surfaced by `GET /api/bill/invoice-attribution/anomalies` so an
 /// admin can investigate attribution gaps. Covers both renewal and one-time/
 /// checkout attempts — both write the canonical `target_type = 'entitlement_mapping'`
 /// (`subscription_entitlement` is only a legacy read alias).

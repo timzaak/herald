@@ -365,7 +365,7 @@ fn default_true() -> bool {
     true
 }
 
-/// GET `/api/points/{realmId}/registration-rules` response.
+/// GET `/api/points/registration-rules` response.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistrationRulesResponse {
@@ -373,7 +373,7 @@ pub struct RegistrationRulesResponse {
     pub rules: Vec<RegistrationRuleResponse>,
 }
 
-/// PUT `/api/points/{realmId}/registration-rules` request body.
+/// PUT `/api/points/registration-rules` request body.
 #[derive(Debug, Clone, Deserialize, ToSchema, validator::Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertRegistrationRulesRequest {

@@ -97,6 +97,7 @@
 - **用户匹配策略**：与现有 Apple web 跳转登录完全一致——通过 Apple 用户唯一标识（sub）匹配 → 邮箱匹配 → 创建新用户；Apple 不提供 union_id（与微信不同）
 - **自动建号受 Realm 注册政策门控（注册政策优先）**：当 Apple identityToken 未命中已有用户、需要新建账号时，必须先检查当前 Realm 的注册开关（`registration.enabled` / `is_registration_enabled`）。Realm 未开启自动注册时，native 路径**不得**绕过注册政策自动建号，返回注册未开放提示（实现上以 `409 conflict` 表达），引导用户走显式注册入口。已命中已有用户的关联登录不受此门控影响。注册政策还包括可选的注册邮箱域白名单（`registration.allowed_domains`）：配置后，Apple 邮箱域名不在白名单内时建号同样返回 `409 conflict`；无邮箱时生成的 `@apple.placeholder` 占位邮箱同样接受白名单检查——配置白名单的 Realm 需将 `apple.placeholder` 纳入白名单，否则该路径无法建号（与 §5.2「首次建号邮箱缺失仍能建号」仅在白名单为空/含占位域时兼容）。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）。
 - **邮箱处理规则**（与 Apple web 跳转登录有意不同，详见 §8 DEC-005）：
+  - 凭证返回邮箱时要求 `email_verified == true` 才可用于账号关联或建号：未验证邮箱既不得关联既有账号、也不得用于自动建号，登录被拒绝（403）——与 [oauth.md](oauth.md) §4.1 对 Provider 未验证邮箱的通用规则一致（实践中 Apple 对已返回邮箱恒报 verified，该分支为防御性守卫）
   - Apple 中转邮箱（`@privaterelay.appleid.apple.com`）是合法可收信地址，作真实邮箱处理，不生成占位邮箱
   - 凭证未返回邮箱 + Apple 用户唯一标识未命中已有 provider 记录（首次建号）→ 生成 `{sub}@apple.placeholder` 占位邮箱并标记未验证后建号（对齐微信占位邮箱策略）
   - 凭证未返回邮箱 + Apple 用户唯一标识命中已有 provider 记录（存量用户后续登录）→ 不依赖邮箱，直接靠唯一标识匹配
@@ -105,7 +106,7 @@
 - **一次性凭证**：Apple identityToken 是有有效期的 JWT，过期后校验失败
 - **共存原则**：native 登录与 Apple web 跳转登录按钮共存，互不影响；与现有其他 Provider（Google、GitHub、Facebook、WeChat 等）共存
 - **下游授权码模式绑定**：当请求携带下游授权交易标识时，必须指向一个已存在、未消费、与当前 realm / client_id / redirect_uri / code_challenge 完整绑定的下游授权事务（与 OAuth brokered redirect 共用校验）
-- **登录同意闸门**：native 登录与其他登录入口同受「登录即同意」闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1，直登不豁免）——同意缺失或版本过期时不签发完整会话：直登分支响应 `consentRequired: true` + 当前生效协议摘要 + 受限会话（无 token 字段），补全路径为受限会话提交 `POST /api/legal/{realmId}/consent` 记录同意后重新发起 native 登录；下游授权分支不签发授权码、不消费 `downstream_state`，响应同样携带 `consentRequired: true` 与协议摘要
+- **登录同意闸门**：native 登录与其他登录入口同受「登录即同意」闸门（见 `docs/prd/core/legal-consent-account-deletion.md` §4.1，直登不豁免）——同意缺失或版本过期时不签发完整会话：直登分支响应 `consentRequired: true` + 当前生效协议摘要 + 受限会话（无 token 字段），补全路径为受限会话提交 `POST /api/user/consent` 记录同意后重新发起 native 登录；下游授权分支不签发授权码、不消费 `downstream_state`，响应同样携带 `consentRequired: true` 与协议摘要
 
 ### 4.2 关键状态与异常
 

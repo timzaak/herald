@@ -92,7 +92,7 @@ Herald 的用户管理原先缺少"即时让用户下线"的能力：管理员�
 - **撤销即时性**：被撤销的会话在其下一次请求时即被判定为未登录，不依赖令牌自然过期
 - **权限模型**：会话管理沿用 `resource.action` 模型。本特性的访问控制在 `users.*` 资源命名空间内（参考 [权限管理](../auth/permissions.md)）：会话查看与撤销直接复用既有 **`users.manage`** 权限（该权限已隐含 `users.view`）；仅拥有 `users.view` 的账号不可查看会话列表或执行撤销。不新增权限点。
 - **会话可辨识信息**：会话列表至少展示所属 Client App、设备/浏览器（User-Agent）、登录来源 IP、登录时间，便于管理员识别并定位要撤销的具体会话
-- **操作可审计**：主动撤销单会话、主动撤销全部会话、以及 Forbidden 联动撤销，均需记入审计日志，**审计 action 统一复用既有 `user.update`**（`AuditAction::UserUpdate`），不新增审计 action。其中管理员主动撤销（单会话/全部）记录在既有 `Session` 目标（`AuditTargetType::Session`）上；Forbidden 联动撤销不产生独立的会话审计记录，而是借用户编辑的 `user.update` 记录在 `User` 目标（`AuditTargetType::User`）上承载，并在 details 中以 `trigger=forbidden_linkage`、`scope=all` 区分来源与范围（检索联动事件时按 `details.trigger=forbidden_linkage` 过滤）。审计记录需包含操作者、目标用户、目标会话（或"全部会话"）与触发来源（管理员操作 / 状态变更联动）。
+- **操作可审计**：主动撤销单会话、主动撤销全部会话、以及 Forbidden 联动撤销，均需记入审计日志，**审计 action 统一复用既有 `user.update`**（`AuditAction::UserUpdate`），不新增审计 action。其中管理员主动撤销（单会话/全部）记录在既有 `Session` 目标（`AuditTargetType::Session`）上；Forbidden 联动撤销不产生独立的会话审计记录，而是借用户编辑的 `user.update` 记录在 `User` 目标（`AuditTargetType::User`）上承载，并在 details 中以 `trigger=forbidden_linkage`、`scope=all` 区分来源与范围（审计检索 API 不支持按 details 维度的服务端过滤，联动事件由管理端在客户端按返回记录的 `details.trigger=forbidden_linkage` 字段筛选）。审计记录需包含操作者、目标用户、目标会话（或"全部会话"）与触发来源（管理员操作 / 状态变更联动）。
 
 ### 4.2 关键状态与异常
 

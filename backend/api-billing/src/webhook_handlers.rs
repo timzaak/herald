@@ -160,6 +160,10 @@ struct CreemDisputeCreatedPayload {
     amount: i64,
     currency: String,
     dispute_id: String,
+    /// Present when the Creem payload carries it (subscription.md §5.1:
+    /// dispute details record ID, amount and reason; the Stripe side always
+    /// stores one).
+    reason: Option<String>,
 }
 
 fn creem_event_object(event: &Value) -> &Value {
@@ -694,6 +698,7 @@ fn parse_dispute_created_payload(event: &Value) -> Result<CreemDisputeCreatedPay
             .as_str()
             .ok_or_else(|| CoreError::BadRequest("Missing or invalid dispute id".to_string()))?
             .to_string(),
+        reason: object["reason"].as_str().map(str::to_string),
     })
 }
 
@@ -2109,11 +2114,14 @@ async fn handle_dispute_created(
         ))
     })?;
     let user_id = existing.user_id;
-    let provider_metadata = serde_json::json!({
+    let mut provider_metadata = serde_json::json!({
         "disputeId": payload.dispute_id,
         "amount": payload.amount,
         "currency": payload.currency,
     });
+    if let Some(reason) = payload.reason.as_ref() {
+        provider_metadata["reason"] = serde_json::json!(reason);
+    }
 
     info!(
         realm_id = %realm_id,

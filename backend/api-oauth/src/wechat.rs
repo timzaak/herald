@@ -4,14 +4,15 @@ use axum::{
     Json,
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::{IntoResponse, Redirect, Response},
+    response::Response,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
     callback::{
-        DownstreamCodeOutcome, issue_callback_token_response, issue_downstream_authorization,
+        DownstreamCodeOutcome, downstream_redirect, issue_callback_token_response,
+        issue_downstream_authorization, provider_error_response,
     },
     helper::{generate_oauth_auth_url, handle_oauth_callback},
 };
@@ -130,6 +131,21 @@ pub async fn wechat_callback(
 ) -> Result<Response, ApiError> {
     let user_agent = user_agent_from_headers(&headers);
 
+    // Provider redirected back with an error (wechat-oauth.md §6 错误可恢复
+    // 性): same handling as the generic callback (oauth.md §4.1 异常处理) —
+    // consume the pending downstream transaction and surface a friendly
+    // result instead of a bare "Missing code parameter" 400.
+    if let Some(error) = query.get("error") {
+        return provider_error_response(
+            &state,
+            &realm_id,
+            "wechat",
+            query.get("state").map(String::as_str),
+            error,
+        )
+        .await;
+    }
+
     let code = query
         .get("code")
         .ok_or_else(|| ApiError::bad_request("Missing code parameter".to_string()))?
@@ -169,9 +185,7 @@ pub async fn wechat_callback(
         )
         .await?
         {
-            DownstreamCodeOutcome::Redirect(redirect_uri) => {
-                Ok(Redirect::temporary(&redirect_uri).into_response())
-            }
+            DownstreamCodeOutcome::Redirect(redirect_uri) => Ok(downstream_redirect(redirect_uri)),
             DownstreamCodeOutcome::ConsentRequired(response) => Ok(response),
         };
     }

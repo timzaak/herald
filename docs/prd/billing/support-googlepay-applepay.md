@@ -95,7 +95,7 @@
 **配置管理规则（复用既有，无新增）**：
 - 每个 Realm 仍使用独立 Stripe / Creem 账户配置，复用既有配置管理界面
 - 钱包支付不引入新的配置项；不需要 Apple Pay 域名注册相关字段
-- Provider 凭证原始配置走通用 realm_config 管理通道：修改需 `settings.manage`，管理端查看需 `settings.view`；面向已登录购买方的 provider 目录 `GET /api/third/pay/{realmId}/providers` 是另一只读能力面，要求 `PurchaseRead` token scope，不授予原始凭证配置读取能力
+- Provider 凭证原始配置走通用 realm_config 管理通道：修改需 `settings.manage`，管理端查看需 `settings.view`；面向已登录购买方的 provider 目录 `GET /api/bill/providers`（realm 由登录身份钉定）是另一只读能力面，要求 `PurchaseRead` token scope，不授予原始凭证配置读取能力
 
 **流程声明规则（移动 App PaymentIntent 流）**：
 - 客户端可在发起购买时声明托管页流（默认，含不声明）或 PaymentIntent 流

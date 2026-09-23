@@ -54,9 +54,11 @@ pub struct ListPointsTransactionsInput {
     /// registration_grant, free_periodic_grant, refund_revoke, expire_revoke,
     /// cancel_revoke, expiration, refund, grant.
     pub transaction_type: Option<String>,
-    /// Optional start time bound (RFC 3339, e.g. 2026-01-01T00:00:00Z).
+    /// Optional start time bound (RFC 3339 timestamp, or a bare YYYY-MM-DD
+    /// date interpreted as midnight UTC, e.g. 2026-01-01T00:00:00Z).
     pub start_time: Option<String>,
-    /// Optional end time bound (RFC 3339).
+    /// Optional end time bound (RFC 3339 timestamp, or a bare YYYY-MM-DD
+    /// date interpreted as midnight UTC).
     pub end_time: Option<String>,
     /// 1-based page number (default 1; values below 1 are rejected).
     pub page: Option<u64>,

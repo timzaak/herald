@@ -63,7 +63,7 @@ fn generate_user_code() -> String {
     params(
         ("realmId" = String, Path, description = "Realm ID"),
     ),
-    request_body = DeviceAuthorizationRequest,
+    request_body(content = DeviceAuthorizationRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "Device authorization created", body = DeviceAuthorizationResponse),
         (status = 400, description = "Bad request", body = DeviceAuthorizationErrorResponse),

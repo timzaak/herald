@@ -15,7 +15,6 @@ use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::BrowserTokenService;
 use herald_core::domain::client::ports::ClientService;
-use herald_core::domain::security_constants::DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS;
 use herald_core::domain::user::ports::UserRepository;
 
 // ---------------------------------------------------------------------------
@@ -45,134 +44,6 @@ pub struct DeviceTokenErrorResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Redis Function
-// ---------------------------------------------------------------------------
-
-const DEVICE_TOKEN_FUNCTION_LIBRARY: &str = "herald_device_token";
-
-/// Redis Function for atomic device token polling state management.
-///
-/// Atomically handles all state transitions and interval enforcement in a
-/// single FCALL invocation, eliminating race conditions between concurrent
-/// poll requests.
-///
-/// Operation order (realm check first, terminal states next):
-/// 1. Key missing           -> expired_token
-/// 2. realm mismatch        -> invalid_request (PRD device-code.md §4.2:
-///    every endpoint answers a wrong-realm poll with invalid_request,
-///    whatever the status — pending/verified included)
-/// 3. status == consumed    -> invalid_request
-/// 4. status == denied      -> access_denied
-/// 5. status == authorized  -> consume + return user data
-/// 6. interval too fast     -> slow_down (interval += slow-down increment)
-/// 7. pending / verified    -> authorization_pending
-const DEVICE_TOKEN_FUNCTION_CODE: &str = "#!lua name=herald_device_token\n\
-\n\
-local function device_token_poll(keys, args)\n\
-  local key = keys[1]\n\
-  local now = tonumber(args[1])\n\
-  local expected_realm = args[2]\n\
-\n\
-  local data = redis.call('GET', key)\n\
-  if not data then\n\
-    return cjson.encode({ok=false, error='expired_token'})\n\
-  end\n\
-\n\
-  local state = cjson.decode(data)\n\
-\n\
-  -- Realm check BEFORE any state handling: a wrong-realm poll never learns\n\
-  -- the authorization state and never advances it (no consume, no interval\n\
-  -- bump). Returning invalid_request for every status keeps the error-code\n\
-  -- contract of PRD device-code.md 4.2.\n\
-  if state.realm_id ~= expected_realm then\n\
-    return cjson.encode({ok=false, error='invalid_request'})\n\
-  end\n\
-\n\
-  -- Terminal states first\n\
-  if state.status == 'consumed' then\n\
-    return cjson.encode({ok=false, error='invalid_request'})\n\
-  end\n\
-\n\
-  if state.status == 'denied' then\n\
-    return cjson.encode({ok=false, error='access_denied'})\n\
-  end\n\
-\n\
-  -- Authorized: consume and return the user data (realm already verified\n\
-  -- above).\n\
-  if state.status == 'authorized' then\n\
-    state.status = 'consumed'\n\
-    state.last_poll_at = now\n\
-    redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
-    return cjson.encode({\n\
-      ok=true,\n\
-      user_id=state.user_id,\n\
-      realm_id=state.realm_id,\n\
-      client_id=state.client_id\n\
-    })\n\
-  end\n\
-\n\
-  -- Check polling interval\n\
-  if state.last_poll_at > 0 then\n\
-    local elapsed = now - state.last_poll_at\n\
-    if elapsed < state.interval then\n\
-      state.interval = state.interval + {SLOW_DOWN_INCREMENT}\n\
-      state.last_poll_at = now\n\
-      redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
-      return cjson.encode({ok=false, error='slow_down'})\n\
-    end\n\
-  end\n\
-\n\
-  -- Still pending or verified\n\
-  state.last_poll_at = now\n\
-  redis.call('SET', key, cjson.encode(state), 'KEEPTTL')\n\
-  return cjson.encode({ok=false, error='authorization_pending'})\n\
-end\n\
-\n\
-redis.register_function('device_token_poll', device_token_poll)\n\
-";
-
-// ---------------------------------------------------------------------------
-// Initialization
-// ---------------------------------------------------------------------------
-
-/// Load the device token Redis Function library.
-///
-/// Idempotent -- safe to call multiple times (REPLACE semantics).
-pub async fn init_device_token_function(state: &AppState) -> Result<(), ApiError> {
-    let mut conn = state
-        .redis_manager
-        .get()
-        .await
-        .map_err(|_| ApiError::internal("Internal server error"))?;
-
-    redis::cmd("FUNCTION")
-        .arg("LOAD")
-        .arg("REPLACE")
-        .arg(
-            // {SLOW_DOWN_INCREMENT} is a placeholder so the increment stays
-            // defined by DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS rather than a
-            // second, drifting copy inside the Lua source.
-            DEVICE_TOKEN_FUNCTION_CODE.replace(
-                "{SLOW_DOWN_INCREMENT}",
-                &DEVICE_CODE_SLOW_DOWN_INCREMENT_SECONDS.to_string(),
-            ),
-        )
-        .query_async::<String>(&mut conn)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to load device token function library: {e}");
-            ApiError::internal("Internal server error")
-        })?;
-
-    tracing::info!(
-        "Redis Function library '{}' loaded successfully",
-        DEVICE_TOKEN_FUNCTION_LIBRARY
-    );
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -183,7 +54,7 @@ pub async fn init_device_token_function(state: &AppState) -> Result<(), ApiError
     params(
         ("realmId" = String, Path, description = "Realm ID"),
     ),
-    request_body = DeviceTokenRequest,
+    request_body(content = DeviceTokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "Access token issued", body = DeviceTokenResponse),
         (status = 400, description = "Bad request / pending / slow_down / expired", body = DeviceTokenErrorResponse),
@@ -400,5 +271,46 @@ pub async fn device_token(
                 error_description: description.to_string(),
             },
         ))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    // WHY (device-code.md / RFC 8628 3.1 & 3.4; same defect class as the
+    // /token annotation drift): the handlers extract `Form(...)`, so the wire
+    // contract is form-encoded only — a JSON-rendered requestBody makes
+    // standard OpenAPI-generated clients submit JSON and get rejected.
+    #[test]
+    fn openapi_device_request_bodies_declare_form_urlencoded() {
+        use utoipa::OpenApi as _;
+        let doc = crate::ApiDoc::openapi();
+        for path in [
+            "/api/device/{realmId}/authorize",
+            "/api/device/{realmId}/token",
+        ] {
+            let item = doc
+                .paths
+                .paths
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} must be registered in ApiDoc"));
+            let post = item
+                .post
+                .as_ref()
+                .unwrap_or_else(|| panic!("{path} must have a POST operation"));
+            let content = &post
+                .request_body
+                .as_ref()
+                .unwrap_or_else(|| panic!("{path} must declare a request body"))
+                .content;
+            assert!(
+                content.contains_key("application/x-www-form-urlencoded"),
+                "{path} requestBody must declare application/x-www-form-urlencoded; declared: {:?}",
+                content.keys().collect::<Vec<_>>()
+            );
+        }
     }
 }

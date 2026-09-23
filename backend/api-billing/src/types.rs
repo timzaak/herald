@@ -435,7 +435,7 @@ pub struct PriceMappingUpdate {
     pub granted_role_ids: Option<Vec<Uuid>>,
 }
 
-/// PUT `/api/bill/{realmId}/entitlement-mappings/batch` request body.
+/// PUT `/api/bill/entitlement-mappings/batch` request body.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchUpdateEntitlementMappingsRequest {
@@ -444,7 +444,7 @@ pub struct BatchUpdateEntitlementMappingsRequest {
     pub updates: Vec<PriceMappingUpdate>,
 }
 
-/// PUT `/api/bill/{realmId}/entitlement-mappings/batch` response body.
+/// PUT `/api/bill/entitlement-mappings/batch` response body.
 ///
 /// `prices` returns the product's full latest set of price rows.
 /// Reuses `EntitlementMappingResponse` as the per-price view.
@@ -501,7 +501,7 @@ pub struct PurchaseOptionView {
     pub already_owned: bool,
 }
 
-/// GET `/api/bill/{realmId}/client/{clientAppId}/purchase-options` response.
+/// GET `/api/bill/client/{clientAppId}/purchase-options` response.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PurchaseOptionListResponse {

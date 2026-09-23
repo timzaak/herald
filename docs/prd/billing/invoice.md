@@ -337,7 +337,7 @@
 
 **适用性**: 适用
 
-- **接口能力范围**：发票 CRUD、销售方信息配置、发票开具/作废/标记已付、用户申请、PDF 下载与 provider 筛选位于 api-billing；`invoice_policy` 及 provider 外部发票能力开关的写入复用通用 Realm Config API（`/api/configs/{realmId}`），api-billing 只读取并执行策略
+- **接口能力范围**：发票 CRUD、销售方信息配置、发票开具/作废/标记已付、用户申请、PDF 下载与 provider 筛选位于 api-billing；`invoice_policy` 及 provider 外部发票能力开关的写入复用通用 Realm Config API（`/api/configs`，realm 由 admin 会话钉定），api-billing 只读取并执行策略
 - **访问控制原则**：发票管理端接口通过 `billing.view` / `billing.manage` 权限检查控制（`require_billing_permission` 辅助函数实现）；用户端接口复用登录用户身份判断；Realm Admin 可管理本 Realm 所有发票；Regular User 只能查询和申请自己的发票；销售方信息配置需 `billing.manage`。通用 Realm Config 中的发票策略读取/写入分别使用 `settings.view` / `settings.manage`
 - **租户/Realm 数据边界**：发票按 Realm 隔离；发票编号在 realm + 年范围内唯一；发票策略配置按 Realm 独立；provider 能力开关按 Realm + Provider 独立
 - **状态操作约束**：仅 draft 可编辑；issued / overdue 可标记已付或作废；paid 不可修改

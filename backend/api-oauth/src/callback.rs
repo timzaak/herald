@@ -4,7 +4,7 @@ use axum::{
     Form, Json,
     extract::{Path, Query, State},
     http::HeaderMap,
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -64,7 +64,7 @@ pub struct OAuthCallbackResponse {
     // summaries and NO full session (the OAuth credential is single-use and
     // cannot be replayed with agreements attached). The restricted family
     // carried by `restrictedSession` lets the client record explicit consent
-    // via POST /api/legal/{realmId}/consent; the user then re-triggers login.
+    // via POST /api/user/consent; the user then re-triggers login.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(required = false)]
     pub consent_required: Option<bool>,
@@ -179,22 +179,14 @@ async fn oauth_callback_inner(
     // the pending transaction(s) and surface a friendly result instead of a
     // bare deserialization 400 (oauth.md §4.1 异常处理).
     if let Some(error) = query.error {
-        let redirect = handle_oauth_callback_error(
+        return provider_error_response(
             &state,
             &realm_id,
             &provider_type,
             query.state.as_deref(),
             &error,
         )
-        .await?;
-        if let Some(redirect_uri) = redirect {
-            return Ok(Redirect::temporary(&redirect_uri).into_response());
-        }
-        return Ok(Json(OAuthCallbackErrorResponse {
-            error,
-            message: "Authorization was denied or failed. Please try again or use another sign-in method.".to_string(),
-        })
-        .into_response());
+        .await;
     }
 
     // Success shape: `code` + `state` are both required to exchange.
@@ -223,9 +215,7 @@ async fn oauth_callback_inner(
         )
         .await?
         {
-            DownstreamCodeOutcome::Redirect(redirect_uri) => {
-                Ok(Redirect::temporary(&redirect_uri).into_response())
-            }
+            DownstreamCodeOutcome::Redirect(redirect_uri) => Ok(downstream_redirect(redirect_uri)),
             DownstreamCodeOutcome::ConsentRequired(response) => Ok(response),
         };
     }
@@ -442,6 +432,47 @@ pub enum DownstreamCodeOutcome {
     ConsentRequired(Response),
 }
 
+/// Build the 302 redirect to the downstream app. oauth.md §4.1 pins the
+/// downstream redirect to 302 semantics: a 307 (axum's `Redirect::temporary`)
+/// would preserve the provider callback's method (POST for Apple form_post)
+/// into the downstream redirect_uri.
+pub(crate) fn downstream_redirect(redirect_uri: String) -> Response {
+    (
+        axum::http::StatusCode::FOUND,
+        [(axum::http::header::LOCATION, redirect_uri)],
+    )
+        .into_response()
+}
+
+/// Provider-error branch shared by every callback entrance (generic provider
+/// callback, WeChat). The provider redirected back with `error` instead of a
+/// `code` — the login can never complete through this state, so the pending
+/// transaction(s) are consumed: with a downstream authorization pending, the
+/// app redirect carries `error` + `state` (standard OAuth error propagation);
+/// without one the user gets a friendly denial body in the success shape so
+/// the landing surface can render it like any other result (oauth.md §4.1
+/// 异常处理).
+pub(crate) async fn provider_error_response(
+    state: &AppState,
+    realm_id: &str,
+    provider_type: &str,
+    state_token: Option<&str>,
+    error: &str,
+) -> Result<Response, ApiError> {
+    let redirect =
+        handle_oauth_callback_error(state, realm_id, provider_type, state_token, error).await?;
+    if let Some(redirect_uri) = redirect {
+        return Ok(downstream_redirect(redirect_uri));
+    }
+    Ok(Json(OAuthCallbackErrorResponse {
+        error: error.to_string(),
+        message:
+            "Authorization was denied or failed. Please try again or use another sign-in method."
+                .to_string(),
+    })
+    .into_response())
+}
+
 /// Issue a downstream authorization code for the Code+PKCE flow. Runs the
 /// login policy shared with [`issue_callback_token_response`] (via
 /// [`load_gated_oauth_user`]) BEFORE the one-time downstream state is
@@ -453,7 +484,7 @@ pub enum DownstreamCodeOutcome {
 /// entrance is gated.
 ///
 /// Gated users receive the restricted family + current agreement summaries and
-/// recover by recording consent via POST /api/legal/{realmId}/consent and
+/// recover by recording consent via POST /api/user/consent and
 /// re-triggering the entrance; the downstream state is deliberately NOT
 /// consumed so a fresh pass through the flow can complete the authorization.
 #[allow(clippy::too_many_arguments)]

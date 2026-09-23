@@ -123,7 +123,7 @@
 - 非法货币码（含保留码 `XXX`/`XTS`）：解析请求被拒绝（DEC-multiple_currency-010）
 - Stripe 映射行缺失价格信息：下单被拒绝（fail-loud），不产生零金额或串货币支付（DEC-multiple_currency-009）
 - 渠道无可选货币价格（Creem/IAP/WeChat Pay）：降级为单一价格展示，不渲染货币切换器（DEC-multiple_currency-003/013）
-- WeChat Pay 映射行未配置价格：解析层不视为异常，但下单构造被拒绝（"WeChat order requires a positive amount"，fail-loud）——WeChat v3 下单必须传金额，价格只能来自映射行手工配置
+- WeChat Pay 映射行未配置价格：写入层即拒绝（缺价或非正数价格在映射保存时被拒，"可缺价的映射行"中间状态不存在，见 §4.1 与 DEC-multiple_currency-013）；下单构造层保留防御性二次守卫（"WeChat order requires a positive amount"，fail-loud）——WeChat v3 下单必须传金额，价格只能来自映射行手工配置
 - Stripe Adaptive Pricing 启用导致的展示与实付货币不一致：**已知展示局限**。Herald 缓存的产品基础货币为展示货币；若运营方在 Stripe 启用 Adaptive Pricing，Checkout 会按用户地区自动换算展示与扣款，可能出现购买页展示货币（基础货币）与用户实付货币不一致。以 Checkout 实际呈现为准，购买页对基础货币做标注，不在 Herald 侧做换算（非阻塞，沿用 DEC-multiple_currency-002 不改同步）
 
 ---
