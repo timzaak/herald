@@ -588,6 +588,12 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Let the warm-up's gate lapse, then re-arm it: the in-window
+        // rejection below must not race the warm-up download against the
+        // 100ms throttle (flaky on a loaded CI runner).
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(client.certs.try_begin_refetch(&realm).await);
+
         // Inside the throttle window the rotated serial is still rejected
         // without a download (flood bound) ...
         assert!(
