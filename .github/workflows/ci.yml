@@ -10,6 +10,9 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - '.github/workflows/**'
+  # Manual dispatch (gh workflow run): paths-filter has no diff to compare on
+  # dispatch, so every job's `if` below ORs in the event name to run all four.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,7 +50,7 @@ jobs:
   backend-ci:
     name: Backend CI
     needs: detect-changes
-    if: needs.detect-changes.outputs.backend == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: ""
@@ -101,7 +104,7 @@ jobs:
   frontend-ci:
     name: Frontend CI
     needs: detect-changes
-    if: needs.detect-changes.outputs.frontend == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -170,7 +173,7 @@ jobs:
   demo-ci:
     name: Demo CI
     needs: detect-changes
-    if: needs.detect-changes.outputs.demo == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.demo == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -198,7 +201,7 @@ jobs:
   node-sdk-ci:
     name: Node SDK CI
     needs: detect-changes
-    if: needs.detect-changes.outputs.node-sdk == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.node-sdk == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
