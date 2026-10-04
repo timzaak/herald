@@ -63,7 +63,7 @@ Herald 系统（System Actor，非角色）
 |--------|------|
 | dashboard.view | 查看 Dashboard 统计 |
 | realm.view | 查看 Realm 信息 |
-| realm.manage | Realm 创建、更新、删除（仅 admin realm） |
+| realm.manage | Realm 创建、更新（仅 admin realm；Realm 删除不受支持） |
 | users.view | 查看用户 |
 | users.manage | 用户管理（CRUD） |
 | clients.view | 查看客户端应用 |
@@ -78,8 +78,8 @@ Herald 系统（System Actor，非角色）
 | settings.manage | 设置管理 |
 | api_keys.view | 查看 API Key 列表和详情 |
 | api_keys.manage | API Key 创建、更新、删除、轮换 |
-| billing.view | 查看账单、订阅历史、支付配置 |
-| billing.manage | 账单管理、支付 Provider 配置管理 |
+| billing.view | 查看账单、订阅历史 |
+| billing.manage | 账单业务管理（账单、订阅、发票等业务对象；支付 Provider 凭证配置由 settings.view/settings.manage 门控，不含于本权限） |
 | points.view | 查看积分、积分规则 |
 | points.manage | 积分管理、Provider 映射管理 |
 | audit.view | 查看审计日志列表和详情 |
@@ -118,8 +118,8 @@ Herald 系统（System Actor，非角色）
 | settings.manage | 设置管理 |
 | api_keys.view | 查看 API Key 列表和详情 |
 | api_keys.manage | API Key 创建、更新、删除、轮换 |
-| billing.view | 查看账单、订阅历史、支付配置 |
-| billing.manage | 账单管理、支付 Provider 配置管理 |
+| billing.view | 查看账单、订阅历史 |
+| billing.manage | 账单业务管理（账单、订阅、发票等业务对象；支付 Provider 凭证配置由 settings.view/settings.manage 门控，不含于本权限） |
 | points.view | 查看积分、积分规则 |
 | points.manage | 积分管理、Provider 映射管理 |
 | audit.view | 查看审计日志列表和详情 |
@@ -137,7 +137,7 @@ Herald 系统（System Actor，非角色）
 ### Regular User（普通用户）
 
 **技术标识**：`user`
-**认证方式**：邮箱密码 / OAuth/OIDC / SAML
+**认证方式**：邮箱密码 / OAuth/OIDC
 
 **权限清单**：
 
@@ -193,6 +193,24 @@ Herald 系统（System Actor，非角色）
 - Webhook 回调处理（支付回调、OAuth 回调等）
 - 定时任务（过期订单清理、补偿查询等）
 - 系统间状态同步
+
+---
+
+## Persona 别名表
+
+用户故事与索引中出现的下述 persona 是基础角色在特定能力语境下的别名，不是独立角色、没有独立权限集；权限判定一律按其基础角色执行。
+
+| Persona | 基础角色 | 语境 |
+|---------|----------|------|
+| TOTP User | Regular User / Realm Admin | 启用 TOTP 二次认证的用户（auth/totp.md） |
+| Passkey User | Regular User / Realm Admin | 注册 Passkey 的用户（auth/passkey.md） |
+| Points Admin | Realm Admin | 行使积分策略管理职责（billing/points-admin.md） |
+| Points User | Regular User | 行使积分查询/消费职责（billing/points-user.md） |
+| Free User | Regular User | 仅享受免费积分策略的用户（billing/points-free-user.md） |
+| Billing User | Regular User | 持有订阅/账单的用户（billing/subscription.md） |
+| SaaS 自助注册访客 | （未认证访客） | 自助开通流程中的注册者（core/realm-create.md） |
+| 新 realm-admin | Realm Admin | 刚自助开通 Realm 的首任管理员（core/realm-create.md） |
+| 第三方应用开发者 | Third-Party App | 集成 Herald 的开发者视角（auth/openid-connect.md、auth/google-one-tap.md） |
 
 ---
 
@@ -272,7 +290,7 @@ manage > create, view
 
 ```
 Admin Realm 管理员 (realm-admin 角色 + realm.manage in admin realm)
-    ├── 平台级权限（创建、更新、删除 Realm via realm.manage）
+    ├── 平台级权限（创建、更新 Realm via realm.manage；删除不受支持）
     ├── Admin Realm 内部权限（具体 resource.action 检查）
     └── ❌ 不能访问其他 Realm 内部资源
 

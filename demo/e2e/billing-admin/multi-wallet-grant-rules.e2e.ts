@@ -2,7 +2,7 @@
  * Multi-wallet purchase distribution Demo.
  *
  * Draft user story: US-MWGR-003
- * Source: .ai/user-stories/billing/multi-wallet-grant-rules.md
+ * Source: docs/user-stories/billing/multi-wallet-grant-rules.md
  */
 
 import { expect } from '@playwright/test'

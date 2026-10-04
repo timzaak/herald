@@ -1,4 +1,6 @@
 import type { WalletByBucketResponse } from '@/lib/api-generated'
+import { formatDate } from '@/lib/date-utils'
+import { m } from '@/paraglide/messages'
 
 /**
  * Derived bucket card for the user points view.
@@ -29,6 +31,12 @@ export interface DerivedBucketCard {
    * `null`/`undefined` for window-only buckets. Pass-through.
    */
   spendableFromPool: WalletByBucketResponse['spendableFromPool']
+  /**
+   * Earliest expiry across this bucket's available pool rows
+   * (`MIN(expires_at)` over the availability predicate, points.md §4.1).
+   * `null`/`undefined` = permanent-only pool (长期有效). Pass-through.
+   */
+  expiresAt: WalletByBucketResponse['expiresAt']
 }
 
 export interface DerivedUserPointsView {
@@ -74,6 +82,7 @@ export function deriveUserPointsView(
       quotaWindows: item.quotaWindows,
       spendableFromQuota: item.spendableFromQuota,
       spendableFromPool: item.spendableFromPool,
+      expiresAt: item.expiresAt ?? null,
     }))
 
   const crossBucketTotal = cards.reduce((sum, card) => sum + card.bucketTotal, 0)
@@ -83,4 +92,15 @@ export function deriveUserPointsView(
     cards,
     crossBucketTotal,
   }
+}
+
+/**
+ * Display rule for the earliest pool expiry (points.md §4.1), shared by the
+ * user-side balance card and the admin wallets row: the formatted
+ * `MIN(expires_at)` date, or the 长期有效 label for permanent-only pools.
+ */
+export function formatPoolExpiry(expiresAt: WalletByBucketResponse['expiresAt']): string {
+  return expiresAt
+    ? m['points.expires_at_label']({ date: formatDate(expiresAt) })
+    : m['points.expires_at_never']()
 }

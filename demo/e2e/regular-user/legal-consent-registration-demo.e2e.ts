@@ -1,8 +1,7 @@
 /**
  * Legal Consent Registration Demo Tests
  *
- * User Story: .ai/user-stories/core/legal-consent-account-deletion.md [US-RU-011]
- * Design Doc: .ai/design/legal-consent-account-deletion.md §4.4.1, §6.2
+ * User Story: docs/user-stories/core/legal-consent-account-deletion.md [US-RU-011]
  *
  * Scenarios:
  * - US-RU-011 Scenario 1: Registration succeeds with the consent checkbox checked
@@ -10,7 +9,6 @@
  * - US-RU-011 Scenario 2: Registration is blocked when the consent checkbox is
  *   not checked.
  *
- * Compliance: spec/demo/e2e-testing.md
  * - All operations go through the UI (no direct API calls).
  * - Environment configuration is managed by Demo Seed.
  * - Tests focus on user interaction verification.

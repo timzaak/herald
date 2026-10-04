@@ -71,7 +71,7 @@
 - **租户边界**：所有工具仅能访问凭证所属租户的数据；查询目标不在凭证所属租户时表现为资源不存在，不返回任何数据
 - **校验顺序**：鉴权、权限、取数三道校验按序执行——先鉴权、再权限、后取数
 - **积分余额作用域**：绑定普通 Client App 的 API Key 只汇总该 App 覆盖的积分账户；绑定内置 `admin-api-client` 或历史无绑定 Key 时返回 Realm 范围余额，与 ext API 口径一致
-- **MCP 专用限流**：每个 API Key 每 60 秒最多 60 个 MCP 请求，超限返回 429；该限制独立于具体工具的业务权限检查
+- **MCP 专用限流**：每个 API Key 的 MCP 请求量受独立的固定窗口限流约束，超限返回 429；限流与具体工具的业务权限检查互相独立（阈值等实现细节由技术设计与部署配置承载，不入 PRD）
 - **时间筛选格式**：积分交易与审计工具统一接受 RFC 3339 时间戳，或按 UTC 零点解释的 `YYYY-MM-DD`
 - **数据最小化**：工具返回字段以回答业务问题所需为限，不透出多余字段，降低查询结果被 agent 带出至第三方模型的数据面
 - **错误语义**：业务错误（权限不足、未找到、参数错误）以工具级、agent 可读的错误返回；不向 agent 暴露内部错误细节
@@ -115,10 +115,10 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-mcp-server-001` | Applied | mcp.tool-boundary | 首发只读工具集（五项查询能力），每个工具映射既有 `resource.action` 权限；写操作在验证期通过后按逐工具安全评审加入 | §2.1、§2.2、§4.1、§5 | `.ai/decision-log/mcp-server.md` |
-| `DEC-mcp-server-002` | Applied | mcp.auth-model | MCP 端点复用 Client API Key 鉴权 + 既有 RBAC/租户隔离；不实现 OAuth 2.1 授权流，OAuth 列为演进路径 | §2.2、§4.1、§6 | `.ai/decision-log/mcp-server.md` |
-| `Q-mcp-server-001`（Resolved） | Applied | mcp.auth-spec-compliance | MCP 授权规范明确授权为可选能力，仅 API Key 方案合规 | §6 | `.ai/decision-log/mcp-server.md` |
-| `Q-mcp-server-002`（Deferred） | Not Applicable | mcp.customer-facing-auth | MCP Auth 等价物属另一产品方向（依赖 OIDC Park 重开），不影响本 PRD 范围 | §2.2 | `.ai/decision-log/mcp-server.md` |
+| `DEC-mcp-server-001` | Applied | mcp.tool-boundary | 首发只读工具集（五项查询能力），每个工具映射既有 `resource.action` 权限；写操作在验证期通过后按逐工具安全评审加入 | §2.1、§2.2、§4.1、§5 | `docs/decisions/mcp-server.md` |
+| `DEC-mcp-server-002` | Applied | mcp.auth-model | MCP 端点复用 Client API Key 鉴权 + 既有 RBAC/租户隔离；不实现 OAuth 2.1 授权流，OAuth 列为演进路径 | §2.2、§4.1、§6 | `docs/decisions/mcp-server.md` |
+| `Q-mcp-server-001`（Resolved） | Applied | mcp.auth-spec-compliance | MCP 授权规范明确授权为可选能力，仅 API Key 方案合规 | §6 | `docs/decisions/mcp-server.md` |
+| `Q-mcp-server-002`（Deferred） | Not Applicable | mcp.customer-facing-auth | MCP Auth 等价物属另一产品方向（依赖 OIDC Park 重开），不影响本 PRD 范围 | §2.2 | `docs/decisions/mcp-server.md` |
 
 > 这里只记录带稳定 DEC ID 的已确认结论。用户决策必须在写入前解决。
 
@@ -126,7 +126,7 @@
 
 ## 8. 参考资料
 
-- 决策账本：`.ai/decision-log/mcp-server.md`
+- 决策账本：`docs/decisions/mcp-server.md`
 - 技术预研：`.ai/tech-research/mcp-server.md`
 - 技术设计：`.ai/design/mcp-server.md`
 - 官方 MCP 集成指南：https://www.fornetcode.com/en/docs/integration/mcp （中文：https://www.fornetcode.com/zh/docs/integration/mcp ）

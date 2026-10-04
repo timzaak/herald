@@ -20,7 +20,7 @@
 // amountRefunded / amountRemaining / creditNotes fields; the underlying
 // invoice refund totals are written by the handler.
 //
-// User Story: docs/user-stories/billing/invoice-fallback.md, .ai/user-stories/billing/notes.md
+// User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
 // Covers: US-IF-007 scenarios 1-6, US-IF-008 scenario 1, US-IF-011 scenarios 1-3
 //
 // =============================================================================
@@ -764,7 +764,7 @@ mod tests {
     // =========================================================================
     // Test: credit_note.voided Reverses Invoice Refund Totals (US-IF-011 scenario 1)
     // =========================================================================
-    // User Story: .ai/user-stories/billing/notes.md
+    // User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
     // Covers: US-IF-011 scenario 1 -- voiding MUST restore remaining payable
     //
     // Given: A Stripe paid invoice (total = 10000) with an active Credit Note
@@ -878,7 +878,7 @@ mod tests {
     // =========================================================================
     // Test: credit_note.voided Is Idempotent (US-IF-011 scenario 2)
     // =========================================================================
-    // User Story: .ai/user-stories/billing/notes.md
+    // User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
     // Covers: US-IF-011 scenario 2 -- duplicate voided events must not double-roll-back
     //
     // Given: A Stripe paid invoice with an active Credit Note already voided once
@@ -1002,7 +1002,7 @@ mod tests {
     // Test: credit_note.voided Missing Local Credit Note -> 5xx for Redelivery
     //       (US-IF-011 scenario 3)
     // =========================================================================
-    // User Story: .ai/user-stories/billing/notes.md
+    // User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
     // Covers: US-IF-011 scenario 3 -- out-of-order (create arrives late) must
     //         error so Stripe redelivers the voided event rather than silently
     //         dropping the credit note.

@@ -31,7 +31,6 @@
  * IMPORTANT: Data Creation Strategy
  * ==================================
  * This test uses Demo seed data (realm-001 with pre-configured one-time entitlement mappings).
- * Per spec/demo/e2e-testing.md Section 8:
  * - Demo Seed creates: realm-001, admin@realm-001.com, user@realm-001.com
  * - Demo Seed creates: One-time entitlement mappings with Stripe payment providers
  * - Test only validates USER-SIDE operations, no admin data creation
@@ -68,7 +67,7 @@ test.describe("[Unified Purchase] Comprehensive Scenarios", () => {
     // P0 Scenarios: Critical Happy Paths
     // ============================================================================
     // Note: Using Demo Seed data (realm-001 with pre-configured one-time entitlement mappings)
-    // Per spec/demo/e2e-testing.md Section 8: No admin data creation in tests
+    // Rule: No admin data creation in tests (live demos use seeded demo data)
 
     let stripeAttemptId: string;
 

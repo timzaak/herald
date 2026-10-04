@@ -6,7 +6,6 @@
  *
  * Note: For advanced usage with Page Objects, see demo-page.fixtures.ts
  *
- * @see ../../../spec/demo/e2e-testing.md#fixtures-pattern
  * @see https://playwright.dev/docs/test-fixtures
  * @see demo-page.fixtures.ts - Page Object fixtures (recommended)
  */

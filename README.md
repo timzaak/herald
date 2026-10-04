@@ -27,9 +27,9 @@ Herald is more than an auth provider. It connects identity to payments, entitlem
 
 | Area | Included capabilities |
 |------|-----------------------|
-| **Multi-tenant identity** | Isolated Realms, email/password, Google, GitHub, Apple, Facebook and WeChat login, passkeys, TOTP 2FA, bot protection |
+| **Multi-tenant identity** | Isolated Realms, email/password plus one-time-code login, Google, GitHub, Apple, Facebook, WeChat, Discord and LDAP login, passkeys, TOTP 2FA, an OpenID Connect identity layer, bot protection |
 | **Authorization & apps** | Realm-level RBAC, Client Apps, API keys, OAuth 2.0, device authorization, cross-app SSO |
-| **Billing & payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, invoices, payment-to-entitlement mapping — an instant paywall |
+| **Billing & payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, multi-currency pricing, invoices, payment-to-entitlement mapping, payment and credit-consumption statistics — an instant paywall |
 | **Credits & usage** | Prepaid balances, top-ups, refunds, expiry, per-user ledgers, grants, and rolling quota windows |
 | **Admin & operations** | Users, roles, billing, credits, apps, tenant settings, audit trails, and account lifecycle management |
 | **Product customization** | Custom domains, white-label branding, transactional email, versioned legal agreements, API docs and SDKs |

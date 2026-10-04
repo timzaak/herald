@@ -130,11 +130,11 @@
 
 ## 7. 已确认决策
 
-> 以下决策来自决策账本 `.ai/decision-log/multiple-currency.md`。仅记录带稳定 DEC ID 的已确认结论。
+> 以下决策来自决策账本 `docs/decisions/multiple-currency.md`。仅记录带稳定 DEC ID 的已确认结论。
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-multiple_currency-001` | Applied | 范围路线 | 新增「按货币选择/本地化体验」功能，构建于现有多 Price 目录；非「仅确认现状」、非「改走 currency_options」 | §2.1 | `.ai/decision-log/multiple-currency.md` |
+| `DEC-multiple_currency-001` | Applied | 范围路线 | 新增「按货币选择/本地化体验」功能，构建于现有多 Price 目录；非「仅确认现状」、非「改走 currency_options」 | §2.1 | `docs/decisions/multiple-currency.md` |
 | `DEC-multiple_currency-002` | Applied | 目录模型 | 货币选择层基于现有「一映射行对应一个 provider Price」模型，不改同步、不读 `currency_options` | §2.2、§4.1、§6 | 同上 |
 | `DEC-multiple_currency-003` | Applied | 渠道覆盖 | 仅 Stripe 多 Price 纳入货币解析；Creem/IAP 等 provider 侧定价渠道保持渠道侧定价，降级为单一价格展示 | §2.1、§2.2、§4.1、§6 | 同上 |
 | `DEC-multiple_currency-005` | Applied | 解析键 | 解析键 = (产品/权益 + 计费维度 + 货币)；货币为过滤维度，非唯一键；同货币多计费周期并存时由用户在货币内选周期 | §4.1、§6 | 同上 |
@@ -153,5 +153,5 @@
 - 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费/多价格目录基线）
 - 相关 PRD：`docs/prd/billing/stripe-payment.md`（Stripe 集成）
 - 相关 PRD：`docs/prd/billing/credit-bucket.md`（积分账户与履约路由）
-- 决策账本：`.ai/decision-log/multiple-currency.md`
+- 决策账本：`docs/decisions/multiple-currency.md`
 - 角色定义：`docs/user-stories/_roles.md`

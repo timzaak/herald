@@ -13,9 +13,9 @@
 | 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OpenID Connect](auth/openid-connect.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
-| 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md) |
+| 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md)、[计费统计](billing/billing-statistics.md) |
 | 积分与余额 | 策略配置 → 免费/付费发放 → 分账户持有和消费 → 查询历史 | [积分管理](billing/points-admin.md)、[免费积分](billing/points-free-user.md)、[积分包购买](billing/points-package-purchase.md)、[用户积分](billing/points-user.md)、[异步支付积分](billing/async-payment-points.md)、[积分账户](billing/credit-bucket.md)、[多钱包分发规则](billing/multi-wallet-grant-rules.md) |
-| 发票与退款凭证 | 支付归属 → 发票同步/开具 → 退款和 Credit Note | [发票与 Provider Fallback](billing/invoice.md)、[支付-发票归属](billing/payment-invoice-mapping.md) |
+| 发票与退款凭证 | 支付归属 → 发票同步/开具 → 退款和 Credit Note | [发票与 Provider Fallback](billing/invoice.md)、[支付-发票归属](billing/payment-invoice-mapping.md)、[退款回收](billing/refund-clawback.md) |
 
 ### 故事边界
 
@@ -83,7 +83,7 @@
 | US-WO-002 | WeChat Mini Program Provider 配置 | Realm Admin | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-2wechat-mini-program-provider-配置-us-wo-002) |
 | US-WO-003 | 微信网站应用登录 | Regular User | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-3微信网站应用登录-us-wo-003) |
 | US-WO-004 | 微信小程序登录 | Regular User | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-4微信小程序登录-us-wo-004) |
-| US-TP-001 | OAuth 授权码登录 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-1oauth-授权码登录authorization-code-pkce-us-tp-001) |
+| US-TP-001 | OAuth 授权码登录（Authorization Code + PKCE） | Third-Party App | P0 | [auth/third-party-app.md](auth/third-party-app.md#故事-1oauth-授权码登录authorization-code--pkce-us-tp-001) |
 | US-TP-002 | 验证用户登录状态 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-2验证用户登录状态-us-tp-002) |
 | US-TP-003 | 检查用户权限 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-3检查用户权限-us-tp-003) |
 | US-TP-004 | 获取用户信息 | Third-Party App | P0 | [auth/third-party-app](auth/third-party-app.md#故事-4获取用户信息-us-tp-004) |
@@ -93,7 +93,7 @@
 | US-TP-008 | 配置 Client App 跳转地址白名单 | Third-Party App | P0 | [auth/client-app-settings](auth/client-app-settings.md#故事-1配置-client-app-跳转地址白名单-us-tp-008) |
 | US-TP-009 | 管理 Client App 图标 | Third-Party App | P0 | [auth/client-app-settings](auth/client-app-settings.md#故事-2管理-client-app-图标-us-tp-009) |
 | US-TP-010 | 启用/禁用 Client App | Third-Party App | P0 | [auth/client-app-settings](auth/client-app-settings.md#故事-3启用禁用-client-app-us-tp-010) |
-| US-TP-011 | 配置 Session 有效期策略 | Third-Party App | P0 | [auth/client-app-settings](auth/client-app-settings.md#故事-4配置-session-有效期策略-us-tp-011) |
+| US-TP-011 | 配置浏览器 token 生命周期策略 | Third-Party App | P0 | [auth/client-app-settings.md](auth/client-app-settings.md#故事-4配置浏览器-token-生命周期策略-us-tp-011) |
 | US-TO-001 | Realm 管理员启用/禁用 TOTP 功能 | TOTP User | P0 | [auth/totp](auth/totp.md#故事-1realm-管理员启用禁用-totp-功能-us-to-001) |
 | US-TO-002 | 用户启用 TOTP 二次认证 | TOTP User | P0 | [auth/totp](auth/totp.md#故事-2用户启用-totp-二次认证-us-to-002) |
 | US-TO-003 | 用户使用 TOTP 登录 | TOTP User | P0 | [auth/totp](auth/totp.md#故事-3用户使用-totp-登录-us-to-003) |
@@ -128,17 +128,18 @@
 | US-SD-001 | Discord OAuth Provider 配置 | Realm Admin | P1 | [auth/support-discord](auth/support-discord.md#故事-1discord-oauth-provider-配置-us-sd-001) |
 | US-SD-002 | 使用 Discord 账号登录 | Regular User | P1 | [auth/support-discord](auth/support-discord.md#故事-2使用-discord-账号登录-us-sd-002) |
 | US-BI-006 | 查看订阅列表 | Billing User | P0 | [billing/subscription](billing/subscription.md#故事-6查看订阅列表-us-bi-006) |
-| US-BI-007 | 第三方应用查询套餐状态（SDK 集成） | Billing User | P0 | [billing/subscription](billing/subscription.md#故事-7第三方应用查询套餐状态sdk-集成-us-bi-007) |
+| US-BI-007 | 第三方应用查询订阅状态（SDK 集成） | Billing User | P0 | [billing/subscription.md](billing/subscription.md#故事-7第三方应用查询订阅状态sdk-集成-us-bi-007) |
 | US-BI-008 | 查看订阅变更历史 | Billing User | P1 | [billing/subscription](billing/subscription.md#故事-8查看订阅变更历史-us-bi-008) |
 | US-BI-009 | 查看自己的订阅变更历史 | Billing User | P1 | [billing/subscription](billing/subscription.md#故事-9查看自己的订阅变更历史-us-bi-009) |
-| US-PO-001 | 配置积分套餐 | Points Admin | P0 | [billing/points-admin](billing/points-admin.md#故事-1配置积分套餐-us-po-001) |
+| US-PO-001 | 配置 Entitlement 积分策略 | Points Admin | P0 | [billing/points-admin.md](billing/points-admin.md#故事-1配置-entitlement-积分策略-us-po-001) |
 | US-PO-002 | 查看所有用户积分账户 | Points Admin | P1 | [billing/points-admin](billing/points-admin.md#故事-2查看所有用户积分账户-us-po-002) |
 | US-PO-003 | 查看用户积分交易历史 | Points Admin | P1 | [billing/points-admin](billing/points-admin.md#故事-3查看用户积分交易历史-us-po-003) |
-| US-PO-004 | 管理积分套餐配置 | Points Admin | P2 | [billing/points-admin](billing/points-admin.md#故事-4管理积分套餐配置-us-po-004) |
-| US-PO-005 | 查看套餐充值引导 | Points Admin | P2 | [billing/points-admin](billing/points-admin.md#故事-5查看套餐充值引导-us-po-005) |
+| US-PO-004 | 管理 Entitlement 积分策略 | Points Admin | P2 | [billing/points-admin.md](billing/points-admin.md#故事-4管理-entitlement-积分策略-us-po-004) |
+| US-PO-005 | 查看 Entitlement 充值引导 | Points Admin | P2 | [billing/points-admin.md](billing/points-admin.md#故事-5查看-entitlement-充值引导-us-po-005) |
 | US-PO-006 | 配置 Realm 默认积分策略 | Points Admin | P0 | [billing/points-admin](billing/points-admin.md#故事-6配置-realm-默认积分策略-us-po-006) |
 | US-PO-007 | 查看免费用户积分统计 | Points Admin | P1 | [billing/points-admin](billing/points-admin.md#故事-7查看免费用户积分统计-us-po-007) |
 | US-PO-008 | 主动发放积分 | Points Admin | P0 | [billing/points-admin](billing/points-admin.md#故事-8主动发放积分-us-po-008) |
+| US-PO-009 | 配置多时间窗滚动配额 | Realm Admin | P0 | [billing/points-admin.md](billing/points-admin.md#故事-9配置多时间窗滚动配额-us-po-009) |
 | US-PU-001 | 查看我的积分余额 | Points User | P0 | [billing/points-user](billing/points-user.md#故事-1查看我的积分余额-us-pu-001) |
 | US-PU-002 | 查看我的交易历史 | Points User | P1 | [billing/points-user](billing/points-user.md#故事-2查看我的交易历史-us-pu-002) |
 | US-PU-003 | 筛选交易记录 | Points User | P2 | [billing/points-user](billing/points-user.md#故事-3筛选交易记录-us-pu-003) |
@@ -148,19 +149,28 @@
 | US-FU-002 | 定期自动获得免费积分 | Free User | P0 | [billing/points-free-user](billing/points-free-user.md#故事-2定期自动获得免费积分-us-fu-002) |
 | US-FU-003 | 升级到付费套餐时保留注册初始积分 | Free User | P1 | [billing/points-free-user](billing/points-free-user.md#故事-3升级到付费套餐时保留注册初始积分-us-fu-003) |
 | US-FU-004 | 按时获得每期免费积分（不受分发延迟影响） | Free User | P0 | [billing/points-free-user](billing/points-free-user.md#故事-4按时获得每期免费积分不受分发延迟影响-us-fu-004) |
+| US-FU-005 | 免费周期积分改为滚动窗口配额 | Regular User | P0 | [billing/points-free-user.md](billing/points-free-user.md#故事-5免费周期积分改为滚动窗口配额-us-fu-005) |
 | US-PV-001 | 配置支付平台（Creem/Stripe） | Realm Admin | P0 | [billing/payment-provider](billing/payment-provider.md#故事-1配置支付平台-us-pv-001) |
 | US-PV-002 | 查看支付平台配置 | Realm Admin | P0 | [billing/payment-provider](billing/payment-provider.md#故事-2查看支付平台配置-us-pv-002) |
 | US-PV-003 | 编辑支付平台配置 | Realm Admin | P1 | [billing/payment-provider](billing/payment-provider.md#故事-3编辑支付平台配置-us-pv-003) |
 | US-PV-004 | 删除支付平台配置 | Realm Admin | P1 | [billing/payment-provider](billing/payment-provider.md#故事-4删除支付平台配置-us-pv-004) |
 | US-PV-005 | 查看支付平台使用统计 | Realm Admin | P2 | [billing/payment-provider](billing/payment-provider.md#故事-5查看支付平台使用统计-us-pv-005) |
+| US-BS-001 | 查看支付统计总览 | Realm Admin | P1 | [billing/billing-statistics.md](billing/billing-statistics.md#故事-1查看支付统计总览-us-bs-001) |
+| US-BS-002 | 查看积分消耗统计 | Realm Admin | P1 | [billing/billing-statistics.md](billing/billing-statistics.md#故事-2查看积分消耗统计-us-bs-002) |
 | US-PU-006 | 购买积分包 | Regular User | P0 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-1购买积分包-us-pu-006) |
 | US-PU-007 | 查看积分包购买记录 | Regular User | P1 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-2查看积分包购买记录-us-pu-007) |
 | US-PU-008 | 积分包与订阅购买的区别 | Regular User | P1 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-3理解积分包与订阅购买的区别-us-pu-008) |
 | US-PU-009 | 按时使用本期积分（不受分发延迟影响） | Regular User | P0 | [billing/points-user](billing/points-user.md#故事-4按时使用本期积分不受分发延迟影响-us-pu-009) |
+| US-PU-010 | 滚动窗口额度与充值余额的可用性体验 | Regular User | P0 | [billing/points-user.md](billing/points-user.md#故事-5滚动窗口额度与充值余额的可用性体验-us-pu-010) |
 | US-PA-001 | 创建支付尝试（订阅或积分包） | System | P0 | [billing/payment-attempt](billing/payment-attempt.md#故事-1创建支付尝试订阅或积分包-us-pa-001) |
 | US-PA-002 | 查询支付尝试状态 | System | P0 | [billing/payment-attempt](billing/payment-attempt.md#故事-2查询支付尝试状态-us-pa-002) |
 | US-PA-003 | 处理支付成功后的履约 | System | P0 | [billing/payment-attempt](billing/payment-attempt.md#故事-3处理支付成功后的履约-us-pa-003) |
 | US-PA-004 | 关闭过期的支付尝试 | System | P1 | [billing/payment-attempt](billing/payment-attempt.md#故事-4关闭过期的支付尝试-us-pa-004) |
+| US-PA-005 | 用户自助取消支付尝试 | Regular User | P1 | [billing/payment-attempt.md](billing/payment-attempt.md#故事-5用户自助取消支付尝试-us-pa-005) |
+| US-AP-001 | 配置异步支付积分发放策略 | Realm Admin | P0 | [billing/async-payment-points.md](billing/async-payment-points.md#故事-1配置异步支付积分发放策略-us-ap-001) |
+| US-AP-002 | 积极策略下异步支付立即发放积分 | Herald 系统 | P0 | [billing/async-payment-points.md](billing/async-payment-points.md#故事-2积极策略下异步支付立即发放积分-us-ap-002) |
+| US-AP-003 | 异步支付失败后回收积分 | Herald 系统 | P0 | [billing/async-payment-points.md](billing/async-payment-points.md#故事-3异步支付失败后回收积分-us-ap-003) |
+| US-AP-004 | 回收时余额不足的处理 | Herald 系统 | P1 | [billing/async-payment-points.md](billing/async-payment-points.md#故事-4回收时余额不足的处理-us-ap-004) |
 | US-IV-001 | 创建发票 | Realm Admin | P0 | [billing/invoice](billing/invoice.md#故事-1创建发票-us-iv-001) |
 | US-IV-002 | 编辑发票草稿 | Realm Admin | P0 | [billing/invoice](billing/invoice.md#故事-2编辑发票草稿-us-iv-002) |
 | US-IV-003 | 查看发票列表 | Realm Admin | P0 | [billing/invoice](billing/invoice.md#故事-3查看发票列表-us-iv-003) |
@@ -179,28 +189,40 @@
 | US-IF-004 | 查看外部 Provider 发票（管理员） | Realm Admin | P0 | [billing/invoice-fallback](billing/invoice-fallback.md#故事-4查看外部-provider-发票管理员-us-if-004) |
 | US-IF-005 | 查看外部 Provider 发票（普通用户） | Regular User | P1 | [billing/invoice-fallback](billing/invoice-fallback.md#故事-5查看外部-provider-发票普通用户-us-if-005) |
 | US-IF-006 | 下载外部发票 PDF 或查看 Provider 页面 | Realm Admin / Regular User | P1 | [billing/invoice-fallback](billing/invoice-fallback.md#故事-6下载外部发票-pdf-或查看-provider-页面-us-if-006) |
+| US-IF-007 | 系统同步 Stripe Credit Note | Herald 系统 | P0 | [billing/invoice-fallback.md](billing/invoice-fallback.md#故事-7系统同步-stripe-credit-note-us-if-007) |
+| US-IF-008 | 管理员查看发票退款信息与 Credit Note 列表 | Realm Admin | P0 | [billing/invoice-fallback.md](billing/invoice-fallback.md#故事-8管理员查看发票退款信息与-credit-note-列表-us-if-008) |
+| US-IF-009 | 普通用户查看退款标注 | Regular User | P1 | [billing/invoice-fallback.md](billing/invoice-fallback.md#故事-9普通用户查看退款标注-us-if-009) |
+| US-IF-010 | 管理员记录自研发票的线下退款 | Realm Admin | P0 | [billing/invoice-fallback.md](billing/invoice-fallback.md#故事-10管理员记录自研发票的线下退款-us-if-010) |
+| US-IF-011 | 系统处理 Stripe Credit Note 作废 | Herald 系统 | P0 | [billing/invoice-fallback.md](billing/invoice-fallback.md#故事-11系统处理-stripe-credit-note-作废-us-if-011) |
 | US-EM-001 | 查看 Provider Entitlement 映射 | Realm Admin | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-1查看-provider-entitlement-映射-us-em-001) |
 | US-EM-002 | 触发 Provider 产品同步 | Realm Admin | P1 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-2触发-provider-产品同步-us-em-002) |
 | US-EM-003 | Webhook 通过 Metadata 映射订阅 | System | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-3webhook-通过-metadata-映射订阅-us-em-003) |
 | US-EM-004 | 基于 Entitlement 应用积分策略 | System | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-4基于-entitlement-应用积分策略-us-em-004) |
 | US-EM-005 | SDK 通过 Entitlement 查询订阅状态 | Third-Party App | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-5sdk-通过-entitlement-查询订阅状态-us-em-005) |
 | US-EM-006 | 查看订阅投影列表 | Realm Admin | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-6查看订阅投影列表-us-em-006) |
+| US-EM-007 | 同步并配置一个产品的多个价格 | Realm Admin | P0 | [billing/entitlement-mapping.md](billing/entitlement-mapping.md#故事-7同步并配置一个产品的多个价格-us-em-007) |
+| US-EM-008 | Webhook 在一产品多价格时正确解析订阅归属 | System | P0 | [billing/entitlement-mapping.md](billing/entitlement-mapping.md#故事-8webhook-在一产品多价格时正确解析订阅归属-us-em-008) |
+| US-EM-009 | 用户购买多价格产品的指定价格 | Regular User | P0 | [billing/entitlement-mapping.md](billing/entitlement-mapping.md#故事-9用户购买多价格产品的指定价格-us-em-009) |
 | US-BL-SYNC-001 | 同步携带 Stripe 商户自定义 metadata 并可查看 | Admin Realm | P1 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-10同步时携带-stripe-商户自定义-metadata并在管理端可见-us-bl-sync-001) |
 | US-BL-SYNC-002 | 列表展示产品名便于识别 | Admin Realm | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-11在-mapping-列表里看到产品名便于识别-us-bl-sync-002) |
 | US-BL-SYNC-003 | Stripe/Creem 价格单位正确展示 | Admin Realm | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-12产品价格按-provider-单位正确展示不混淆-stripe-与-creem-us-bl-sync-003) |
 | US-BL-SYNC-004 | 计费周期以 Stripe 为准、只读且不被人工覆盖 | Admin Realm | P0 | [billing/entitlement-mapping](billing/entitlement-mapping.md#故事-13计费周期以-stripe-为准只读且不被人工覆盖-us-bl-sync-004) |
 | US-CB-001 | 管理积分账户目录 | Realm Admin | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-1管理积分账户目录-us-cb-001) |
 | US-CB-002 | 为积分账户绑定 Client App 覆盖集 | Realm Admin | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-2为积分账户绑定-client-app-覆盖集-us-cb-002) |
-| US-CB-003 | 将套餐/积分包归属到积分账户 | Realm Admin | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-3将套餐积分包归属到积分账户-us-cb-003) |
+| US-CB-003 | 为套餐/积分包配置积分分发规则 | Realm Admin | P0 | [billing/credit-bucket.md](billing/credit-bucket.md#故事-3为套餐积分包配置积分分发规则-us-cb-003) |
 | US-CB-004 | 购买积分账户套餐/积分包 | Regular User | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-4购买积分账户套餐积分包-us-cb-004) |
 | US-CB-005 | 查看按账户分组的积分余额 | Regular User | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-5查看按账户分组的积分余额-us-cb-005) |
 | US-CB-006 | 查看积分账户维度的交易历史 | Regular User | P1 | [billing/credit-bucket](billing/credit-bucket.md#故事-6查看积分账户维度的交易历史-us-cb-006) |
 | US-CB-007 | SDK 按 Client App 跨积分账户消费 | Third-Party App | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-7sdk-按-client-app-跨积分账户消费-us-cb-007) |
-| US-CB-008 | 订阅生命周期按账户池发放与回收 | System | P0 | [billing/credit-bucket](billing/credit-bucket.md#故事-8订阅生命周期按账户池发放与回收-us-cb-008) |
+| US-CB-008 | 订阅生命周期按规则路由发放与回收 | System | P0 | [billing/credit-bucket.md](billing/credit-bucket.md#故事-8订阅生命周期按规则路由发放与回收-us-cb-008) |
 | US-MWGR-001 | 为一个购买配置多条积分分发规则 | Realm Admin | P0 | [billing/multi-wallet-grant-rules](billing/multi-wallet-grant-rules.md#故事-1为一个购买配置多条积分分发规则-us-mwgr-001) |
 | US-MWGR-002 | 为注册配置多条积分分发规则 | Realm Admin | P0 | [billing/multi-wallet-grant-rules](billing/multi-wallet-grant-rules.md#故事-2为注册配置多条积分分发规则-us-mwgr-002) |
 | US-MWGR-003 | 一次业务事件完整执行多条积分规则 | System | P0 | [billing/multi-wallet-grant-rules](billing/multi-wallet-grant-rules.md#故事-3一次业务事件完整执行多条积分规则-us-mwgr-003) |
 | US-MWGR-004 | 查看和停用积分分发规则 | Realm Admin | P1 | [billing/multi-wallet-grant-rules](billing/multi-wallet-grant-rules.md#故事-4查看和停用积分分发规则-us-mwgr-004) |
+| US-RC-001 | 多次部分退款按每笔增量回收积分 | Regular User | P0 | [billing/refund-clawback.md](billing/refund-clawback.md#故事-1多次部分退款按每笔增量回收积分-us-rc-001) |
+| US-RC-002 | 部分退款保留一次性购买角色 | Regular User | P1 | [billing/refund-clawback.md](billing/refund-clawback.md#故事-2部分退款保留一次性购买角色-us-rc-002) |
+| US-WC-001 | 定时检测并补偿缺失的 Webhook 事件 | Herald 系统 | P0 | [billing/webhook-compensation.md](billing/webhook-compensation.md#故事-1定时检测并补偿缺失的-webhook-事件-us-wc-001) |
+| US-WC-002 | 补偿处理保持幂等性 | Herald 系统 | P0 | [billing/webhook-compensation.md](billing/webhook-compensation.md#故事-2补偿处理保持幂等性-us-wc-002) |
 | US-PM-001 | 订阅续费记录每一次支付 | System | P0 | [billing/payment-invoice-mapping](billing/payment-invoice-mapping.md#故事-1订阅续费记录每一次支付-us-pm-001) |
 | US-PM-002 | Creem 订阅续费同步发票 | System | P0 | [billing/payment-invoice-mapping](billing/payment-invoice-mapping.md#故事-2creem-订阅续费同步发票-us-pm-002) |
 | US-PM-003 | 外部发票归属本地支付或订阅 | System | P1 | [billing/payment-invoice-mapping](billing/payment-invoice-mapping.md#故事-3外部发票归属本地支付或订阅-us-pm-003) |
@@ -316,6 +338,7 @@
 | TOTP User | [auth/totp.md](auth/totp.md) | [TOTP PRD](/docs/prd/auth/totp.md) |
 | Passkey User | [auth/passkey.md](auth/passkey.md) | [Passkey PRD](/docs/prd/auth/passkey.md) |
 | OAuth Extension | [auth/oauth-extension.md](auth/oauth-extension.md) | [OAuth PRD](/docs/prd/auth/oauth.md) |
+| 邮箱验证码登录 | [auth/email-otp-login.md](auth/email-otp-login.md) | [Email-OTP 登录 PRD](/docs/prd/auth/email-otp-login.md) |
 | Google One Tap | [auth/google-one-tap.md](auth/google-one-tap.md) | [Google One Tap PRD](/docs/prd/auth/google-one-tap.md) |
 | WeChat OAuth | [auth/wechat-oauth.md](auth/wechat-oauth.md) | [WeChat OAuth PRD](/docs/prd/auth/wechat-oauth.md) |
 | Apple Native Login | [auth/support-mobile-apple-login.md](auth/support-mobile-apple-login.md) | [Apple native 登录 PRD](/docs/prd/auth/support-mobile-apple-login.md) |
@@ -331,16 +354,23 @@
 | Points Admin | [billing/points-admin.md](billing/points-admin.md) | [Points PRD](/docs/prd/billing/points.md) |
 | Points User | [billing/points-user.md](billing/points-user.md), [billing/points-free-user.md](billing/points-free-user.md) | [Points PRD](/docs/prd/billing/points.md), [Subscription PRD](/docs/prd/billing/subscription.md) |
 | Points Package Purchase | [billing/points-package-purchase.md](billing/points-package-purchase.md) | [Subscription PRD](/docs/prd/billing/subscription.md) |
-| Payment Provider | [billing/payment-provider.md](billing/payment-provider.md) | [Subscription PRD](/docs/prd/billing/subscription.md) |
+| Payment Provider | [billing/payment-provider.md](billing/payment-provider.md) | [Subscription PRD](/docs/prd/billing/subscription.md), [Stripe Payment PRD](/docs/prd/billing/stripe-payment.md) |
 | Payment Attempt | [billing/payment-attempt.md](billing/payment-attempt.md) | [Subscription PRD](/docs/prd/billing/subscription.md) |
+| 异步支付积分 | [billing/async-payment-points.md](billing/async-payment-points.md) | [Points PRD](/docs/prd/billing/points.md) |
 | Invoice | [billing/invoice.md](billing/invoice.md) | [Invoice PRD](/docs/prd/billing/invoice.md) |
 | Invoice Fallback | [billing/invoice-fallback.md](billing/invoice-fallback.md) | [Invoice PRD](/docs/prd/billing/invoice.md) |
 | Payment Invoice Mapping | [billing/payment-invoice-mapping.md](billing/payment-invoice-mapping.md) | [Invoice PRD](/docs/prd/billing/invoice.md) |
+| 退款回收 | [billing/refund-clawback.md](billing/refund-clawback.md) | [Refund Clawback PRD](/docs/prd/billing/refund-clawback.md) |
 | Entitlement Mapping | [billing/entitlement-mapping.md](billing/entitlement-mapping.md) | [Subscription PRD](/docs/prd/billing/subscription.md) |
-| IAP | [billing/support-iap.md](billing/support-iap.md) | [IAP PRD](/docs/prd/billing/support-iap.md) |
+| Webhook 补偿 | [billing/webhook-compensation.md](billing/webhook-compensation.md) | [Subscription PRD](/docs/prd/billing/subscription.md) |
+| IAP | [billing/support-iap.md](billing/support-iap.md) | [IAP PRD](/docs/prd/billing/support-iap.md), [Google Pay/Apple Pay PRD](/docs/prd/billing/support-googlepay-applepay.md) |
 | WeChat Pay | [billing/wechat-support.md](billing/wechat-support.md) | [WeChat Pay PRD](/docs/prd/billing/wechat-support.md) |
 | 多货币 | [billing/multiple-currency.md](billing/multiple-currency.md) | [多货币 PRD](/docs/prd/billing/multiple-currency.md) |
-| 积分账户 | [billing/credit-bucket.md](billing/credit-bucket.md) | [Points PRD](/docs/prd/billing/points.md) |
+| 积分账户 | [billing/credit-bucket.md](billing/credit-bucket.md) | [Credit Bucket PRD](/docs/prd/billing/credit-bucket.md) |
+| 多钱包分发规则 | [billing/multi-wallet-grant-rules.md](billing/multi-wallet-grant-rules.md) | [Multi-Wallet Grant Rules PRD](/docs/prd/billing/multi-wallet-grant-rules.md) |
+| 买断与非续期订阅 | [billing/pay_model.md](billing/pay_model.md) | [Pay Model PRD](/docs/prd/billing/pay_model.md) |
+| Paywall | [billing/support-paywall.md](billing/support-paywall.md) | [Support Paywall PRD](/docs/prd/billing/support-paywall.md) |
+| 计费统计 | [billing/billing-statistics.md](billing/billing-statistics.md) | [计费统计 PRD](/docs/prd/billing/billing-statistics.md) |
 
 ### Integration 集成
 

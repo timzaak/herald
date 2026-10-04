@@ -13,8 +13,9 @@ backend/
 ├── domain/              # Domain layer — pure business logic, zero external dependencies
 ├── infra/               # Infrastructure layer — concrete implementations for DB, Redis, third-party APIs
 ├── infra-creem/         # Creem payment integration
+├── infra-iap/           # In-app purchase integration (Apple App Store / Google Play)
 ├── infra-stripe/        # Stripe payment integration
-├── infra-shopify/       # Shopify integration
+├── infra-wechatpay/     # WeChat Pay integration
 ├── core/                # Assembly layer — dependency injection, ApplicationService Builder
 ├── api/                 # Main API crate (Axum route registration, middleware, AppState)
 ├── api-base/            # Shared API utilities (AppState definition, common HTTP helpers)
@@ -22,16 +23,17 @@ backend/
 ├── api-admin/           # Admin panel handlers (user management, roles, permission definitions)
 ├── api-auth/            # Auth handlers (registration, login, password reset)
 ├── api-ext/             # External API handlers (API Key auth, for third-party consumption)
+├── api-mcp/             # MCP server endpoints (read-only agent queries over the ext surface)
 ├── api-oauth/           # OAuth handlers (GitHub/Google/WeChat login)
 ├── api-points/          # Points handlers (balance queries, consumption, top-up)
 ├── worker/              # Background jobs (points expiration, points pre-grant, invoice overdue marking)
 ├── app/                 # Entry point (main.rs, database migrations)
-├── sdk/                 # Rust SDK crate published for third-party use
 ├── test-db/             # Test database utilities (testcontainers)
 ├── test-support/        # Test helpers
 └── integration-tests/   # Integration tests
 
 frontend/                # React admin frontend
+sdk/                     # SDKs for third-party integrators (rust/, node/, web/)
 docker/                  # Dockerfile
 ```
 
@@ -115,7 +117,7 @@ Beyond database repositories:
 - `authorization/` — `RedisPermissionChecker`, permission caching
 - `billing/` — invoice PDF generation (IronPress), encryption key management
 
-Payment channel clients live in separate crates (`infra-creem`, `infra-stripe`, `infra-shopify`) rather than inside the main `infra` crate. The reason is to avoid pulling in provider SDKs you don't need — if you only use Stripe, the Shopify SDK won't get compiled.
+Payment channel clients live in separate crates (`infra-creem`, `infra-iap`, `infra-stripe`, `infra-wechatpay`) rather than inside the main `infra` crate. The reason is to avoid pulling in provider SDKs you don't need — if you only use Stripe, the WeChat Pay SDK won't get compiled.
 
 ### core — Assembly Layer
 
@@ -126,7 +128,7 @@ Two responsibilities:
 
 ### api crates — HTTP Interface
 
-Eight crates form the API layer:
+Nine crates form the API layer:
 
 | Crate | Responsibility | Auth Method |
 |-------|---------------|-------------|
@@ -137,6 +139,7 @@ Eight crates form the API layer:
 | `api-billing` | Credit account directory, entitlement mappings, subscription projection, payment webhooks (Stripe/Creem), invoices, one-time purchases | mixed |
 | `api-oauth` | OAuth login (GitHub/Google/WeChat), OAuth configuration management | mixed |
 | `api-ext` | Third-party API: permission checks, subscription queries, points balance and consumption, isolated by the API key's bound client app | API Key |
+| `api-mcp` | MCP server for AI agent clients: read-only queries (users, points balance/transactions, audit logs, realm config status) over the ext surface | API Key |
 | `api-points` | Points balance, transaction history, consumption, top-up | Bearer token or API Key |
 
 `api` crate's `create_api_routes()` is the single entry point for route registration. It nests sub-crate routes under unified prefixes and attaches the `inject_identity` middleware. Each sub-crate defines its own `ApiDoc` (utoipa OpenApi spec), which get merged into one complete OpenAPI document in `build_openapi_spec()`.

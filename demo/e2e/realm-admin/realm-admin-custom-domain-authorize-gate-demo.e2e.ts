@@ -1,9 +1,9 @@
 /**
  * Realm Admin 演示测试 - Custom-domain authorize (ask) 门禁（Caddy On-Demand TLS）
  *
- * 用户故事（DRAFT，发布前不得改写为 docs/user-stories/，路径保持原样）：
+ * 用户故事：
  * - [US-CD-005] 场景1（未注册自定义域名不提供 Realm 登录页 / 证书授权）
- *   DRAFT 来源（原样引用）：`.ai/user-stories/core/realm-custom-domain.md`
+ *   来源：docs/user-stories/core/realm-custom-domain.md
  *
  * ⚠️ 范围声明（OUT OF SCOPE / DEFERRED）：
  * 本测试只覆盖 Caddy On-Demand TLS 的 **authorize (ask) 门禁**
@@ -15,12 +15,14 @@
  *
  * US-CD-005 的 host→realm 路由场景（终端用户经自定义域名访问 realm 的 auth 流）
  * 已于 2026-07-09 回退（DEFERRED）—— 当前没有任何 host-based 公共入口可断言，
- * 只有 ask 门禁（证书滥用门禁）可 demo。本测试不覆盖 US-CD-005 场景2
- * （未生效 CNAME 的状态可见）—— 那属于 config-admin UI（DE-D01）的职责。
+ * 只有 ask 门禁（证书滥用门禁）可 demo。ask 门禁断言覆盖 US-CD-005 场景1
+ * （未注册域名不授权）、场景2（已注册域名授权）与场景3（响应不泄露 Realm 身份）；
+ * CNAME 生效状态的可见性（US-CD-001 场景2）属于 config-admin UI 的职责，
+ * 不在本测试范围。
  *
  * 边界：纯 API 测试 —— 无 UI、无 settings tab、无 host→realm 路由。
  * 失败归因：本测试失败意味着 ask 门禁逻辑或其配置接线错误，
- * 与生命周期 UI（DE-D01）相互独立。
+ * 与生命周期 UI 相互独立。
  *
  * 断言策略：
  * - 关键断言落在持久后端状态（HTTP 状态码 + 响应体形状），而非 sonner/toast 等
@@ -44,7 +46,7 @@
  * 在 afterEach 中清空专用 hostname（PUT `{ hostname: null }` 移除 mapping 行）。
  * best-effort、有日志，不会硬失败测试运行。
  *
- * @see .ai/user-stories/core/realm-custom-domain.md （DRAFT 来源，路径保持原样）
+ * @see docs/user-stories/core/realm-custom-domain.md
  * @see backend/api/src/application/http/realm/custom_domain_config.rs （authorize handler 478-553）
  * @see backend/config/demo.toml [custom_domain].ask_key （shared secret 来源）
  */
@@ -68,7 +70,7 @@ const API_BASE = process.env.API_BASE_URL || 'http://127.0.0.1:8080'
 
 /**
  * Shared ask key that gates the authorize endpoint. MUST match the value in
- * `backend/config/demo.toml [custom_domain].ask_key` (set by DE-D01).
+ * `backend/config/demo.toml [custom_domain].ask_key`.
  *
  * The backend handler reads `X-Herald-Ask-Key` and compares it (trimmed) to the
  * configured `custom_domain_ask_key` (`custom_domain_config.rs:518-523`). A
@@ -85,8 +87,8 @@ const FRONTEND_BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
 /**
  * Dedicated test-only hostname published on realm `admin` for the authorize
- * 200 scenario. Distinct from DE-D01's hostnames to avoid cross-item state
- * pollution (both DE-D01 and DE-D02 publish on realm `admin`).
+ * 200 scenario. Distinct from the custom-domain lifecycle demo's hostnames to
+ * avoid cross-demo state pollution (both demos publish on realm `admin`).
  */
 const DEDICATED_HOSTNAME = 'ask-gate-authorize.demo.test'
 
@@ -124,11 +126,11 @@ test.describe('[Realm Admin] Custom-domain authorize (ask) 门禁演示测试', 
   // ==========================================================================
   // Test 1 — 未注册域名 → 404 (Caddy 拒绝签发)
   // 映射: [US-CD-005] 场景1（未注册自定义域名不提供证书授权）
-  // DRAFT 来源: .ai/user-stories/core/realm-custom-domain.md
+  // 来源: docs/user-stories/core/realm-custom-domain.md
   // ==========================================================================
 
   test('未注册域名 → 404 (Caddy declines issuance)', async ({ page, demoLogger }) => {
-    // [US-CD-005] 场景1 — DRAFT: .ai/user-stories/core/realm-custom-domain.md
+    // [US-CD-005] 场景1 — 来源: docs/user-stories/core/realm-custom-domain.md
     testStartTime = Date.now()
 
     await verifyTestEnvironment(page, {
@@ -171,11 +173,11 @@ test.describe('[Realm Admin] Custom-domain authorize (ask) 门禁演示测试', 
   // ==========================================================================
   // Test 2 — 已发布域名 → 200 {"authorized":true}（不含 realm 信息）
   // 映射: [US-CD-005] 场景1（已发布域名的反向：合法域名获授权）
-  // DRAFT 来源: .ai/user-stories/core/realm-custom-domain.md
+  // 来源: docs/user-stories/core/realm-custom-domain.md
   // ==========================================================================
 
   test('已发布域名 → 200 {"authorized":true}', async ({ page, demoLogger }) => {
-    // [US-CD-005] 场景1 — DRAFT: .ai/user-stories/core/realm-custom-domain.md
+    // [US-CD-005] 场景2 — 来源: docs/user-stories/core/realm-custom-domain.md
     testStartTime = Date.now()
 
     await verifyTestEnvironment(page, {
@@ -294,11 +296,11 @@ test.describe('[Realm Admin] Custom-domain authorize (ask) 门禁演示测试', 
   // ==========================================================================
   // Test 3 — 缺少/错误的 ask key → 401
   // 映射: [US-CD-005] §4.5 共享密钥门禁（shared-key gate）
-  // DRAFT 来源: .ai/user-stories/core/realm-custom-domain.md
+  // 来源: docs/user-stories/core/realm-custom-domain.md
   // ==========================================================================
 
   test('缺少/错误的 ask key → 401', async ({ page, demoLogger }) => {
-    // [US-CD-005] §4.5 shared-key gate — DRAFT: .ai/user-stories/core/realm-custom-domain.md
+    // 证书授权门禁（ask-key 401）— 规则见 docs/prd/core/realm-custom-domain.md
     testStartTime = Date.now()
 
     await verifyTestEnvironment(page, {

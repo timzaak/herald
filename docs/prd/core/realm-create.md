@@ -133,15 +133,15 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-realm-create-001` | Applied | 入口归属与排他性 | 自助开通注册页面由 admin realm 托管并对未登录访客公开访问；该能力为 admin realm 独有 | §2.1、§4.1、§6 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-002` | Applied | 开通模型 | 注册即开通，注册环节不引入套餐选择或支付；付费由既有 billing 系统后续承载 | §2.1、§2.2、§4.1 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-003` | Applied | 初始化复用 | 复用既有 realm 初始化机制，不新建并行开通路径 | §2.1、§4.1 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-004` | Applied | 单次注册范围 | 一次注册对应一个新 realm；平台级单账号多 realm 不在本 PRD 范围 | §2.2、§4.1 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-005` | Applied | 用户故事新建 | 新建独立用户故事（actor：自助注册访客），不复用 `US-AR-001` | §1 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-006` | Applied | 邮箱验证行为 | 新 realm 管理员账号沿用既有“创建即 Normal（已验证）”行为；是否额外强制邮箱验证后访问延期（Q-realm-create-004） | §4.1、§4.2 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-007` | Applied | IP 注册限额 | 同一 IP 每 24 小时最多自助注册 2 个 realm，超出拒绝 | §2.1、§4.1、§4.2、§5、§6 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-008` | Applied | Turnstile 人机验证 | 按绑定自助注册页面的 Client App 的 Turnstile 配置强制，未启用不强制 | §2.1、§4.1、§4.2、§5、§6 | `.ai/decision-log/realm-create.md` |
-| `DEC-realm-create-009` | Applied | 平台开关必备 | 自助开通为平台开关，从 P1 提升为本 PRD 必备能力 | §1、§4.1、§5 | `.ai/decision-log/realm-create.md` |
+| `DEC-realm-create-001` | Applied | 入口归属与排他性 | 自助开通注册页面由 admin realm 托管并对未登录访客公开访问；该能力为 admin realm 独有 | §2.1、§4.1、§6 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-002` | Applied | 开通模型 | 注册即开通，注册环节不引入套餐选择或支付；付费由既有 billing 系统后续承载 | §2.1、§2.2、§4.1 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-003` | Applied | 初始化复用 | 复用既有 realm 初始化机制，不新建并行开通路径 | §2.1、§4.1 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-004` | Applied | 单次注册范围 | 一次注册对应一个新 realm；平台级单账号多 realm 不在本 PRD 范围 | §2.2、§4.1 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-005` | Applied | 用户故事新建 | 新建独立用户故事（actor：自助注册访客），不复用 `US-AR-001` | §1 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-006` | Applied | 邮箱验证行为 | 新 realm 管理员账号沿用既有“创建即 Normal（已验证）”行为；是否额外强制邮箱验证后访问延期（Q-realm-create-004） | §4.1、§4.2 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-007` | Applied | IP 注册限额 | 同一 IP 每 24 小时最多自助注册 2 个 realm，超出拒绝 | §2.1、§4.1、§4.2、§5、§6 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-008` | Applied | Turnstile 人机验证 | 按绑定自助注册页面的 Client App 的 Turnstile 配置强制，未启用不强制 | §2.1、§4.1、§4.2、§5、§6 | `docs/decisions/realm-create.md` |
+| `DEC-realm-create-009` | Applied | 平台开关必备 | 自助开通为平台开关，从 P1 提升为本 PRD 必备能力 | §1、§4.1、§5 | `docs/decisions/realm-create.md` |
 
 > 这里只记录带稳定 DEC ID 的已确认结论。本 PRD 不存在待用户回答的未决问题（`needs_user_answer=0`）；延期问题见决策账本 Deferred Questions。
 
@@ -153,6 +153,6 @@
 - 既有 Realm Settings PRD：`docs/prd/core/realm-settings.md`（平台开关以 realm_config 形式管理，遵循 realm-settings 的配置管理能力边界）
 - Client App PRD：`docs/prd/integration/client-app.md`（Turnstile 配置归属 Client App 级，见 §4.1 D-PROTECT-01）
 - 角色定义：`docs/user-stories/_roles.md`
-- 决策账本：`.ai/decision-log/realm-create.md`
+- 决策账本：`docs/decisions/realm-create.md`
 - 技术设计：`.ai/design/realm-create.md`
 - 用户故事来源见 §1 表格

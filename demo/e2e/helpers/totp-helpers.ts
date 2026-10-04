@@ -3,9 +3,6 @@
  *
  * 提供用户 TOTP 管理的辅助函数
  * 遵循 UI-Only 原则，所有操作通过 UI 执行
- *
- * @see ../../../spec/demo/e2e-testing.md
- * @see .ai/design/totp-authentication-frontend-and-demo.md
  */
 
 import { Page, expect } from '@playwright/test'

@@ -8,7 +8,7 @@
  * revoke is idempotent on webhook redelivery, and a one_time permanent grant
  * is NOT revoked (control).
  *
- * User Story (DRAFT — source of truth, NOT yet published):
+ * User Story:
  *   docs/user-stories/billing/support-paywall.md → US-PW-005
  *   - 场景1: 订阅取消/过期触发 role 撤销（幂等；手工授予保留）
  *   - 场景2: 退款触发 role 撤销
@@ -74,15 +74,15 @@
  *
  * Coverage boundary (declared — NOT in this demo):
  *  - The M4 `processed=false` scan job + 30min compensation framework
- *    reliability (US-PW-005 场景3) is owned by backend test BE-T04. This demo
+ *    reliability (US-PW-005 场景3) is owned by backend tests. This demo
  *    covers ONLY the webhook-driven revocation write path + idempotency +
  *    source isolation (场景1/2/4). Out-of-order / lost-webhook eventual
  *    consistency is not asserted here.
  *  - Demo-Seed one_time gap: realm-001 is seeded with ONE `recurring` mapping
- *    and NO `one_time` mapping (per DE-D01). 场景4 (one_time permanent not
+ *    and NO `one_time` mapping. 场景4 (one_time permanent not
  *    revoked) is therefore best-effort: the test attempts to locate a
  *    one_time+role mapping; if none exists and the seeded row's billing_type is
- *    read-only (DE-D01 observed this), 场景4 is skipped with an explicit
+ *    read-only in the UI, 场景4 is skipped with an explicit
  *    assumption rather than mutating the shared demo catalog.
  */
 
@@ -143,7 +143,7 @@ const BOUND_PERMISSION_NAME = 'billing.view'
 const CHECK_RULE = { resource: 'billing', action: 'view' }
 
 // `admin-api-client` is auto-provisioned per realm and treated as an
-// admin/unscoped api-key identity (ADMIN_API_CLIENT_ID) — see DE-D01 rationale.
+// admin/unscoped api-key identity (ADMIN_API_CLIENT_ID).
 const ADMIN_API_CLIENT_ID = 'admin-api-client'
 
 /**
@@ -171,7 +171,7 @@ let setupCtx: SetupContext | null = null
 
 test.beforeAll(async ({ browser }) => {
   // Use a dedicated admin page (NOT a test fixture page) so the setup is
-  // independent of any individual test's user login. Mirrors DE-D01's beforeAll.
+  // independent of any individual test's user login.
   const adminContext = await browser.newContext()
   const adminPage = await adminContext.newPage()
   const adminLogger = new UnifiedLogger(adminPage, 'DE-D02 support-paywall-revoke beforeAll')
@@ -231,7 +231,7 @@ test.beforeAll(async ({ browser }) => {
     const priceKey = rowTestid.replace(/^price-edit-row-/, '')
 
     // Read the mapping's billing type (read-only Input under
-    // `price-billing-type-${priceKey}` per DE-D01).
+    // `price-billing-type-${priceKey}`).
     const billingTypeInput = mappingsPage.getPriceEditRow(priceKey).locator(
       `[data-testid="price-billing-type-${priceKey}"]`,
     )
@@ -257,7 +257,7 @@ test.beforeAll(async ({ browser }) => {
     }
 
     // 6. Mint a third-party RBAC api key bound to the realm's admin-api-client
-    //    so /permission/check is unscoped (see DE-D01 rationale).
+    //    so /permission/check is unscoped.
     const adminApiAppId = await resolveClientAppId(apiContext, TEST_REALM, ADMIN_API_CLIENT_ID)
     const apiKey = await createTestApiKeyWithPermission(
       adminPage,
@@ -674,10 +674,10 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
     const { apiKey, userId, billingType, mappingId, priceKey } = setupCtx!
 
     // 场景4 control: a one_time+role permanent grant is NOT revoked by a
-    // cancel/refund webhook. This requires a one_time+role mapping. Per DE-D01,
+    // cancel/refund webhook. This requires a one_time+role mapping.
     // realm-001 Demo Seed has ONE `recurring` mapping and NO `one_time` mapping,
-    // and the seeded row's billing_type is read-only in the UI (DE-D01 observed
-    // this). beforeAll therefore configures the FIRST (recurring) mapping with
+    // and the seeded row's billing_type is read-only in the UI.
+    // beforeAll therefore configures the FIRST (recurring) mapping with
     // the test role, so `billingType` is 'recurring' on the demo seed.
     //
     // ASSUMPTION (declared): because the demo seed lacks a one_time+role
@@ -843,7 +843,7 @@ async function purchaseFirstMappingInline(
   return extractAttemptId(page)
 }
 
-/** Extract the payment attempt id from localStorage (mirrors DE-D01). */
+/** Extract the payment attempt id from localStorage. */
 async function extractAttemptId(page: Page): Promise<string> {
   await page.waitForTimeout(2000)
   const attemptId = await page.evaluate(() => {
@@ -876,7 +876,7 @@ async function findRoleIdByName(
   return hit ? hit.id : null
 }
 
-/** Resolve the client-app UUID for a given client_id in a realm (mirrors DE-D01). */
+/** Resolve the client-app UUID for a given client_id in a realm. */
 async function resolveClientAppId(
   request: APIRequestContext,
   realmId: string,
@@ -905,7 +905,7 @@ async function resolveClientAppId(
   return hit.id
 }
 
-/** Resolve the mappingId for a priceKey (mirrors DE-D01's resolveMappingId). */
+/** Resolve the mappingId for a priceKey. */
 async function resolveMappingId(
   request: APIRequestContext,
   realmId: string,

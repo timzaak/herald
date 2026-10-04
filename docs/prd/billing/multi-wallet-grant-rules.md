@@ -181,14 +181,14 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-multi-wallet-grant-rules-001` | Applied | 多目标范围 | 购买和注册均支持多规则、多账户扇出 | §2、§4、§5 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-002` | Applied | 兼容性 | 未上线，直接替换旧单规则模型，不回填或双写 | §2.2、§6 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-003` | Applied | 规则归属 | 规则属于触发配置，每条规则指向一个账户；账户不承载规则 | §4.2 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-005` | Applied | 整体执行与幂等 | 多规则整体执行，按事件与规则幂等 | §4.5、§5 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-007` | Applied | 规则生命周期 | 停用影响后续，历史发放和归因保持 | §4.5、§5 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-008` | Applied | 管理入口 | 复用 Mapping 与 Realm 积分配置入口管理规则集合 | §6 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-009` | Applied | 触发源目录 | 六类自动发放来源进入规则；主动发放与派生回收不进入 | §2、§4.1、§5 | `.ai/decision-log/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-011` | Applied | 周期策略 | 订阅和免费周期规则允许 fixed 周期积分或滚动窗口 quota，显式覆盖已发布 quota-only 基线 | §2.1、§4.3、§4.4 | `.ai/decision-log/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-001` | Applied | 多目标范围 | 购买和注册均支持多规则、多账户扇出 | §2、§4、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-002` | Applied | 兼容性 | 未上线，直接替换旧单规则模型，不回填或双写 | §2.2、§6 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-003` | Applied | 规则归属 | 规则属于触发配置，每条规则指向一个账户；账户不承载规则 | §4.2 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-005` | Applied | 整体执行与幂等 | 多规则整体执行，按事件与规则幂等 | §4.5、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-007` | Applied | 规则生命周期 | 停用影响后续，历史发放和归因保持 | §4.5、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-008` | Applied | 管理入口 | 复用 Mapping 与 Realm 积分配置入口管理规则集合 | §6 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-009` | Applied | 触发源目录 | 六类自动发放来源进入规则；主动发放与派生回收不进入 | §2、§4.1、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
+| `DEC-multi-wallet-grant-rules-011` | Applied | 周期策略 | 订阅和免费周期规则允许 fixed 周期积分或滚动窗口 quota，显式覆盖已发布 quota-only 基线 | §2.1、§4.3、§4.4 | `docs/decisions/multi-wallet-grant-rules.md` |
 
 > DEC-004（规则存储用购买/注册子表）已被 DEC-010（统一 `points_distribution_rules` 表）取代，属技术设计范畴，不载入 PRD。DEC-006（移除单一字段）与 DEC-010（统一存储）同为技术设计决策，PRD 只声明不保留旧单规则能力契约。
 
@@ -197,7 +197,7 @@
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 决策账本：`.ai/decision-log/multi-wallet-grant-rules.md`
+- 决策账本：`docs/decisions/multi-wallet-grant-rules.md`
 - 已发布积分账户 PRD：`docs/prd/billing/credit-bucket.md`
 - 已发布积分系统 PRD：`docs/prd/billing/points.md`
 - 已发布订阅 PRD：`docs/prd/billing/subscription.md`

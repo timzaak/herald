@@ -13,7 +13,7 @@ PRD 文件保留独立主题，便于评审和追踪；规划、排期和端到�
 | 登录体验与品牌 | 提供统一、可品牌化且可本地化的认证入口 | [OAuth](auth/oauth.md)、[OpenID Connect](auth/openid-connect.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/ui-custom.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 配置并完成多因素或无密码认证 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | 管理 RBAC、Client App、API Key 与 SDK 接入 | [权限管理](auth/permissions.md)、[Client App](integration/client-app.md)、[API Key 角色](integration/api-key-roles.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
-| 商品、支付与权益履约 | 从商品同步、购买到订阅/权益生效和异常补偿 | [Subscription（含多价格、产品同步与 Webhook 补偿）](billing/subscription.md)、[履约模型扩展（买断与非续期订阅）](billing/pay_model.md)、[Stripe 支付](billing/stripe-payment.md)、[Paywall](billing/support-paywall.md)、[App Store / Google Play 内购(IAP)](billing/support-iap.md)、[WeChat Pay 支持](billing/wechat-support.md)、[Google Pay / Apple Pay 钱包支付](billing/support-googlepay-applepay.md)、[多货币购买体验](billing/multiple-currency.md)、[计费统计（支付与积分消耗）](billing/billing-statistics.md)、[退款回收规则](billing/refund-clawback.md) |
+| 商品、支付与权益履约 | 从商品同步、购买到订阅/权益生效和异常补偿 | [Subscription（含多价格、产品同步与 Webhook 补偿）](billing/subscription.md)、[履约模型扩展（买断与非续期订阅）](billing/pay_model.md)、[Stripe / Creem 支付](billing/stripe-payment.md)、[Paywall](billing/support-paywall.md)、[App Store / Google Play 内购(IAP)](billing/support-iap.md)、[WeChat Pay 支持](billing/wechat-support.md)、[Google Pay / Apple Pay 钱包支付](billing/support-googlepay-applepay.md)、[多货币购买体验](billing/multiple-currency.md)、[计费统计（支付与积分消耗）](billing/billing-statistics.md)、[退款回收规则](billing/refund-clawback.md) |
 | 余额与财务凭证 | 管理积分账户，以及支付对应的发票和贷记凭证 | [积分](billing/points.md)、[积分账户](billing/credit-bucket.md)、[多钱包积分分发规则](billing/multi-wallet-grant-rules.md)、[发票（含支付归属与 Credit Note）](billing/invoice.md) |
 
 能力包是导航和评审边界，不是新增需求，也不取代各 PRD。只有当两个文件描述同一业务对象、同一生命周期且不能独立交付时，才应进一步物理合并。
@@ -28,6 +28,7 @@ docs/
 │   ├── auth/              # 认证与授权（OAuth、TOTP、权限等）
 │   ├── billing/           # 计费与订阅（订阅、积分、支付等）
 │   └── integration/       # 集成与扩展（Client App、SDK 等）
+├── decisions/              # 决策账本（PRD §7 引用的 DEC 记录，按 feature 一份）
 └── user-stories/           # 用户故事（User Stories）
     ├── index.md           # 用户故事索引
     ├── core/              # 核心功能用户故事
@@ -35,6 +36,8 @@ docs/
     ├── billing/           # 计费相关用户故事
     └── integration/       # 集成相关用户故事
 ```
+
+**草稿层与工作层分层说明**：`.ai/` 目录是本地工作层（被 .gitignore 忽略，随仓库发布不可见）——PRD §8 中引用的技术设计（`.ai/design/`）与技术预研（`.ai/tech-research/`）属于该层，不随仓库发布；决策账本已入库至 [docs/decisions/](../decisions/)，PRD §7 的 DEC 引用在仓库内可解析。
 
 ## PRD 文档列表
 

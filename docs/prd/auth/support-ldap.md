@@ -133,15 +133,15 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-support-ldap-001` | Applied | 功能范围 | 仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项） | §2.1/§2.2 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-002` | Applied | JIT 建号 | 首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，见 §4.1） | §4.1 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-003` | Applied | 桌面 SSO | 不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证 | §2.2 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-004` | Applied | LDAP 客户端技术选型 | ldap3 + rustls 后端，不引入 openssl/native-tls 系依赖；技术细节不由 PRD 承载 | 设计层约束 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-005` | Applied | 配置存储 | 复用本 Realm 既有配置管理与凭据保护路径（服务账号密码按敏感信息标记），不新建独立配置体系 | §2.3 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-006` | Applied | 认证接入形态 | 专用认证路径完整镜像既有登录管线（不在现有密码登录路径内分支） | §4.1 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-007` | Applied | JIT 与注册政策 | 自动建号不受 Realm 公开注册开关门控；管理员启用目录即供给授权（与既有"自动注册不得绕过注册政策"规则的有意差异，依据同类产品通行做法） | §4.1 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-008` | Applied | 用户匹配策略 | 目录身份（DN）→ 邮箱 → 创建；目录邮箱视为可信（等价已验证）来源，允许据此登入既有账号 | §4.1 | `.ai/decision-log/support-ldap.md` |
-| `DEC-support-ldap-009` | Applied | 唯一命中规则 | 用户条目搜索必须唯一命中（0 条或多条均认证失败），不做猜测式绑定 | §4.1/§4.2 | `.ai/decision-log/support-ldap.md` |
+| `DEC-support-ldap-001` | Applied | 功能范围 | 仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项） | §2.1/§2.2 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-002` | Applied | JIT 建号 | 首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，见 §4.1） | §4.1 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-003` | Applied | 桌面 SSO | 不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证 | §2.2 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-004` | Applied | LDAP 客户端技术选型 | ldap3 + rustls 后端，不引入 openssl/native-tls 系依赖；技术细节不由 PRD 承载 | 设计层约束 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-005` | Applied | 配置存储 | 复用本 Realm 既有配置管理与凭据保护路径（服务账号密码按敏感信息标记），不新建独立配置体系 | §2.3 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-006` | Applied | 认证接入形态 | 专用认证路径完整镜像既有登录管线（不在现有密码登录路径内分支） | §4.1 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-007` | Applied | JIT 与注册政策 | 自动建号不受 Realm 公开注册开关门控；管理员启用目录即供给授权（与既有"自动注册不得绕过注册政策"规则的有意差异，依据同类产品通行做法） | §4.1 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-008` | Applied | 用户匹配策略 | 目录身份（DN）→ 邮箱 → 创建；目录邮箱视为可信（等价已验证）来源，允许据此登入既有账号 | §4.1 | `docs/decisions/support-ldap.md` |
+| `DEC-support-ldap-009` | Applied | 唯一命中规则 | 用户条目搜索必须唯一命中（0 条或多条均认证失败），不做猜测式绑定 | §4.1/§4.2 | `docs/decisions/support-ldap.md` |
 
 > 以上均为已确认并应用的 Active Decision，无 Deferred Questions；决策依据与重开条件见决策账本。
 
@@ -154,7 +154,7 @@
 - Client App 级人机验证：[Client App 管理](../integration/client-app.md)
 - 协议同意模型：[合规适配](../core/legal-consent-account-deletion.md)
 - 审计：[Audit 审计日志](../core/audit.md)
-- 决策账本：`.ai/decision-log/support-ldap.md`
+- 决策账本：`docs/decisions/support-ldap.md`
 - 技术预研：`.ai/tech-research/support-ldap.md`
 - 角色定义：`docs/user-stories/_roles.md`
 - 用户故事来源见 §1

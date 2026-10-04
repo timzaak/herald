@@ -10,7 +10,6 @@
  * Uses auditPage fixture from demo-page.fixtures for auto-login and navigation.
  *
  * @note Uses single browser session pattern (one test with multiple steps)
- * @see ../../../spec/demo/e2e-testing.md#one-browser-session
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'

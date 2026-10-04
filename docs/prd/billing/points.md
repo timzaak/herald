@@ -12,11 +12,11 @@
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
 | US-AP-001～004 | 异步支付积分策略、提前发放、失败回收与未回收负债 | P0/P1 | `docs/user-stories/billing/async-payment-points.md` |
-| US-PO-001 | 配置积分套餐 | P0 | `docs/user-stories/billing/points-admin.md` |
+| US-PO-001 | 配置 Entitlement 积分策略 | P0 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-002 | 查看所有用户积分账户 | P1 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-003 | 查看用户积分交易历史 | P1 | `docs/user-stories/billing/points-admin.md` |
-| US-PO-004 | 管理积分套餐配置 | P2 | `docs/user-stories/billing/points-admin.md` |
-| US-PO-005 | 查看套餐充值引导 | P2 | `docs/user-stories/billing/points-admin.md` |
+| US-PO-004 | 管理 Entitlement 积分策略 | P2 | `docs/user-stories/billing/points-admin.md` |
+| US-PO-005 | 查看 Entitlement 充值引导 | P2 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-006 | 配置 Realm 默认积分策略 | P0 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-007 | 查看免费用户积分统计——不随 billing-statistics 首版交付（免费用户发放/转化漏斗口径，见 `docs/prd/billing/billing-statistics.md` §2.2 与 Q-billing-statistics-003） | P1 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-008 | 主动发放积分 | P0 | `docs/user-stories/billing/points-admin.md` |
@@ -45,7 +45,7 @@
 ### 2.1 包含功能
 
 - **积分池组织单位**：积分池按积分账户组织，每个用户对每个持有的积分账户拥有独立积分池（`user × bucket`），已替换单一钱包模型；积分账户目录、覆盖集、归属、跨池消费与履约路由的完整规则见 `docs/prd/billing/credit-bucket.md`。本 PRD 描述积分类型、过期、消费优先级、退款回收等积分核心规则，其"池归属"维度以积分账户为准
-- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放不再各自只把一次触发路由到单一账户和一组积分策略，而是由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。决策账本 `DEC-multi-wallet-grant-rules-011` 已显式推翻本 PRD 早期基线中"订阅/免费周期仅可用 quota 滑动窗口"的约束——fixed 周期积分现为可配置策略；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力，不再表示唯一允许的模型。详见 `.ai/decision-log/multi-wallet-grant-rules.md`
+- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放不再各自只把一次触发路由到单一账户和一组积分策略，而是由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。决策账本 `DEC-multi-wallet-grant-rules-011` 已显式推翻本 PRD 早期基线中"订阅/免费周期仅可用 quota 滑动窗口"的约束——fixed 周期积分现为可配置策略；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力，不再表示唯一允许的模型。详见 `docs/decisions/multi-wallet-grant-rules.md`
 - 积分账户管理（创建、查询）
 - 积分余额查询
 - 积分消耗/扣除（SDK API）
@@ -317,7 +317,7 @@
 
 ## 7. 已确认决策
 
-> **被后续决策覆盖的条款**：下列关于"subscription_credit / free_periodic_credit 采用 usage-based 滑动窗口配额"和"配额定义归属 entitlement mapping（订阅）与 realm default config（免费周期），不挂账户"的描述，已被 `DEC-multi-wallet-grant-rules-006`（移除单一钱包/单一积分策略字段）和 `DEC-multi-wallet-grant-rules-011`（允许订阅/免费周期规则同时配置 fixed 周期积分或滚动窗口 quota）显式推翻并扩展。当前权威规则以 `.ai/decision-log/multi-wallet-grant-rules.md` 为准：发放策略由 `points_distribution_rules` 承载，每条规则按 owner（entitlement mapping / realm registration）× trigger × policy（fixed 或 quota）路由到目标账户，一次触发可多账户扇出。本节保留历史决策以记录演进，不作为当前唯一约束。
+> **被后续决策覆盖的条款**：下列关于"subscription_credit / free_periodic_credit 采用 usage-based 滑动窗口配额"和"配额定义归属 entitlement mapping（订阅）与 realm default config（免费周期），不挂账户"的描述，已被 `DEC-multi-wallet-grant-rules-006`（移除单一钱包/单一积分策略字段）和 `DEC-multi-wallet-grant-rules-011`（允许订阅/免费周期规则同时配置 fixed 周期积分或滚动窗口 quota）显式推翻并扩展。当前权威规则以 `docs/decisions/multi-wallet-grant-rules.md` 为准：发放策略由 `points_distribution_rules` 承载，每条规则按 owner（entitlement mapping / realm registration）× trigger × policy（fixed 或 quota）路由到目标账户，一次触发可多账户扇出。本节保留历史决策以记录演进，不作为当前唯一约束。
 
 - 积分余额单位固定为 points，不使用法币 currency 表示
 - 计费模型分治：subscription_credit / free_periodic_credit 采用 usage-based 滑动窗口配额；topup_credit / registration_credit / granted_credit 维持池子模型不变

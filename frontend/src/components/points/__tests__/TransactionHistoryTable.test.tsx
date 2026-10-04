@@ -5,7 +5,7 @@ import { TransactionHistoryTable } from '../TransactionHistoryTable'
 import {
   mockRechargeTransaction,
   mockConsumeTransaction,
-} from '@/fixtures/points-transaction.fixture'
+} from '@/test/fixtures/points-transaction.fixture'
 import type { TransactionFilters } from '@/lib/schemas/points-forms'
 
 describe('TransactionHistoryTable', () => {

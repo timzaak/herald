@@ -2412,6 +2412,8 @@
     "insufficient_alert": "合计不足，整体拒绝，未部分扣减。",
     "empty_state": "还没有任何订阅或充值余额。订阅套餐或购买充值包后额度将立即出现。",
     "balance_pool": "积分",
+    "expires_at_label": "最早过期：{date}",
+    "expires_at_never": "长期有效",
     "quota_editor_title": "配额时间窗",
     "quota_editor_add_window": "添加时间窗",
     "quota_editor_window_length": "时间窗长度",

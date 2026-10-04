@@ -13,7 +13,7 @@
 |-------|------|--------|------|
 | US-RA-016 | API Key 角色管理 | P0 | `docs/user-stories/core/realm-admin.md` |
 | US-RA-017 | 创建 API Key 时绑定角色 | P0 | `docs/user-stories/core/realm-admin.md` |
-| US-RA-006 | 用户角色分配（API Key 角色分配复用同一权限模型和交互模式） | P0 | — |
+| US-RA-006 | 用户角色分配（API Key 角色分配复用同一权限模型和交互模式） | P0 | `docs/user-stories/core/realm-admin.md` |
 | US-TP-012 | 通过 SDK 管理 Realm（API Key 需具备 `realm.manage` 权限） | P1 | `docs/user-stories/integration/sdk.md` |
 | US-TP-013 | 通过 SDK 管理用户（API Key 需具备 `users.manage`/`users.view` 权限） | P0 | `docs/user-stories/integration/sdk.md` |
 | US-TP-014 | 通过 SDK 管理 Client App（API Key 需具备 `clients.manage`/`clients.view` 权限） | P1 | `docs/user-stories/integration/sdk.md` |

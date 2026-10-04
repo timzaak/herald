@@ -25,6 +25,8 @@ function makeCard(overrides: Partial<DerivedBucketCard> = {}): DerivedBucketCard
     quotaWindows: undefined,
     spendableFromQuota: undefined,
     spendableFromPool: 0,
+    // Pool-only default: no expiry projection (permanent-only pool).
+    expiresAt: null,
     ...overrides,
   }
 }
@@ -103,6 +105,29 @@ describe('PointsBalanceCard', () => {
       render(<PointsBalanceCard card={makeCard({ enabled: false })} />)
 
       expect(screen.getByTestId('points-balance-card-disabled-bucket-1')).toBeInTheDocument()
+    })
+  })
+
+  describe('pool expiry', () => {
+    it('GIVEN a permanent-only pool (expiresAt null) WHEN rendering THEN shows the no-expiry label, not a date', () => {
+      // INTENT (points.md §4.1): `expires_at` is null exactly when the pool is
+      // permanent-only — the card must answer "长期有效", never a blank or a
+      // guessed date, or users would read permanent balances as already gone.
+      render(<PointsBalanceCard card={makeCard({ expiresAt: null })} />)
+
+      const expiry = screen.getByTestId('points-balance-expiry-bucket-1')
+      expect(expiry).toHaveTextContent(/no expiry/i)
+      expect(expiry).not.toHaveTextContent(/19|20\d{2}/)
+    })
+
+    it('GIVEN a pool with an expiring tranche WHEN rendering THEN shows the earliest expiry date', () => {
+      // INTENT (US-PU-004 场景1 / points.md §4.1): the wallet face exposes the
+      // MIN(expires_at) over available pool rows — the "即将过期" time users
+      // need to plan consumption around. A silent drop would hide that the
+      // balance is about to vanish.
+      render(<PointsBalanceCard card={makeCard({ expiresAt: '2026-04-15T00:00:00Z' })} />)
+
+      expect(screen.getByTestId('points-balance-expiry-bucket-1')).toHaveTextContent(/2026/)
     })
   })
 

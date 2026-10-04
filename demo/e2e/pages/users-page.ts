@@ -4,7 +4,6 @@
  * Encapsulates user management page operations.
  * Provides methods for creating, editing, deleting, and searching users.
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect } from '@playwright/test'

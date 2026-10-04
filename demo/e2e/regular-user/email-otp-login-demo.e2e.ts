@@ -8,13 +8,13 @@
  * still password-logs-in), which closes the same login-route visibility state
  * machine.
  *
- * User stories (DRAFT, source path kept verbatim):
- *   `.ai/user-stories/auth/email-otp-login.md`
+ * User stories:
+ *   `docs/user-stories/auth/email-otp-login.md`
  *   - US-EO-001: registered user logs in with email OTP
  *   - US-EO-002: unregistered email auto-registers after consent
  *   - US-EO-003 scenario 3: disabling OTP hides the entry; password login still works
  *
- * Backend (already implemented, design `.ai/design/email-otp-login.md`):
+ * Backend (already implemented):
  *   POST /api/auth/{realmId}/login/email-otp/send   — issue code (anti-enumeration: uniform ok)
  *   POST /api/auth/{realmId}/login/email-otp/verify — verify code → Bearer session
  *

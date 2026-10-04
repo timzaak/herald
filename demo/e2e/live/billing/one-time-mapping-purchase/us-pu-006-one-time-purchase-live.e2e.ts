@@ -16,7 +16,6 @@
  *   Tests only verify payment INITIATION and UI states, not fulfillment.
  *
  * Uses Demo Seed data (realm-001 with pre-configured one-time entitlement mappings).
- * Per spec/demo/e2e-testing.md Section 8: no admin data creation in tests.
  *
  * NOTE: Payment completion requires webhook simulation by external services or manual
  * internal API calls. Tests verify payment INITIATION and UI states only.

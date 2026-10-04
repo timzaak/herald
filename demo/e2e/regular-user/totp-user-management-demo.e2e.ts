@@ -2,7 +2,6 @@
  * Regular User TOTP Management Demo Tests
  *
  * 用户故事: docs/user-stories/auth/totp.md
- * 设计文档: .ai/design/totp-authentication-frontend-and-demo.md
  *
  * 测试场景：
  * - US-TO-002: 用户启用 TOTP
@@ -11,7 +10,6 @@
  * - US-TO-005: 用户重新生成 TOTP 密钥
  * - US-TO-007: 查看 TOTP 使用情况
  *
- * @see ../../../spec/demo/e2e-testing.md
  *
  * 注意：当前 TOTP 前端组件尚未集成到 profile/security 页面。
  * 此测试文件提供了测试框架，当 TOTP 组件集成后可启用完整测试。

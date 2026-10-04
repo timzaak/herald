@@ -121,7 +121,7 @@
 | realm.view | realm | view | 查看 Realm 列表（前端 Realms 菜单可见性） |
 | realm.manage | realm | manage | Realm 创建（仅 admin realm） |
 
-> **敏感权限定义的创建约束**：`realm.manage` 属敏感权限——其**权限定义本身**仅可在 admin realm 创建（其他 Realm 对该名称的权限定义创建请求返回 403），防止租户自行造出跨租户语义的 Realm 管理权限。
+> **敏感权限定义的创建与改名约束**：`realm.manage` 属敏感权限——其**权限定义本身**仅可在 admin realm 创建或改名（其他 Realm 对该名称的权限定义创建/改名请求返回 403），防止租户自行造出跨租户语义的 Realm 管理权限。
 
 **user 权限清单**:
 

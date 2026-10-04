@@ -4,7 +4,6 @@
  * Encapsulates permission management page operations.
  * Provides methods for creating, editing, and deleting permissions.
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect } from '@playwright/test'

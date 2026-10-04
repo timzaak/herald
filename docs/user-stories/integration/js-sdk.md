@@ -332,4 +332,4 @@ Then 可通过稳定的错误类别（而非解析文案）进行分支处理
 - **JS 浏览器 SDK PRD**：[docs/prd/integration/js-sdk.md](/docs/prd/integration/js-sdk.md)
 - **业务能力来源**：[docs/user-stories/integration/custom-user-ui.md](/docs/user-stories/integration/custom-user-ui.md)（US-CUI-001/002/003/006）
 - **相关已发布 PRD**：[docs/prd/integration/custom-user-ui.md](/docs/prd/integration/custom-user-ui.md)
-- **决策账本**：`.ai/decision-log/js-sdk.md`
+- **决策账本**：`docs/decisions/js-sdk.md`

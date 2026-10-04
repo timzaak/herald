@@ -1,8 +1,9 @@
 /**
  * sync-payment demo E2E
  *
- * Draft user stories source: `.ai/user-stories/billing/sync-payment.md`
- * Design source: `.ai/design/sync-payment.md`
+ * User story source: `docs/user-stories/billing/entitlement-mapping.md`
+ *   US-BL-SYNC-001~004（故事 10~13）：同步携带商户 metadata、产品名识别、
+ *   价格按 provider 单位展示、计费周期以 Stripe 为准且只读
  *
  * Selector calibration against frontend/src/components/billing/entitlement-mappings-page.tsx:
  * - `price-metadata-block-${price.externalPriceId ?? price.id}` -> SELECTORS.multiPriceMapping.priceMetadataBlock

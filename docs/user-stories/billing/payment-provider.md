@@ -290,42 +290,28 @@ Then 配置被删除
 
 **【验收标准】**
 
-**场景 1：查看平台统计概览**
+**场景 1：在统计页查看支付平台使用统计**
 ```gherkin
 Given 我是 realm-1 的管理员
-When 我访问支付平台管理页面
-Then 我看到每个平台的统计信息：
-  | 列名           | 说明                   |
-  | Platform       | 支付平台名称           |
-  | Total Payments | 总支付次数             |
-  | Success Rate   | 支付成功率             |
-  | Total Revenue  | 总收入                 |
-  | Active Subs    | 活跃订阅数             |
-And Stripe 显示：
-  | Total Payments | 1,234                |
-  | Success Rate   | 92.5%                |
-  | Total Revenue  | $45,678.90           |
-  | Active Subs    | 150                  |
+When 我访问 billing 区的统计页
+Then 我看到各支付平台的成功/失败笔数与支付成功率
+And 我看到支付金额按币种分组展示（如 USD、CNY 各自合计）
+And 页面任何位置不出现把不同币种相加得到的总收入金额
 ```
 
-**场景 2：按时间范围筛选统计**
+**场景 2：切换时间窗口**
 ```gherkin
-Given 我在支付平台管理页面
-When 我选择时间范围为 "Last 7 days"
-Then 统计数据更新为最近 7 天的数据
-When 我选择时间范围为 "Last 30 days"
-Then 统计数据更新为最近 30 天的数据
+Given 我在统计页的支付统计面板
+When 我在"最近 7 天 / 最近 30 天"两档之间切换
+Then 指标与趋势图刷新为所选窗口的数据
 ```
 
 **场景 3：比较不同平台表现**
 ```gherkin
-Given 我是 realm-1 的管理员
-When 我查看多个平台的统计数据
-Then 我可以看到各平台的对比：
-  | Platform | Success Rate | Avg Payment Time |
-  | Stripe   | 92.5%        | 2.3s            |
-  | Creem    | 99.9%        | 0.1s            |
-And 我可以根据数据决定优先使用的平台
+Given realm-1 同时配置了 Stripe 与 WeChat Pay
+When 我查看统计页的按渠道分组统计
+Then 我看到各渠道各自的成败笔数与按币种金额
+And 我可以据此决定优先使用的平台
 ```
 
 ---

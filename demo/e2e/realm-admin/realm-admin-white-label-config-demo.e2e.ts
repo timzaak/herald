@@ -1,13 +1,13 @@
 /**
  * Realm Admin 综合演示测试 - White-label 配置
  *
- * 用户故事（DRAFT，发布前不得改写为 docs/user-stories/）：
+ * 用户故事（docs/user-stories/core/white-label.md）：
  * - [US-WL-001] 配置 Realm 品牌资产（logo、主色、背景、页脚、登录/注册文案）
  * - [US-WL-002] 终端用户看到品牌化 auth 流页面（草稿不生效、发布后生效、失效回退）
  * - [US-WL-003] 主色 WCAG AA 对比度安全提示（仅警告不拦截）
  * - [US-WL-004] 资产 URL 引用与失效时的可见回退
  *
- * 覆盖 design §6.2 的四个场景：
+ * 覆盖场景：
  * - 草稿不生效、发布后登录页呈现新品牌（draft→publish 生命周期 + 公共登录页渲染）
  * - 跨 Realm 隔离（config 仅作用于本 Realm）
  * - 恢复上一版（draft→publish→restore 生命周期）
@@ -29,8 +29,7 @@
  * - logo 失效回退通过断言 `auth-brand-text`（Herald）可见且 `auth-brand-logo` 不存在
  *   来验证，不依赖破损图标 paint。
  *
- * @see .ai/design/ui-custom.md §6.2
- * @see .ai/user-stories/core/ui-custom.md （DRAFT 来源，路径保持原样）
+ * @see docs/user-stories/core/white-label.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
@@ -134,11 +133,11 @@ test.describe('[Realm Admin] White-label 配置综合演示测试', () => {
   // ==========================================================================
   // Test 1 — 草稿不生效、发布后登录页呈现新品牌
   // 映射: [US-WL-001]（配置品牌资产）、[US-WL-002] 场景1（登录页呈现 Realm 品牌）
-  // DRAFT 来源: .ai/user-stories/core/ui-custom.md
+  // 来源: docs/user-stories/core/white-label.md
   // ==========================================================================
 
   test('草稿不生效、发布后登录页呈现新品牌', async ({ page, demoLogger }) => {
-    // [US-WL-001] / [US-WL-002] 场景1 — DRAFT: .ai/user-stories/core/ui-custom.md
+    // [US-WL-001] / [US-WL-002] 场景1 — 来源: docs/user-stories/core/white-label.md
     testStartTime = Date.now()
     const realmId = 'admin'
     settingsPage = new SettingsPage(page, demoLogger, realmId)
@@ -264,11 +263,11 @@ test.describe('[Realm Admin] White-label 配置综合演示测试', () => {
   // ==========================================================================
   // Test 2 — 跨 Realm 隔离
   // 映射: [US-WL-001] 场景1（config 仅作用于本 Realm）、[US-WL-002] 场景1
-  // DRAFT 来源: .ai/user-stories/core/ui-custom.md
+  // 来源: docs/user-stories/core/white-label.md
   // ==========================================================================
 
   test('跨 Realm 隔离', async ({ page, demoLogger }) => {
-    // [US-WL-001] 场景1 / [US-WL-002] 场景1 — DRAFT: .ai/user-stories/core/ui-custom.md
+    // [US-WL-001] 场景1 / [US-WL-002] 场景1 — 来源: docs/user-stories/core/white-label.md
     // 使用 demo seed 提供的 admin + realm-001 两个 realm（均含 admin-web-console
     // client app，可登录）；通过 UI 运行时创建的 realm 不带 admin-web-console，
     // 其 admin 无法登录（400 Client app not found）。
@@ -356,11 +355,11 @@ test.describe('[Realm Admin] White-label 配置综合演示测试', () => {
   // ==========================================================================
   // Test 3 — 恢复上一版
   // 映射: [US-WL-001]（draft→publish→restore 生命周期）、[US-WL-002] 场景1
-  // DRAFT 来源: .ai/user-stories/core/ui-custom.md
+  // 来源: docs/user-stories/core/white-label.md
   // ==========================================================================
 
   test('恢复上一版', async ({ page, demoLogger }) => {
-    // [US-WL-001] / [US-WL-002] 场景1 — DRAFT: .ai/user-stories/core/ui-custom.md
+    // [US-WL-001] / [US-WL-002] 场景1 — 来源: docs/user-stories/core/white-label.md
     testStartTime = Date.now()
     const realmId = 'admin'
     settingsPage = new SettingsPage(page, demoLogger, realmId)
@@ -447,11 +446,11 @@ test.describe('[Realm Admin] White-label 配置综合演示测试', () => {
   // ==========================================================================
   // Test 4 — logo/background 失效回退
   // 映射: [US-WL-002] 场景3（logo 加载失败回退）、[US-WL-004] 场景2（URL 失效可见回退）
-  // DRAFT 来源: .ai/user-stories/core/ui-custom.md
+  // 来源: docs/user-stories/core/white-label.md
   // ==========================================================================
 
   test('logo/background 失效回退', async ({ page, demoLogger }) => {
-    // [US-WL-002] 场景3 / [US-WL-004] 场景2 — DRAFT: .ai/user-stories/core/ui-custom.md
+    // [US-WL-002] 场景3 / [US-WL-004] 场景2 — 来源: docs/user-stories/core/white-label.md
     testStartTime = Date.now()
     const realmId = 'admin'
     settingsPage = new SettingsPage(page, demoLogger, realmId)
@@ -530,11 +529,11 @@ test.describe('[Realm Admin] White-label 配置综合演示测试', () => {
   // ==========================================================================
   // Test 5 — WCAG AA 对比度警告
   // 映射: [US-WL-003] 场景1（达标不警告）、场景2（不达标仅警告不拦截）
-  // DRAFT 来源: .ai/user-stories/core/ui-custom.md
+  // 来源: docs/user-stories/core/white-label.md
   // ==========================================================================
 
   test('WCAG AA 对比度警告', async ({ page, demoLogger }) => {
-    // [US-WL-003] 场景1/场景2 — DRAFT: .ai/user-stories/core/ui-custom.md
+    // [US-WL-003] 场景1/场景2 — 来源: docs/user-stories/core/white-label.md
     testStartTime = Date.now()
     const realmId = 'admin'
     settingsPage = new SettingsPage(page, demoLogger, realmId)

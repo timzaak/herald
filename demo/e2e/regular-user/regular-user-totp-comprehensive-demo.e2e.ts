@@ -32,7 +32,6 @@
  * - 场景间通过 clearCookies() 确保隔离性
  * - 场景 5 修复: 在调用 disableTOTPThroughUI 前先导航到正确页面
  *
- * @see ../../../spec/demo/e2e-testing.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'

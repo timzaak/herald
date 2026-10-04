@@ -101,7 +101,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN roles array is provided WHEN rendering THEN should display all roles', async () => {
-    const screen = render(<RoleTable roles={mockRoles} isLoading={false} error={null} />)
+    const screen = render(
+      <RoleTable roles={mockRoles} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     expect(screen.getByTestId('role-table')).toBeInTheDocument()
 
@@ -115,7 +117,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN role table is rendered WHEN user clicks edit button THEN should open edit dialog', async () => {
-    render(<RoleTable roles={mockRoles} isLoading={false} error={null} />)
+    render(
+      <RoleTable roles={mockRoles} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     const editButton = screen.getByTestId('role-edit-button-1')
     await userEvent.click(editButton)
@@ -125,7 +129,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN custom role is displayed WHEN user clicks delete button THEN should open delete dialog', async () => {
-    render(<RoleTable roles={mockRoles} isLoading={false} error={null} />)
+    render(
+      <RoleTable roles={mockRoles} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     const deleteButton = screen.getByTestId('role-delete-button-2')
     await userEvent.click(deleteButton)
@@ -135,7 +141,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN role is builtin WHEN rendering THEN should not show delete button', async () => {
-    render(<RoleTable roles={mockRoles} isLoading={false} error={null} />)
+    render(
+      <RoleTable roles={mockRoles} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     // Builtin roles with id '1' and '3' should not have delete buttons
     expect(screen.queryByTestId('role-delete-button-1')).not.toBeInTheDocument()
@@ -143,7 +151,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN user clicks manage permissions WHEN clicked THEN should open permissions dialog', async () => {
-    render(<RoleTable roles={mockRoles} isLoading={false} error={null} />)
+    render(
+      <RoleTable roles={mockRoles} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     const permissionsButton = screen.getByTestId('role-permissions-button-1')
     await userEvent.click(permissionsButton)
@@ -163,7 +173,13 @@ describe('RoleTable', () => {
     }
 
     const screen = render(
-      <RoleTable roles={[roleWithoutDescription]} isLoading={false} error={null} />
+      <RoleTable
+        roles={[roleWithoutDescription]}
+        isLoading={false}
+        error={null}
+        canManage
+        canManagePermissions
+      />
     )
 
     // Should show - for null description
@@ -172,8 +188,67 @@ describe('RoleTable', () => {
     expect(hasDash).toBe(true)
   })
 
+  describe('button-level permission gating (permissions.md §6/§4.2)', () => {
+    it('GIVEN view-only roles access (canManage false) WHEN rendering THEN edit/delete stay visible but disabled', () => {
+      // INTENT (permissions.md §6): "仅有 view 权限时管理按钮不可用" — the
+      // roles list remains readable for delegated view-only admins while every
+      // write affordance is inert; backend roles.manage enforcement is the
+      // backstop, not the only gate.
+      const screen = render(
+        <RoleTable
+          roles={mockRoles}
+          isLoading={false}
+          error={null}
+          canManage={false}
+          canManagePermissions
+        />
+      )
+
+      const editable = mockRoles.find((r) => !r.isBuiltin)
+      expect(screen.getByTestId(`role-edit-button-${editable.id}`)).toBeDisabled()
+      expect(screen.getByTestId(`role-delete-button-${editable.id}`)).toBeDisabled()
+    })
+
+    it('GIVEN no policies.manage WHEN rendering THEN the role-permissions association button is disabled even with roles.manage', () => {
+      // INTENT (permissions.md §4.2): role→permission association is a
+      // policies.manage write surface — an admin holding roles.manage but not
+      // policies.manage must not reach it from this table.
+      const screen = render(
+        <RoleTable
+          roles={mockRoles}
+          isLoading={false}
+          error={null}
+          canManage
+          canManagePermissions={false}
+        />
+      )
+
+      const anyRole = mockRoles[0]
+      expect(screen.getByTestId(`role-permissions-button-${anyRole.id}`)).toBeDisabled()
+    })
+
+    it('GIVEN full manage access WHEN rendering THEN all action buttons are enabled', () => {
+      const screen = render(
+        <RoleTable
+          roles={mockRoles}
+          isLoading={false}
+          error={null}
+          canManage
+          canManagePermissions
+        />
+      )
+
+      const editable = mockRoles.find((r) => !r.isBuiltin)
+      expect(screen.getByTestId(`role-edit-button-${editable.id}`)).toBeEnabled()
+      expect(screen.getByTestId(`role-delete-button-${editable.id}`)).toBeEnabled()
+      expect(screen.getByTestId(`role-permissions-button-${editable.id}`)).toBeEnabled()
+    })
+  })
+
   it('GIVEN isLoading is true WHEN rendering THEN should show loading state', async () => {
-    const screen = render(<RoleTable roles={[]} isLoading={true} error={null} />)
+    const screen = render(
+      <RoleTable roles={[]} isLoading={true} error={null} canManage canManagePermissions />
+    )
 
     expect(screen.getByText('Loading roles...')).toBeInTheDocument()
   })
@@ -187,7 +262,9 @@ describe('RoleTable', () => {
   })
 
   it('GIVEN roles array is empty WHEN rendering THEN should show empty state', async () => {
-    const screen = render(<RoleTable roles={[]} isLoading={false} error={null} />)
+    const screen = render(
+      <RoleTable roles={[]} isLoading={false} error={null} canManage canManagePermissions />
+    )
 
     expect(
       screen.getByText('No roles found. Create your first role to get started.')

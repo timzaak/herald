@@ -768,7 +768,7 @@ mod tests {
     }
 
     /// User Story: US-MWGR-001, US-MWGR-004
-    /// Source: `.ai/user-stories/billing/multi-wallet-grant-rules.md`
+    /// Source: `docs/user-stories/billing/multi-wallet-grant-rules.md`
     /// Covers: Mapping rule collection CRUD/batch semantics, validation,
     /// tenant isolation, and the billing/points permission overlay.
     #[test_context(EntitlementTestContext)]

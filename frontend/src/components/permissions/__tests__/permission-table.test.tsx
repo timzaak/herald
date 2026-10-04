@@ -69,7 +69,9 @@ describe('PermissionTable', () => {
   })
 
   it('GIVEN permission table is rendered WHEN user clicks edit button THEN should open edit dialog', async () => {
-    render(<PermissionTable permissions={mockPermissions} isLoading={false} error={null} />)
+    render(
+      <PermissionTable permissions={mockPermissions} isLoading={false} error={null} canManage />
+    )
 
     const editButton = document.querySelector(
       '[data-testid="permission-edit-button-1"]'
@@ -86,6 +88,7 @@ describe('PermissionTable', () => {
         permissions={mockPermissions.filter((p) => !p.isBuiltin)}
         isLoading={false}
         error={null}
+        canManage
       />
     )
 
@@ -99,7 +102,9 @@ describe('PermissionTable', () => {
   })
 
   it('GIVEN permission is builtin WHEN rendering THEN should not show delete button', async () => {
-    render(<PermissionTable permissions={mockPermissions} isLoading={false} error={null} />)
+    render(
+      <PermissionTable permissions={mockPermissions} isLoading={false} error={null} canManage />
+    )
 
     // Builtin permission with id '2' should not have delete button
     const deleteButton = document.querySelector('[data-testid="permission-delete-button-2"]')
@@ -108,7 +113,7 @@ describe('PermissionTable', () => {
 
   it('GIVEN builtin permission WHEN rendering THEN should not show edit button', async () => {
     const screen = render(
-      <PermissionTable permissions={mockPermissions} isLoading={false} error={null} />
+      <PermissionTable permissions={mockPermissions} isLoading={false} error={null} canManage />
     )
 
     expect(screen.queryByTestId('permission-edit-button-2')).toBeNull()
@@ -120,6 +125,7 @@ describe('PermissionTable', () => {
         permissions={mockPermissions.filter((p) => !p.isBuiltin)}
         isLoading={false}
         error={null}
+        canManage
       />
     )
 
@@ -127,15 +133,56 @@ describe('PermissionTable', () => {
     expect(editButton).toBeEnabled()
   })
 
+  describe('button-level permission gating (permissions.md §6)', () => {
+    it('GIVEN view-only access (canManage false) WHEN rendering THEN edit and delete buttons render but are disabled', () => {
+      // INTENT (permissions.md §6): "仅有 view 权限时管理按钮不可用" — a
+      // delegated admin with only permissions.view must still see the list,
+      // but every write affordance must be inert; the backend 403 is the
+      // backstop, not the only line of defense.
+      const screen = render(
+        <PermissionTable
+          permissions={mockPermissions.filter((p) => !p.isBuiltin)}
+          isLoading={false}
+          error={null}
+          canManage={false}
+        />
+      )
+
+      expect(screen.getByTestId('permission-edit-button-1')).toBeDisabled()
+      expect(screen.getByTestId('permission-delete-button-1')).toBeDisabled()
+    })
+
+    it('GIVEN manage access WHEN rendering THEN edit and delete buttons are enabled', () => {
+      const screen = render(
+        <PermissionTable
+          permissions={mockPermissions.filter((p) => !p.isBuiltin)}
+          isLoading={false}
+          error={null}
+          canManage
+        />
+      )
+
+      expect(screen.getByTestId('permission-edit-button-1')).toBeEnabled()
+      expect(screen.getByTestId('permission-delete-button-1')).toBeEnabled()
+    })
+  })
+
   it('GIVEN isLoading is true WHEN rendering THEN should show loading state', async () => {
-    const screen = render(<PermissionTable permissions={[]} isLoading={true} error={null} />)
+    const screen = render(
+      <PermissionTable permissions={[]} isLoading={true} error={null} canManage />
+    )
 
     expect(screen.getByText('Loading permissions...')).toBeInTheDocument()
   })
 
   it('GIVEN error is provided WHEN rendering THEN should show error state', async () => {
     const screen = render(
-      <PermissionTable permissions={[]} isLoading={false} error={new Error('Failed to load')} />
+      <PermissionTable
+        permissions={[]}
+        isLoading={false}
+        error={new Error('Failed to load')}
+        canManage
+      />
     )
 
     expect(
@@ -144,7 +191,9 @@ describe('PermissionTable', () => {
   })
 
   it('GIVEN permissions array is empty WHEN rendering THEN should show empty state', async () => {
-    const screen = render(<PermissionTable permissions={[]} isLoading={false} error={null} />)
+    const screen = render(
+      <PermissionTable permissions={[]} isLoading={false} error={null} canManage />
+    )
 
     expect(
       screen.getByText('No permissions found. Create your first permission to get started.')
@@ -167,6 +216,7 @@ describe('PermissionTable', () => {
         permissions={[permissionWithoutDescription]}
         isLoading={false}
         error={null}
+        canManage
       />
     )
 

@@ -11,8 +11,8 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| US-PP-001 | 配置支付平台（含配置 Stripe Webhook 端点，场景 2 涵盖） | P0 | `docs/user-stories/billing/payment-provider.md` |
-| US-PP-002 | 查看支付平台配置 | P0 | `docs/user-stories/billing/payment-provider.md` |
+| US-PV-001 | 配置支付平台（含配置 Stripe Webhook 端点，场景 2 涵盖）——US-PP-001 已由支付平台产品管理取代 | P0 | `docs/user-stories/billing/payment-provider.md` |
+| US-PV-002 | 查看支付平台配置——US-PP-002 已由支付平台产品管理取代 | P0 | `docs/user-stories/billing/payment-provider.md` |
 | — | 使用 Stripe 支付订阅（通过 Stripe Checkout 实现，不在 Herald 前端） | — | — |
 | — | 管理支付方式（通过 Stripe Customer Portal 实现，不在 Herald 前端） | — | — |
 

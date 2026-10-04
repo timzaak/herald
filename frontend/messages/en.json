@@ -2415,6 +2415,8 @@
     "insufficient_alert": "Total available < amount; transaction rejected, no partial deduction.",
     "empty_state": "No subscription or top-up balance yet. Subscribe or purchase a top-up package and the balance will appear immediately.",
     "balance_pool": "Points",
+    "expires_at_label": "Earliest expiry: {date}",
+    "expires_at_never": "No expiry",
     "quota_editor_title": "Quota Windows",
     "quota_editor_add_window": "Add Window",
     "quota_editor_window_length": "Window Length",

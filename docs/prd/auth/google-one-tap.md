@@ -12,9 +12,9 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| US-OT-001 | 通过 One Tap 在第三方应用一键登录 | P0 | 候选来源 `.ai/user-stories/auth/google-one-tap.md`（待发布到 `docs/user-stories/`） |
-| US-OT-002 | 第三方应用集成 One Tap | P0 | 候选来源 `.ai/user-stories/auth/google-one-tap.md`（待发布到 `docs/user-stories/`） |
-| US-OT-003 | One Tap 用户与已有账号关联 | P1 | 候选来源 `.ai/user-stories/auth/google-one-tap.md`（待发布到 `docs/user-stories/`） |
+| US-OT-001 | 通过 One Tap 在第三方应用一键登录 | P0 | `docs/user-stories/auth/google-one-tap.md` |
+| US-OT-002 | 第三方应用集成 One Tap | P0 | `docs/user-stories/auth/google-one-tap.md` |
+| US-OT-003 | One Tap 用户与已有账号关联 | P1 | `docs/user-stories/auth/google-one-tap.md` |
 | US-RU-003 | OAuth 第三方登录 | P1 | `docs/user-stories/core/regular-user.md` |
 | US-TP-001 | OAuth 授权码登录 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-015 | 第三方 Web SPA 发起 SSO 登录 | P1 | `docs/user-stories/auth/third-party-app.md` |

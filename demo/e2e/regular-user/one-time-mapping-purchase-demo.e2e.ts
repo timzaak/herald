@@ -9,7 +9,6 @@
  *   demo/e2e/live/billing/one-time-mapping-purchase/us-pu-006-one-time-purchase-live.e2e.ts
  *
  * Uses Demo Seed data (realm-001 with pre-configured one-time entitlement mappings).
- * Per spec/demo/e2e-testing.md Section 8: no admin data creation in tests.
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'

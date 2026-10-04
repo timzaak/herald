@@ -11,17 +11,17 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| US-BM-001 | 配置买断商品映射 | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-NR-001 | 配置非续期订阅映射 | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-NR-002 | 管理非续期订阅（区分计费类型与截止时间） | P1 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-BM-002 | 购买卖断商品 | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-BM-003 | 恢复买断购买 | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-NR-003 | 购买非续期订阅 | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-BM-004 / US-NR-004 | 查询权益（买断与非续期订阅） | P1 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-BM-005 | 退款或撤销买断（整笔退款/撤销回收支付来源角色） | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-NR-005 | 处理非续期订阅生命周期（到期失效、退款提前回收、Apple 到期缺口） | P0 | [../../user-stories/billing/pay_model.md](../../user-stories/billing/pay_model.md) |
-| US-IAP-001～006 | IAP 渠道配置、凭证提交和对账基础能力 | — | [../../user-stories/billing/support-iap.md](../../user-stories/billing/support-iap.md) |
-| US-PW-001～006 | 支付来源角色授予、撤销和重复购买边界 | — | [../../user-stories/billing/support-paywall.md](../../user-stories/billing/support-paywall.md) |
+| US-BM-001 | 配置买断商品映射 | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-NR-001 | 配置非续期订阅映射 | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-NR-002 | 管理非续期订阅（区分计费类型与截止时间） | P1 | `docs/user-stories/billing/pay_model.md` |
+| US-BM-002 | 购买卖断商品 | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-BM-003 | 恢复买断购买 | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-NR-003 | 购买非续期订阅 | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-BM-004 / US-NR-004 | 查询权益（买断与非续期订阅） | P1 | `docs/user-stories/billing/pay_model.md` |
+| US-BM-005 | 退款或撤销买断（整笔退款/撤销回收支付来源角色） | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-NR-005 | 处理非续期订阅生命周期（到期失效、退款提前回收、Apple 到期缺口） | P0 | `docs/user-stories/billing/pay_model.md` |
+| US-IAP-001～006 | IAP 渠道配置、凭证提交和对账基础能力 | — | `docs/user-stories/billing/support-iap.md` |
+| US-PW-001～006 | 支付来源角色授予、撤销和重复购买边界 | — | `docs/user-stories/billing/support-paywall.md` |
 
 ---
 

@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge'
-import { Wallet } from 'lucide-react'
-import type { DerivedBucketCard } from './user-points-view'
+import { CalendarClock, Wallet } from 'lucide-react'
+import { formatPoolExpiry, type DerivedBucketCard } from './user-points-view'
 import { m } from '@/paraglide/messages'
 
 interface PointsBalanceCardProps {
@@ -56,6 +56,13 @@ export function PointsBalanceCard({ card, loading }: PointsBalanceCardProps) {
           data-testid={`points-balance-total-${card.bucketId ?? ''}`}
         >
           {(card.spendableFromPool ?? 0).toLocaleString()}
+        </div>
+        <div
+          className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
+          data-testid={`points-balance-expiry-${card.bucketId ?? ''}`}
+        >
+          <CalendarClock className="h-3.5 w-3.5" />
+          {formatPoolExpiry(card.expiresAt)}
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {BALANCES_BY_TYPE_KEYS.map((typeKey) => {

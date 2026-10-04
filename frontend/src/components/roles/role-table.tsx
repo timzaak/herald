@@ -23,9 +23,27 @@ interface RoleTableProps {
   roles: RoleResponse[]
   isLoading: boolean
   error: unknown
+  /**
+   * `roles.manage` gate (permissions.md §6 按钮级控制): with view-only access
+   * the list still renders but the create/edit/delete actions stay disabled.
+   */
+  canManage: boolean
+  /**
+   * `policies.manage` gate for the role→permission association dialog
+   * (permissions.md §4.2: adding a permission to a role requires
+   * `policies.manage` plus grantor self-hold — view-only callers must not be
+   * able to open the write surface).
+   */
+  canManagePermissions: boolean
 }
 
-export function RoleTable({ roles, isLoading, error }: RoleTableProps) {
+export function RoleTable({
+  roles,
+  isLoading,
+  error,
+  canManage,
+  canManagePermissions,
+}: RoleTableProps) {
   const realmId = useRealmId()
   const editDialog = useDialogManager<RoleResponse>()
   const deleteDialog = useDialogManager<RoleResponse>()
@@ -148,6 +166,7 @@ export function RoleTable({ roles, isLoading, error }: RoleTableProps) {
                     size="sm"
                     className="gap-1"
                     onClick={() => handleManagePermissions(role)}
+                    disabled={!canManagePermissions}
                     data-testid={`role-permissions-button-${role.id}`}
                   >
                     <Shield className="h-3 w-3" />
@@ -160,6 +179,7 @@ export function RoleTable({ roles, isLoading, error }: RoleTableProps) {
                       variant="ghost"
                       size="icon"
                       onClick={() => handleEdit(role)}
+                      disabled={!canManage}
                       data-testid={`role-edit-button-${role.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -169,6 +189,7 @@ export function RoleTable({ roles, isLoading, error }: RoleTableProps) {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDelete(role)}
+                        disabled={!canManage}
                         data-testid={`role-delete-button-${role.id}`}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />

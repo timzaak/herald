@@ -32,9 +32,19 @@ interface PermissionTableProps {
   permissions: PermissionResponse[]
   isLoading: boolean
   error: unknown
+  /**
+   * `permissions.manage` gate (permissions.md §6 按钮级控制): with view-only
+   * access the list still renders but every write action stays disabled.
+   */
+  canManage: boolean
 }
 
-export function PermissionTable({ permissions, isLoading, error }: PermissionTableProps) {
+export function PermissionTable({
+  permissions,
+  isLoading,
+  error,
+  canManage,
+}: PermissionTableProps) {
   const editDialog = useDialogManager<PermissionResponse>()
   const deleteDialog = useDialogManager<PermissionResponse>()
 
@@ -139,6 +149,7 @@ export function PermissionTable({ permissions, isLoading, error }: PermissionTab
                           variant="ghost"
                           size="icon"
                           onClick={() => handleEdit(permission)}
+                          disabled={!canManage}
                           data-testid={`permission-edit-button-${permission.id}`}
                         >
                           <Edit className="h-4 w-4" />
@@ -147,6 +158,7 @@ export function PermissionTable({ permissions, isLoading, error }: PermissionTab
                           variant="ghost"
                           size="icon"
                           onClick={() => handleDelete(permission)}
+                          disabled={!canManage}
                           data-testid={`permission-delete-button-${permission.id}`}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />

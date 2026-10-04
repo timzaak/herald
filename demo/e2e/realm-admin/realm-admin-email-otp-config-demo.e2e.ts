@@ -21,18 +21,16 @@
  * tab 内的 EmailConfigForm。SettingsPage.switchToEmailOtpTab() 因此先切到
  * `email-tab` 再等待 `email-otp-section` 可见。
  *
- * 所有交互均通过 SettingsPage 的 Email-OTP 方法驱动（DE-D01 交付），
+ * 所有交互均通过 SettingsPage 的 Email-OTP 方法驱动，
  * 不在本文件内内联任何 data-testid 字符串。
  *
  * NOT-COVERED（显式声明）: US-EO-003 场景 4（跨 Realm 403 守卫）在本 Demo
  * 中不覆盖。原因：需要一个稳定可用的第二 Realm + 管理员，且需验证
  * `GET /api/realms/{otherRealm}/config/email-otp` 在跨 Realm 访问时稳定返回
  * 403；这些运行时前提无法在编译期确认（本项为 compile-only，不执行测试）。
- * 该场景由后端测试 BE-T01 覆盖，DE-D04/DE-A01 验收时亦不重复执行。
+ * 该场景由后端测试覆盖，验收时亦不重复执行。
  *
- * @see .ai/user-stories/auth/email-otp-login.md (DRAFT — 引用为草稿，非已发布)
- * @see .ai/design/email-otp-login.md
- * @see .ai/task/email-otp-login/demo/dev/DE-D03-admin-email-otp-config-demo.md
+ * @see docs/user-stories/auth/email-otp-login.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
@@ -47,7 +45,7 @@ test.describe('[Realm Admin] Email-OTP 配置综合演示测试', () => {
 
   test.afterEach(async ({ page }) => {
     // Best-effort: 关闭 Email-OTP，保证该 Realm 在本测试结束后处于
-    // OTP-off 状态，避免影响其它 Demo（例如 DE-D02 登录流程）。
+    // OTP-off 状态，避免影响其它 Demo（例如 email-otp 登录流程）。
     // resetEmailOtpConfig 内部已 try/catch，不会硬失败本测试。
     if (settingsPage) {
       await settingsPage.resetEmailOtpConfig()
@@ -216,6 +214,6 @@ test.describe('[Realm Admin] Email-OTP 配置综合演示测试', () => {
       })
     })
 
-    // NOT-COVERED: US-EO-003 场景 4（跨 Realm 403 守卫）— 见文件头声明，依赖 BE-T01。
+    // NOT-COVERED: US-EO-003 场景 4（跨 Realm 403 守卫）— 见文件头声明，由后端测试覆盖。
   })
 })

@@ -17,8 +17,7 @@
 | US-TP-003 | 检查用户权限 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-006 | 处理异常情况 | P1 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-007 | 会话管理 | P1 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-008 | 第三方 API 认证 | P0 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-009 | 查询订阅状态 | P0 | `docs/user-stories/auth/third-party-app.md` |
+| US-BI-007 | 第三方应用查询订阅状态（SDK 集成） | P0 | `docs/user-stories/billing/subscription.md` |
 | US-TP-015 | 第三方 Web SPA 发起 SSO 登录 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-016 | 第三方后端用授权码换取令牌 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-RU-008 | 访问第三方应用 | P0 | `docs/user-stories/core/regular-user.md` |

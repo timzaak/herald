@@ -141,7 +141,7 @@
 | `DEC-openid-connect-006` | Applied | 签名密钥模型 | RS256、平台级密钥（Realm 无关）；私钥密文静态存储；启动自举首把密钥；内部运维端点轮换；7 天重叠期；JWKS 发布 Active 与未到期 Retained | §4.1、§4.2 |
 | `DEC-openid-connect-007` | Applied | 令牌共存 | 不引入新令牌类型：id_token 为既有令牌响应的增量字段（仅 openid 语义时出现）；userinfo 复用既有浏览器访问令牌认证链；nonce 透传回显 | §2.1、§4.1 |
 
-> 追溯说明：`DEC-openid-connect-002`（旧接入边界）、`DEC-openid-connect-003`（旧重启条件）已被 `DEC-openid-connect-004` 取代，不作为当前事实；完整决策账本见 `.ai/decision-log/openid-connect.md`（工作流内部追溯件）。
+> 追溯说明：`DEC-openid-connect-002`（旧接入边界）、`DEC-openid-connect-003`（旧重启条件）已被 `DEC-openid-connect-004` 取代，不作为当前事实；完整决策账本见 `docs/decisions/openid-connect.md`（工作流内部追溯件）。
 
 ---
 

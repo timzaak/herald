@@ -15,9 +15,6 @@
  * - Phase 3: 禁用 TOTP 功能（平滑降级）
  * - Phase 4: 启用强制 TOTP 模式
  * - Phase 5: Super Admin 跨 Realm 访问验证（正面案例）
- *
- * @see ../../../spec/demo/e2e-testing.md
- * @see .ai/design/realm-config-frontend-and-demo.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'

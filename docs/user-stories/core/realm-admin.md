@@ -29,8 +29,9 @@ And 我可以管理这些用户
 ```gherkin
 Given 我是 realm-1 的管理员
 When 我尝试访问 realm-2 的用户管理页面
-Then 系统拒绝访问并显示权限不足提示
-And 显示错误消息："Access denied: You do not have permission to access this realm"
+Then 系统按"目标不存在"处理，页面提示未找到
+And 响应不泄露 realm-2 或其用户是否存在
+And 不出现区分"无权限"与"不存在"的错误消息
 ```
 
 ---
@@ -125,6 +126,23 @@ And 列表包含默认权限
 And 列表包含我创建的自定义权限
 ```
 
+**场景 3：删除或改名仍被引用的权限被拒绝**
+```gherkin
+Given 我是 realm-1 的管理员
+And 权限 users.delete 已分配给某个角色
+When 我尝试删除该权限定义或修改其 resource/action
+Then 系统拒绝该操作并提示权限仍被引用
+And 该权限不再被任何角色引用后，删除可以成功
+And 权限的描述（description）可以随时修改
+```
+
+**场景 4：通配符权限被拒绝**
+```gherkin
+Given 我是 realm-1 的管理员
+When 我尝试创建 resource 或 action 为通配符（All 或 *）的权限定义
+Then 系统拒绝创建并提示不允许通配符权限
+```
+
 ---
 
 ### 故事 4：为角色分配权限 [US-RA-004]
@@ -195,6 +213,15 @@ And 已存在角色 "user-and-client-admin"
 When 我为该角色仅分配 "users.manage" 权限
 Then 该角色仅拥有 users 资源的完整权限
 And 该角色不能访问其他资源（如 clients）的管理操作
+```
+
+**场景 7：授予方必须自持被授予的权限（防提权）**
+```gherkin
+Given 我是 realm-1 的管理员 A，持有 users.manage 但不持有 billing.manage
+And 已存在角色 "finance"
+When 我尝试为 "finance" 角色分配 billing.manage 权限
+Then 系统拒绝该操作并提示权限不足
+And 我无法通过授权操作获得自身不持有的权限
 ```
 
 ---

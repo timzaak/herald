@@ -4,7 +4,6 @@
  * Encapsulates dashboard page operations including stats cards,
  * auth trend chart, quick navigation, and error state handling.
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect } from '@playwright/test'

@@ -18,9 +18,6 @@
  *   for demo tests running against a seed-reset environment.
  * - US-RA-014 test email flow accepts either success or error outcome (demo env
  *   may not have real SMTP).
- *
- * @see ../../../spec/demo/e2e-testing.md
- * @see .ai/design/realm-email-config.md
  */
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'

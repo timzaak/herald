@@ -13,8 +13,9 @@ backend/
 ├── domain/              # 领域层 — 纯业务逻辑，零外部依赖
 ├── infra/               # 基础设施层 — 数据库、Redis、第三方 API 的具体实现
 ├── infra-creem/         # Creem 支付集成
+├── infra-iap/           # 内购集成（Apple App Store / Google Play）
 ├── infra-stripe/        # Stripe 支付集成
-├── infra-shopify/       # Shopify 集成
+├── infra-wechatpay/     # 微信支付集成
 ├── core/                # 组装层 — 依赖注入、ApplicationService Builder
 ├── api/                 # 主 API crate（Axum 路由注册、中间件、AppState）
 ├── api-base/            # 共享 API 工具（AppState 定义、通用 HTTP 工具）
@@ -22,16 +23,17 @@ backend/
 ├── api-admin/           # 管理后台 handler（用户管理、角色、权限定义）
 ├── api-auth/            # 认证 handler（注册、登录、密码重置）
 ├── api-ext/             # 外部 API handler（API Key 认证，供第三方调用）
+├── api-mcp/             # MCP server 端点（面向 agent 的只读查询）
 ├── api-oauth/           # OAuth handler（GitHub/Google/微信登录）
 ├── api-points/          # 积分 handler（余额查询、消费、充值）
 ├── worker/              # 后台任务（积分过期、积分预发放、发票逾期标记）
 ├── app/                 # 入口（main.rs、数据库迁移）
-├── sdk/                 # 发布给第三方用的 Rust SDK crate
 ├── test-db/             # 测试数据库工具（testcontainers）
 ├── test-support/        # 测试辅助
 └── integration-tests/   # 集成测试
 
 frontend/                # React 管理前端
+sdk/                     # 面向第三方集成方的 SDK（rust/、node/、web/）
 docker/                  # Dockerfile
 ```
 
@@ -116,7 +118,7 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 - `authorization/` — `RedisPermissionChecker`，权限缓存
 - `billing/` — 发票 PDF 生成（IronPress）、加密密钥管理
 
-支付渠道客户端是独立的 crate（`infra-creem`、`infra-stripe`、`infra-shopify`），不放在主 `infra` 里。原因是避免引入不需要的 provider SDK 依赖——如果你只用 Stripe，不会把 Shopify 的 SDK 也编译进去。
+支付渠道客户端是独立的 crate（`infra-creem`、`infra-iap`、`infra-stripe`、`infra-wechatpay`），不放在主 `infra` 里。原因是避免引入不需要的 provider SDK 依赖——如果你只用 Stripe，不会把微信支付的 SDK 也编译进去。
 
 ### core — 组装层
 
@@ -127,7 +129,7 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 
 ### api 系列 — HTTP 接口
 
-8 个 crate 组成 API 层：
+9 个 crate 组成 API 层：
 
 | Crate | 职责 | 认证方式 |
 |-------|------|---------|
@@ -138,6 +140,7 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 | `api-billing` | 积分账户目录、Entitlement 映射、订阅投影、支付 webhook（Stripe/Creem）、发票、一次性购买 | 混合 |
 | `api-oauth` | OAuth 登录（GitHub/Google/微信）、Device Code Grant（RFC 8628）、OAuth 配置管理 | 混合 |
 | `api-ext` | 第三方 API：权限检查、订阅查询、积分余额和消费，按 API Key 绑定的 Client App 隔离 | API Key |
+| `api-mcp` | 面向 AI agent 客户端的 MCP server：基于 ext 面的只读查询（用户、积分余额/流水、审计日志、realm 配置状态） | API Key |
 | `api-points` | 积分余额、交易历史、消费、充值 | Bearer token 或 API Key |
 
 `api` crate 的 `create_api_routes()` 是路由注册的唯一入口。它把子 crate 的路由 `nest` 到统一前缀下，挂上 `inject_identity` 中间件。每个子 crate 独立定义自己的 `ApiDoc`（utoipa OpenApi spec），最后在 `build_openapi_spec()` 里 merge 成一份完整的 OpenAPI 文档。

@@ -6,6 +6,8 @@ import { RoleTable } from '@/components/roles/role-table'
 import { CreateRoleDialog } from '@/components/roles/create-role-dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { PageHeader } from '@/components/shared'
+import { usePermission } from '@/hooks/use-permission'
+import { PERMISSION } from '@/lib/constants/auth-constants'
 import { useState } from 'react'
 import { m } from '@/paraglide/messages'
 
@@ -16,6 +18,11 @@ export const Route = createFileRoute('/$realmId/manage/roles')({
 export function RolesPage() {
   const realmId = useRealmId()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  // permissions.md §6 按钮级控制：仅有 roles.view 时创建按钮不出现、表格写操作
+  // 不可用；角色权限关联对话框按 §4.2 由 policies.manage 单独门控。
+  const { hasPermission } = usePermission()
+  const canManage = hasPermission(PERMISSION.ROLES_MANAGE)
+  const canManagePermissions = hasPermission(PERMISSION.POLICIES_MANAGE)
 
   const {
     data: roles,
@@ -34,12 +41,19 @@ export function RolesPage() {
           label: m['roles.add_button'](),
           onClick: () => setCreateDialogOpen(true),
           testId: 'role-create-button',
+          show: canManage,
         }}
       />
 
       <Card>
         <CardContent className="pt-6">
-          <RoleTable roles={roles ?? []} isLoading={isLoading} error={error} />
+          <RoleTable
+            roles={roles ?? []}
+            isLoading={isLoading}
+            error={error}
+            canManage={canManage}
+            canManagePermissions={canManagePermissions}
+          />
         </CardContent>
       </Card>
 

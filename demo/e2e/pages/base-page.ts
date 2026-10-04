@@ -4,7 +4,6 @@
  * Provides common functionality for all Page Objects.
  * Encapsulates page navigation, loading state waiting, and element state helpers.
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect } from '@playwright/test'

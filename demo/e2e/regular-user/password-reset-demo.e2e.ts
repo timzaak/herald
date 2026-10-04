@@ -16,7 +16,6 @@
  * backend is fetched directly from the `email_verification_code` table via
  * helpers/reset-password-db-helper.ts.
  *
- * Compliance: spec/demo/e2e-testing.md — UI interactions drive the flow; the
  * database helper only reads the code that the email link would carry.
  */
 

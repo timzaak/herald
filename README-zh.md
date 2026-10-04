@@ -27,9 +27,9 @@ Herald 不只是认证服务。它在同一套代码中把身份、支付、权�
 
 | 领域 | 已包含的能力 |
 |------|--------------|
-| **多租户身份** | 相互隔离的 Realm、邮箱密码、Google、GitHub、Apple、Facebook 和微信登录、Passkey、TOTP 双因素认证、人机验证 |
+| **多租户身份** | 相互隔离的 Realm、邮箱密码与邮箱验证码登录、Google、GitHub、Apple、Facebook、微信、Discord 和 LDAP 登录、Passkey、TOTP 双因素认证、OpenID Connect 身份层、人机验证 |
 | **授权与应用** | Realm 级 RBAC、客户端应用、API Key、OAuth 2.0、设备授权、跨应用单点登录 |
-| **计费与支付** | Stripe、Creem、WeChat Pay，App Store / Google Play 内购，订阅、一次性购买、发票、支付到权益的映射、开箱即用的付费墙 |
+| **计费与支付** | Stripe、Creem、WeChat Pay，App Store / Google Play 内购，订阅、一次性购买、多币种定价、发票、支付到权益的映射、支付与积分消耗统计、开箱即用的付费墙 |
 | **积分与用量** | 预付余额、充值、退款、过期、用户账本、积分发放、多时间窗滚动配额 |
 | **后台与运营** | 用户、角色、计费、积分、应用、租户设置、审计轨迹和账号生命周期管理 |
 | **产品定制** | 自定义域名、白标品牌、交易邮件、版本化用户协议、API 文档和 SDK |

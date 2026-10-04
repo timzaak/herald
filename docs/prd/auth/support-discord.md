@@ -123,8 +123,8 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-support-discord-001` | Applied | scope.discord-provider | 支持 Discord OAuth 登录：作为第 5 个通用跳转式 OAuth Provider 接入既有链路，复用配置管理、四层身份匹配与全部门控；不新增专属流程、路由、依赖或迁移 | §2 / §4 | `.ai/decision-log/support-discord.md` |
-| `DEC-openid-connect-001` | Not Applicable | Herald 定位边界（SaaS 底座 vs 完整身份平台的 OIDC 能力范围） | 该决策不约束社交登录 provider 数量与接入；新增跳转式 provider 属既有能力范围内的按需扩展，不触及定位边界 | — | `.ai/decision-log/openid-connect.md` |
+| `DEC-support-discord-001` | Applied | scope.discord-provider | 支持 Discord OAuth 登录：作为第 5 个通用跳转式 OAuth Provider 接入既有链路，复用配置管理、四层身份匹配与全部门控；不新增专属流程、路由、依赖或迁移 | §2 / §4 | `docs/decisions/support-discord.md` |
+| `DEC-openid-connect-001` | Not Applicable | Herald 定位边界（SaaS 底座 vs 完整身份平台的 OIDC 能力范围） | 该决策不约束社交登录 provider 数量与接入；新增跳转式 provider 属既有能力范围内的按需扩展，不触及定位边界 | — | `docs/decisions/openid-connect.md` |
 
 > 邮箱验证透传、email 缺失显式拒绝、默认 Scopes、不做 scope 白名单校验等为已发布规则（[oauth.md](oauth.md) §4.1）与技术预研结论在 Discord 上的落实，属 agent 授权的工程取舍，未达账本入账门槛，记录于 §2 / §4。
 
@@ -134,6 +134,6 @@
 
 - 正式 PRD 基线：[oauth.md](oauth.md)（通用跳转式 Provider 链路、四层匹配、门控语义）
 - 技术预研：`.ai/tech-research/support-discord.md`（端点对接、scope 语义、身份/邮箱/头像映射、email 拒绝、测试影响）
-- 决策账本：`.ai/decision-log/support-discord.md`
+- 决策账本：`docs/decisions/support-discord.md`
 - 外部参考：Discord Developer Documentation — OAuth2 与 Users Resource（授权/token 端点、客户端认证、scope 与用户字段语义）
 - 用户故事来源见 §1

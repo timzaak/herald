@@ -18,7 +18,7 @@
 //   - active Manual Credit Note blocks voiding (409)
 //   - only-voided Credit Notes do not block voiding (void succeeds)
 //
-// User Story: docs/user-stories/billing/invoice-fallback.md, .ai/user-stories/billing/notes.md
+// User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
 // Covers: US-IF-010, US-IF-008, void guard (active refund credit notes block invoice voiding)
 //
 // =============================================================================
@@ -636,7 +636,7 @@ mod tests {
     // =========================================================================
     // Test: Void Blocked When Active Credit Note Exists (design notes.md §5.2)
     // =========================================================================
-    // User Story: .ai/user-stories/billing/notes.md
+    // User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
     // Covers: void guard -- active refund credit notes block invoice voiding
     //
     // Rationale: voiding an invoice that still carries an active refund would
@@ -730,7 +730,7 @@ mod tests {
     // =========================================================================
     // Test: Void Allowed When Only Voided Credit Notes Exist (design notes.md §5.2)
     // =========================================================================
-    // User Story: .ai/user-stories/billing/notes.md
+    // User Story: docs/user-stories/billing/invoice-fallback.md (US-IF-007~011)
     // Covers: void guard -- only-voided (historical, reversed) credit notes do
     //         NOT block invoice voiding
     //

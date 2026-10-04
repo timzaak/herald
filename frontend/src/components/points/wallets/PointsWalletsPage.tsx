@@ -22,6 +22,7 @@ import {
 import { useBuckets } from '@/data/use-buckets'
 import type { TransactionFilters } from '@/lib/schemas/points-forms'
 import type { UserDetailResponse, WalletByBucketResponse } from '@/lib/api-generated'
+import { formatPoolExpiry } from '../user-points-view'
 import { DEFAULT_PAGE_SIZE, FILTER_ALL_VALUE } from '@/lib/constants'
 import { PERMISSION } from '@/lib/constants/auth-constants'
 import { PageHeader, ListPagination } from '@/components/shared'
@@ -208,6 +209,13 @@ export function PointsWalletsPage({ realmId }: PointsWalletsPageProps) {
               <span>·</span>
               <span className="truncate">
                 {m['points.transaction_bucket_column']()}: {resolveBucketName(bucketId, row.name)}
+              </span>
+              <span>·</span>
+              <span
+                className="truncate"
+                data-testid={`admin-wallet-row-expiry-${row.userId}-${bucketId}`}
+              >
+                {formatPoolExpiry(row.expiresAt)}
               </span>
               {!enabled && <Badge variant="secondary">{m['points.bucket_card_disabled']()}</Badge>}
             </div>

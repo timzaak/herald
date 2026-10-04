@@ -1,11 +1,8 @@
 /**
  * IAP Provider Configuration Demo (US-IAP-001)
  *
- * DRAFT user story source: .ai/user-stories/billing/support-iap.md
+ * User story source: docs/user-stories/billing/support-iap.md
  *   - US-IAP-001 (P0): Configure IAP payment channel credentials
- * Design: .ai/design/support-iap.md
- *   - §6.2 (demo scope — management path)
- *   - §4.4 (provider config form testids)
  *
  * Coverage:
  *   - S1: Apple App Store — create, edit keeps the .p8 secret, delete.
@@ -16,7 +13,7 @@
  *     The demo env has no active IAP subscriptions, so the 409 `delete-conflict`
  *     branch (DeleteConfirmDialog renders an active-sub count + Cancel-only
  *     footer; no `delete-confirm-button`) cannot be exercised via the UI. That
- *     branch is covered by backend tests (BE-T01/T02). Do NOT mask this gap.
+ *     branch is covered by backend tests. Do NOT mask this gap.
  *
  * Assertion discipline:
  *   - Assertions land on PERSISTENT state (provider row testids, the
@@ -30,7 +27,7 @@
  *     tests MUST NOT call `logger.finalize()` manually.
  *   - `afterEach` runs `cleanupTestData(page, 'admin', { timestamp })`.
  *
- * Runner (DE-D03 executes; this item is compile-only):
+ * Runner (this demo is compile-only):
  *   uv run scripts/demo-test-runner.py \
  *     "demo/e2e/billing-admin/iap-provider-config-demo.e2e.ts" \
  *     --run-id <RUN_ID> --grep "<test title>" --no-ngrok
@@ -213,10 +210,10 @@ test.describe('US-IAP-001 — IAP provider configuration', () => {
       await demoLogger.testCode.log('Google provider row present post-edit')
     })
 
-    // NOTE: Google is intentionally NOT deleted here. DE-D02 (US-IAP-002 Google
-    // one_time mapping) needs a configured provider; leaving Google configured
-    // provides a stable fixture. DE-D02 creates its own providers in its
-    // beforeAll if it needs a clean state. If DE-D02 only requires Apple, this
-    // Google row can be deleted in a follow-up.
+    // NOTE: Google is intentionally NOT deleted here. The US-IAP-002 Google
+    // one_time mapping demo needs a configured provider; leaving Google
+    // configured provides a stable fixture. That demo creates its own providers
+    // in its beforeAll if it needs a clean state. If it only requires Apple,
+    // this Google row can be deleted in a follow-up.
   })
 })

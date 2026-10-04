@@ -29,6 +29,11 @@ EXCLUDE_DIRS = {
     "__pycache__",
     ".ai",
     "human",
+    # 构建产物与本地工作区（不参与文档链接有效性信号）
+    ".output",
+    ".zcode",
+    "playwright-report",
+    "test-results",
 }
 
 DEFAULT_REPORT_PATH = Path(".ai/check-markdown-links-report.md")

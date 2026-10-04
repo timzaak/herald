@@ -13,7 +13,8 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| — | 管理端支付 + 积分消耗双面板统计页（无专属用户故事文件；立项依据为用户确认的两类统计缺失，见决策账本；验收来源为场景测试 `billing_statistics_scenarios`） | P1 | — |
+| US-BS-001 | 查看支付统计总览 | P1 | `docs/user-stories/billing/billing-statistics.md` |
+| US-BS-002 | 查看积分消耗统计 | P1 | `docs/user-stories/billing/billing-statistics.md` |
 | US-PV-005 | 查看支付平台使用统计——本 PRD 交付其「按渠道分组的成功/失败笔数、成功率、按币种金额」视角；Active Subs、Avg Payment Time 指标不随首版交付（Q-billing-statistics-003，排期另定） | P2 | `docs/user-stories/billing/payment-provider.md` |
 | US-PO-007 | 查看免费用户积分统计——该故事主体为免费用户发放/转化漏斗，不随本 PRD 交付（Q-billing-statistics-003）；本 PRD 的消耗口径（按积分账户分组、按日趋势）与之互补但不重叠 | P1 | `docs/user-stories/billing/points-admin.md` |
 
@@ -109,18 +110,18 @@
 - **统计页（billing 区）**：支付与积分消耗两面板并列，共用「最近 7 天 / 最近 30 天」窗口切换；侧边栏在 billing 区提供入口（DEC-billing-statistics-006）。
 - **支付面板**：成功/失败笔数、成功率（前端派生）、按渠道分组表、按币种金额列表、按日趋势图。
 - **积分面板**：总消耗、有消耗用户数、按积分账户分组表、按日趋势图。
-- **状态反馈**：空窗口呈现全零态而非报错；权限不足的面板给出独立的无权限反馈。
+- **状态反馈**：空窗口呈现全零态而非报错；无对应权限的面板不渲染（也不发起其查询），两面板权限均缺失时页面给出整体无权限反馈。
 - **金额/积分变化**：金额展示始终带币种；缺价渠道的哨兵金额分组如实呈现，不隐藏。
 
 ---
 
 ## 7. 已确认决策
 
-> 以下决策来自决策账本 `.ai/decision-log/billing-statistics.md`。仅记录带稳定 DEC ID 的已确认结论。
+> 以下决策来自决策账本 `docs/decisions/billing-statistics.md`。仅记录带稳定 DEC ID 的已确认结论。
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-billing-statistics-001` | Applied | 范围覆盖 | 一份 PRD 同时覆盖管理端「支付统计」与「积分消耗统计」；不含终端用户自助用量可视化 | §2.1 | `.ai/decision-log/billing-statistics.md` |
+| `DEC-billing-statistics-001` | Applied | 范围覆盖 | 一份 PRD 同时覆盖管理端「支付统计」与「积分消耗统计」；不含终端用户自助用量可视化 | §2.1 | `docs/decisions/billing-statistics.md` |
 | `DEC-billing-statistics-002` | Applied | 支付口径 | 只统计已完结支付尝试；金额按币种分组、任何位置不跨币种相加；按渠道分组；金额以 Herald 快照为准（provider 侧渠道缺可读价时为哨兵 1，CHECK 禁止 0，统计原样累加） | §4.1、§5 | 同上 |
 | `DEC-billing-statistics-003` | Applied | 积分口径 | 以扣减流水为准，按 bucket 分组 + 按日趋势；退款回收/配额撤销/补偿回退均不冲减 | §4.1、§5 | 同上 |
 | `DEC-billing-statistics-004` | Applied | 权限复用 | 支付统计挂 `billing.view`、积分消耗挂 `points.view`；不新增权限项、不挂 `dashboard.view` | §2.1、§4.1、§6 | 同上 |
@@ -132,7 +133,7 @@
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 决策账本：`.ai/decision-log/billing-statistics.md`
+- 决策账本：`docs/decisions/billing-statistics.md`
 - 技术设计：`.ai/design/billing-statistics.md`（及 `.ai/design/billing-statistics/` 分端文档）
 - 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费与统一支付尝试基线；本 PRD 为其 §2.2 延后项的立项）
 - 相关 PRD：`docs/prd/billing/points.md`（积分交易与退款回收口径）

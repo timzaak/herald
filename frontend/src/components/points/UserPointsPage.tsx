@@ -186,6 +186,7 @@ export function UserPointsPage({
               quotaWindows: undefined,
               spendableFromQuota: undefined,
               spendableFromPool: undefined,
+              expiresAt: null,
             }}
             loading
           />
@@ -206,6 +207,7 @@ export function UserPointsPage({
               quotaWindows: undefined,
               spendableFromQuota: undefined,
               spendableFromPool: undefined,
+              expiresAt: null,
             }}
             loading
           />

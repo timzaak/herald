@@ -121,10 +121,10 @@
 
 | Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
 |---|---|---|---|---|---|
-| `DEC-support-mobile-apple-login-001` | Applied | 客户端归属与端点分支 | 端点同时支持第一方（直接 session）与第三方（下游 Code+PKCE）双分支，完全对齐 Google One Tap 形态 | §2.1、§4.1、§6 | `.ai/decision-log/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-002` | Applied | client_secret 范围 | 仅做 native 路径（只校验 identityToken，不调 Apple token 端点、不使用 client_secret）；不修 Apple web redirect 的 JWT client_secret 自动签发缺陷 | §2.2、§4.1、§6 | `.ai/decision-log/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-003` | Applied | 前端范围 | Herald Web SPA 无改动，纯后端能力；iOS App 由接入方自行实现，不在本仓库 | §2.1、§2.2、§6 | `.ai/decision-log/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-005` | Applied | 邮箱缺失建号策略 | Apple identityToken 邮箱为空且 open_id 未命中时，生成 `{sub}@apple.placeholder` 占位邮箱、标记未验证后建号（对齐微信占位邮箱范式）；Apple 中转邮箱作真实邮箱处理；与 Apple web redirect 拒绝建号的行为有意不同 | §4.1、§5 | `.ai/decision-log/support-mobile-apple-login.md` |
+| `DEC-support-mobile-apple-login-001` | Applied | 客户端归属与端点分支 | 端点同时支持第一方（直接 session）与第三方（下游 Code+PKCE）双分支，完全对齐 Google One Tap 形态 | §2.1、§4.1、§6 | `docs/decisions/support-mobile-apple-login.md` |
+| `DEC-support-mobile-apple-login-002` | Applied | client_secret 范围 | 仅做 native 路径（只校验 identityToken，不调 Apple token 端点、不使用 client_secret）；不修 Apple web redirect 的 JWT client_secret 自动签发缺陷 | §2.2、§4.1、§6 | `docs/decisions/support-mobile-apple-login.md` |
+| `DEC-support-mobile-apple-login-003` | Applied | 前端范围 | Herald Web SPA 无改动，纯后端能力；iOS App 由接入方自行实现，不在本仓库 | §2.1、§2.2、§6 | `docs/decisions/support-mobile-apple-login.md` |
+| `DEC-support-mobile-apple-login-005` | Applied | 邮箱缺失建号策略 | Apple identityToken 邮箱为空且 open_id 未命中时，生成 `{sub}@apple.placeholder` 占位邮箱、标记未验证后建号（对齐微信占位邮箱范式）；Apple 中转邮箱作真实邮箱处理；与 Apple web redirect 拒绝建号的行为有意不同 | §4.1、§5 | `docs/decisions/support-mobile-apple-login.md` |
 
 > DEC-004（`verify_apple_id_token` 增加 `jwks_url` 参数、AppState 增加 `apple_jwks_url`）为 D2 工程取舍，属技术设计范畴，不改变产品语义，故不在本 PRD 记录；详见决策账本与技术预研报告。
 
@@ -135,7 +135,7 @@
 - 架构参照 PRD：[Google One Tap 登录](google-one-tap.md)
 - 占位邮箱范式参照 PRD：[微信 OAuth](wechat-oauth.md) §4.1
 - OAuth 第三方登录基线：[OAuth](oauth.md)（§2.1 Apple 作为 web redirect SSO Provider、§4.1 brokered downstream-state redirect）
-- 决策账本：`.ai/decision-log/support-mobile-apple-login.md`
+- 决策账本：`docs/decisions/support-mobile-apple-login.md`
 - 技术预研：`.ai/tech-research/support-mobile-apple-login.md`
 - 角色定义：`docs/user-stories/_roles.md`
 - 用户故事来源见 §1 表格

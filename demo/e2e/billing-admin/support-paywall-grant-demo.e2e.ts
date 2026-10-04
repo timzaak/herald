@@ -7,8 +7,8 @@
  * strategy (points_per_period). Both dimensions can each be empty or set,
  * independently.
  *
- * User Story (DRAFT — source of truth, NOT yet published):
- *   .ai/user-stories/billing/support-paywall.md → US-PW-001
+ * User Story:
+ *   docs/user-stories/billing/support-paywall.md → US-PW-001
  *   - 场景1: recurring mapping + role grant (points untouched → two independent dims)
  *   - 场景2: one_time mapping + role grant with empty points (pure-entitlement config)
  *   - 场景3: role grant and points strategy are orthogonal (clearing one keeps the other)

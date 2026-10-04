@@ -4,7 +4,6 @@
  * Encapsulates login page operations.
  * Provides methods for user authentication.
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect, type Response } from '@playwright/test'

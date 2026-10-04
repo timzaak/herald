@@ -9,9 +9,7 @@
  * Environment Setup:
  * - Demo Seed (scripts/lib/demo_seed.py) ensures registration is enabled for realm-001
  * - Tests verify the UI flow using the pre-configured environment
- * - No direct API calls from tests (per spec/demo/e2e-testing.md)
  *
- * Compliance: spec/demo/e2e-testing.md
  * - All operations go through UI (no direct API calls)
  * - Environment configuration managed by Demo Seed
  * - Tests focus on user interaction verification

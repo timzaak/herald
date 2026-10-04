@@ -2,7 +2,7 @@
  * Mapping distribution-rule editor Demo.
  *
  * Draft user story: US-MWGR-001
- * Source: .ai/user-stories/billing/multi-wallet-grant-rules.md
+ * Source: docs/user-stories/billing/multi-wallet-grant-rules.md
  */
 
 import { expect } from '@playwright/test'

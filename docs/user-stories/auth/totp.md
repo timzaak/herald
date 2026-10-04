@@ -9,7 +9,7 @@
 **优先级**: P0
 
 **【用户故事】**
-**作为**：Realm 管理员（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够为本 Realm 启用或禁用 TOTP 二次认证功能
 **从而**：提升本 Realm 用户账户的安全性
 
@@ -54,7 +54,7 @@ Then 系统提示"权限不足"并拒绝访问
 **优先级**: P0
 
 **【用户故事】**
-**作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Regular User（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够为我的账户启用 TOTP 二次认证
 **从而**：提升账户安全性，防止密码泄露导致账户被盗
 
@@ -120,7 +120,7 @@ Then 显示"Disable TOTP"按钮而非"Enable TOTP"
 **优先级**: P0
 
 **【用户故事】**
-**作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Regular User（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：在登录时能够通过 TOTP 验证码进行二次认证
 **从而**：确保即使密码泄露，账户仍受保护
 
@@ -187,7 +187,7 @@ Then 直接登录成功，无需 TOTP 验证
 **优先级**: P0
 
 **【用户故事】**
-**作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Regular User（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够禁用我的 TOTP 二次认证
 **从而**：在更换设备或不再需要时可以关闭此功能
 
@@ -228,7 +228,7 @@ And TOTP 保持启用状态
 **优先级**: P1
 
 **【用户故事】**
-**作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Regular User（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够重新生成我的 TOTP 密钥和备份恢复码
 **从而**：在丢失验证器应用或备份码时恢复访问
 
@@ -271,7 +271,7 @@ And 验证失败时保留旧密钥（回滚机制）
 **优先级**: P1
 
 **【用户故事】**
-**作为**：Realm 管理员（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够设置本 Realm 强制启用 TOTP
 **从而**：确保所有用户都必须使用二次认证
 
@@ -311,7 +311,7 @@ And 显示 TOTP 启用率
 **优先级**: P2
 
 **【用户故事】**
-**作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**作为**：Regular User（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
 **我希望**：能够查看我的 TOTP 设置和使用情况
 **从而**：了解我的账户安全状态
 

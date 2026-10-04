@@ -15,8 +15,6 @@
  * - Dashboard stats render under dashboard.view
  *
  * @note Uses single browser session pattern (one test with multiple steps)
- * @see ../../../spec/demo/e2e-testing.md#one-browser-session
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'

@@ -2,7 +2,7 @@
 // Scenario Tests: per-bucket query surface
 // =============================================================================
 //
-// Covers design `.ai/design/credit-bucket.md`:
+// Covers:
 //   - response contracts for the per-bucket query endpoints:
 //       * `GET .../points/wallets` → `ListWalletsByBucketResponse`
 //         `{ items: WalletByBucket[], crossBucketTotal }` where each
@@ -808,7 +808,7 @@ async fn points_view_only_user_sees_only_own_wallets(ctx: &mut TestContext) {
 }
 
 /// User Story: US-MWGR-004
-/// Source: `.ai/user-stories/billing/multi-wallet-grant-rules.md`
+/// Source: `docs/user-stories/billing/multi-wallet-grant-rules.md`
 /// Covers: Mapping/Realm rule references, disabled and empty reference states,
 /// and non-leakage from both the user response and its OpenAPI schema.
 #[test_context(TestContext)]

@@ -3,9 +3,6 @@
  *
  * Provides database-level functions to disable TOTP configurations directly.
  * This bypasses the UI and login requirements, useful for test cleanup and reset.
- *
- * @see ../../../spec/demo/e2e-testing.md
- * @see .ai/design/totp-authentication-frontend-and-demo.md
  */
 
 import { Pool, PoolClient, QueryResult } from 'pg'

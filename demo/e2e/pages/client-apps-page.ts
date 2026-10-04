@@ -11,7 +11,6 @@
  * - US-TP-010: Enable/Disable Client App
  * - US-TP-011: Configure Session TTL Policy
  *
- * @see ../../../spec/demo/e2e-testing.md#page-object-model-pom-规范
  */
 
 import { Page, Locator, expect } from '@playwright/test'

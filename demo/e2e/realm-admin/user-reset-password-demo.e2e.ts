@@ -1,7 +1,7 @@
 /**
  * Reset Password Demo Tests
  *
- * User Story: docs/prd/core/users.md
+ * PRD: docs/prd/core/users.md（管理端重置密码规则见 §4.1）
  * - Admin can reset a user's password from the user list
  * - After reset, the new password is displayed in a result dialog
  * - Admin can copy the new password and close the dialog
