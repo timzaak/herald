@@ -128,6 +128,9 @@ vi.mock('sonner', () => ({
     promise: vi.fn(),
     dismiss: vi.fn(),
   },
+  // The root layout renders <Toaster />; render it inert so full-route-tree
+  // tests don't crash on the missing export.
+  Toaster: () => null,
 }))
 
 // Vaul library accesses DOM properties that don't exist in test environment, causing warnings.

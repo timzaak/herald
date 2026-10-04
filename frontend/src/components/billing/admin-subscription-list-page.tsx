@@ -1,4 +1,3 @@
-import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { CreditCard } from 'lucide-react'
@@ -22,6 +21,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader, ListPagination } from '@/components/shared'
 import { subscriptionsQueryOptions } from '@/data/query-options'
+import { useUrlSyncedInput } from '@/hooks/use-url-synced-input'
 import { formatProviderName } from '@/components/billing/format-provider-name'
 import { m } from '@/paraglide/messages'
 import type { SubscriptionListItemResponse, SubscriptionListResponse } from '@/lib/api-generated'
@@ -82,30 +82,38 @@ function formatBillingTypeLabel(billingType: string): string {
   }
 }
 
-interface AdminSubscriptionListPageProps {
-  realmId: string
-  search: {
-    page?: number
-    pageSize?: number
-    entitlementKey?: string
-    status?: string
-    paymentProvider?: string
-  }
+interface SubscriptionListSearch {
+  page?: number
+  pageSize?: number
+  entitlementKey?: string
+  status?: string
+  paymentProvider?: string
 }
 
-export function AdminSubscriptionListPage({ realmId, search }: AdminSubscriptionListPageProps) {
-  const [entitlementKeyFilter, setEntitlementKeyFilter] = useState<string>(
-    search.entitlementKey ?? ''
+interface AdminSubscriptionListPageProps {
+  realmId: string
+  search: SubscriptionListSearch
+  // The URL is the single source of truth for these filters: controls bind
+  // to `search` and every edit is a patch the route navigates with, so deep
+  // links/back-forward always match what the controls show.
+  onSearchChange: (patch: Partial<SubscriptionListSearch>) => void
+}
+
+export function AdminSubscriptionListPage({
+  realmId,
+  search,
+  onSearchChange,
+}: AdminSubscriptionListPageProps) {
+  const [entitlementKeyFilter, setEntitlementKeyFilter] = useUrlSyncedInput(
+    search.entitlementKey ?? '',
+    (value) => onSearchChange({ entitlementKey: value, page: 0 })
   )
-  const [statusFilter, setStatusFilter] = useState<string>(search.status ?? 'all')
-  const [providerFilter, setProviderFilter] = useState<string>(search.paymentProvider ?? 'all')
-  const [page, setPage] = useState(search.page ?? 0)
 
   const filters = {
-    entitlementKey: entitlementKeyFilter || undefined,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-    paymentProvider: providerFilter !== 'all' ? providerFilter : undefined,
-    page,
+    entitlementKey: search.entitlementKey || undefined,
+    status: search.status,
+    paymentProvider: search.paymentProvider,
+    page: search.page ?? 0,
     pageSize: search.pageSize ?? PAGE_SIZE,
   }
 
@@ -117,23 +125,10 @@ export function AdminSubscriptionListPage({ realmId, search }: AdminSubscription
   const subscriptions = data?.items ?? []
   const total = data?.total ?? 0
 
-  const handleStatusFilterChange = useCallback((value: string) => {
-    setStatusFilter(value)
-    setPage(0)
-  }, [])
-
-  const handleProviderFilterChange = useCallback((value: string) => {
-    setProviderFilter(value)
-    setPage(0)
-  }, [])
-
-  const handleEntitlementKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setEntitlementKeyFilter(e.target.value)
-    setPage(0)
-  }, [])
-
   const hasFilters =
-    entitlementKeyFilter !== '' || statusFilter !== 'all' || providerFilter !== 'all'
+    (search.entitlementKey ?? '') !== '' ||
+    search.status !== undefined ||
+    search.paymentProvider !== undefined
 
   return (
     <div className="space-y-6" data-testid="admin-subscription-list-page">
@@ -147,12 +142,17 @@ export function AdminSubscriptionListPage({ realmId, search }: AdminSubscription
         <Input
           placeholder={m['billing.subscription_filter_entitlement_key_placeholder']()}
           value={entitlementKeyFilter}
-          onChange={handleEntitlementKeyChange}
+          onChange={(e) => setEntitlementKeyFilter(e.target.value)}
           className="w-[220px]"
           data-testid="entitlement-key-filter-input"
         />
 
-        <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
+        <Select
+          value={search.status ?? 'all'}
+          onValueChange={(value) =>
+            onSearchChange({ status: value === 'all' ? undefined : value, page: 0 })
+          }
+        >
           <SelectTrigger className="w-[160px]" data-testid="status-filter-select">
             <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
@@ -165,7 +165,12 @@ export function AdminSubscriptionListPage({ realmId, search }: AdminSubscription
           </SelectContent>
         </Select>
 
-        <Select value={providerFilter} onValueChange={handleProviderFilterChange}>
+        <Select
+          value={search.paymentProvider ?? 'all'}
+          onValueChange={(value) =>
+            onSearchChange({ paymentProvider: value === 'all' ? undefined : value, page: 0 })
+          }
+        >
           <SelectTrigger className="w-[160px]" data-testid="payment-provider-filter-select">
             <SelectValue placeholder="All Providers" />
           </SelectTrigger>
@@ -224,10 +229,10 @@ export function AdminSubscriptionListPage({ realmId, search }: AdminSubscription
 
           {total > 0 && (
             <ListPagination
-              page={page}
+              page={search.page ?? 0}
               pageSize={search.pageSize ?? PAGE_SIZE}
               total={total}
-              onPageChange={setPage}
+              onPageChange={(page) => onSearchChange({ page })}
               testIdPrefix="admin-subscription-list-pagination"
             />
           )}

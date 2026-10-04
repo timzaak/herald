@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDialogManager } from '@/hooks/use-dialog-state'
@@ -48,7 +48,7 @@ export const Route = createFileRoute('/$realmId/manage/users')({
 
 export function UsersPage() {
   const search = useCurrentSearch<UsersSearchParams>()
-  const navigate = Route.useNavigate()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const realmId = useRealmId()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -128,15 +128,19 @@ export function UsersPage() {
   }
 
   function handleSearchChange(email: string | undefined) {
-    navigate({ search: (prev) => ({ ...prev, email, page: 0 }) })
+    // `to: '.'` keeps the update on the CURRENT route match: this component
+    // backs both /$realmId/manage/users and the prefix-less /manage/users,
+    // and a navigate bound to the $realmId route would hop mirror visitors
+    // across route matches (remounting the page and dropping search context).
+    navigate({ to: '.', search: (prev) => ({ ...prev, email, page: 0 }) })
   }
 
   function handleStatusChange(status: string | undefined) {
-    navigate({ search: (prev) => ({ ...prev, status, page: 0 }) })
+    navigate({ to: '.', search: (prev) => ({ ...prev, status, page: 0 }) })
   }
 
   function handlePageChange(page: number) {
-    navigate({ search: (prev) => ({ ...prev, page }) })
+    navigate({ to: '.', search: (prev) => ({ ...prev, page }) })
   }
 
   return (

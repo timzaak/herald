@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDialogManager } from '@/hooks/use-dialog-state'
@@ -24,7 +24,7 @@ export const Route = createFileRoute('/$realmId/manage/realms')({
 
 export function RealmsPage() {
   const search = useCurrentSearch<RealmsSearchParams>()
-  const navigate = Route.useNavigate()
+  const navigate = useNavigate()
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const detailDialog = useDialogManager<string>()
 
@@ -50,11 +50,15 @@ export function RealmsPage() {
   }
 
   function handleSearchChange(query: string | undefined) {
-    navigate({ search: (prev) => ({ ...prev, search: query, page: 0 }) })
+    // `to: '.'` keeps the update on the CURRENT route match: this component
+    // backs both /$realmId/manage/realms and the prefix-less /manage/realms,
+    // and a navigate bound to the $realmId route would hop mirror visitors
+    // across route matches (remounting the page and dropping search context).
+    navigate({ to: '.', search: (prev) => ({ ...prev, search: query, page: 0 }) })
   }
 
   function handlePageChange(page: number) {
-    navigate({ search: (prev) => ({ ...prev, page }) })
+    navigate({ to: '.', search: (prev) => ({ ...prev, page }) })
   }
 
   return (

@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react'
-import { useDebounce } from '@/hooks/use-debounce'
+import { useUrlSyncedInput } from '@/hooks/use-url-synced-input'
 import { Input } from '@/components/ui/input'
 import { m } from '@/paraglide/messages'
 
@@ -9,14 +8,7 @@ interface RealmSearchProps {
 }
 
 export function RealmSearch({ realmId = '', onSearchChange }: RealmSearchProps) {
-  const [searchInput, setSearchInput] = useState(realmId)
-  const debouncedSearch = useDebounce(searchInput, 500)
-
-  useEffect(() => {
-    if (debouncedSearch !== realmId) {
-      onSearchChange(debouncedSearch || undefined)
-    }
-  }, [debouncedSearch, realmId, onSearchChange])
+  const [searchInput, setSearchInput] = useUrlSyncedInput(realmId, onSearchChange)
 
   return (
     <Input

@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { requireFeature } from '@/data/query-options'
 import { initializeAuth } from '@/lib/auth-utils'
@@ -38,6 +38,19 @@ export const Route = createFileRoute('/$realmId/manage/billing/subscriptions')({
 export function SubscriptionsRoute() {
   const realmId = useResolvedRealmId()
   const search = useCurrentSearch<z.infer<typeof subscriptionsSearchSchema>>()
+  const navigate = useNavigate()
 
-  return <AdminSubscriptionListPage realmId={realmId} search={search} />
+  // `to: '.'` keeps the update on the CURRENT route match — the family
+  // convention for manage list pages (see manage/users, manage/realms).
+  function handleSearchChange(patch: Partial<z.infer<typeof subscriptionsSearchSchema>>) {
+    navigate({ to: '.', search: (prev) => ({ ...prev, ...patch }) })
+  }
+
+  return (
+    <AdminSubscriptionListPage
+      realmId={realmId}
+      search={search}
+      onSearchChange={handleSearchChange}
+    />
+  )
 }

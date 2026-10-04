@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { SubscriptionListItemResponse } from '@/lib/api-generated'
@@ -65,11 +66,24 @@ function makeWrapper(client: QueryClient) {
   }
 }
 
-function renderPage(items: SubscriptionListItemResponse[]) {
+type SubscriptionSearch = {
+  page?: number
+  pageSize?: number
+  entitlementKey?: string
+  status?: string
+  paymentProvider?: string
+}
+
+function renderPage(items: SubscriptionListItemResponse[], search: SubscriptionSearch = {}) {
   const client = makeQueryClient()
   subscriptionsHolder.current = { items, total: items.length }
+  const onSearchChange = vi.fn()
   const wrapper = makeWrapper(client)
-  return render(<AdminSubscriptionListPage realmId="realm-1" search={{}} />, { wrapper })
+  const view = render(
+    <AdminSubscriptionListPage realmId="realm-1" search={search} onSearchChange={onSearchChange} />,
+    { wrapper }
+  )
+  return { onSearchChange, view }
 }
 
 beforeEach(() => {
@@ -133,5 +147,95 @@ describe('AdminSubscriptionListPage — billing type column', () => {
     expect(cell.textContent).toContain('future_type')
     // Unknown type has no special end-of-service semantics → placeholder.
     expect(screen.getByTestId('service-period-end-sub-future').textContent).toBe('---')
+  })
+})
+
+describe('AdminSubscriptionListPage — URL-driven filters', () => {
+  // The URL search params are the single source of truth: controls bind to
+  // the `search` props and every edit goes back through onSearchChange as a
+  // patch the route navigates with. Before this contract the page seeded
+  // local state once and went deaf — deep links/back-forward left stale
+  // controls, and filter edits never reached the URL at all.
+
+  // 6x the 500ms debounce in useUrlSyncedInput — headroom for CI jitter.
+  const DEBOUNCE_WAIT_MS = 3000
+
+  it('seeds the controls from URL search props', async () => {
+    renderPage([makeSubscription({ id: 'sub-1' })], {
+      entitlementKey: 'pro-plan',
+      status: 'active',
+    })
+    await screen.findByTestId('billing-type-sub-1')
+    expect(screen.getByTestId('entitlement-key-filter-input')).toHaveValue('pro-plan')
+    // Select triggers surface the selected option's label
+    expect(screen.getByTestId('status-filter-select')).toHaveTextContent('Active')
+    expect(screen.getByTestId('payment-provider-filter-select')).toHaveTextContent('All')
+  })
+
+  it('follows URL-driven search changes after mount', async () => {
+    const { view } = renderPage([makeSubscription({ id: 'sub-1' })], {
+      entitlementKey: 'pro-plan',
+      status: 'active',
+    })
+    await screen.findByTestId('billing-type-sub-1')
+
+    // deep link / back-forward changes the URL; the controls must follow
+    view.rerender(
+      <AdminSubscriptionListPage
+        realmId="realm-1"
+        search={{ entitlementKey: 'gold-plan', status: 'canceled' }}
+        onSearchChange={vi.fn()}
+      />
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('entitlement-key-filter-input')).toHaveValue('gold-plan')
+    })
+    expect(screen.getByTestId('status-filter-select')).toHaveTextContent('Canceled')
+  })
+
+  it('commits select edits as search patches with page reset', async () => {
+    const user = userEvent.setup()
+    const { onSearchChange } = renderPage([makeSubscription({ id: 'sub-1' })], { page: 3 })
+    await screen.findByTestId('billing-type-sub-1')
+
+    await user.click(screen.getByTestId('status-filter-select'))
+    await user.click(await screen.findByRole('option', { name: 'Active' }))
+    expect(onSearchChange).toHaveBeenCalledWith({ status: 'active', page: 0 })
+
+    await user.click(screen.getByTestId('payment-provider-filter-select'))
+    await user.click(await screen.findByRole('option', { name: 'Stripe' }))
+    expect(onSearchChange).toHaveBeenCalledWith({ paymentProvider: 'stripe', page: 0 })
+  })
+
+  it("choosing the localized 'all' status removes the filter instead of sending a sentinel", async () => {
+    const user = userEvent.setup()
+    const { onSearchChange } = renderPage([makeSubscription({ id: 'sub-1' })], {
+      status: 'active',
+    })
+    await screen.findByTestId('billing-type-sub-1')
+
+    await user.click(screen.getByTestId('status-filter-select'))
+    await user.click(
+      await screen.findByRole('option', {
+        name: String(m['billing.subscription_filter_all_statuses']()),
+      })
+    )
+    expect(onSearchChange).toHaveBeenCalledWith({ status: undefined, page: 0 })
+  })
+
+  it('debounces the entitlement-key filter into a page-resetting patch', async () => {
+    const user = userEvent.setup()
+    const { onSearchChange } = renderPage([makeSubscription({ id: 'sub-1' })], { page: 2 })
+    await screen.findByTestId('billing-type-sub-1')
+
+    await user.type(screen.getByTestId('entitlement-key-filter-input'), 'pro')
+    await waitFor(
+      () =>
+        expect(onSearchChange).toHaveBeenCalledWith({
+          entitlementKey: 'pro',
+          page: 0,
+        }),
+      { timeout: DEBOUNCE_WAIT_MS }
+    )
   })
 })

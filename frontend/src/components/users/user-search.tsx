@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react'
-import { useDebounce } from '@/hooks/use-debounce'
+import { useUrlSyncedInput } from '@/hooks/use-url-synced-input'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -24,14 +23,7 @@ export function UserSearch({
   onSearchChange,
   onStatusChange,
 }: UserSearchProps) {
-  const [searchInput, setSearchInput] = useState(email)
-  const debouncedSearch = useDebounce(searchInput, 500)
-
-  useEffect(() => {
-    if (debouncedSearch !== email) {
-      onSearchChange(debouncedSearch || undefined)
-    }
-  }, [debouncedSearch, email, onSearchChange])
+  const [searchInput, setSearchInput] = useUrlSyncedInput(email, onSearchChange)
 
   return (
     <>
