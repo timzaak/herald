@@ -88,7 +88,12 @@
 - 禁用映射后，匹配该映射的 webhook 订阅事件仍更新订阅投影，但跳过该映射的全部自动**授予**履约：不触发积分策略发放、不续授支付来源 role（`grant_payment_roles` 同步跳过，支付来源 role 可能因订阅周期结束而过期，见 [support-paywall.md](support-paywall.md) §4.2 的禁用映射例外）。**回收不看启用状态**：立即取消/退款/过期撤销等回收路径照常执行积分回收与支付来源 role 撤销（禁用映射只冻结新发放，不放行已授予权益的留存）；管理员重新启用后恢复积分策略执行与 role 续授
 - 映射同步失败不应静默降级为默认策略，应 fail loud 并记录诊断；「fail loud」指单行同步失败可观测（返回 `Partial` 状态 + `partial_errors` 列表），非整体回滚；已成功项仍生效，既有缓存不因单项失败被清空
 
-**编目边界**：商品与价格生命周期由支付平台管理；Herald 不维护本地 Product/Plan，不提供套餐删除、升降级或 Client App 套餐分配能力。Herald 通过 `entitlement_mapping` 配置权益，并通过 webhook 感知支付平台上的订阅变化。
+**编目边界**：商品与价格生命周期由支付平台管理；Herald 不维护本地 Product/Plan，不提供套餐删除、升降级或 Client App 套餐分配能力。Herald 通过 `entitlement_mapping` 配置权益，并通过 webhook 感知支付平台上的订阅变化。Provider Ownership 边界：商业目录（Product、Price、Checkout、Customer billing、Subscription lifecycle、Invoice/payment）由支付方拥有；Herald 的职责边界是 Realm/Client App 隔离、用户绑定、entitlement 投影、Webhook 幂等、积分策略与账本及 SDK 读模型。
+
+**订阅投影规则**：
+- Subscription 记录是支付方订阅状态的本地投影，不是 Herald 拥有的订阅，订阅生命周期由 Provider 事件驱动
+- 投影保留 realm_id、client_app_id、user_id、entitlement_key、status、period 信息与 provider metadata
+- 投影不维护 plan_id、本地 tier、本地自定义 billing_period（计费周期以 provider 同步值为唯一来源，见 Provider 同步规则）
 
 **订阅升降级与取消规则**：
 - 升级订阅：升降级编排（含按比例计费）由支付平台处理，Herald 不提供套餐化升降级；webhook 感知升级后立即撤销旧积分发放并执行新映射的升级规则
@@ -140,6 +145,7 @@
 - Stripe Product/Price metadata 随同步写入展示缓存并只读展示；Creem Product 无对应 metadata 时保持为空，不伪造
 - Stripe 计费周期以 `Price.recurring.interval` 为唯一来源且只读；Creem 未提供时显示为空，不人工推断
 - `billing_period` 与 `quota_windows` 相互独立，不要求相等或整除；同步不读取或校验额度窗口
+- 所有同步展示信息（含 metadata）存放于 provider_product_info 结构内，仅作为展示数据，不作为计费或扣点依据（checkout 引用真实 provider 价格）
 
 **购买对象统一**：
 - 购买目标统一为 entitlement_mapping，通过 mapping 的 billing_type 决定履约（三分模型口径见 pay_model.md §2.2/§4）

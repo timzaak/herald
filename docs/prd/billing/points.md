@@ -45,7 +45,7 @@
 ### 2.1 包含功能
 
 - **积分池组织单位**：积分池按积分账户组织，每个用户对每个持有的积分账户拥有独立积分池（`user × bucket`），已替换单一钱包模型；积分账户目录、覆盖集、归属、跨池消费与履约路由的完整规则见 `docs/prd/billing/credit-bucket.md`。本 PRD 描述积分类型、过期、消费优先级、退款回收等积分核心规则，其"池归属"维度以积分账户为准
-- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放不再各自只把一次触发路由到单一账户和一组积分策略，而是由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。决策账本 `DEC-multi-wallet-grant-rules-011` 已显式推翻本 PRD 早期基线中"订阅/免费周期仅可用 quota 滑动窗口"的约束——fixed 周期积分现为可配置策略；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力，不再表示唯一允许的模型。详见 `docs/decisions/multi-wallet-grant-rules.md`
+- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放不再各自只把一次触发路由到单一账户和一组积分策略，而是由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。订阅/免费周期规则的发放策略可选 fixed 周期积分或滚动窗口 quota（`DEC-multi-wallet-grant-rules-011`）；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力。详见 `docs/prd/billing/multi-wallet-grant-rules.md` §4/§7
 - 积分账户管理（创建、查询）
 - 积分余额查询
 - 积分消耗/扣除（SDK API）
@@ -317,16 +317,16 @@
 
 ## 7. 已确认决策
 
-> **被后续决策覆盖的条款**：下列关于"subscription_credit / free_periodic_credit 采用 usage-based 滑动窗口配额"和"配额定义归属 entitlement mapping（订阅）与 realm default config（免费周期），不挂账户"的描述，已被 `DEC-multi-wallet-grant-rules-006`（移除单一钱包/单一积分策略字段）和 `DEC-multi-wallet-grant-rules-011`（允许订阅/免费周期规则同时配置 fixed 周期积分或滚动窗口 quota）显式推翻并扩展。当前权威规则以 `docs/decisions/multi-wallet-grant-rules.md` 为准：发放策略由 `points_distribution_rules` 承载，每条规则按 owner（entitlement mapping / realm registration）× trigger × policy（fixed 或 quota）路由到目标账户，一次触发可多账户扇出。本节保留历史决策以记录演进，不作为当前唯一约束。
+> 发放策略由 `points_distribution_rules` 承载，每条规则按 owner（entitlement mapping / realm registration）× trigger × policy（fixed 或 quota）路由到目标账户，一次触发可多账户扇出（`DEC-multi-wallet-grant-rules-006/011`，规则正文与完整取舍见 `docs/prd/billing/multi-wallet-grant-rules.md` §4/§7）。
 
 - 积分余额单位固定为 points，不使用法币 currency 表示
-- 计费模型分治：subscription_credit / free_periodic_credit 采用 usage-based 滑动窗口配额；topup_credit / registration_credit / granted_credit 维持池子模型不变
+- 计费模型分治：subscription_credit / free_periodic_credit 的发放由 `points_distribution_rules` 承载，策略可选 fixed 周期积分或滚动窗口 quota（`DEC-multi-wallet-grant-rules-011`）；topup_credit / registration_credit / granted_credit 维持池子模型不变
 - 积分消费优先级采用过期时间优先策略（池子类型），窗口额度优先于池子扣减
 - 免费用户积分系统独立于订阅系统，不需要创建 $0 订阅记录
 - 当前正式配置对象是 `entitlement_key`，不再使用 Plan 级配置
 - 懒发放：取消后台全表预发，可用额度在读/消费路径按需计算
 - 订阅生命周期回收语义从"回收 ledger 行"改为"撤销配额权益"，已消费量不反向调整
-- 配额定义归属 entitlement mapping（订阅）与 realm default config（免费周期），不挂账户
+- 配额（quota）定义归属发放规则的 owner（entitlement mapping / realm registration），不挂积分账户
 - 窗口用量复用既有消费流水聚合，不另建独立用量账本
 - 积分补偿使用现有 grant_points_internal 方法，无需新增 API（补偿路径定位为内部调用；当前尚无调用方，见 §4.2 部分失败条目的现状标注）
 - 价格使用最小货币单位（分）存储，避免浮点精度问题

@@ -24,6 +24,7 @@
 - Admin Dashboard 首屏展示 3 张用户指标卡片：总用户数、最近 7 天新增用户数、最近 7 天活跃用户数
 - 认证趋势图：最近 30 天按天聚合的登录成功/失败次数
 - 保留原有 6 张导航卡片的快捷入口（收缩为紧凑网格）：Users、Roles、Permissions、Client Apps、Realms、Settings
+- 新手任务清单卡片（Onboarding Guidance）：realm 管理员的起步任务入口与功能漫游重看入口，常驻呈现、任务链接权限可见性与快捷导航一致；首登引导触发与完成态规则由 `docs/prd/core/realm-onboarding-guidance.md` 定义
 
 ### 2.2 不包含功能 (Out of Scope)
 

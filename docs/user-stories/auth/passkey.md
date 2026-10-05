@@ -381,33 +381,9 @@ And 显示使用密码登录的次数
 
 ---
 
-## 业务规则备注
+## 业务规则
 
-1. **Passkey 配置级别**：
-   - **Realm 级别**：管理员可启用/禁用整个 Realm 的 Passkey 功能，并可设置强制模式。
-   - **用户级别**：用户可选择是否注册 Passkey（若 Realm 允许），并管理自己的 Passkey 设备。
-
-2. **多设备支持**：
-   - 一个用户可以拥有多个 Passkey credential（多设备）。
-   - 用户可以为每个 Passkey 设置可识别的名称。
-
-3. **回退机制**：
-   - 系统必须保留密码（和/或 TOTP）作为回退认证方式。
-   - 当浏览器不支持 WebAuthn、用户取消验证或设备不可用时，必须提供回退入口。
-
-4. **强制 Passkey 模式**：
-   - Realm 管理员可强制所有用户使用 Passkey。
-   - 强制模式下，未注册 Passkey 的用户下次登录时被引导注册，但仍保留密码/TOTP 回退以防止账户锁定。
-
-5. **安全规则**：
-   - Passkey 注册和认证必须验证当前用户身份。
-   - 删除最后一个 Passkey 前需要明确提示用户。
-   - Passkey 验证失败不暴露具体原因（统一提示验证失败）。
-
-6. **兼容性说明**：
-   - 现代浏览器支持 WebAuthn；IE 不支持。
-   - 生产环境必须 HTTPS。
-   - Passkey 多设备同步依赖平台生态（Apple iCloud Keychain、Google Password Manager 等）。
+> 业务规则的唯一定义点是 PRD §4（Realm 开关与强制模式、多设备与设备命名、删除与回退规则、Challenge 与速率限制、用户验证与跨平台 authenticator 策略、安全存储与审计、关键状态与异常）：[docs/prd/auth/passkey.md](/docs/prd/auth/passkey.md)。本文场景中的数值口径（challenge 有效期、失败锁定阈值等）以 PRD 为准。
 
 ---
 

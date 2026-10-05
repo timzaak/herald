@@ -571,61 +571,9 @@ And 若该 Creem 产品响应不含 billing_period 字段，则按空（"—"）
 
 ---
 
-## 业务规则总结
+## 业务规则
 
-### Provider Ownership 边界
-1. **商业目录**：支付方拥有 Product、Price、Checkout、Customer billing、Subscription lifecycle、Invoice/payment
-2. **Herald 职责**：Realm/Client App 边界、User binding、Access entitlement projection、Webhook 幂等、积分策略和账本、SDK 读模型
-3. **Herald 不维护**：独立的本地商业目录或可编辑的订阅套餐
-
-### Metadata 契约
-1. **统一前缀**：所有 Herald metadata key 使用 `herald_` 前缀
-2. **必填 metadata**：`herald_realm_id`、`herald_client_app_id`、`herald_user_id`、`herald_entitlement_key`
-3. **计费类型**：`herald_billing_kind` 值为 `subscription` 或 `points_package`
-4. **Stripe 分层**：稳定映射放 Product/Price metadata，请求特定信息放 Checkout Session/Subscription metadata
-5. **Creem**：metadata 写入 checkout 请求，后续 webhook 返回该 metadata
-
-### Entitlement 映射规则
-1. **Source of truth**：Herald 本地 provider-to-entitlement mapping 为 entitlement 映射和积分策略的 source of truth；Stripe Product/Price metadata 可作为导入来源
-2. **本地角色**：Herald 维护 provider-to-entitlement 映射作为 allowlist 和同步缓存
-3. **同步机制**：支持 webhook 触发增量同步和管理员手动触发全量同步
-4. **降级策略**：同步失败时本地缓存可独立服务 webhook；同步失败不应静默降级为默认策略
-
-### 订阅投影规则
-1. **投影语义**：Subscription 是支付方订阅状态的本地投影，不是 Herald 拥有的订阅
-2. **字段边界**：保留 realm_id、client_app_id、user_id、entitlement_key、status、period 信息、provider metadata
-3. **移除字段**：不再维护 plan_id、本地 tier、本地 billing_period
-
-### 积分策略规则
-1. **策略来源**：积分策略的 source of truth 是 Herald 本地 mapping/entitlement policy；Stripe Product/Price metadata 可作为导入来源，Creem 必须在 Herald 中配置
-2. **策略查询**：按 entitlement_key 从本地配置查询
-3. **覆盖场景**：首次订阅发放、续费发放、取消回收、退款回收、升级/降级处理
-4. **管理员编辑**：管理员可在 Herald 中查看和修改积分策略；修改的是 Herald 业务规则，不回写 provider
-
-### 编目边界
-1. Herald 不提供本地 Product CRUD
-2. Herald 不提供本地 SubscriptionPlan CRUD
-3. 支付平台商品通过 Entitlement Mapping 关联权益、积分策略和 Client App
-4. 业务链路使用 `entitlement_key`，不使用本地 `plan_id`
-
-### 多价格规则
-1. **Price 一等概念**：Herald 的 provider 模型引入 Price 维度，对齐 Stripe 的 Product→Price；一个产品可拥有多个价格，每个价格是独立可购与可配置单元
-2. **按价格配置**：entitlement_key、计费类型、计费周期与积分策略均按价格配置；同一产品的多个价格可共享 entitlement_key（月付/年付同属 pro-plan）或映射到不同 entitlement
-3. **单价格产品**：只有一个价格的产品（含 Creem 等无 price 概念的支付方）自然只有一行映射
-4. **Price-aware 同步**：产品同步按价格粒度建立/更新映射，不再仅取首个价格
-5. **Price-aware 解析**：webhook 解析优先使用 metadata 的 herald_entitlement_key，回退时按 (支付方, 产品, 价格) 命中映射；无法唯一确定时 fail loud
-6. **Price-aware 购买**：checkout 引用真实 provider 价格（对有 price 概念的支付方），不再为每次购买重建临时价格
-
-### 产品同步展示规则
-1. **产品名主标签**：列表/分组的主标签优先取同步产品名，缺失时回退外部产品 id，二者皆不可用时给可识别占位；不显示空标签
-2. **价格按 provider 区分单位**：Stripe 取最小货币单位整数换算为主货币单位；Creem 按原值展示；单位换算由 provider 来源驱动，不跨 provider 共享换算分支
-3. **计费周期以 Stripe 为准且只读**：计费周期取 Stripe `Price.recurring.interval`（Creem 取其产品响应 `billing_period`，缺失按"—"），前端只读，保存/更新不得以人工值覆盖同步值；重新同步以 provider 当前值为准
-4. **metadata 同步仅适用 Stripe**：Stripe `Product.metadata`/`Price.metadata` 跟随同步进入本地展示信息，只读、不编辑、不回写；Creem Product 无原生 metadata，按空处理，不伪造
-5. **同步覆盖展示字段**：重新同步时 name/description/价格/metadata/计费周期以最新一次为准；entitlement_key、points、grant 策略、quota 等业务字段不被同步覆盖
-6. **credit/额度周期与计费周期解耦**：`billing_period` 与 `quota_windows` 独立、不整除、不对齐；同步不读取/校验 quota_windows；额度授予由续费 webhook 事件驱动按 (period_start, period_end) 锚定，非日历清零；支持纯窗口、无周期总额模型
-7. **缺失即空**：provider 未提供 name/description/metadata/计费周期时按空处理，不报错、不阻塞同步
-8. **展示位**：所有同步展示信息（含 metadata）存放于既有 provider_product_info 结构内，作为展示数据，不作为计费/扣点依据
-9. **权限可见性**：产品名、价格、metadata 仅在 Admin Realm（具备 entitlement mapping 管理权限）页面可见；普通用户侧不展示 provider 内部信息
+> 业务规则的唯一定义点是 PRD §4（Provider Ownership 边界与编目边界、Metadata 契约、Entitlement 映射规则、订阅投影规则、积分策略规则、多价格规则、产品同步展示规则）：[docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md)。本文场景中的数值口径以 PRD 为准。
 
 ---
 

@@ -87,6 +87,7 @@
 **OAuth 授权流程:**
 - 第三方 SPA 必须使用 Authorization Code + PKCE 流程，不支持 Implicit Flow
 - Client App 必须存在且已启用，redirect_uri 必须在白名单中精确匹配（origin + port 完全一致；第一方 Client App——内置管理控制台/用户账户中心——例外，其回调固定为 Herald 自有前端路由）；redirect_uri 仅允许 http/https 协议，拒绝协议相对 URL 与 `javascript:` 等危险协议，生产环境强制 HTTPS（非生产环境允许 http，如 localhost 回调）
+- 访问令牌必须通过 HTTPS 传输
 - 授权码在签发时绑定 client_id、redirect_uri 与 code_challenge，令牌交换时逐一校验
 - Google One Tap 与 Apple 原生（Sign in with Apple）直连登录由专属 PRD 承载（[google-one-tap.md](google-one-tap.md)、[support-mobile-apple-login.md](support-mobile-apple-login.md)），不经本 PRD 的 authorize/code 交换流
 - State 和 authorization_code 必须一次性使用，验证后立即删除
@@ -98,6 +99,9 @@
 
 **第三方 API 接入:**
 - 第三方应用使用 API Key（通过 X-API-Key header）认证，与 session token 认证体系分离
+- 第三方 API 使用独立接口，与内部 API 隔离：API Key 认证用于第三方 API，不用于内部 API；Session Token 认证用于内部 API，不用于第三方 API
+- 第三方应用不能访问 Herald 管理后台
+- API Key 必须通过 HTTPS 传输
 - API Key 绑定到特定 realm，只能访问所属 realm 的资源
 - API Key 可绑定到特定 Client App（Client App Scope），绑定后只能访问该 Client App 所属资源
 - Admin API Client（`admin-api-client`）的 API Key 不受 Client App Scope 限制，可跨 App 访问
@@ -105,6 +109,7 @@
 - API Key 支持轮换（Rotate），生成新密钥，旧密钥立即失效，返回新明文密钥（仅展示一次）；轮换主动驱逐旧密钥的认证缓存条目（更新前后各一次以防竞态回填；驱逐失败时旧密钥最长残留缓存 TTL，认证侧因 Redis 不可用本就 fail closed，缓存 TTL 仅作兜底——见 api-key-roles PRD 同条说明）
 - API Key 有启用/禁用和过期时间控制
 - 记录 API Key 最后使用时间（节流更新：每分钟最多一次写库）
+- API Key 验证失败时不更新使用统计
 - 无效或缺失 API Key 返回 401；过期或禁用 API Key 返回 401
 - 无效 session token 在权限检查时返回 `allowed: false`，而非报错
 

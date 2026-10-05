@@ -34,7 +34,7 @@
 
 - **终端用户自助用量可视化**：仅管理端；用户侧用量页为独立后置候选（Q-billing-statistics-002）
 - **免费用户发放/转化统计**（US-PO-007 主体）与 **US-PV-005 剩余指标**（Active Subs、Avg Payment Time）：不随首版交付，承接排期待定（Q-billing-statistics-003）
-- **CSV / 数据导出**：不含任何导出能力，未来按独立迭代立项（Q-billing-statistics-001）
+- **CSV / 数据导出**：不含任何导出能力，未来按独立迭代立项
 - **自定义时间范围**：仅 7/30 两档，不做任意起止日期（DEC-billing-statistics-005）
 - **净收入 / 退款冲减口径**：支付统计只做已完结尝试的毛口径汇总，不做收入调整（DEC-billing-statistics-002）
 - **净消耗口径**：积分消耗不冲减退款回收、配额权益撤销或补偿回退（DEC-billing-statistics-003）
@@ -117,23 +117,25 @@
 
 ## 7. 已确认决策
 
-> 以下决策来自决策账本 `docs/decisions/billing-statistics.md`。仅记录带稳定 DEC ID 的已确认结论。
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-billing-statistics-001` | Applied | 范围覆盖 | 一份 PRD 同时覆盖管理端「支付统计」与「积分消耗统计」；不含终端用户自助用量可视化 | §2.1 | `docs/decisions/billing-statistics.md` |
-| `DEC-billing-statistics-002` | Applied | 支付口径 | 只统计已完结支付尝试；金额按币种分组、任何位置不跨币种相加；按渠道分组；金额以 Herald 快照为准（provider 侧渠道缺可读价时为哨兵 1，CHECK 禁止 0，统计原样累加） | §4.1、§5 | 同上 |
-| `DEC-billing-statistics-003` | Applied | 积分口径 | 以扣减流水为准，按 bucket 分组 + 按日趋势；退款回收/配额撤销/补偿回退均不冲减 | §4.1、§5 | 同上 |
-| `DEC-billing-statistics-004` | Applied | 权限复用 | 支付统计挂 `billing.view`、积分消耗挂 `points.view`；不新增权限项、不挂 `dashboard.view` | §2.1、§4.1、§6 | 同上 |
-| `DEC-billing-statistics-005` | Applied | 时间窗口 | 首版固定「最近 7 天 / 最近 30 天」两档，不做自定义范围 | §2.1、§4.1、§6 | 同上 |
-| `DEC-billing-statistics-006` | Applied | 页面入口 | billing 区统一「统计」页两面板并列、共用窗口；不混入 Dashboard 首屏 | §2.1、§6 | 同上 |
+- **DEC-billing-statistics-001 · 范围覆盖**（user，2026-09-08 会话确认）：一份 PRD 同时覆盖管理端「支付统计」与「积分消耗统计」两个子域；不包含终端用户自助用量可视化。理由：两类统计同属 billing 域、共享统计页交互模式，拆分立项成本高于收益；终端用户用量可视化是独立后置候选。落点：§2.1。重开条件：用户改选更窄（仅支付或仅积分）或更广（含用户侧用量页）范围。
+- **DEC-billing-statistics-002 · 支付口径**（agent）：只统计已完结支付尝试；金额按币种分组、任何位置不跨币种相加；按渠道分组；金额以 Herald 快照为准，provider 侧定价渠道缺可读价时按哨兵金额 1 原样累加、不估算（规则正文见 §4.1）。理由：支付尝试记录是购买历史已在用的唯一事实来源；多货币体系下货币是显式选择维度、跨币种相加无意义（`DEC-multiple_currency-014`）；金额快照不可能为 0（IAP 缺价路径写哨兵 1 满足 CHECK，`DEC-multiple_currency-013`），渠道分组如实暴露哨兵口径差异。落点：§2.1、§4.1、§5。重开条件：业务要求净收入或渠道侧金额估算口径。
+- **DEC-billing-statistics-003 · 积分口径**（agent）：以积分扣减流水为准，按积分账户（bucket）分组汇总并给出按日趋势；退款回收、配额权益撤销、补偿回退均不冲减消耗统计（规则正文见 §4.1）。理由：`docs/prd/billing/points.md` 规定退款回收只回收未使用部分、已消费量不反向调整，冲减式口径会掩盖真实用量；钱包行既有 `total_consumed` 仅有累计值、无维度与时间轴，无法支撑运营分析。落点：§2.1、§4.1、§5。重开条件：业务要求净消耗（消耗-回收）口径。
+- **DEC-billing-statistics-004 · 权限复用**（agent）：支付统计面板挂 `billing.view`，积分消耗面板挂 `points.view`；不新增权限项，不挂 `dashboard.view`。理由：`docs/user-stories/_roles.md` 中两权限已精确覆盖对应数据可见性且 Realm Admin 默认持有；Dashboard 现范围仅用户活跃指标（`docs/prd/core/dashboard.md` §2.2），挂 `dashboard.view` 会造成权限语义混淆。落点：§2.1、§4.1、§6。重开条件：统计页需要独立于数据查看的授权粒度。
+- **DEC-billing-statistics-005 · 时间窗口**（agent）：首版固定「最近 7 天 / 最近 30 天」两档切换，不做自定义时间范围。理由：对齐 Dashboard 首版先例（固定 7/30 天窗口）与 US-PV-005 场景 2（Last 7/30 days）。落点：§2.1、§2.2、§4.1、§6。重开条件：用户需要任意起止日期的自定义窗口。
+- **DEC-billing-statistics-006 · 页面入口**（agent）：管理后台 billing 区新增统一「统计」页面，支付与积分消耗两个面板并列、共用同一时间窗口选择；不在既有 Dashboard 首屏混入计费指标。理由：Dashboard 范围明确为用户活跃指标，混入计费指标需改动其已发布范围；billing 区已有 invoices/subscriptions 等页面，统计入口在此语义聚合。落点：§2.1、§2.2、§6。重开条件：用户要求统计上移到 Dashboard 首屏。
+
+**问题记录**（原账本 Resolved / Deferred Questions）：
+
+- `Q-billing-statistics-002`（延期）：终端用户自助用量可视化是独立后置候选，重启条件已有记录；本 PRD 范围已明确为管理端。须在该方向立项前决议。
+- `Q-billing-statistics-003`（延期）：US-PV-005 剩余指标（Active Subs、Avg Payment Time）与 US-PO-007 免费用户发放/转化统计不随首版交付，承接排期待定。须在下一迭代排期时决议。
 
 ---
 
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 决策账本：`docs/decisions/billing-statistics.md`
 - 技术设计：`.ai/design/billing-statistics.md`（及 `.ai/design/billing-statistics/` 分端文档）
 - 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费与统一支付尝试基线；本 PRD 为其 §2.2 延后项的立项）
 - 相关 PRD：`docs/prd/billing/points.md`（积分交易与退款回收口径）

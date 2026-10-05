@@ -133,15 +133,14 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 |
-|---|---|---|---|---|
-| `DEC-openid-connect-001` | Applied | Herald 产品定位 | 维持 SaaS 底座定位，不进入完整身份平台赛道；仅检测 `openid` 语义，不建 scope/consent 体系 | §2.2、§4.1 |
-| `DEC-openid-connect-004` | Applied | 能力范围 | 最小 OIDC 兼容层：id_token + JWKS + discovery + userinfo 叠加既有授权码流程，无 scope/consent 体系、无标准化 refresh；第三方接入边界由"仅为 Herald 开发的应用"扩展为"任意标准 OIDC 客户端亦可接入" | §2.1、§2.2 |
-| `DEC-openid-connect-005` | Applied | issuer 形态 | 路径式 issuer `{origin}/api/oauth/{realmId}`（origin 随 Realm 自定义域名切换）；发现、公钥、userinfo 能力挂同一 Realm 路径前缀，发现 URL 按 OIDC 标准 append 语义拼接 | §4.1 |
-| `DEC-openid-connect-006` | Applied | 签名密钥模型 | RS256、平台级密钥（Realm 无关）；私钥密文静态存储；启动自举首把密钥；内部运维端点轮换；7 天重叠期；JWKS 发布 Active 与未到期 Retained | §4.1、§4.2 |
-| `DEC-openid-connect-007` | Applied | 令牌共存 | 不引入新令牌类型：id_token 为既有令牌响应的增量字段（仅 openid 语义时出现）；userinfo 复用既有浏览器访问令牌认证链；nonce 透传回显 | §2.1、§4.1 |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。本 feature 曾于 2026-07-14 Decision Brief（`.ai/decision/openid-connect.md`）裁决为 Park，2026-09-14 由用户显式决策重开（DEC-004）。
 
-> 追溯说明：`DEC-openid-connect-002`（旧接入边界）、`DEC-openid-connect-003`（旧重启条件）已被 `DEC-openid-connect-004` 取代，不作为当前事实；完整决策账本见 `docs/decisions/openid-connect.md`（工作流内部追溯件）。
+- **DEC-openid-connect-001 · Herald 产品定位**（user，2026-09-14 用户选择"最小 OIDC 层"时再次确认）：维持 SaaS 底座定位，不进入完整身份平台赛道；仅检测 `openid` 语义，不建 scope/consent 体系。理由：差异化护城河在计费+积分；完整身份平台是独立品类（Zitadel/Logto/Keycloak 专注），进入即放弃自身差异化。落点：§2.2、§4.1。重开条件：用户决定做完整 OIDC Provider / 正式进入身份平台赛道。
+- **DEC-openid-connect-004 · 能力范围**（user，2026-09-14 `/t-prd` 澄清门禁）：最小 OIDC 兼容层：id_token + JWKS + discovery + userinfo 叠加既有授权码流程，无 scope/consent 体系、无标准化 refresh；第三方接入边界由"仅为 Herald 开发的应用"扩展为"任意标准 OIDC 客户端亦可接入"。理由：用户在竞品差距分析（2026-09-14）后作出战略判断：OIDC 是 IdP 生态接入入场券。重启动因为用户显式决策而非客户需求证据（原重启条件 DEC-003 未被满足，由用户覆盖）。落点：§2.1、§2.2。重开条件：出现完整 scope/consent 体系需求或身份平台定位调整。
+- **DEC-openid-connect-005 · issuer 形态**（agent，实现层，2026-09-14 `/t-design`）：路径式 issuer `{origin}/api/oauth/{realmId}`（origin 随 Realm 自定义域名切换）；发现、公钥、userinfo 能力挂同一 Realm 路径前缀，发现 URL 按 OIDC 标准 append 语义拼接（规则正文见 §4.1）。理由：路径式 issuer 对 Grafana/Vault 类标准客户端兼容面最广；不叠加前端 realm 路径前缀（否则发现 URL 命中 SPA fallback 不可路由）；issuer 一经发布即对外契约，反转代价高，且影响 task/test 两阶段。落点：§4.1。重开条件：出现独立 OIDC 子域名需求或网关路由形态变化。
+- **DEC-openid-connect-006 · 签名密钥模型**（agent，实现层，2026-09-14 `/t-design`）：RS256、平台级密钥（Realm 无关）；私钥密文静态存储；启动自举首把密钥；内部运维端点轮换；7 天重叠期；JWKS 发布 Active 与未到期 Retained（规则正文见 §4.1、§4.2）。理由：iss+aud 校验已保证 realm 隔离，per-realm 轮换运维负担不成比例；RS256 客户端兼容面最广且 jsonwebtoken 已有 RS256 先例；密钥模型影响 task/test 且存量密钥形成后反转代价高。落点：§4.1、§4.2。重开条件：出现 per-realm 密钥、多算法或硬件密钥管理需求。
+- **DEC-openid-connect-007 · 令牌共存**（agent，实现层，2026-09-14 `/t-design`）：不引入新令牌类型：id_token 为既有令牌响应的增量字段（仅 openid 语义时出现）；userinfo 复用既有浏览器访问令牌认证链；nonce 透传回显（规则正文见 §4.1）。理由：保持令牌体系单一；"不含 openid 的请求行为不变"是 PRD 硬验收；nonce 是协议安全参数（非身份声明），标准客户端普遍发送并期望回显；影响 task/test 两阶段。落点：§2.1、§4.1。重开条件：引入 introspection 型 JWT access token 或标准化 refresh（超出 DEC-004 范围，需重新立项评估）。
+
 
 ---
 

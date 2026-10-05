@@ -179,25 +179,30 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-multi-wallet-grant-rules-001` | Applied | 多目标范围 | 购买和注册均支持多规则、多账户扇出 | §2、§4、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-002` | Applied | 兼容性 | 未上线，直接替换旧单规则模型，不回填或双写 | §2.2、§6 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-003` | Applied | 规则归属 | 规则属于触发配置，每条规则指向一个账户；账户不承载规则 | §4.2 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-005` | Applied | 整体执行与幂等 | 多规则整体执行，按事件与规则幂等 | §4.5、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-007` | Applied | 规则生命周期 | 停用影响后续，历史发放和归因保持 | §4.5、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-008` | Applied | 管理入口 | 复用 Mapping 与 Realm 积分配置入口管理规则集合 | §6 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-009` | Applied | 触发源目录 | 六类自动发放来源进入规则；主动发放与派生回收不进入 | §2、§4.1、§5 | `docs/decisions/multi-wallet-grant-rules.md` |
-| `DEC-multi-wallet-grant-rules-011` | Applied | 周期策略 | 订阅和免费周期规则允许 fixed 周期积分或滚动窗口 quota，显式覆盖已发布 quota-only 基线 | §2.1、§4.3、§4.4 | `docs/decisions/multi-wallet-grant-rules.md` |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-> DEC-004（规则存储用购买/注册子表）已被 DEC-010（统一 `points_distribution_rules` 表）取代，属技术设计范畴，不载入 PRD。DEC-006（移除单一字段）与 DEC-010（统一存储）同为技术设计决策，PRD 只声明不保留旧单规则能力契约。
+- **DEC-multi-wallet-grant-rules-001 · 多目标范围**（user，2026-07-29 会话）：购买和注册均支持多规则、多账户扇出。理由：用户明确要求一次购买、注册能够同时触发不同钱包和不同规则。落点：§2、§4、§5。重开条件：需求收窄为单目标，或新增其他触发源。
+- **DEC-multi-wallet-grant-rules-002 · 兼容性**（user，2026-07-29 会话）：未上线，直接替换旧单规则模型，不回填或双写。理由：用户明确说明当前未上线、无需考虑兼容性。落点：§2.2、§6。重开条件：产品上线或产生外部存量集成。
+- **DEC-multi-wallet-grant-rules-003 · 规则归属**（user，2026-07-29 会话）：规则属于触发配置，每条规则指向一个账户；账户不承载规则（规则正文见 §4.2）。理由：保持"账户是池与消费隔离边界、规则属于购买/注册配置"的既有职责，同时满足一对多。落点：§4.2。重开条件：需要跨购买/注册复用规则模板，或规则改为账户固有属性。
+- **DEC-multi-wallet-grant-rules-005 · 整体执行与幂等**（agent）：多规则整体执行，按事件与规则幂等（规则正文见 §4.5）。理由：防止部分钱包到账；保留现有支付/注册 fail-loud 与重复事件不重复发放约束。落点：§4.5、§5。重开条件：数据库事务无法覆盖某种新增的外部副作用。
+- **DEC-multi-wallet-grant-rules-006 · 移除单一路由字段**（agent，实现层）：从 Mapping、PaymentAttempt、Subscription 和 Realm 默认配置中移除单一钱包/单一积分策略字段，改由规则集合与规则绑定表达。理由：保留旧字段会形成双真源；DEC-002 已允许直接替换。落点：§2.2、§6、设计/实现层。重开条件：需要兼容已上线旧客户端或历史记录。
+- **DEC-multi-wallet-grant-rules-007 · 规则生命周期**（agent）：已被业务记录引用的规则只允许禁用、不物理删除；停用影响后续，历史发放和归因保持（规则正文见 §4.5）。理由：保证生命周期回收和幂等定位稳定，同时避免额外规则快照审计表。落点：§4.5、§5。重开条件：产品要求彻底删除规则及其历史归因。
+- **DEC-multi-wallet-grant-rules-008 · 管理入口**（agent）：复用现有 Mapping 与 Realm 积分配置入口管理规则集合，不新增平行的通用规则管理模块。理由：规则只在其拥有者上下文中有意义，复用现有权限、路由和页面可减少新增概念。落点：§6。重开条件：规则需要跨触发器搜索、复用或独立授权。
+- **DEC-multi-wallet-grant-rules-009 · 触发源目录**（user，2026-07-29 会话）：六类现有自动发放来源进入规则；主动发放与派生回收不进入（规则正文见 §4.1）。理由：用户要求触发源以当前项目事实为准，并明确确认主动发放不由规则接管。落点：§2、§4.1、§5。重开条件：新增生产自动发放入口，或主动发放需要规则化。
+- **DEC-multi-wallet-grant-rules-010 · 规则统一存储**（agent，实现层）：使用单一 `points_distribution_rules` 表承载六类自动触发规则，以受限 owner 类型区分 Mapping 与 Realm 注册配置；账本、额度权益和周期计划统一引用规则 ID。理由：新的触发源目录要求跨固定积分、额度权益、计划和回收统一追踪；单表可提供一个真实外键，避免两套规则表带来的多态引用，同时 owner/trigger CHECK 将范围锁定在本 feature。落点：设计/实现层（`.ai/design/multi-wallet-grant-rules.md` §4.3）。重开条件：规则拥有者或策略字段出现无法用清晰 CHECK 表达的结构分裂。
+- **DEC-multi-wallet-grant-rules-011 · 周期策略**（user，2026-07-29 会话）：订阅和免费周期规则允许 fixed 周期积分或滚动窗口 quota，显式覆盖已发布 quota-only 基线（规则正文见 §4.3、§4.4）。理由：用户确认本 feature 不只改变单目标路由，也恢复 fixed 周期积分作为可配置策略。落点：§2.1、§4.3、§4.4。重开条件：产品重新收敛为 quota-only，或 fixed 周期执行成本不可接受。
+- **DEC-multi-wallet-grant-rules-012 · 事件完成记录**（agent，实现层）：每个分发事件在积分结果同一事务内写入唯一完成记录；完成记录包含零规则结果，重放先返回原事件结果，不重新解析当前规则集合。理由：仅靠"事件 + 规则"幂等无法区分首次零规则与尚未执行，也无法在规则集合变更后恢复原事件完整结果。落点：§4.5、设计/实现层。重开条件：业务源本身提供可复用且覆盖零结果的等价原子完成记录。
+- **DEC-multi-wallet-grant-rules-013 · 内部配额直写归因**（agent，实现层）：保留 demo/test-only internal quota 直写入口；该入口写入的 quota entitlement 允许 `distribution_event_id` 与 `distribution_rule_id` 同时为空，生产分发执行器写入时两者必须同时非空。理由：该入口用于快速 Demo 构造配额，不代表生产自动发放；强制其创建持久化业务规则会把测试夹具耦合到管理配置。落点：§4.1、设计/实现层。重开条件：internal quota 入口进入生产范围，或 Demo 改为完整购买链路。
+- **DEC-multi-wallet-grant-rules-015 · 后端任务拆分**（user，2026-07-29 会话，实现层）：backend/dev 使用 6 个顺序执行的责任闭环 item；用户明确授权超过默认 3-item 上限，并覆盖本阶段"单项超过 10 个核心文件必须拆分"的规则。理由：保持六个业务责任闭环，接受部分 item 文件面较大，以避免继续增加执行切换与 handoff。落点：设计/实现层（任务拆分）。重开条件：后端设计范围显著变化，或用户撤回本次拆分豁免。
+- **DEC-multi-wallet-grant-rules-016 · 前端任务拆分**（user，2026-07-29 会话，实现层）：frontend/dev 使用 4 个顺序执行的责任闭环 item（规则编辑基础层、Mapping 域、Realm 注册规则页、Bucket/购买展示与全局收尾）；用户明确授权超过默认 3-item 上限。理由：合并为 3 项会把 Realm 注册配置、Credit Bucket、用户购买展示三个弱相关页面域压进单项且恰好 10 个核心文件无余量，购买页 quota/fixed 求和风险的失败归因被稀释。落点：设计/实现层（任务拆分）。重开条件：前端设计范围显著变化，或用户撤回本次拆分豁免。
+- **DEC-multi-wallet-grant-rules-017 · Demo 管理端编辑覆盖**（user，2026-07-31 会话）：Demo 必须包含管理端 Mapping 与 Realm 注册规则编辑能力；迁移现有老旧管理端 Demo，不得只用 Seed 覆盖配置步骤。理由：用户明确指出管理端编辑能力已有 Demo 但代码老旧，需要随规则列表模型调整。落点：Demo/测试。重开条件：用户明确收窄 Demo 为纯用户侧结果，或管理端 UI 被移出本 feature。
+
 
 ---
 
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 决策账本：`docs/decisions/multi-wallet-grant-rules.md`
 - 已发布积分账户 PRD：`docs/prd/billing/credit-bucket.md`
 - 已发布积分系统 PRD：`docs/prd/billing/points.md`
 - 已发布订阅 PRD：`docs/prd/billing/subscription.md`

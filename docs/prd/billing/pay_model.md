@@ -45,7 +45,7 @@
 
 ### 2.3 依赖项
 
-- [IAP 支持](support-iap.md)提供的凭证验证、商店通知和 Google 对账能力。
+- [IAP 支持](support-iap.md)提供的凭证验证、商店通知和 Google 对账能力（support-iap 首期已将买断与非续期订阅排除在范围外，本 feature 承接该扩展）。
 - [支付驱动权益门控](support-paywall.md)提供的角色授予、来源追溯和重复购买控制。
 - 既有订阅查询与管理能力。
 
@@ -101,12 +101,17 @@
 
 ## 7. 已确认决策
 
-| 决策项 | 结论 |
-|---|---|
-| 买断模型 | 使用一次性购买加永久角色授予，不建立独立买断计费类型。 |
-| 非续期模型 | 使用独立非续期计费类型，复用订阅权益的查询和管理语义。 |
-| 到期策略 | 不增加本地到期扫描；Apple 非续期订阅的到期缺口作为已接受风险。 |
-| 退款回收 | 一次性角色购买的整笔退款/撤销回收支付来源角色；Stripe、Creem 部分退款保留角色，仅累计退款达到原支付金额时回收（见 [refund-clawback.md](refund-clawback.md)）。 |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
+
+- **DEC-pay_model-001 · 买断存储**（user，2026-07-28 会话）：买断不新增 `BillingType::Buyout`，以 `one_time` + `granted_role_ids` 永久角色授予表达（角色 `expires_at=None`，已有防重复购买）；需补 IAP 非消耗型商品区分与退款时永久角色回收（规则正文见 §4.1）。理由：改动最小；现有 paywall 已落地 one_time+角色永久授予与 M3 防重复购买；接受"买断不进入 entitlement_key 订阅查询"的语义边界。落点：§2.1、§2.2、§4.1。重开条件：出现必须以 entitlement_key 查询买断权益的集成方需求。
+- **DEC-pay_model-002 · 非续期模型**（user，2026-07-28 会话）：非续期订阅新增 `BillingType::NonRenewing`，复用 Subscription 实体——履约创建固定时长、不自动续费的订阅（创建即带 `current_period_end`/`cancel_at`，无续费流转）（规则正文见 §4.1）。理由：Subscription 实体字段与状态机（Active/Expired/has_access）足以表达；复用查询、SDK、管理视图，避免并联新实体。落点：§2.1、§4.1。重开条件：非续期与自动续期订阅的字段/状态冲突无法在对账层调和。
+- **DEC-pay_model-003 · 到期策略**（user，2026-07-28 会话）：非续期订阅到期失效仅依赖商店通知/轮询驱动——不新增本地到期扫描 job，不在权益查询叠加本地时间判断；接受 Apple 非续期订阅无服务端生命周期（getAllSubscriptionStatuses 仅覆盖 auto-renewable）导致的到期缺口（规则正文见 §4.1、§4.2）。理由：用户明确选择；Google 轮询（subscriptionsv2.get）可发现 EXPIRED；Apple 侧缺口为已接受风险。落点：§2.2、§4.1、§4.2。重开条件：Apple 侧到期失效成为上线验收硬要求。
+- **DEC-pay_model-004 · 退款回收渠道范围**（agent）：退款/撤销时回收永久角色的修正对全渠道（Apple/Google/Stripe/Creem）的 one_time+角色购买生效，不限定 IAP 渠道（规则正文见 §4.1）。理由：one_time 撤销路径为全渠道共享代码路径；DEC-pay_model-001 要求"退款时永久角色回收"未限定渠道；按渠道过滤反而增加复杂度；技术预研 §6.2 显式假设。落点：§2.1、§4.1。重开条件：需要把退款角色回收限定为 IAP 渠道。
+- **DEC-pay_model-005 · 服务期时长字段**（agent，实现层）：非续期服务期时长使用新列 `provider_entitlement_mappings.service_duration_days`（INT NULL），不复用 `validity_days`；mapping 校验非续期必填，DB 加 CHECK 守卫。理由：`validity_days` 语义为 one_time 积分过期窗口（唯一消费点是 topup 过期），复用会造成按 billing_type 变化的语义重载（技术预研 §5.5 P2 风险）；新增可空列无兼容性损失；不改变产品语义（PRD 仅要求"服务期时长必填"）。落点：§4.1、设计/实现层（`.ai/design/pay_model.md` §4.3）。重开条件：出现必须复用 validity_days 的跨模型统一过期语义需求。
+- **DEC-pay_model-006 · Google ack/consume 选择**（agent，实现层）：Google one_time 履约的 ack/consume 选择——mapping 仅配置积分发放（`points_per_period > 0` 且不授予 role）→ `consume`（消耗型积分包）；否则（角色-only 买断或积分+role 买断礼包）→ `acknowledge_product` only，保留 Google 侧恢复购买记录（修订：首版谓词为 `points_per_period > 0` 即 consume，积分+role 场景后改为 acknowledge）。理由：消耗语义与"权益可被再次购买"绑定于积分发放；角色-only 的 one_time 即买断形态，consume 会破坏恢复购买；`GoogleDeveloperClient.acknowledge_product` 已存在未用；不改变现有消耗型积分包行为。落点：§4.1、设计/实现层（`.ai/design/pay_model.md` §5.4）。重开条件：Google 侧出现"发积分但不可消耗"的商品形态。
+- **DEC-pay_model-007 · billing_type 快照列**（agent，实现层）：`subscription` 表新增 `billing_type` 列（`'recurring'/'non_renewing'`），履约创建时从 mapping 快照；对账过滤、管理视图与 api-ext 查询均读该列。理由：US-PM-003/US-PM-007 要求订阅可识别计费类型；对账须按 billing_type 过滤（DEC-pay_model-002 架构约束）；经 entitlement_key join mapping 不可靠（mapping 可改可删）；快照列是订阅实体的固有属性。落点：§4.1、§6、设计/实现层（`.ai/design/pay_model.md` §4.3）。重开条件：订阅与 mapping 必须强一致且接受 join 成本。
+- **DEC-pay_model-008 · 未上线兼容性**（user）：产品未上线，本特性不考虑向后兼容——迁移直接变更结构（不做 DEFAULT 回填/灰度/双写），DTO 字段自由增改，不为旧客户端保留解析安全；现有 recurring/one_time 行为不回退属回归要求而非兼容承诺。理由：用户明确指示（2026-07-28 `/t-design` 期间）。落点：§5、§6。重开条件：产品上线或已产生外部集成方存量数据。
+
 
 ---
 

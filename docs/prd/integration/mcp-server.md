@@ -113,20 +113,19 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-mcp-server-001` | Applied | mcp.tool-boundary | 首发只读工具集（五项查询能力），每个工具映射既有 `resource.action` 权限；写操作在验证期通过后按逐工具安全评审加入 | §2.1、§2.2、§4.1、§5 | `docs/decisions/mcp-server.md` |
-| `DEC-mcp-server-002` | Applied | mcp.auth-model | MCP 端点复用 Client API Key 鉴权 + 既有 RBAC/租户隔离；不实现 OAuth 2.1 授权流，OAuth 列为演进路径 | §2.2、§4.1、§6 | `docs/decisions/mcp-server.md` |
-| `Q-mcp-server-001`（Resolved） | Applied | mcp.auth-spec-compliance | MCP 授权规范明确授权为可选能力，仅 API Key 方案合规 | §6 | `docs/decisions/mcp-server.md` |
-| `Q-mcp-server-002`（Deferred） | Not Applicable | mcp.customer-facing-auth | MCP Auth 等价物属另一产品方向（依赖 OIDC Park 重开），不影响本 PRD 范围 | §2.2 | `docs/decisions/mcp-server.md` |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-> 这里只记录带稳定 DEC ID 的已确认结论。用户决策必须在写入前解决。
+- **DEC-mcp-server-001 · mcp.tool-boundary**（agent）：首发只读工具集（五项查询能力：用户、积分余额、积分流水、审计、Realm 配置状态），每个工具映射既有 `resource.action` 权限；写操作在 Wedge 验证后按逐工具安全评审加入（Minimal 阶段）。理由：最小安全面；1-2 天可交付楔子；对齐 `.ai/future/next.md` §4.4 Wedge→Minimal 两步走路径；AskUserQuestion 提问未获答复，按 next.md 既有推荐采纳，用户可在 /t-prd 推翻。落点：§2.1、§2.2、§4.1、§5。重开条件：Wedge 验证通过（4-6 周出现 agent 使用信号）进入 Minimal；或用户在 /t-prd 明确改边界。
+- **DEC-mcp-server-002 · mcp.auth-model**（agent）：MCP 端点复用 Client API Key 鉴权（api-ext 中间件模式）+ 既有 RBAC/realm 隔离；不实现 OAuth 2.1 授权流（RFC 9728/WWW-Authenticate/DCR 均不引入），OAuth 列为演进路径（规则正文见 §4.1）。理由：MCP 2026-07-28 规范明确 Authorization OPTIONAL，API Key 不违规；rmcp OAuth 能力仅客户端侧，服务端 OAuth 需自建成本高；主流客户端支持自定义 header 携带 API Key（Claude Code `--header` 官方文档化）；架构级集成选择，影响 prd/design/task。落点：§2.2、§4.1、§6。重开条件：客户端生态对静态 header 支持恶化（Claude Code #14976 类问题扩大），或用户要求浏览器授权 UX（Logto 同款体验）。
+
+**问题记录**（原账本 Resolved / Deferred Questions）：
+
+- `Q-mcp-server-002`（延期）：MCP Auth 等价物（客户用 Herald 给自己的 MCP server 做 OAuth 2.1 鉴权）属另一产品方向，依赖已 Park 的 OIDC 决策（`.ai/decision/openid-connect.md`）重开，且无需求证据，不影响本 feature 的 MCP server 路线。须在用户选择追求该方向时的 /t-decision 决议。
 
 ---
 
 ## 8. 参考资料
 
-- 决策账本：`docs/decisions/mcp-server.md`
 - 技术预研：`.ai/tech-research/mcp-server.md`
 - 技术设计：`.ai/design/mcp-server.md`
 - 官方 MCP 集成指南：https://www.fornetcode.com/en/docs/integration/mcp （中文：https://www.fornetcode.com/zh/docs/integration/mcp ）

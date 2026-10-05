@@ -119,14 +119,16 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-support-mobile-apple-login-001` | Applied | 客户端归属与端点分支 | 端点同时支持第一方（直接 session）与第三方（下游 Code+PKCE）双分支，完全对齐 Google One Tap 形态 | §2.1、§4.1、§6 | `docs/decisions/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-002` | Applied | client_secret 范围 | 仅做 native 路径（只校验 identityToken，不调 Apple token 端点、不使用 client_secret）；不修 Apple web redirect 的 JWT client_secret 自动签发缺陷 | §2.2、§4.1、§6 | `docs/decisions/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-003` | Applied | 前端范围 | Herald Web SPA 无改动，纯后端能力；iOS App 由接入方自行实现，不在本仓库 | §2.1、§2.2、§6 | `docs/decisions/support-mobile-apple-login.md` |
-| `DEC-support-mobile-apple-login-005` | Applied | 邮箱缺失建号策略 | Apple identityToken 邮箱为空且 open_id 未命中时，生成 `{sub}@apple.placeholder` 占位邮箱、标记未验证后建号（对齐微信占位邮箱范式）；Apple 中转邮箱作真实邮箱处理；与 Apple web redirect 拒绝建号的行为有意不同 | §4.1、§5 | `docs/decisions/support-mobile-apple-login.md` |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-> DEC-004（`verify_apple_id_token` 增加 `jwks_url` 参数、AppState 增加 `apple_jwks_url`）为 D2 工程取舍，属技术设计范畴，不改变产品语义，故不在本 PRD 记录；详见决策账本与技术预研报告。
+- **DEC-support-mobile-apple-login-001 · 客户端归属与端点分支**（user）：端点同时支持第一方（直接 session）与第三方（下游 Code+PKCE）双分支，完全对齐 Google One Tap 形态（规则正文见 §2.1）。理由：用户明确"类似 google one tap，herald 用户在自己 realm 里创建对接，使之能在手机 app 里对接"；复用现有 brokered 流程避免再造。落点：§2.1、§4.1、§6。重开条件：用户提出只需单一模式。
+- **DEC-support-mobile-apple-login-002 · client_secret 范围**（user）：仅做 native 路径（只校验 identityToken，不调 Apple token 端点、不使用 client_secret）；不修 Apple web redirect 的 JWT client_secret 自动签发缺陷（规则正文见 §2.2）。理由：native Sign in with Apple 最佳实践是 App 端 ASAuthorizationAppleIDProvider 直接拿 identityToken，无需换 code，天然绕开 client_secret 每 6 个月续签的运维负担；web redirect 缺陷独立，留后续。落点：§2.2、§4.1、§6。重开条件：需要支持 web redirect Apple 登录的自动 client_secret 续签。
+- **DEC-support-mobile-apple-login-003 · 前端范围**（user）：Herald Web SPA 无改动，纯后端能力；iOS App 由接入方自行实现，不在本仓库。理由：用户明确"无 iOS App 计划，纯后端能力"；本仓库 frontend 是 Web SPA，Apple native 登录的客户端在 iOS 侧，不在本仓库。落点：§2.1、§2.2、§6。重开条件：Herald 决定自建第一方 iOS App。
+- **DEC-support-mobile-apple-login-004 · JWKS 注入**（repository-fact，实现层）：`verify_apple_id_token` 增加 `jwks_url` 参数（对齐 google 的 `verify_google_id_token`），并在 AppState 增加 `apple_jwks_url` 字段（从 config 读取，默认 `https://appleid.apple.com/auth/keys`）。理由：与 google verify 函数保持一致的测试性：scenario 测试可在 AppState 私有副本上指向 wiremock JWKS，无需进程级 mutation；google 侧已有成熟测试范式可照搬。落点：设计/实现层。重开条件：—。
+- **DEC-support-mobile-apple-login-005 · 邮箱缺失建号策略**（user + repository-fact）：Apple identityToken 邮箱为空且 open_id 未命中时，生成 `{sub}@apple.placeholder` 占位邮箱、标记未验证后建号（对齐微信占位邮箱范式）；Apple 中转邮箱作真实邮箱处理；与 Apple web redirect 拒绝建号的行为有意不同（规则正文见 §4.1）。理由：(1) `account.email` 是 NOT NULL + 唯一索引 `(realm_id, email)`，不能存空；(2) `find_or_create_user` 优先级是 union_id → open_id → email，Apple open_id=Some(sub) 稳定，故 email 仅在「首次建号」场景影响建号，后续登录靠 open_id 命中不再依赖 email；(3) 对齐项目现有 WeChat placeholder 范式（wechat.rs:157 / wechat_miniprogram.rs:107，`{id}@wechat.placeholder` + verified=false，PRD `docs/prd/auth/wechat-oauth.md` §4.1 已记录），保持社交登录建号策略一致；(4) Apple 的 `@privaterelay.appleid.apple.com` 中转邮箱是合法可收信邮箱，作真实 email 处理，不归为 placeholder。落点：§4.1、§5。重开条件：项目决定废弃 placeholder 范式（需 WeChat/Apple 一并迁移）。
+
+> DEC-004 为 D2 工程取舍，以实现层条目收录于本节。
+
 
 ---
 
@@ -135,7 +137,6 @@
 - 架构参照 PRD：[Google One Tap 登录](google-one-tap.md)
 - 占位邮箱范式参照 PRD：[微信 OAuth](wechat-oauth.md) §4.1
 - OAuth 第三方登录基线：[OAuth](oauth.md)（§2.1 Apple 作为 web redirect SSO Provider、§4.1 brokered downstream-state redirect）
-- 决策账本：`docs/decisions/support-mobile-apple-login.md`
 - 技术预研：`.ai/tech-research/support-mobile-apple-login.md`
 - 角色定义：`docs/user-stories/_roles.md`
 - 用户故事来源见 §1 表格

@@ -165,13 +165,7 @@ And 用户登录成功，不因邮箱缺失而被拒绝
 
 ### 业务规则
 
-1. Apple native 登录在 **iOS App 内**触发，由接入方的 iOS App 调用苹果系统原生授权弹窗；Herald 仅作为后端凭证校验与会话签发方，本仓库不包含 iOS App。
-2. Herald 在此场景中接收 Apple 签发的身份凭证，在服务端校验签名、签发者、受众和有效期，不得信任 App 传来的任何明文用户信息。
-3. 用户匹配策略与现有 Apple web 跳转登录一致：通过 Apple 用户唯一标识（sub）优先匹配，其次邮箱，最后创建新用户；保证同一 Apple 用户在 web 与 native 两条路径关联到同一 Herald 账号。
-4. 端点支持两种会话建立方式：直接会话（第一方 Client App，Herald 直接签发该 App 的会话）和下游授权码（第三方 Client App，Code+PKCE，Herald 签发一次性授权码）。
-5. 邮箱处理与 Apple web 跳转登录有意不同：Apple native 凭证在非首次授权时恒不返回邮箱，故 native 路径在首次建号且邮箱缺失时生成占位邮箱并标记未验证（不拒绝），与微信占位邮箱策略一致；Apple 中转邮箱是合法可收信地址，作真实邮箱处理。
-6. Apple Provider 复用现有配置（Client ID、启用状态），不新增 native 专用配置项；Realm 启用 Apple Provider 即可使用 native 登录。
-7. 本能力不代理调用 Apple 上游接口、不存 Apple 访问令牌或刷新令牌，只做身份落账。
+> 业务规则的唯一定义点是 PRD §4（触发位置与 Provider 启用条件、凭证校验严格性、用户匹配策略、注册政策门控、邮箱处理规则、两种会话建立模式、同意闸门）：[docs/prd/auth/support-mobile-apple-login.md](/docs/prd/auth/support-mobile-apple-login.md)。本文场景中的数值口径以 PRD 为准。
 
 ### 与现有用户故事的关系
 

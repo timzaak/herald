@@ -232,23 +232,9 @@ Then 系统返回验证失败提示
 
 ---
 
-## 业务规则与边界说明
+## 业务规则
 
-1. **Device Code Grant 是 OAuth 2.0 的扩展授权类型**（RFC 8628），适用于无浏览器或输入受限的设备
-2. 用户码（user_code）格式为 8 字符（`XXXX-XXXX`），使用大写辅音字母（BCDFGHJKMNPQRSTVWXYZ）排除元音和易混淆字符
-3. 设备码（device_code）对用户不可见，仅用于后端轮询
-4. 设备码和用户码的默认有效期为 900 秒（15 分钟）
-5. 默认轮询间隔为 5 秒
-6. Device Code Grant 需在 Client App 配置中显式启用
-7. Device Code Grant 不需要跳转地址（redirect_uri），适用于无浏览器环境
-
-### 安全注意事项
-1. 设备码应使用高强度随机值，不可猜测
-2. 设备授权请求按来源 IP 限流（每 60 秒 10 次）；不另设单个 Client App 的 pending 设备码并发计数
-3. 用户应只输入自己发起的用户码，防范钓鱼攻击
-4. 验证页面应展示请求授权的 Client App 名称，帮助用户确认
-5. 已使用或已过期的用户码应立即失效
-6. 授权确认后设备码应标记为已使用，防止重放
+> 业务规则的唯一定义点是 PRD §4（设备授权流程、user_code 生成规则、API 能力边界与限流、防钓鱼、登录同意闸门、device_code 生命周期与轮询错误码）：[docs/prd/auth/device-code.md](/docs/prd/auth/device-code.md)。本文场景中的数值口径（有效期、轮询间隔、限流阈值）以 PRD 为准。
 
 ---
 

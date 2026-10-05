@@ -69,6 +69,7 @@
 - Redirect URIs：一旦提交列表就至少包含一个有效 URL，禁止 javascript: 和协议相对 URL；创建时可暂不提供，纯 Device Code Client 可在创建时提交空列表
 - 删除 Client App 需要二次确认
 - 浏览器 token 的 refresh 绝对上限策略在 token 家族签发时固化，后续配置修改只影响新签发的 token 家族
+- Client App 会话 Cookie 的初始有效期可配置；续期后的有效期可配置，未设置表示不允许续期
 - 禁用 Client App 会使绑定到该 App 的 API Key 在外部 API 认证中不可用；同时实时吊销该 App 名下全部浏览器 token 家族（已登录会话立即失效），删除 Client App 时同样吊销
 - 删除 Client App 前必须不存在绑定 API Key；存在绑定时拒绝删除。数据库外键使用 `RESTRICT`，不得因删除把 App 级 Key 转成 Realm 级空绑定；NULL 仅兼容历史数据
 - **人机验证（Turnstile）配置归属 Client App 级**：每个 Client App 配置自己的 Turnstile 启用开关、site_key 与 secret_key；未认证身份端点（注册/登录/找回密码/重置密码/邮箱验证/邮箱验证码登录）的人机验证按当前请求绑定的 Client App 的配置执行，未启用 Turnstile 的 Client App 不强制人机验证

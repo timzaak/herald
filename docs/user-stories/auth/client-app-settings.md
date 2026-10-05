@@ -176,26 +176,9 @@ Then 系统提示配置无效且不保存
 
 ---
 
-## 业务规则与边界说明
+## 业务规则
 
-1. **redirect_uris 白名单验证**：
-   - 提交非空 OAuth 回跳配置时至少包含一个有效的 HTTPS 地址（开发环境允许 HTTP）
-   - 创建 Client App 时可暂不提供；仅使用 Device Code Grant 的 App 可不配置 redirect URI
-   - 验证 URL 格式，禁止 `javascript:` 协议和协议相对 URL `//`
-   - OAuth 授权时严格验证 redirect_uri 是否在白名单中
-
-2. **浏览器 token 生命周期规则**：
-   - 浏览器 token 采用短时效 access token + 旋转 refresh token 模型，refresh token 每次刷新后换发、旧 token 作废，复用检测发现旧 token 再用时吊销整个 token 家族
-   - refresh 绝对有效期上限：默认 30 天，合法区间 1 天–90 天
-   - 配置变更只影响新签发的 token 家族；已存在 token 家族使用签发时的上限
-
-3. **安全考虑**：
-   - 禁用的 Client App 无法完成 OAuth 授权流程
-   - redirect_uri 白名单防止开放重定向攻击
-
-4. **边界说明**：
-   - Realm 管理员只能管理本 Realm 的 Client App 设置
-   - 修改设置后对新签发的浏览器 token 生效
+> 业务规则的唯一定义点是 PRD §4（redirect_uris 白名单验证、浏览器 token 生命周期与旋转、Client App 禁用安全、Realm 隔离边界）：[docs/prd/integration/client-app.md](/docs/prd/integration/client-app.md)（OAuth 授权时的 redirect_uri 白名单精确匹配见 [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md) §4.1）。本文场景中的数值口径（refresh 绝对有效期上限的默认值与合法区间）以 PRD 为准。
 
 ---
 

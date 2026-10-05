@@ -212,11 +212,7 @@ And 用户仍可通过"企业账号登录"入口正常登录
 
 ### 业务规则
 
-1. LDAP 目录配置按 Realm 隔离；每 Realm 一份目录配置（DEC-support-ldap-001/005）。
-2. 用户匹配策略：按目录身份（DN）→ 邮箱 → 创建，与既有第三方登录匹配策略同构；目录邮箱由企业管理员维护，视为可信来源（DEC-support-ldap-008）。
-3. 首次登录自动建号不受 Realm 公开注册开关限制：管理员启用 LDAP 目录即视为对该目录供给的授权（DEC-support-ldap-007）。
-4. 企业账号登录完整继承现有登录安全管线：人机验证（按 Client App 配置）、IP+标识符限流、二因素验证、协议同意、审计（DEC-support-ldap-006）。
-5. 不做 LDAP 组→角色映射、不做后台目录同步、不做 Windows 桌面单点登录（DEC-support-ldap-001/003）。
+> 业务规则的唯一定义点是 PRD §4（租户隔离与每 Realm 单一目录配置、凭据信道加密、search-then-bind 认证、用户匹配策略、JIT 建号授权、登录管线继承与共存原则）：[docs/prd/auth/support-ldap.md](/docs/prd/auth/support-ldap.md)。本文场景中的数值口径以 PRD 为准。
 
 ### 与现有用户故事的关系
 

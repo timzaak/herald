@@ -440,41 +440,7 @@ Then Herald 返回错误，提示授权码无效
 
 ### 业务规则
 
-1. 第三方应用通过 Client App 接入特定的 Realm
-2. 每个 Client App 有唯一的 client_id 和 client_secret
-3. OAuth 授权码为一次性使用，使用后立即失效
-4. 第三方应用不能访问 Herald 管理后台
-5. 第三方 API 使用独立接口，与内部 API 隔离
-6. API Key 认证用于第三方 API，不用于内部 API
-7. Session Token 认证用于内部 API，不用于第三方 API
-8. API Key 绑定到特定 Realm，实现租户隔离
-9. API Key 支持禁用和过期机制
-
-### 安全注意事项
-
-1. Client Secret 必须保密，不能泄露
-2. 回调 URL 必须在服务端验证，防止开放重定向漏洞
-3. 授权码必须一次性使用，使用后立即失效
-4. 访问令牌必须通过 HTTPS 传输
-5. State Token 必须验证，防止 CSRF 攻击
-6. API Key 必须通过 HTTPS 传输
-7. API Key 验证失败时不更新使用统计
-
-### redirect_uris 白名单规则
-
-1. 至少包含一个有效的 HTTPS 地址（开发环境允许 HTTP）
-2. 验证 URL 格式，禁止 javascript: 协议和协议相对 URL
-3. OAuth 授权时严格验证 redirect_uri 是否在白名单中（精确匹配，不允许前缀绕过）
-
-### Session 配置规则
-
-1. Cookie 初始有效期可配置
-2. 续期后的有效期可配置，未设置表示不允许续期
-
-### 边界说明
-
-- Realm 管理员只能管理本 Realm 的 Client App 设置
-- 修改设置后立即生效，无需重启服务
+> 业务规则的唯一定义点是 PRD §4（OAuth 授权流程与凭证安全、redirect_uris 白名单、第三方 API 接入与 API Key、Client App 会话 Cookie 配置、Realm 隔离边界）：[docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)（OAuth 授权与第三方 API）、[docs/prd/integration/client-app.md](/docs/prd/integration/client-app.md)（Client App 配置与会话）、[docs/prd/integration/api-key-roles.md](/docs/prd/integration/api-key-roles.md)（API Key 角色绑定与作用域）。本文场景中的数值口径以 PRD 为准。
 
 ---
 

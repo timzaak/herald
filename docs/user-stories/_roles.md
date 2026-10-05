@@ -208,8 +208,8 @@ Herald 系统（System Actor，非角色）
 | Points User | Regular User | 行使积分查询/消费职责（billing/points-user.md） |
 | Free User | Regular User | 仅享受免费积分策略的用户（billing/points-free-user.md） |
 | Billing User | Regular User | 持有订阅/账单的用户（billing/subscription.md） |
-| SaaS 自助注册访客 | （未认证访客） | 自助开通流程中的注册者（core/realm-create.md） |
-| 新 realm-admin | Realm Admin | 刚自助开通 Realm 的首任管理员（core/realm-create.md） |
+| SaaS 自助注册访客 | （未认证访客） | 自助开通流程中的注册者（core/realm-create.md、core/realm-onboarding-guidance.md） |
+| 新 realm-admin | Realm Admin | 刚自助开通 Realm 的首任管理员（core/realm-create.md、core/realm-onboarding-guidance.md） |
 | 第三方应用开发者 | Third-Party App | 集成 Herald 的开发者视角（auth/openid-connect.md、auth/google-one-tap.md） |
 
 ---

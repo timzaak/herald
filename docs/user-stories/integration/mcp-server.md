@@ -249,5 +249,5 @@ And 不返回任何配置数据
 
 - **PRD**: [docs/prd/integration/mcp-server.md](/docs/prd/integration/mcp-server.md)
 - **API Key 体系（前置能力）**: [docs/prd/integration/api-key-roles.md](/docs/prd/integration/api-key-roles.md)
-- **决策账本**: `docs/decisions/mcp-server.md`
+- **决策记录**: `docs/prd/integration/mcp-server.md` §7
 - **技术预研**: `.ai/tech-research/mcp-server.md`

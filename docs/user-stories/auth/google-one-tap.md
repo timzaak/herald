@@ -166,12 +166,7 @@ And 返回错误提示邮箱未验证
 
 ### 业务规则
 
-1. One Tap 弹出在**第三方应用网站**上，而非 Herald 自身的登录页
-2. Herald 在此场景中仅作为后端验证方：接收 Google 凭证 → 验证签名/iss/aud → 签发会话或授权码
-3. 用户匹配策略与现有跳转式 Google 登录一致：open_id → email → 创建（Google 不提供 union_id，与微信不同）
-4. **自动建号受 Realm 注册政策门控**：未注册用户首次通过 One Tap 登录时，若 Realm 未开启自动注册，不创建账号并返回 409 conflict，引导走显式注册入口（见故事 1 场景 2b）。该原则与邮箱验证码登录、其他 OAuth Provider 一致（见 `docs/prd/auth/email-otp-login.md` §4.1「注册政策优先」、`docs/prd/auth/oauth.md` §4.1）
-5. One Tap 与跳转式 Google 登录共存，用户可通过任一方式完成登录
-6. Google 凭证是一次性 JWT，有效期约 1 小时，Herald 必须在服务端验证
+> 业务规则的唯一定义点是 PRD §4（触发位置、后端凭证验证、用户匹配策略、注册政策门控、一次性凭证、共存原则）：[docs/prd/auth/google-one-tap.md](/docs/prd/auth/google-one-tap.md)。本文场景中的数值口径（Google 凭证有效期）以 PRD 为准。
 
 ### 与现有用户故事的关系
 

@@ -121,12 +121,15 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-support-discord-001` | Applied | scope.discord-provider | 支持 Discord OAuth 登录：作为第 5 个通用跳转式 OAuth Provider 接入既有链路，复用配置管理、四层身份匹配与全部门控；不新增专属流程、路由、依赖或迁移 | §2 / §4 | `docs/decisions/support-discord.md` |
-| `DEC-openid-connect-001` | Not Applicable | Herald 定位边界（SaaS 底座 vs 完整身份平台的 OIDC 能力范围） | 该决策不约束社交登录 provider 数量与接入；新增跳转式 provider 属既有能力范围内的按需扩展，不触及定位边界 | — | `docs/decisions/openid-connect.md` |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-> 邮箱验证透传、email 缺失显式拒绝、默认 Scopes、不做 scope 白名单校验等为已发布规则（[oauth.md](oauth.md) §4.1）与技术预研结论在 Discord 上的落实，属 agent 授权的工程取舍，未达账本入账门槛，记录于 §2 / §4。
+- **DEC-support-discord-001 · scope.discord-provider**（user）：支持 Discord OAuth 登录：作为第 5 个通用跳转式 OAuth Provider 接入既有链路，复用配置管理、四层身份匹配与全部门控；不新增专属流程、路由、依赖或迁移。理由：用户明确提出「支持 discord Oauth 登录」；技术预研确认该需求为既有 provider 模式的机械扩展，集成路径唯一且无歧义，无影响技术路线、范围边界、兼容性或成本/风险结论的用户决策问题；`.ai/future/next.md` 将「更多社交登录（含 Discord）」归入按需响应 Hold 池，本次用户需求即触发条件，Hold 解除。落点：§2、§4。重开条件：出现通用跳转链路之外的 Discord 专属能力需求（如 Bot/guild 维度身份、扫码形态）。
+
+**跨 feature 引用**：
+
+- `DEC-openid-connect-001`（Not Applicable，Herald 定位边界——SaaS 底座 vs 完整身份平台的 OIDC 能力范围；决策正文见 `docs/prd/auth/openid-connect.md` §7）：该决策不约束社交登录 provider 数量与接入；新增跳转式 provider 属既有能力范围内的按需扩展，不触及定位边界。
+
+> 邮箱验证透传、email 缺失显式拒绝、默认 Scopes、不做 scope 白名单校验等为已发布规则（[oauth.md](oauth.md) §4.1）与技术预研结论在 Discord 上的落实，属 agent 授权的工程取舍，未单列 DEC，记录于 §2 / §4。
 
 ---
 
@@ -134,6 +137,5 @@
 
 - 正式 PRD 基线：[oauth.md](oauth.md)（通用跳转式 Provider 链路、四层匹配、门控语义）
 - 技术预研：`.ai/tech-research/support-discord.md`（端点对接、scope 语义、身份/邮箱/头像映射、email 拒绝、测试影响）
-- 决策账本：`docs/decisions/support-discord.md`
 - 外部参考：Discord Developer Documentation — OAuth2 与 Users Resource（授权/token 端点、客户端认证、scope 与用户字段语义）
 - 用户故事来源见 §1

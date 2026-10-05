@@ -8,7 +8,7 @@ PRD 文件保留独立主题，便于评审和追踪；规划、排期和端到�
 
 | 能力包 | 目标 | 应合并阅读的 PRD |
 |-------|------|------------------|
-| 租户与运营 | 创建、配置和运营 Realm | [Realm](core/realm.md)、[SaaS 自助注册开通 Realm](core/realm-create.md)、[Realm Settings](core/realm-settings.md)、[Dashboard](core/dashboard.md)、[Audit](core/audit.md) |
+| 租户与运营 | 创建、配置和运营 Realm | [Realm](core/realm.md)、[SaaS 自助注册开通 Realm](core/realm-create.md)、[Onboarding Guidance（自助开通强指引与首登引导）](core/realm-onboarding-guidance.md)、[Realm Settings](core/realm-settings.md)、[Dashboard](core/dashboard.md)、[Audit](core/audit.md) |
 | 用户生命周期与合规 | 用户从注册、资料维护到协议确认和注销 | [Users](core/users.md)、[会话管理/强制下线](core/kickoff-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
 | 登录体验与品牌 | 提供统一、可品牌化且可本地化的认证入口 | [OAuth](auth/oauth.md)、[OpenID Connect](auth/openid-connect.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/ui-custom.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 配置并完成多因素或无密码认证 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
@@ -28,7 +28,6 @@ docs/
 │   ├── auth/              # 认证与授权（OAuth、TOTP、权限等）
 │   ├── billing/           # 计费与订阅（订阅、积分、支付等）
 │   └── integration/       # 集成与扩展（Client App、SDK 等）
-├── decisions/              # 决策账本（PRD §7 引用的 DEC 记录，按 feature 一份）
 └── user-stories/           # 用户故事（User Stories）
     ├── index.md           # 用户故事索引
     ├── core/              # 核心功能用户故事
@@ -37,7 +36,7 @@ docs/
     └── integration/       # 集成相关用户故事
 ```
 
-**草稿层与工作层分层说明**：`.ai/` 目录是本地工作层（被 .gitignore 忽略，随仓库发布不可见）——PRD §8 中引用的技术设计（`.ai/design/`）与技术预研（`.ai/tech-research/`）属于该层，不随仓库发布；决策账本已入库至 [docs/decisions/](../decisions/)，PRD §7 的 DEC 引用在仓库内可解析。
+**草稿层与工作层分层说明**：`.ai/` 目录是本地工作层（被 .gitignore 忽略，随仓库发布不可见）——PRD §8 中引用的技术设计（`.ai/design/`）与技术预研（`.ai/tech-research/`）属于该层，不随仓库发布。决策记录收录于各 PRD §7（DEC/Q 编号在仓库内可直接对账）。
 
 ## PRD 文档列表
 
@@ -47,6 +46,7 @@ docs/
 |---------|------|---------|
 | [realm.md](core/realm.md) | Realm 管理 | Admin Realm, Realm Admin |
 | [realm-create.md](core/realm-create.md) | SaaS 自助注册开通 Realm | SaaS 自助注册访客, Admin Realm, Realm Admin |
+| [realm-onboarding-guidance.md](core/realm-onboarding-guidance.md) | Realm Onboarding Guidance（登录页自助开通强指引 + 管理员首登引导） | SaaS 自助注册访客, Realm Admin |
 | [users.md](core/users.md) | 用户管理 | Realm Admin, Regular User |
 | [kickoff-user.md](core/kickoff-user.md) | 会话管理 / 强制用户下线（查看与撤销用户活跃会话 + Forbidden 联动下线） | Realm Admin |
 | [realm-settings.md](core/realm-settings.md) | Realm 设置 | Realm Admin |
@@ -123,7 +123,7 @@ docs/
 4. **业务规则与状态** — 全文档唯一的规则定义点（4.1 业务规则 / 4.2 关键状态与异常）
 5. **验收目标**
 6. **边界与约束** — API/集成边界与前端/交互边界合并陈述；承载访问控制、跨 PRD 指针与交互口径
-7. **已确认决策** — 仅记录取舍（采用 X 而非 Y 及理由）与决策账本指针，不复述规则
+7. **已确认决策** — 全文档唯一的决策记录点：以稳定 DEC/Q ID 逐条记录当前有效的取舍（结论、理由、决策人、重开条件），实现级决策标注「实现层」一并收录；未决延期问题以「问题记录」小节收录。PRD 不保留历史变动——决策被推翻时直接改写对应条目并同步 §4/§2，不留被取代决策或已裁决问题的存档。规则正文只在 §4 定义，本节不复述规则
 8. **参考资料**
 
 编写约束：同一规则只在 §4 定义一次，范围/规则/验收/边界各节不互相复述；派生信息（优先级汇总等）不单列；数值阈值（限流次数、缓存秒数等运行参数）不属于 PRD 契约。

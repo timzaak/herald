@@ -3,7 +3,7 @@
 **创建时间**: 2026-07-26
 **优先级**: P1
 
-> 场景背景：WeChat Pay v3 是面向微信生态的收款渠道，与 Stripe、Creem、App Store / Google Play 内购（IAP）并列，覆盖微信用户的订阅与积分包购买。本文档不承载接口端点、请求/响应 schema、HTTP 状态码、数据库建表/迁移或代码类型定义；技术方案细节请参见对应技术设计。
+> 场景背景：WeChat Pay v3 是面向微信生态的收款渠道，与 Stripe、Creem、App Store / Google Play 内购（IAP）并列，覆盖微信用户的订阅与积分包购买。WeChat Pay 曾在此前完整实现后随整体删除（`df67772e` 等提交，删除根因见 §7 DEC-wechat-support-004），本 PRD 为再接入立项。本文档不承载接口端点、请求/响应 schema、HTTP 状态码、数据库建表/迁移或代码类型定义；技术方案细节请参见对应技术设计。
 
 ---
 
@@ -52,8 +52,8 @@
 - **WeChat 托管产品目录同步**：WeChat Pay v3 无等价的产品目录概念，本期跳过 provider 产品同步流程；entitlement mapping 中 WeChat 的 external_product_id/价格由管理员手工配置
 - **H5 支付、小程序支付以外的其他 WeChat Pay 场景**（如 App 支付、付款码支付）
 - **WeChat 侧的退款/争议处理**：本期不实现退款回调与争议状态（沿用现有 Stripe/Creem 退款模型时再统一规划）
-- **WeChat 自动续费（委托代扣）**：WeChat 委托代扣（商户按周期主动扣款的自动续费）延后为独立 feature；本期 WeChat 订阅型产品为固定期、单次付款、到期后需用户重新购买，系统不自动扣款（订阅建模见 §7.1 与 `docs/prd/billing/pay_model.md`）
-- **第三方 WeChat Pay SDK**：不引入任何会拉入 native-tls/openssl 的第三方 SDK（见 §7.2）
+- **WeChat 自动续费（委托代扣）**：WeChat 委托代扣（商户按周期主动扣款的自动续费）延后为独立 feature；本期 WeChat 订阅型产品为固定期、单次付款、到期后需用户重新购买，系统不自动扣款（订阅建模见 §7 DEC-wechat-support-003 与 `docs/prd/billing/pay_model.md`）
+- **第三方 WeChat Pay SDK**：不引入任何会拉入 native-tls/openssl 的第三方 SDK（见 §7 DEC-wechat-support-004）
 
 ### 2.3 依赖项
 
@@ -164,20 +164,25 @@
 
 ## 7. 已确认决策
 
-### 7.1 范围与场景决策
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-- **支付场景**：本期实现 Native（PC 扫码）与 JSAPI（微信内网页/小程序唤起）两类场景；不实现 H5、App、付款码等其他 WeChat Pay 场景
-- **订阅建模与自动续费延后**：WeChat 订阅型产品用非续期订阅表达（固定有效期、单次付款、可重复购买），履约生成真实订阅记录；WeChat 自动续费（委托代扣）延后为独立 feature，本期不实现商户周期性主动扣款
-- **履约与幂等复用**：履约完全走既有支付尝试统一链路，不引入独立订单表或独立履约服务；回调幂等复用既有 `payment_event` 表，不另建幂等存储
-- **JSAPI openid 来源**：JSAPI 的 openid 由调用方（前端/集成方）通过既有微信登录链路取得并随下单请求传入；获取 openid 不在本期支付渠道范围。微信内置浏览器内以页面 URL 参数作为 openid 的显式传入契约，缺参时不派发订单并提示需先完成微信登录
-- **WeChat 产品目录同步跳过**：WeChat 无托管产品目录，entitlement mapping 中 WeChat 的 external_product_id/价格由管理员手工配置
+- **DEC-wechat-support-001 · 支付场景范围**（user，2026-07-26 + 2026-08-13 两轮会话）：本期实现 Native（PC 扫码）+ JSAPI（微信内）两类场景，均走统一下单；不实现 H5/App/付款码/委托代扣（规则正文见 §2.1）。理由：用户在 07-26 与 08-13 两轮确认；覆盖微信生态主要购买路径。落点：§2.1、§2.2。重开条件：需要覆盖 H5/App 场景或启动委托代扣。
+- **DEC-wechat-support-002 · 自动续费延后**（user，2026-08-13 会话）：自动续费（委托代扣 / Recurring）延后为独立后续 feature，本期不实现；本期"订阅型"产品用 NonRenewing 表达（规则正文见 §2.2）。理由：委托代扣是独立 API 流程（签约→预约扣费→受理扣款），需商户资质（企业/政府/事业单位/社会组织，不含个体工商户）+ 扣款调度 worker，复杂度约为统一下单的 2–3 倍；本期先收敛统一下单。落点：§2.2。重开条件：启动委托代扣 feature。
+- **DEC-wechat-support-003 · 订阅建模**（agent）：WeChat 订阅型产品用 `BillingType::NonRenewing` + `service_duration_days`，履约生成 Subscription 行（固定 `current_period_end` + `cancel_at`，可重复购买）；积分包/买断用 `OneTime`（规则正文见 §4.1）。理由：pay_model 已引入 NonRenewing（DEC-pay_model-002）；WeChat 统一下单无法自动续费，NonRenewing 正好表达"固定期、单次付款"；复用全部订阅查询/管理视图。落点：§2.2、§4.1。重开条件：委托代扣落地后需要真 Recurring 语义。
+- **DEC-wechat-support-004 · TLS 栈与 SDK 硬约束**（user，2026-07-26 会话）：不得引入 openssl / openssl-sys / native-tls / wechat-pay-rust-sdk 或任何间接拉入 native-tls 的依赖；用 workspace `reqwest`（rustls）+ 纯 Rust 加密（rsa/sha2/aes-gcm/pem）自建。理由：rustls 全栈迁移后的硬约束；第三方 wechat-pay-rust-sdk 的 reqwest 未关 default-features 而拉入 native-tls，是历史删除根因。落点：§2.2。重开条件：出现官方维护且兼容 rustls 的纯 Rust WeChat SDK。
+- **DEC-wechat-support-005 · 履约与幂等复用**（user，2026-07-26 会话）：履约完全复用 `payment_attempt` → `complete_succeeded_payment_attempt` → `FulfillmentService`；回调幂等复用 `payment_event`；不另建订单表或独立履约服务（规则正文见 §4.1）。理由：现架构已统一；旧的 `wechat_payment_order` 表与 `WechatSubscriptionService` 基于已废弃计费架构，不还原。落点：§2.1、§4.1。重开条件：统一履约链路无法表达 WeChat 特有履约需求。
+- **DEC-wechat-support-006 · 产品目录跳过**（user，2026-07-26 确认 + 2026-08-13 代码核实）：WeChat 无托管产品目录——跳过 provider 产品同步（`fetch_products` 对 wechat 返回空为无害成功）；管理员手工建 entitlement_mapping（`external_product_id` 自由字符串 + `provider_product_info` JSONB 存价格/币种）（规则正文见 §4.1）。理由：WeChat Pay v3 是订单制（统一下单传金额），协议上无 Product/Price 概念；Herald 已原生支持"无目录 provider"（`external_price_id` 可空、价格在 JSONB、Stripe 已有 price-less 回退）。落点：§2.2、§4.1、§6。重开条件：WeChat 推出官方产品目录 API。
+- **DEC-wechat-support-007 · 凭据存储**（agent）：商户私钥（PEM）与 APIv3 Key 存既有 `realm_config`（`config_type='wechat'`，`is_secret=true`）；本期不做应用层加密（规则正文见 §4.1）。理由：与现有 Stripe/Creem 凭据存储一致；不改变技术路线/依赖/兼容性；后续若全 provider 凭据统一加密，WeChat 一并受益。落点：§2.2、§4.1。重开条件：全 provider 凭据统一加密立项。
+- **DEC-wechat-support-008 · 平台证书缓存**（agent）：平台证书运行时按需从微信下载并本地缓存，采用短 TTL（6 小时）信任窗口，验签遇未知证书序列号或已过期证书即触发重取；不要求手工预置，平台公钥配置项保留为手工覆盖兜底（规则正文见 §4.1）。理由：免手工运维；moka 已在依赖树；平台证书用于回调验签，过期会导致验签全失败。落点：§4.1。重开条件：缓存方案无法满足多实例一致性。
+- **DEC-wechat-support-009 · JSAPI openid 来源**（user，2026-07-26 会话）：JSAPI 所需 openid 由调用方（已登录链路）通过既有微信 OAuth 取得并随下单请求传入；本期支付代码不实现登录态获取（规则正文见 §2.2）。理由：openid 获取属既有登录能力（api-oauth/wechat），非支付渠道职责；支付接口只负责"拿到 openid 后下单"。落点：§2.2。重开条件：openid 无法由登录链路可靠取得。
+- **DEC-wechat-support-010 · 统一支付尝试路径**（agent，2026-08-13 `/t-design`，实现层）：WeChat 下单走统一 `create_payment_attempt` 路径（在 `CreatePaymentAttemptRequest` 增 `paymentScene`/`openid`，在 `build_payment_context` 增 `"wechat"` 分支），不走 IAP `submit_iap_receipt` 路径。理由：WeChat 是 web checkout 流程（建 attempt → 渲染 code_url/JSAPI 参数 → 轮询），与 stripe/creem 同形；IAP receipt 路径面向原生商店票据，前端 web 根本不消费 `submitIapReceipt`；IAP 独立 `create_iap_payment_attempt` 仅因跳过 build_payment_context，WeChat 无需跳过。落点：设计/实现层（`.ai/design/wechat-support.md` §4.1/§5.3）。重开条件：WeChat 需要消费原生商店票据语义。
+- **DEC-wechat-support-011 · PaymentContext 形态**（agent，2026-08-13 `/t-design`，实现层）：`PaymentContext` 沿用 flat provider 字段模式，新增 `wechat_code_url` + `wechat_jsapi_params`（嵌套结构体），不引入通用 `provider_payload` JSONB 字段。理由：与现有 `stripe_checkout_url`/`creem_checkout_url`/`client_secret` flat 模式一致；引入通用 payload 需连带重构 stripe/creem（最小改动原则）；JSAPI 需 6 参数，平铺会污染 PaymentContext，故用嵌套结构体，不改变产品语义、风险接受、成本或兼容承诺。落点：设计/实现层（`.ai/design/wechat-support.md` §4.1/§4.2）。重开条件：多 provider 场景下 flat 字段膨胀到需要通用载荷收敛。
+- **DEC-wechat-support-012 · JSAPI 前端 openid 契约**（user，2026-08-14 `/t-prd-publish` 确认；同日 frontend phase 问询未答，agent 按推荐项落地）：web 前端把 URL search param（`wechatOpenid`）作为"调用方传入 openid"的显式契约——微信内置浏览器内仅当该参数存在才走 `paymentScene=jsapi` 下单；缺失时展示"需先完成微信登录"（US-WP-003 场景 2），不派发订单；非微信环境一律 native；不改后端、不建登录链路（规则正文见 §6）。理由：DEC-009 的重开条件被仓库事实触发：`UserProfile={email,id,nickname,status}`，OpenAPI 175 路径中无任何端点把微信 openid 暴露给前端会话（openid 在登录时被服务端消费为 provider_user_id）。2026-08-14 `/t-super-run --phase frontend` 已用 AskUserQuestion 提问（含推荐项），用户未作答；agent 按推荐项落地并显式记录；2026-08-14 `/t-prd-publish` AskUserQuestion 用户确认维持本契约。缺参降级行为与 PRD §6"缺少 openid 时禁用或拒绝下单"一致，不改变业务规则。落点：§6、设计/实现层。重开条件：用户否决本契约，或前端会话出现真实 openid 来源（如公众号登录 feature）。
 
-### 7.2 技术与依赖决策（约束 PRD 边界，不承载实现细节）
+**问题记录**（原账本 Resolved / Deferred Questions）：
 
-- **不引入第三方 WeChat Pay SDK**：直接用现有 HTTP 客户端（rustls）+ 纯 Rust 加密栈自建，与现有 Stripe/Creem 的自建 provider 模式一致
-- **不得引入 openssl / native-tls**：这是当前 rustls 全栈 TLS 栈下不可破坏的硬约束
-- **平台证书自动获取**：运行时按需下载并本地缓存（6h TTL），验签取用证书时遇未知序列号或已过期证书即触发重取，不要求手工预置；平台公钥配置项保留为手工覆盖兜底（见 §4.1）
-- **凭据存储**：商户私钥（PEM）与 APIv3 Key 存入既有 `realm_config`，沿用 `is_secret` 标记；本期不实现私钥应用层加密（与现有 Stripe/Creem 凭据一致）
+- `Q-wechat-support-005`（延期）：委托代扣是独立 API 流程，本期范围已收敛到统一下单，不影响本期技术路线。须在启动委托代扣 feature 的 t-task 决议。
+- `Q-wechat-support-006`（延期）：将来委托代扣的周期扣款调度复用 `backend/worker` 现有 job 框架（方向已定，本期不实现）。须在启动委托代扣 feature 的 t-task 决议。
 
 ---
 

@@ -131,19 +131,20 @@
 
 ## 7. 已确认决策
 
-| Decision ID | 状态 | 决策项 | 结论 | PRD 落点 | 来源 |
-|---|---|---|---|---|---|
-| `DEC-support-ldap-001` | Applied | 功能范围 | 仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项） | §2.1/§2.2 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-002` | Applied | JIT 建号 | 首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，见 §4.1） | §4.1 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-003` | Applied | 桌面 SSO | 不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证 | §2.2 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-004` | Applied | LDAP 客户端技术选型 | ldap3 + rustls 后端，不引入 openssl/native-tls 系依赖；技术细节不由 PRD 承载 | 设计层约束 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-005` | Applied | 配置存储 | 复用本 Realm 既有配置管理与凭据保护路径（服务账号密码按敏感信息标记），不新建独立配置体系 | §2.3 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-006` | Applied | 认证接入形态 | 专用认证路径完整镜像既有登录管线（不在现有密码登录路径内分支） | §4.1 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-007` | Applied | JIT 与注册政策 | 自动建号不受 Realm 公开注册开关门控；管理员启用目录即供给授权（与既有"自动注册不得绕过注册政策"规则的有意差异，依据同类产品通行做法） | §4.1 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-008` | Applied | 用户匹配策略 | 目录身份（DN）→ 邮箱 → 创建；目录邮箱视为可信（等价已验证）来源，允许据此登入既有账号 | §4.1 | `docs/decisions/support-ldap.md` |
-| `DEC-support-ldap-009` | Applied | 唯一命中规则 | 用户条目搜索必须唯一命中（0 条或多条均认证失败），不做猜测式绑定 | §4.1/§4.2 | `docs/decisions/support-ldap.md` |
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-> 以上均为已确认并应用的 Active Decision，无 Deferred Questions；决策依据与重开条件见决策账本。
+- **DEC-support-ldap-001 · 功能范围**（user（未答，agent 按推荐项），2026-08-26）：仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项）。理由：2026-08-26 AskUserQuestion 范围三问未获用户回答，agent 按推荐项落地（对齐 DEC-wechat-support-012 的未答处理先例）；推荐依据：与现有 WeChat/Apple/Google 外部身份接入深度一致，工作量最小。落点：§2.1、§2.2。重开条件：出现组→角色映射或目录同步的具体客户需求。
+- **DEC-support-ldap-002 · JIT 建号**（user（未答，agent 按推荐项），2026-08-26）：首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，规则正文见 §4.1）。理由：同上未答按推荐项；与现有 OAuth JIT 建号模式（`backend/api-oauth/src/helper.rs`）一致，用户零摩擦接入；本地密码列保持 NULL 使本地密码回退登录天然不可能。落点：§4.1。重开条件：租户要求仅管理员预建账号可 LDAP 登录。
+- **DEC-support-ldap-003 · 桌面 SSO**（user（未答，agent 按推荐项），2026-08-26）：不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证。理由：同上未答按推荐项；SPNEGO 依赖 GSSAPI C FFI，违背 DEC-wechat-support-004 纯 Rust/no-openssl 硬约束，且浏览器协商流程显著扩大架构与安全面。落点：§2.2。重开条件：出现内网域免密 SSO 的具体客户需求（届时独立立项评估 GSSAPI 之外的方案）。
+- **DEC-support-ldap-004 · LDAP 客户端技术选型**（agent，实现层）：引入 `ldap3` 0.12 作为 workspace 依赖：`default-features = false`，`features = ["tls-rustls-ring"]`（不启用 `sync`、不启用 GSSAPI/NTLM），不引入 openssl/native-tls 系依赖。理由：承接 DEC-wechat-support-004（禁 openssl/native-tls 及一切间接拉入 native-tls 的依赖）；ldap3 默认 features 含 `tls`（= native-tls）必须关闭；依赖树已有 rustls 0.23.36 + ring（经 reqwest/tokio-rustls），`tls-rustls-ring` 零新增 TLS 后端；MSRV 1.82 低于锁定工具链 1.96.1。落点：设计/实现层。重开条件：ldap3 出不兼容升级或项目 rustls 主版本迁移。
+- **DEC-support-ldap-005 · 配置存储**（agent，实现层）：LDAP 配置存既有 `realm_config`（`config_type='ldap'`，服务账号 bind 密码 `is_secret=true`），复用通用 `/api/configs/{realmId}` 管理 CRUD，不新建独立配置体系；v1 不做应用层加密。理由：对齐 Stripe/Creem/Wechat 凭据存储主导先例（DEC-wechat-support-007 同结论）；不改变技术路线、依赖与兼容性。落点：§2.3、设计/实现层。重开条件：全 provider 凭据统一应用层加密立项（LDAP 一并受益）。
+- **DEC-support-ldap-006 · 认证接入形态**（agent，实现层）：新增专用端点（挂 `/api/auth/{realmId}` 下）做 LDAP 登录，完整镜像 `login.rs` 管线（Client App 解析、Turnstile、IP+标识符限流、TOTP/passkey 二因子探测、consent gate、OAuth code 分支、token family、审计 `method="ldap"`）；不在现有 `login.rs` 内部分支。理由：`UserServiceImpl::login` 内嵌 bcrypt 校验与时序均衡逻辑，LDAP bind 无本地哈希可验、无法复用该路径；`email_otp.rs` 已示范"替代第一因子走专用端点"形态，前端按状态开关展示（`EmailOtpLoginForm` 同型）。落点：§4.1、设计/实现层。重开条件：登录页统一单表单交互改版。
+- **DEC-support-ldap-007 · JIT 与注册政策**（user，2026-08-26）：自动建号不受 Realm 公开注册开关门控；管理员启用目录即供给授权（与既有"自动注册不得绕过注册政策"规则的有意差异，规则正文见 §4.1）。理由：行业调研（用户要求基于同类产品通行做法）：Keycloak 目录联合登录不受 realm Registration 设置门控、Zitadel 用 per-IdP auto-register（即配置即授权）、Auth0 企业连接首登落库——同类产品均把企业目录视为受控供给而非公开自注册；LDAP 在本 feature 是凭据权威非账号唯一来源（DEC-001 已排除目录同步），"关公开自注册 + 员工目录登录"是企业主场景，注册门控会打断主场景。落点：§4.1。重开条件：出现需要把目录供给与 LDAP 启用解耦细控的客户需求（届时评估 Zitadel 式自动建号子开关）。
+- **DEC-support-ldap-008 · 用户匹配策略**（user，2026-08-26）：目录身份（DN）→ 邮箱 → 创建；目录邮箱视为可信（等价已验证）来源，允许据此登入既有账号（规则正文见 §4.1）。理由：镜像 OAuth 四级匹配中可适用层级（`find_or_create_user`：union_id → open_id → email → create，LDAP 无 union_id 概念，DN 即 open_id 载体）；避免员工先有本地账号、后接 LDAP 时 email 撞车导致重复建号或登录失败。落点：§4.1。重开条件：出现目录 email 属性不可信的实际案例（目录属性治理差导致误关联）。
+- **DEC-support-ldap-009 · 唯一命中规则**（agent）：用户条目搜索必须唯一命中（0 条或多条均认证失败），不做猜测式绑定（规则正文见 §4.1）。理由：猜测式绑定（取第一条命中）在目录存在重名/多条目时是安全漏洞；唯一命中是 search-then-bind 的行业标准行为（Keycloak 同型），无合理替代方案，属 agent 授权的工程取舍。落点：§4.1、§4.2。重开条件：出现按多值属性（如 uid+org 唯一）消歧的具体目录形态。
+
+
+> 以上均为已确认并应用的 Active Decision，无 Deferred Questions；决策依据与重开条件见本节各条目。
 
 ---
 
@@ -154,7 +155,6 @@
 - Client App 级人机验证：[Client App 管理](../integration/client-app.md)
 - 协议同意模型：[合规适配](../core/legal-consent-account-deletion.md)
 - 审计：[Audit 审计日志](../core/audit.md)
-- 决策账本：`docs/decisions/support-ldap.md`
 - 技术预研：`.ai/tech-research/support-ldap.md`
 - 角色定义：`docs/user-stories/_roles.md`
 - 用户故事来源见 §1
