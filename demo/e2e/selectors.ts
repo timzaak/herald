@@ -11,6 +11,10 @@ export const SELECTORS = {
     passwordInput: '[data-testid="password-input"]',
     submitButton: '[data-testid="login-submit-button"]',
     errorMessage: '[data-testid="login-error-message"]',
+    // Demoted register entry rendered on the login page alongside the
+    // onboarding signup CTA (US-OG-001); registration.* covers the register
+    // page itself.
+    registerLink: '[data-testid="register-link"]',
   },
 
   dashboard: {
@@ -636,6 +640,49 @@ export const SELECTORS = {
     // fails (DEC-realm-create-013). Asserted in US-SR-004 (disabled) scenarios.
     disabledNotice: '[data-testid="signup-disabled-notice"]',
     loginLink: '[data-testid="login-link"]',
+  },
+
+  /**
+   * Realm Onboarding Guidance - storefront login self-service CTA
+   *
+   * Guidance block on the admin-realm (platform storefront) login page.
+   * Visibility is strictly fail-closed: rendered only on an explicit
+   * `enabled === true` from the public platform-signup status, and never
+   * mounted outside the admin realm. Same data-testid style as
+   * `platformSignup` — the copy is i18n-derived and the block states are
+   * asserted across locales.
+   *
+   * Frontend testids live in:
+   *   frontend/src/components/onboarding/signup-cta-block.tsx
+   */
+  loginSignupCta: {
+    block: '[data-testid="signup-cta-block"]',
+    link: '[data-testid="signup-cta-link"]',
+  },
+
+  /**
+   * Realm Onboarding Guidance - first-login console guidance
+   *
+   * Welcome dialog, starter checklist and console-tour testids, plus the
+   * `herald-onboarding-popover` class hook used to re-skin the driver.js
+   * popover (the tour itself renders no testids, so the class is the stable
+   * observable). The completion markers live in localStorage under
+   * `herald.onboarding.{realmId}.{userId}` (frontend
+   * components/onboarding/onboarding-storage.ts); tests read/clear them via
+   * page.evaluate rather than selectors.
+   *
+   * Frontend testids live in:
+   *   frontend/src/components/onboarding/
+   */
+  onboarding: {
+    welcomeDialog: '[data-testid="onboarding-welcome-dialog"]',
+    welcomeDismissButton: '[data-testid="onboarding-welcome-dismiss-button"]',
+    tourStartButton: '[data-testid="onboarding-tour-start-button"]',
+    tasksCard: '[data-testid="onboarding-tasks-card"]',
+    tourRestartButton: '[data-testid="onboarding-tour-restart-button"]',
+    // Class hook on the driver.js popover (console-tour.tsx popoverClass);
+    // the built-in close button is .driver-popover-close-btn within it.
+    tourPopover: '.herald-onboarding-popover',
   },
 
   /**

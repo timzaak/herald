@@ -75,6 +75,37 @@ export async function createBearerApiContext(accessToken: string): Promise<APIRe
 // ============================================================================
 
 /**
+ * 关闭首登引导欢迎弹窗（如果它已打开）。
+ *
+ * 每个全新浏览器上下文（Playwright 每个测试独立 context）都没有本地完成
+ * 标记，管理员首次进入管理控制台时会渲染首登引导欢迎弹窗（设计行为，
+ * US-OG-003）。该弹窗是模态的：打开期间 aria-hidden 遮蔽控制台内容并拦截
+ * 点击，任何基于 role 的定位或控制台 UI 操作都会失败。登录助手默认按用户
+ * 故事语义立即关闭它（引导可随时关闭、不阻塞控制台）；引导类 demo 用
+ * dismissOnboarding: false 保留弹窗做断言。
+ */
+export async function dismissOnboardingWelcomeDialogIfPresent(page: Page): Promise<void> {
+  const dialog = page.locator(SELECTORS.onboarding.welcomeDialog)
+  try {
+    await dialog.waitFor({ state: 'visible', timeout: 5000 })
+  } catch {
+    // 本上下文无引导（已有完成标记或存储不可用）：无事可做
+    return
+  }
+  await page.locator(SELECTORS.onboarding.welcomeDismissButton).click()
+  await expect(dialog).toBeHidden()
+  console.log('[Auth] 已关闭首登引导欢迎弹窗')
+}
+
+function isAdminConsoleUrl(url: string): boolean {
+  try {
+    return /\/manage(\/|$)/.test(new URL(url).pathname)
+  } catch {
+    return false
+  }
+}
+
+/**
  * 使用指定凭证登录到指定 Realm
  *
  * @param page Playwright Page 对象
@@ -87,9 +118,10 @@ export async function loginWithCredentials(
     email: string
     password: string
     waitNavigation?: boolean
+    dismissOnboarding?: boolean
   }
 ): Promise<void> {
-  const { realmId, email, password, waitNavigation = true } = options
+  const { realmId, email, password, waitNavigation = true, dismissOnboarding = true } = options
 
   console.log(`[Auth] 使用凭证登录到 realm: ${realmId} (email: ${email})`)
 
@@ -128,6 +160,11 @@ export async function loginWithCredentials(
     await verifyPostLoginNavigation(page, { expectedRoute: 'dashboard', realmId })
   }
 
+  // 首登引导只挂载在管理控制台（/manage 树）；普通用户落在 /user，无需处理
+  if (dismissOnboarding && isAdminConsoleUrl(page.url())) {
+    await dismissOnboardingWelcomeDialogIfPresent(page)
+  }
+
   console.log(`[Auth] 登录成功`)
 }
 
@@ -146,9 +183,10 @@ export async function loginAsAdmin(
     forceRelogin?: boolean
     totpCode?: string
     getToken?: boolean
+    dismissOnboarding?: boolean
   } = {}
 ): Promise<void | string> {
-  const { realmId = 'admin', waitNavigation = true, forceRelogin = false, totpCode, getToken = false } = options
+  const { realmId = 'admin', waitNavigation = true, forceRelogin = false, totpCode, getToken = false, dismissOnboarding = true } = options
 
   console.log(`[Auth] 使用管理员账号登录到 realm: ${realmId}`)
 
@@ -177,7 +215,7 @@ export async function loginAsAdmin(
   // /manage and the legacy realm-scoped /{realmId}/manage here.
   const currentUrl = page.url()
   const isOnTargetRealmDashboard = currentUrl.includes(`/${realmId}/manage`)
-    || /\/manage(\/|$)/.test(new URL(currentUrl).pathname)
+    || isAdminConsoleUrl(currentUrl)
 
   if (!shouldRelogin && isOnTargetRealmDashboard) {
     console.log(`[Auth] 用户已登录到 realm ${realmId}，跳过登录步骤`)
@@ -249,6 +287,12 @@ export async function loginAsAdmin(
   // 验证导航
   if (waitNavigation) {
     await verifyPostLoginNavigation(page, { expectedRoute: 'dashboard', realmId })
+  }
+
+  // 管理员必然落在管理控制台：默认立即关闭首登引导欢迎弹窗，
+  // 保证登录后的控制台步骤无遮挡（引导类 demo 用 dismissOnboarding: false 保留）
+  if (dismissOnboarding && isAdminConsoleUrl(page.url())) {
+    await dismissOnboardingWelcomeDialogIfPresent(page)
   }
 
   console.log(`[Auth] 登录成功`)
