@@ -683,6 +683,12 @@ export const SELECTORS = {
     // Class hook on the driver.js popover (console-tour.tsx popoverClass);
     // the built-in close button is .driver-popover-close-btn within it.
     tourPopover: '.herald-onboarding-popover',
+    // Submenu containers the tour auto-expands (sidebar.tsx renders them only
+    // while the group is open; the tour's expand click is what makes them
+    // appear). jsdom cannot match testids containing "&" (nwsapi quirk), so
+    // these two are only verifiable here in a real browser.
+    tourExpandedSubmenuProductsPayments: '[data-testid="sidebar-submenu-products-&-payments"]',
+    tourExpandedSubmenuTransactions: '[data-testid="sidebar-submenu-transactions"]',
   },
 
   /**

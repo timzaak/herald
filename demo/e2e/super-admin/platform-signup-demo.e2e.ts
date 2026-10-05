@@ -99,8 +99,8 @@ async function navigateToSettings(settingsPage: SettingsPage): Promise<void> {
 }
 
 // Shared config so the two scenarios form one logical main-story path: the
-// toggle is enabled for the success scenario and reset to its fail-closed
-// default (false) in afterEach.
+// toggle is enabled for the success scenario and restored to its seeded
+// default (true) in afterEach.
 test.describe('[Super Admin] Platform Self-Service Realm Signup Demo', () => {
   let testStartTime: number
   let settingsPage: SettingsPage | undefined
@@ -116,9 +116,9 @@ test.describe('[Super Admin] Platform Self-Service Realm Signup Demo', () => {
   })
 
   test.afterEach(async ({ page, demoLogger }) => {
-    // 1. Best-effort: reset the platform-signup toggle to its fail-closed
-    //    default (false) so the demo env is left in its seeded state and no
-    //    open public signup entry leaks into other demos. resetPlatformSignup-
+    // 1. Best-effort: restore the platform-signup toggle to its seeded
+    //    default (true) so the demo env is left in its seeded state and the
+    //    storefront signup CTA stays visible. resetPlatformSignup-
     //    Config is internally try/catch'd and never hard-fails the run.
     if (settingsPage) {
       try {
@@ -163,8 +163,8 @@ test.describe('[Super Admin] Platform Self-Service Realm Signup Demo', () => {
     demoLogger,
   }) => {
     // -------------------------------------------------------------------------
-    // Setup: enable the platform self-service toggle (fail-closed default is
-    // off, so the public page would otherwise show the disabled notice).
+    // Setup: enable the platform self-service toggle (the demo seed ships it
+    // enabled, so this is an idempotent, self-contained setup step).
     // -------------------------------------------------------------------------
     await test.step('Enable the platform self-service signup toggle', async () => {
       await loginAsAdmin(page, { realmId: ADMIN_REALM })

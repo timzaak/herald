@@ -137,10 +137,9 @@ async function expectWelcomeDialogNotReshownAfterReload(
   await expect(page.locator(SELECTORS.onboarding.welcomeDialog)).toHaveCount(0)
 }
 
-// Shared config: the toggle is enabled for the visitor scenarios and reset to
-// its fail-closed default (false) in afterEach, following the
-// platform-signup-demo reset pattern so no open public signup entry leaks
-// into other demos.
+// Shared config: the toggle is enabled for the visitor scenarios and restored
+// to its seeded default (true) in afterEach, following the platform-signup-demo
+// reset pattern so the storefront signup CTA stays visible after demo runs.
 test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
   let testStartTime: number
   let settingsPage: SettingsPage | undefined
@@ -156,8 +155,8 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
   })
 
   test.afterEach(async ({ page, demoLogger }) => {
-    // 1. Best-effort: reset the platform-signup toggle to its fail-closed
-    //    default (false). resetPlatformSignupConfig is internally
+    // 1. Best-effort: restore the platform-signup toggle to its seeded
+    //    default (true). resetPlatformSignupConfig is internally
     //    try/catch'd and never hard-fails the run. forceRelogin is REQUIRED:
     //    loginAsAdmin short-circuits when already on a /manage URL, and the
     //    signup scenario ends on session-scoped /manage in the NEWLY created
@@ -337,6 +336,14 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       // stable observable (the lazy tour chunk may take a moment to load).
       const popover = page.locator(SELECTORS.onboarding.tourPopover)
       await expect(popover).toBeVisible({ timeout: 15000 })
+
+      // Selling-point steps anchor collapsed sidebar groups; the tour's
+      // auto-expand is what opened them. The "&" testid can only be matched
+      // by a real browser engine (jsdom's cannot), so assert it here.
+      await expect(
+        page.locator(SELECTORS.onboarding.tourExpandedSubmenuProductsPayments)
+      ).toBeAttached()
+      await expect(page.locator(SELECTORS.onboarding.tourExpandedSubmenuTransactions)).toBeAttached()
 
       // Mid-way exit (close button) tears the popover down without breaking
       // the console — the checklist stays available for another replay.

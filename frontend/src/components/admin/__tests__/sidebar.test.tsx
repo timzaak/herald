@@ -147,6 +147,23 @@ describe('Sidebar navigation', () => {
     expect(nav).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
   })
 
+  it('exposes each expanded group submenu container for tour anchor detection', async () => {
+    // The onboarding tour reads a group's open state from this container
+    // (sidebar-menu-X header ↔ sidebar-submenu-X container) so it can expand
+    // a collapsed group without ever toggling an open one shut.
+    currentPath = '/manage/billing?page=0&pageSize=20&status=all'
+    const user = userEvent.setup()
+    render(
+      <LocaleProvider>
+        <Sidebar />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByTestId('sidebar-submenu-products-&-payments')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('sidebar-menu-products-&-payments'))
+    expect(screen.getByTestId('sidebar-submenu-products-&-payments')).toBeInTheDocument()
+  })
+
   it('shows the deployed version and a link to the upstream GitHub repository', () => {
     // Operators use the footer version to compare their deployment against
     // upstream releases, so it must track package.json (what release.py bumps)

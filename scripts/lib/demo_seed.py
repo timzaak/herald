@@ -97,6 +97,10 @@ def ensure_demo_seed_data(logger: "Logger | None" = None) -> bool:
     try:
         _info(logger, "Ensuring demo seed data for realm-001...")
         _ensure_app_client_and_registration(logger)
+        # The storefront signup CTA and the public signup page are fail-closed
+        # backend-side; the demo env defaults the toggle ON so the self-service
+        # entry is visible on a freshly seeded environment.
+        _ensure_platform_signup_enabled(logger)
         # Pre-establish admin@cas.com legal consent BEFORE logging in. When the
         # admin realm has global legal-agreement versions, login returns
         # consentRequired=true and never issues a browser access token, so the
@@ -384,6 +388,26 @@ def _ensure_registration_enabled(logger: "Logger | None") -> None:
         """
     )
     _info(logger, "Registration enabled for realm-001")
+
+
+def _ensure_platform_signup_enabled(logger: "Logger | None") -> None:
+    """Enable platform self-service realm signup for the admin realm (demo default).
+
+    The public signup entry is fail-closed (missing realm_config row => disabled),
+    so the storefront login CTA and the /auth/signup page stay hidden until this
+    row exists. The demo env ships with the toggle ON; the upsert also restores
+    it after demo tests flipped it off via the settings UI.
+    """
+    _info(logger, "Ensuring platform self-service signup is enabled for the admin realm...")
+    _sql_exec(
+        f"""
+        INSERT INTO realm_config (realm_id, config_type, config_key, config_value, is_secret, enabled, metadata)
+        VALUES ('{ADMIN_REALM}', 'platform_signup', 'enabled', 'true', false, true, '{{}}')
+        ON CONFLICT (realm_id, config_type, config_key)
+        DO UPDATE SET enabled = true, config_value = 'true';
+        """
+    )
+    _info(logger, "Platform self-service signup enabled for the admin realm")
 
 
 def _ensure_points_user(opener: urllib.request.OpenerDirector, logger: "Logger | None") -> str:

@@ -27,6 +27,16 @@ const steps: ConsoleTourStep[] = [
   { testId: 'anchor-c', title: 'C', description: 'Step C' },
 ]
 
+const expandSteps: ConsoleTourStep[] = [
+  { testId: 'sidebar-menu-dashboard', title: 'D', description: 'D' },
+  {
+    testId: 'sidebar-menu-points-wallets',
+    expandTestId: 'sidebar-menu-transactions',
+    title: 'W',
+    description: 'W',
+  },
+]
+
 // Anchors live in the real DOM (querySelector is the resolution mechanism the
 // component uses), so mount them manually and clean up after each test.
 const mountedAnchors: HTMLElement[] = []
@@ -38,9 +48,30 @@ function mountAnchor(testId: string): HTMLElement {
   return el
 }
 
-// Anchors on data-gated dashboard sections mount after the tour does, so the
-// tour must await late anchors within its budget and only then fall back to
-// dropping the still-missing steps; teardowns the component itself initiates
+// Mounts the Transactions group the way the sidebar ships it: a collapsed
+// header (aria-expanded="false") whose submenu — with the child anchor
+// inside — joins the DOM on the first header click and detaches on the next,
+// toggling like the real openMenus state.
+function mountCollapsedTransactionsGroup(): HTMLElement {
+  const header = mountAnchor('sidebar-menu-transactions')
+  header.setAttribute('aria-expanded', 'false')
+  const submenu = document.createElement('div')
+  submenu.setAttribute('data-testid', 'sidebar-submenu-transactions')
+  const child = document.createElement('div')
+  child.setAttribute('data-testid', 'sidebar-menu-points-wallets')
+  submenu.appendChild(child)
+  mountedAnchors.push(submenu)
+  header.addEventListener('click', () => {
+    if (submenu.isConnected) submenu.remove()
+    else document.body.appendChild(submenu)
+  })
+  return header
+}
+
+// Anchors mount after the tour does — data-gated dashboard sections, or
+// sidebar children revealed by the group auto-expand — so the tour must
+// await late anchors within its budget and only then fall back to dropping
+// the still-missing steps; teardowns the component itself initiates
 // (unmount, route change, StrictMode remount) must never report the run as
 // finished.
 describe('ConsoleTour anchor waiting and lifecycle', () => {
@@ -112,6 +143,96 @@ describe('ConsoleTour anchor waiting and lifecycle', () => {
     expect(driverMocks.configs).toHaveLength(0)
     expect(driverMocks.drive).not.toHaveBeenCalled()
     expect(onFinish).toHaveBeenCalledTimes(1)
+  })
+
+  // Selling-point steps anchor sidebar children that only render while their
+  // group is expanded, and the sidebar ships those groups collapsed. Uses the
+  // Transactions group: jsdom's selector engine fails to match attribute
+  // values containing "&" (the Products & Payments group), though real
+  // browsers match them fine — that group's expansion is exercised by the
+  // e2e demo in Chromium.
+  it('GIVEN a step anchors inside a collapsed sidebar group WHEN the tour starts THEN the group header is clicked open and the revealed step joins the tour', () => {
+    mountCollapsedTransactionsGroup()
+    mountAnchor('sidebar-menu-dashboard')
+
+    render(
+      <ConsoleTour steps={expandSteps} pathname="/manage" onFinish={vi.fn()} onCancel={vi.fn()} />
+    )
+
+    // The opening click reveals the child before the availability check, so
+    // the tour drives immediately with both steps.
+    expect(driverMocks.drive).toHaveBeenCalledTimes(1)
+    const config = driverMocks.configs[0] as { steps: Array<{ element: string }> }
+    expect(config.steps.map((step) => step.element)).toEqual([
+      '[data-testid="sidebar-menu-dashboard"]',
+      '[data-testid="sidebar-menu-points-wallets"]',
+    ])
+  })
+
+  it('GIVEN StrictMode double-invokes the mount effects WHEN a step needs a collapsed group expanded THEN the header is clicked exactly once instead of toggled open and shut', () => {
+    const header = mountCollapsedTransactionsGroup()
+    const clickSpy = vi.spyOn(header, 'click')
+    mountAnchor('sidebar-menu-dashboard')
+
+    render(
+      <StrictMode>
+        <ConsoleTour steps={expandSteps} pathname="/manage" onFinish={vi.fn()} onCancel={vi.fn()} />
+      </StrictMode>
+    )
+
+    // A second setup click would collapse the group before the anchor poll
+    // ever resolves it, silently degrading the tour — the expansion must be
+    // once per component lifetime, not once per effect run.
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    expect(driverMocks.drive).toHaveBeenCalledTimes(2)
+    const config = driverMocks.configs[1] as { steps: Array<{ element: string }> }
+    expect(config.steps.map((step) => step.element)).toEqual([
+      '[data-testid="sidebar-menu-dashboard"]',
+      '[data-testid="sidebar-menu-points-wallets"]',
+    ])
+  })
+
+  it('GIVEN the group is already open but the anchor is permission-hidden WHEN the tour starts THEN the group is not toggled shut and the step drops after the budget', () => {
+    const header = mountAnchor('sidebar-menu-transactions')
+    header.setAttribute('aria-expanded', 'true')
+    mountAnchor('sidebar-menu-dashboard')
+    const clickSpy = vi.spyOn(header, 'click')
+
+    render(
+      <ConsoleTour steps={expandSteps} pathname="/manage" onFinish={vi.fn()} onCancel={vi.fn()} />
+    )
+
+    // Toggling an open group would collapse it and take other steps' anchors
+    // with it, so an open group must never be clicked.
+    expect(clickSpy).not.toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    const config = driverMocks.configs[0] as { steps: Array<{ popover: { title: string } }> }
+    expect(config.steps.map((step) => step.popover.title)).toEqual(['D'])
+  })
+
+  it('GIVEN the whole sidebar group is filtered out WHEN the tour starts THEN nothing is clicked and the step drops after the budget', () => {
+    mountAnchor('sidebar-menu-settings')
+
+    const expandSteps: ConsoleTourStep[] = [
+      { testId: 'sidebar-menu-settings', title: 'S', description: 'S' },
+      {
+        testId: 'sidebar-menu-payment-providers',
+        expandTestId: 'sidebar-menu-products-&-payments',
+        title: 'P',
+        description: 'P',
+      },
+    ]
+    render(
+      <ConsoleTour steps={expandSteps} pathname="/manage" onFinish={vi.fn()} onCancel={vi.fn()} />
+    )
+
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    const config = driverMocks.configs[0] as { steps: Array<{ popover: { title: string } }> }
+    expect(config.steps.map((step) => step.popover.title)).toEqual(['S'])
   })
 
   it('GIVEN the tour is running WHEN the user tears it down THEN the finish callback fires exactly once and unmounting destroys the instance', () => {

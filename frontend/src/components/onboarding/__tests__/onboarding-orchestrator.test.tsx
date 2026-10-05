@@ -134,7 +134,8 @@ describe('OnboardingOrchestrator first-login guidance', () => {
 
     await user.click(screen.getByTestId('onboarding-tour-start-button'))
     expect(await screen.findByTestId('console-tour-stub')).toBeInTheDocument()
-    // The dashboard anchors the tour; starting there must not navigate.
+    // The tour presents from the dashboard overview; starting there must not
+    // navigate.
     expect(navigateMock).not.toHaveBeenCalled()
 
     act(() => {
@@ -156,8 +157,9 @@ describe('OnboardingOrchestrator first-login guidance', () => {
     await user.click(screen.getByTestId('onboarding-tour-start-button'))
     expect(await screen.findByTestId('console-tour-stub')).toBeInTheDocument()
 
-    // All but two anchors live on the dashboard page; the tour must go get
-    // them instead of silently running a 2-step truncation.
+    // The tour presents from the dashboard overview; a welcome opened on a
+    // deeper page must move there first instead of touring the visitor's
+    // current page.
     expect(navigateMock).toHaveBeenCalledWith({
       to: '/$realmId/manage',
       params: { realmId: 'acme' },

@@ -344,6 +344,7 @@ export function Sidebar() {
             onClick={() => hasChildren && toggleMenu(item.name)}
             className={`group flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/60 cursor-pointer transition-all duration-150 hover:bg-sidebar-accent hover:text-sidebar-foreground/90 px-4`}
             data-testid={`sidebar-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+            aria-expanded={hasChildren ? isOpen : undefined}
           >
             <Icon className="size-[18px] shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
             <SidebarMenuLabel label={label} className="flex-1 truncate" />
@@ -356,7 +357,10 @@ export function Sidebar() {
         )}
 
         {hasChildren && isOpen && (
-          <div className="mt-0.5 space-y-px">
+          <div
+            className="mt-0.5 space-y-px"
+            data-testid={`sidebar-submenu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+          >
             {visibleChildren.map((child) => renderMenuItem(child, level + 1))}
           </div>
         )}

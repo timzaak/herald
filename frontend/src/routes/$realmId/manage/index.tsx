@@ -97,7 +97,7 @@ export function ManageDashboard() {
 
           <QuickNav realmId={realmId} testId="dashboard-quick-nav" />
 
-          <OnboardingTasksCard />
+          <OnboardingTasksCard realmId={realmId} />
         </>
       )}
     </div>

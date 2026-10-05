@@ -1623,7 +1623,8 @@ export class SettingsPage extends BasePage {
   }
 
   /**
-   * Disable the platform self-service signup entry (fail-closed default).
+   * Disable the platform self-service signup entry (fail-closed: the public
+   * page shows the disabled notice while the toggle is off).
    */
   async disablePlatformSignup(): Promise<void> {
     await this.setSwitch(this.platformSignupEnabledSwitch, false)
@@ -1657,17 +1658,17 @@ export class SettingsPage extends BasePage {
   }
 
   /**
-   * Best-effort teardown: disable platform self-service signup.
+   * Best-effort teardown: re-enable platform self-service signup.
    *
-   * The startup seed leaves the toggle at its fail-closed default (false), so
-   * resetting to disabled keeps the demo env in its default state and avoids
-   * leaking an open public signup entry into other demos. Mirrors
-   * resetEmailOtpConfig's try/catch so teardown never hard-fails the run.
+   * The startup seed leaves the toggle ON (demo default, so the storefront
+   * signup CTA stays visible for manual browsing), so resetting to enabled
+   * keeps the demo env in its seeded state. Mirrors resetEmailOtpConfig's
+   * try/catch so teardown never hard-fails the run.
    */
   async resetPlatformSignupConfig(): Promise<void> {
     try {
       await this.switchToPlatformSignupTab()
-      await this.disablePlatformSignup()
+      await this.enablePlatformSignup()
       await this.savePlatformSignupConfig()
     } catch (error) {
       console.warn(

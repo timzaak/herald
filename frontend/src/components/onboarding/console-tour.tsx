@@ -8,9 +8,10 @@ import { m } from '@/paraglide/messages'
 const ONBOARDING_POPOVER_CLASS = 'herald-onboarding-popover'
 
 /**
- * Anchors on data-gated dashboard sections (skeletons while the stats query
- * loads) mount after the tour does; give them this budget to appear before
- * falling back to dropping the still-missing steps.
+ * Anchors mount after the tour does — dashboard sections still loading their
+ * data, or sidebar children revealed by the group auto-expand — so give them
+ * this budget to appear before falling back to dropping the still-missing
+ * steps.
  */
 const ANCHOR_POLL_INTERVAL_MS = 150
 const ANCHOR_POLL_TIMEOUT_MS = 3000
@@ -18,6 +19,14 @@ const ANCHOR_POLL_TIMEOUT_MS = 3000
 export interface ConsoleTourStep {
   /** data-testid of the anchor element; the step is dropped when absent. */
   testId: string
+  /**
+   * data-testid of the sidebar group header whose submenu must be open for
+   * the anchor to render. The header carries `aria-expanded` with the
+   * group's open state; a closed group is clicked open once before the
+   * anchor poll starts, an already-open group is never clicked (its missing
+   * anchor is permission-hidden, and toggling would collapse it).
+   */
+  expandTestId?: string
   title: string
   description: string
 }
@@ -60,6 +69,13 @@ export function ConsoleTour({ steps, pathname, onFinish, onCancel }: ConsoleTour
   const teardownRef = useRef<() => void>(() => {})
   const startPathnameRef = useRef(pathname)
 
+  // StrictMode double-invokes the mount effect (setup → cleanup → setup)
+  // before the first expansion click's state flushes to the DOM, so an
+  // unguarded run would toggle a collapsed group open and shut again. Each
+  // group header is clicked at most once per component lifetime — the ref
+  // survives the double invocation on the same component instance.
+  const expandedGroupsRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     let disposed = false
     let driverObj: Driver | null = null
@@ -67,6 +83,24 @@ export function ConsoleTour({ steps, pathname, onFinish, onCancel }: ConsoleTour
 
     const availableSteps = () =>
       steps.filter((step) => document.querySelector(`[data-testid="${step.testId}"]`))
+
+    // Expand the collapsed groups the tour anchors into (group toggling never
+    // navigates, so the route-change cancel is unaffected). The header's
+    // aria-expanded is the group's state: a closed group gets one opening
+    // click, an open group whose anchor is missing stays untouched.
+    const expandCollapsedGroups = () => {
+      for (const step of steps) {
+        const groupId = step.expandTestId
+        if (!groupId || expandedGroupsRef.current.has(groupId)) continue
+        expandedGroupsRef.current.add(groupId)
+        if (document.querySelector(`[data-testid="${step.testId}"]`)) continue
+        const header = document.querySelector(`[data-testid="${groupId}"]`)
+        if (header?.getAttribute('aria-expanded') === 'true') continue
+        ;(header as HTMLElement | null)?.click()
+      }
+    }
+
+    expandCollapsedGroups()
 
     const launch = () => {
       const available = availableSteps()

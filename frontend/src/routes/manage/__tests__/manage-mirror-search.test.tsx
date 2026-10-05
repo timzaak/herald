@@ -12,7 +12,12 @@ import { createTestQueryClient } from '@/test/utils/render'
 import { routeTree } from '@/routeTree.gen'
 import { LocaleProvider } from '@/components/shared/locale-provider'
 import { useAuthStore } from '@/stores/auth-store'
-import { ADMIN_PERMISSIONS, ADMIN_WEB_CONSOLE_CLIENT_ID } from '@/lib/constants/auth-constants'
+import {
+  ADMIN_PERMISSIONS,
+  ADMIN_WEB_CONSOLE_CLIENT_ID,
+  PERMISSION,
+} from '@/lib/constants/auth-constants'
+import { makePaymentStats, makePointsStats } from '@/test/fixtures/billing-stats'
 
 /**
  * Full-route-tree regression for manage pages shared by BOTH route forms:
@@ -26,6 +31,12 @@ import { ADMIN_PERMISSIONS, ADMIN_WEB_CONSOLE_CLIENT_ID } from '@/lib/constants/
  * bootstrap is stubbed) and asserts the user-visible contract on both
  * pages: the search box backfills from the URL, the API request carries
  * the filter, and filter edits stay on the current route match.
+ *
+ * The statistics page extends the same URL-source-of-truth contract to its
+ * view params (tab=payment|points, days=7|30): a fresh boot from the URL —
+ * which is exactly what a browser refresh does — must rebuild the selected
+ * tab and window, and control edits must patch the current match without
+ * dropping the other param.
  */
 
 // The root loader's real initializeAuth drives the herald SDK (refresh
@@ -215,6 +226,91 @@ describe('realms page URL search on the mirror route form', () => {
         { timeout: WAIT_ASSERTION_MS }
       )
       expect(router.state.location.pathname).toBe('/manage/realms')
+    },
+    TEST_BUDGET_MS
+  )
+})
+
+describe('statistics page URL view params on mirror vs realm route forms', () => {
+  const statsRequests: string[] = []
+
+  beforeEach(() => {
+    statsRequests.length = 0
+    // ADMIN_PERMISSIONS excludes points.view by design; both statistics
+    // tabs must be reachable for the URL contract under test.
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isLoading: false,
+      realmId: 'admin',
+      permissions: [...ADMIN_PERMISSIONS, PERMISSION.POINTS_VIEW],
+      roles: [],
+      refreshClientId: ADMIN_WEB_CONSOLE_CLIENT_ID,
+    })
+    server.use(
+      http.get('*/api/bill/stats/payments', ({ request }) => {
+        statsRequests.push(`payments${new URL(request.url).search}`)
+        return HttpResponse.json(makePaymentStats({ windowDays: 30 }))
+      }),
+      http.get('*/api/points/stats/consumption', ({ request }) => {
+        statsRequests.push(`points${new URL(request.url).search}`)
+        return HttpResponse.json(makePointsStats({ windowDays: 30 }))
+      })
+    )
+  })
+
+  it.each([
+    [
+      'realm form /admin/manage/billing/statistics',
+      '/admin/manage/billing/statistics?tab=points&days=30',
+    ],
+    ['mirror form /manage/billing/statistics', '/manage/billing/statistics?tab=points&days=30'],
+  ])(
+    '%s restores the tab and window from the URL',
+    async (_label, initialUrl) => {
+      renderAt(initialUrl)
+
+      await waitFor(() => expect(screen.getByTestId('points-stats-panel')).toBeVisible(), {
+        timeout: WAIT_ASSERTION_MS,
+      })
+      expect(screen.queryByTestId('payment-stats-panel')).not.toBeInTheDocument()
+      await waitFor(
+        () =>
+          expect(statsRequests.some((r) => r.startsWith('points') && r.includes('days=30'))).toBe(
+            true
+          ),
+        { timeout: WAIT_ASSERTION_MS }
+      )
+      // The unselected tab's panel never mounts, so its query never fires.
+      expect(statsRequests.filter((r) => r.startsWith('payments'))).toHaveLength(0)
+    },
+    TEST_BUDGET_MS
+  )
+
+  it(
+    'tab and window edits patch the current match without dropping the other param',
+    async () => {
+      const router = renderAt('/manage/billing/statistics')
+
+      await userEvent.click(
+        await screen.findByTestId('statistics-tab-points', {}, { timeout: FIND_COMPONENT_MS })
+      )
+      await waitFor(
+        () => expect(decodeURIComponent(router.state.location.href)).toContain('tab=points'),
+        { timeout: WAIT_ASSERTION_MS }
+      )
+      expect(router.state.location.pathname).toBe('/manage/billing/statistics')
+
+      await userEvent.click(screen.getByTestId('statistics-window-30-trigger'))
+      await waitFor(
+        () => expect(decodeURIComponent(router.state.location.href)).toContain('days=30'),
+        { timeout: WAIT_ASSERTION_MS }
+      )
+      // Patches merge into the current search: switching the window must
+      // not reset the tab (and vice versa).
+      expect(decodeURIComponent(router.state.location.href)).toContain('tab=points')
+      await waitFor(() => expect(screen.getByTestId('points-stats-panel')).toBeVisible(), {
+        timeout: WAIT_ASSERTION_MS,
+      })
     },
     TEST_BUDGET_MS
   )

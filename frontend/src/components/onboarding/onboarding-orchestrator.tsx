@@ -19,9 +19,12 @@ const ConsoleTour = lazy(() => import('./console-tour').then((m) => ({ default: 
 type OnboardingPhase = 'idle' | 'welcome' | 'tour'
 
 /**
- * Tour anchors, all pre-existing stable testids on the console dashboard
- * page. Built per tour start so the step copy follows the interface language
- * at the moment the tour launches (no mid-tour hot switch; replay refreshes).
+ * Tour steps anchor the platform's selling points on the layout sidebar
+ * (permission- or feature-hidden entries are silently dropped by the tour;
+ * collapsed groups are auto-expanded via expandTestId) plus the account
+ * avatar. Built per tour start so the step copy follows the interface
+ * language at the moment the tour launches (no mid-tour hot switch; replay
+ * refreshes).
  */
 function buildTourSteps(): ConsoleTourStep[] {
   return [
@@ -31,19 +34,33 @@ function buildTourSteps(): ConsoleTourStep[] {
       description: m['onboarding.tour_step_overview_description'](),
     },
     {
-      testId: 'dashboard-total-users-card',
-      title: m['onboarding.tour_step_stats_title'](),
-      description: m['onboarding.tour_step_stats_description'](),
+      testId: 'sidebar-menu-permissions',
+      expandTestId: 'sidebar-menu-authorization',
+      title: m['onboarding.tour_step_permissions_title'](),
+      description: m['onboarding.tour_step_permissions_description'](),
     },
     {
-      testId: 'dashboard-auth-trend-chart',
-      title: m['onboarding.tour_step_trend_title'](),
-      description: m['onboarding.tour_step_trend_description'](),
+      testId: 'sidebar-menu-payment-providers',
+      expandTestId: 'sidebar-menu-products-&-payments',
+      title: m['onboarding.tour_step_payments_title'](),
+      description: m['onboarding.tour_step_payments_description'](),
     },
     {
-      testId: 'dashboard-quick-nav',
-      title: m['onboarding.tour_step_quicknav_title'](),
-      description: m['onboarding.tour_step_quicknav_description'](),
+      testId: 'sidebar-menu-credit-buckets',
+      expandTestId: 'sidebar-menu-products-&-payments',
+      title: m['onboarding.tour_step_points_title'](),
+      description: m['onboarding.tour_step_points_description'](),
+    },
+    {
+      testId: 'sidebar-menu-points-wallets',
+      expandTestId: 'sidebar-menu-transactions',
+      title: m['onboarding.tour_step_wallets_title'](),
+      description: m['onboarding.tour_step_wallets_description'](),
+    },
+    {
+      testId: 'sidebar-menu-settings',
+      title: m['onboarding.tour_step_integrations_title'](),
+      description: m['onboarding.tour_step_integrations_description'](),
     },
     {
       testId: 'user-avatar',
@@ -117,9 +134,9 @@ export function OnboardingOrchestrator() {
     }
   }, [realmId, userId])
 
-  // Only the sidebar and the avatar are layout-level anchors; the rest of the
-  // tour lives on the dashboard page. A tour started elsewhere in the manage
-  // tree first moves to the dashboard, keeping the visitor's URL form
+  // Every anchor is layout-level (sidebar entries + header avatar), so the
+  // tour could run from any page; it still starts from the dashboard for a
+  // consistent overview context, keeping the visitor's URL form
   // (realm-prefixed vs session-scoped mirror) so the route match is preserved.
   const goToDashboard = useCallback(() => {
     if (segments[0] === 'manage') {
