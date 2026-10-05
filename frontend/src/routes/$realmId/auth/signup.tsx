@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { m } from '@/paraglide/messages'
 import { ADMIN_REALM_ID } from '@/lib/constants/auth-constants'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
+import { markSignupSignal } from '@/components/onboarding/onboarding-storage'
 
 export const Route = createFileRoute('/$realmId/auth/signup')({
   component: SignupPage,
@@ -38,6 +39,9 @@ export function SignupPage() {
   const signupEnabled = signupStatus?.enabled === true
 
   function handleSignupSuccess(redirectPath: string, realmId: string): void {
+    // One-shot signal for the console's first-login guidance: keyed to the
+    // new realm, and it only selects the welcome-copy variant.
+    markSignupSignal(realmId)
     // Navigate into the NEW realm's management console (DEC-012).
     navigate({ to: realmPath({ realmId, isCustomDomain: false }, redirectPath) })
   }

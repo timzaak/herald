@@ -37,6 +37,8 @@ import { EmailOtpLoginForm } from '@/components/auth/email-otp-login-form'
 import { LdapLoginForm, type LdapLoginFormValues } from '@/components/auth/ldap-login-form'
 import { OneTapLogin } from '@/components/auth/one-tap-login'
 import { TurnstileWidget } from '@/components/auth/turnstile-widget'
+import { SignupCtaBlock } from '@/components/onboarding/signup-cta-block'
+import { ADMIN_REALM_ID } from '@/lib/constants/auth-constants'
 import {
   publicConfigQueryOptions,
   toAuthConsentAgreements,
@@ -913,13 +915,13 @@ export function LoginPage() {
               )}
 
               {isRegistrationAllowed && (
-                <div className="mt-4">
-                  <span className="text-sm text-muted-foreground">
+                <div className="mt-3">
+                  <span className="text-xs text-muted-foreground">
                     {m['auth.login.no_account']()}{' '}
                   </span>
                   <Link
                     to={realmPath(realmContext, '/auth/register')}
-                    className="text-sm font-medium text-primary hover:text-primary/80"
+                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     data-testid="register-link"
                   >
                     {m['auth.login.register_link']()}
@@ -930,6 +932,15 @@ export function LoginPage() {
           )}
         </div>
       </div>
+      {/* Platform storefront only: the self-service signup guidance lives
+          solely on the admin realm's login page; tenant realms (including
+          custom domains resolving to them) never render it. A white-labeled
+          admin realm suppresses the block with the rest of the Herald
+          branding — its copy is platform-branded and must not leak past the
+          brand override. */}
+      {realmId === ADMIN_REALM_ID && !whiteLabel?.brandName?.trim() && (
+        <SignupCtaBlock realmContext={realmContext} />
+      )}
     </AuthPageWrapper>
   )
 }

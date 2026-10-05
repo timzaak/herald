@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/admin/sidebar'
 import { Header } from '@/components/admin/header'
 import { Outlet } from '@tanstack/react-router'
+import { OnboardingOrchestrator } from '@/components/onboarding/onboarding-orchestrator'
 
 export function AdminDashboardLayout() {
   return (
@@ -12,6 +13,9 @@ export function AdminDashboardLayout() {
           <Outlet />
         </main>
       </div>
+      {/* First-login guidance overlay; pure presentation layer that degrades
+          to nothing on any internal failure. */}
+      <OnboardingOrchestrator />
     </div>
   )
 }

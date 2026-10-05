@@ -6,6 +6,7 @@ import { StatsCard } from '@/components/dashboard/stats-card'
 import { AuthTrendChart } from '@/components/dashboard/auth-trend-chart'
 import { QuickNav } from '@/components/dashboard/quick-nav'
 import { Skeleton } from '@/components/ui/skeleton'
+import { OnboardingTasksCard } from '@/components/onboarding/onboarding-tasks-card'
 import { m } from '@/paraglide/messages'
 import { resolvedRealmFromPath } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
@@ -52,7 +53,6 @@ export function ManageDashboard() {
         </div>
       ) : (
         <>
-          {/* Stats Cards */}
           <div className="grid gap-4 md:grid-cols-3" data-testid="dashboard-stats-row">
             {isLoading ? (
               <>
@@ -89,15 +89,15 @@ export function ManageDashboard() {
             )}
           </div>
 
-          {/* Auth Trend Chart */}
           {isLoading ? (
             <Skeleton className="h-[350px] rounded-xl" data-testid="dashboard-chart-skeleton" />
           ) : (
             <AuthTrendChart data={authTrend} testId="dashboard-auth-trend-chart" />
           )}
 
-          {/* Quick Navigation */}
           <QuickNav realmId={realmId} testId="dashboard-quick-nav" />
+
+          <OnboardingTasksCard />
         </>
       )}
     </div>

@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@hey-api/client-axios": "^0.9.1",
-    "herald-auth-web": "file:../sdk/web",
     "@inlang/paraglide-js": "^2.18.2",
     "@marsidev/react-turnstile": "^1.0.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -52,6 +51,8 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "driver.js": "^1.9.0",
+    "herald-auth-web": "file:../sdk/web",
     "lucide-react": "^0.562.0",
     "next-themes": "^0.4.6",
     "qrcode.react": "^4.2.0",
