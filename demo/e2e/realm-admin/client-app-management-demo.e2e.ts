@@ -7,6 +7,8 @@
  * - US-TP-009: Manage Client App Icon
  * - US-TP-010: Enable/Disable Client App
  * - US-TP-011: Configure Session TTL Policy
+ * - US-MCP-011: Built-in MCP client list protection / disable semantics /
+ *   failed-toggle recovery (V2/V3/V6, .ai/design/mcp-server/frontend.md §8)
  *
  * Test Structure:
  * 1. Complete Client App Lifecycle (Create -> Edit -> Delete)
@@ -15,12 +17,16 @@
  * 4. Tab Controls (Verify all tabs present, Active tab styling)
  * 5. Keyboard Navigation (Tab through fields, Enter to submit, Cancel button)
  * 6. Keyboard Shortcuts (Shift+Tab, Focus management)
+ * 7. V2: Built-in MCP client identification and protection
+ * 8. V3: MCP client disable persists and blocks authorization until re-enabled
+ * 9. V6: Failed toggle shows re-queried real state, locks only while unknown
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { ClientAppsPage, type ClientAppData } from '../pages/client-apps-page'
-import { DEMO_ADMIN } from '../helpers/auth'
+import { DEMO_ADMIN, createBearerApiContext } from '../helpers/auth'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
+import { BASE_URL, mcpAuthorize, mcpResourceUri } from '../helpers/oauth-helpers'
 
 test.describe('[Realm Admin] Client App Management Demo Tests', () => {
   test.beforeEach(async ({ page }) => {
@@ -630,5 +636,262 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
       // Close form
       await clientAppsPage.cancelForm()
     })
+  })
+
+  // ============================================================================
+  // Test 7: V2 — Built-in MCP client identification and protection (US-MCP-011)
+  // ============================================================================
+  test('V2: Built-in MCP client identification and protection', async ({
+    page,
+    loginPage,
+    demoLogger,
+    testStartTime,
+  }) => {
+    const clientAppsPage = new ClientAppsPage(page, demoLogger)
+    const normalAppName = `V2 Normal App ${testStartTime}`
+
+    await test.step('Given: Admin is logged in', async () => {
+      await loginPage.loginAsAdmin('admin@cas.com', 'password', 'admin')
+      console.log('Admin logged in')
+    })
+
+    try {
+      await test.step('And: An ordinary client app exists for contrast', async () => {
+        await clientAppsPage.createClientApp(
+          {
+            clientId: `v2-normal-${testStartTime}`,
+            name: normalAppName,
+            redirectUris: ['https://example.com/callback'],
+            sessionTtl: 86400,
+          },
+          'admin'
+        )
+        console.log('Ordinary client app created')
+      })
+
+      await test.step('Then: The herald-mcp row is identified and protected', async () => {
+        const normalAppId = await clientAppsPage.getClientIdByName(normalAppName)
+        expect(normalAppId).toBeTruthy()
+        await clientAppsPage.expectMcpRowProtected(normalAppId)
+        console.log('MCP row: builtin badge + disable hint visible, delete disabled')
+      })
+
+      await test.step('When: Edit is opened from the MCP row', async () => {
+        await clientAppsPage.openMcpEditFromRow()
+        console.log('MCP edit entry landed on the protected state, no form')
+      })
+
+      await test.step('Then: Back returns to the list', async () => {
+        await clientAppsPage.backFromMcpProtected()
+        console.log('Back button returned to the list')
+      })
+
+      await test.step('When: The MCP edit URL is opened directly (deep link)', async () => {
+        await clientAppsPage.gotoMcpEditDirect()
+        console.log('Deep link also renders the protected state')
+      })
+
+      await test.step('Then: Back returns to the list again', async () => {
+        await clientAppsPage.backFromMcpProtected()
+        console.log('Deep-link back returned to the list')
+      })
+    } finally {
+      // The list sorts newest-first with a default page size; leaked apps
+      // would eventually push the migration-seeded MCP row (oldest) onto
+      // page 2 and break the row-scoped assertions.
+      const normalAppId = await clientAppsPage
+        .getClientIdByName(normalAppName)
+        .catch(() => '')
+      if (normalAppId) {
+        await clientAppsPage.deleteClientApp(normalAppId)
+        console.log('Contrast app deleted (cleanup)')
+      }
+    }
+  })
+
+  // ============================================================================
+  // Test 8: V3 — MCP disable persists and blocks authorization until re-enabled
+  // ============================================================================
+  test('V3: MCP client disable persists and blocks authorization until re-enabled', async ({
+    page,
+    loginPage,
+    demoLogger,
+  }) => {
+    const clientAppsPage = new ClientAppsPage(page, demoLogger)
+    const realmId = DEMO_ADMIN.realmId
+    const resource = mcpResourceUri(BASE_URL, realmId)
+
+    await test.step('Given: Admin is logged in on the client apps list', async () => {
+      await loginPage.loginAsAdmin('admin@cas.com', 'password', 'admin')
+      await clientAppsPage.goto('admin')
+    })
+
+    const mcpAppId = await clientAppsPage.getMcpAppId()
+    expect(mcpAppId).toBeTruthy()
+
+    try {
+      await test.step('When: Admin disables the MCP client from the list', async () => {
+        await clientAppsPage.toggleRowEnabled(mcpAppId, false)
+        console.log('MCP client disabled via row switch')
+      })
+
+      await test.step('Then: The disabled state persists across a page reload', async () => {
+        await clientAppsPage.goto('admin')
+        await clientAppsPage.expectRowStatus(mcpAppId, 'Disabled')
+        console.log('Disabled state persisted after reload')
+      })
+
+      await test.step('And: MCP authorization is rejected while disabled', async () => {
+        const result = await mcpAuthorize(realmId, { resource })
+        expect(result.status).toBe(403)
+        expect(result.errorBody).toContain('disabled')
+        console.log('Authorize rejected the disabled MCP client with 403')
+      })
+    } finally {
+      // Shared preset cleanup: other demos assume the MCP client is enabled.
+      // Read the real switch state first so a failed disable step cannot
+      // accidentally disable it here; if the page is unusable, fall back to
+      // the admin API (the same contract the oauth error demo uses).
+      let restored = false
+      await clientAppsPage.goto('admin').catch(() => undefined)
+      const state = await clientAppsPage.getSwitchState(mcpAppId).catch(() => null)
+      if (state === 'checked') {
+        restored = true
+      } else if (state === 'unchecked') {
+        restored = await clientAppsPage
+          .toggleRowEnabled(mcpAppId, true)
+          .then(() => true)
+          .catch(() => false)
+      }
+      if (!restored) {
+        try {
+          const adminApiContext = await createBearerApiContext(loginPage.getAccessToken())
+          const response = await adminApiContext.put(`${BASE_URL}/api/client/${mcpAppId}`, {
+            data: { enabled: true },
+          })
+          expect(response.ok()).toBe(true)
+          console.log('MCP client re-enabled via admin API (cleanup fallback)')
+        } catch (error) {
+          console.log(`MCP re-enable fallback failed: ${error}`)
+        }
+      }
+    }
+
+    await test.step('Then: Re-enabling makes a fresh authorization possible again', async () => {
+      const result = await mcpAuthorize(realmId, { resource })
+      // 302 to the login page: the authorization request itself is accepted
+      // again (old grants staying dead is backend contract, mcp_scenarios).
+      expect(result.status).toBe(302)
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
+      console.log('Authorize accepted again after re-enable (302 to login)')
+    })
+  })
+
+  // ============================================================================
+  // Test 9: V6 — Failed toggle shows re-queried real state, locks only while
+  // the status is unknown (frontend design §8 V6)
+  // ============================================================================
+  test('V6: Failed toggle shows re-queried real state and locks only while unknown', async ({
+    page,
+    loginPage,
+    demoLogger,
+    testStartTime,
+  }) => {
+    const clientAppsPage = new ClientAppsPage(page, demoLogger)
+    const appName = `V6 Recovery App ${testStartTime}`
+
+    // The update endpoint is PUT /api/client/{uuid}; the list re-query is
+    // GET /api/client?... — regexes keep the two apart.
+    const updateRoute = /\/api\/client\/[0-9a-fA-F-]+$/
+    const listRoute = /\/api\/client\?/
+
+    await test.step('Given: Admin is logged in and an ordinary app is enabled', async () => {
+      await loginPage.loginAsAdmin('admin@cas.com', 'password', 'admin')
+      await clientAppsPage.createClientApp(
+        {
+          clientId: `v6-recovery-${testStartTime}`,
+          name: appName,
+          redirectUris: ['https://example.com/callback'],
+          sessionTtl: 86400,
+        },
+        'admin'
+      )
+    })
+
+    const appId = await clientAppsPage.getClientIdByName(appName)
+    expect(appId).toBeTruthy()
+
+    try {
+      await test.step('When: The disable commits but the toggle response is a 500', async () => {
+        await page.route(updateRoute, (route) =>
+          route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: 'simulated failure after commit' }),
+          })
+        )
+        // The forced re-query succeeds and reports the committed disabled
+        // state — the UI must adopt it, not the pre-toggle row.
+        await page.route(listRoute, async (route) => {
+          const response = await route.fetch({
+            headers: await route.request().allHeaders(),
+          })
+          const body = await response.json()
+          for (const item of body.items ?? []) {
+            if (item.id === appId) item.enabled = false
+          }
+          await route.fulfill({ response, body: JSON.stringify(body) })
+        })
+        await clientAppsPage.clickRowSwitch(appId)
+      })
+
+      await test.step('Then: The re-queried disabled state shows and no lock remains', async () => {
+        await clientAppsPage.expectRowStatus(appId, 'Disabled')
+        await clientAppsPage.expectStatusConfirmed(appId)
+        console.log('Failed toggle recovered via re-query: badge Disabled, switch free')
+      })
+
+      await page.unroute(listRoute)
+
+      await test.step('When: A toggle and its re-query both fail with 500', async () => {
+        // updateRoute stays 500-routed from the previous scenario; only the
+        // list re-query flips from modified-success to failure.
+        await page.route(listRoute, (route) =>
+          route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: 'simulated re-query failure' }),
+          })
+        )
+        await clientAppsPage.clickRowSwitch(appId)
+      })
+
+      await test.step('Then: The switch locks with status unconfirmed and a retry', async () => {
+        await clientAppsPage.expectStatusUnconfirmed(appId)
+        console.log('Unknown status locked the switch with inline retry UI')
+      })
+
+      await test.step('When: Retry runs with the list endpoint restored', async () => {
+        await page.unroute(listRoute)
+        await clientAppsPage.retryRowStatus(appId)
+      })
+
+      await test.step('Then: The server truth replaces the last known state', async () => {
+        // Both 500s were simulated, so the server never applied any toggle:
+        // the real state is still Enabled — proof the retry adopts the
+        // re-queried truth over the last UI state (Disabled).
+        await clientAppsPage.expectRowStatus(appId, 'Enabled')
+        await clientAppsPage.expectStatusConfirmed(appId)
+        console.log('Retry cleared the lock and restored the real enabled state')
+      })
+    } finally {
+      // cleanupTestData does not remove client apps; a leaked app would
+      // eventually push the migration-seeded MCP row (oldest) onto page 2
+      // and break the row-scoped V2/V3 assertions.
+      await page.unroute(updateRoute).catch(() => undefined)
+      await page.unroute(listRoute).catch(() => undefined)
+      await clientAppsPage.deleteClientApp(appId).catch(() => undefined)
+      console.log('V6 seeded app deleted (cleanup)')
+    }
   })
 })

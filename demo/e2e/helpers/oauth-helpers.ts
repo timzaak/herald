@@ -8,7 +8,7 @@
  * the browser context's auth cookies. Call AFTER the page is authenticated.
  */
 
-import { type APIRequestContext, type Page, type Response, expect } from '@playwright/test'
+import { type APIRequestContext, type Page, type Response, type Route, expect } from '@playwright/test'
 import * as crypto from 'node:crypto'
 import { BASE_URL } from './environment-setup'
 
@@ -46,6 +46,46 @@ export interface SeedOAuthClientAppResult {
 }
 
 // ---------------------------------------------------------------------------
+// MCP OAuth fixtures (US-MCP-001 V4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-realm built-in public MCP OAuth client, seeded by migration 0011.
+ * Redirect whitelist: loopback literals with RFC 8252 any-port matching.
+ */
+export const MCP_CLIENT_ID = 'herald-mcp'
+export const MCP_LOOPBACK_REDIRECT_URI = 'http://127.0.0.1/callback'
+
+/**
+ * Canonical MCP resource indicator (RFC 8707): `{origin}/mcp/{realmId}`.
+ * Must match the PRM-advertised resource exactly or authorize rejects with
+ * invalid_target.
+ */
+export function mcpResourceUri(baseUrl: string, realmId: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/mcp/${realmId}`
+}
+
+/**
+ * One-shot MCP authorize probe with fresh PKCE + state per call — the common
+ * shape of the V3/V4 demo assertions. The verifier is never used here (these
+ * calls assert the authorize outcome only); flows that exchange a code for a
+ * token go through completeOAuthLoginAndGetAuthCode instead.
+ */
+export async function mcpAuthorize(
+  realmId: string,
+  opts?: { resource?: string; scope?: string },
+): Promise<OAuthAuthorizeResult> {
+  const pkce = generatePKCEPair()
+  return oauthAuthorize(BASE_URL, realmId, {
+    client_id: MCP_CLIENT_ID,
+    redirect_uri: MCP_LOOPBACK_REDIRECT_URI,
+    state: crypto.randomUUID(),
+    code_challenge: pkce.code_challenge,
+    ...opts,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // PKCE Cryptographic Utilities
 // ---------------------------------------------------------------------------
 
@@ -71,6 +111,10 @@ export function buildAuthorizeUrl(
     redirect_uri: string
     state: string
     code_challenge: string
+    /** Optional scope; omitted → server default (MCP clients: mcp:profile:read). */
+    scope?: string
+    /** RFC 8707 resource indicator; required on the MCP client, rejected on others. */
+    resource?: string
   },
 ): string {
   const query = new URLSearchParams({
@@ -81,6 +125,12 @@ export function buildAuthorizeUrl(
     code_challenge: params.code_challenge,
     code_challenge_method: 'S256',
   })
+  if (params.scope !== undefined) {
+    query.set('scope', params.scope)
+  }
+  if (params.resource !== undefined) {
+    query.set('resource', params.resource)
+  }
 
   return `${baseUrl}/api/oauth/${encodeURIComponent(realmId)}/authorize?${query.toString()}`
 }
@@ -97,6 +147,8 @@ export async function oauthAuthorize(
     redirect_uri: string
     state: string
     code_challenge: string
+    scope?: string
+    resource?: string
   },
 ): Promise<OAuthAuthorizeResult> {
   const url = buildAuthorizeUrl(baseUrl, realmId, params)
@@ -188,9 +240,11 @@ export async function seedOAuthClientApp(
 
 /** Block navigation to unreachable OAuth callback URLs in test environment. */
 export async function blockExternalCallback(page: Page): Promise<void> {
-  await page.route('https://example.com/**', (route) =>
+  const fulfillBlocked = (route: Route) =>
     route.fulfill({ status: 200, body: '<html><body>Blocked</body></html>', contentType: 'text/html' })
-  )
+  await page.route('https://example.com/**', fulfillBlocked)
+  // Loopback MCP callbacks (RFC 8252) have no listener in the demo env.
+  await page.route('http://127.0.0.1/**', fulfillBlocked)
 }
 
 /** Predicate matching the login API POST response. */
@@ -201,6 +255,9 @@ export function isLoginApiResponse(resp: Response): boolean {
 /**
  * Complete the full authorize + login + extract auth code flow.
  * Returns the auth code and PKCE pair for subsequent token exchange.
+ *
+ * `extraAuthorizeParams` carries the MCP client's resource/scope when the
+ * flow targets the built-in herald-mcp client; ordinary clients omit them.
  */
 export async function completeOAuthLoginAndGetAuthCode(
   page: Page,
@@ -210,6 +267,7 @@ export async function completeOAuthLoginAndGetAuthCode(
   redirectUri: string,
   state: string,
   credentials: { email: string; password: string },
+  extraAuthorizeParams?: { scope?: string; resource?: string },
 ): Promise<{
   authCode: string
   pkce: OAuthPKCEPair
@@ -221,6 +279,7 @@ export async function completeOAuthLoginAndGetAuthCode(
     redirect_uri: redirectUri,
     state,
     code_challenge: pkce.code_challenge,
+    ...extraAuthorizeParams,
   })
 
   expect(authorizeResult.status).toBe(302)

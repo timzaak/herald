@@ -16,6 +16,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
+import { MCP_CLIENT_ID } from '../helpers/oauth-helpers'
 import type { UnifiedLogger } from '../helpers/unified-logger'
 
 /**
@@ -103,6 +104,12 @@ export class ClientAppsPage extends BasePage {
   // Success message (toast notification)
   readonly successMessage: Locator
 
+  // Built-in MCP client (herald-mcp) — located by data-client-id, never by
+  // row index or display text
+  readonly mcpRow: Locator
+  readonly mcpBackButton: Locator
+  readonly mcpProtectedPage: Locator
+
   // Current realm ID (stored for navigation)
   private currentRealmId: string = 'admin'
 
@@ -154,6 +161,11 @@ export class ClientAppsPage extends BasePage {
 
     // Success message (toast)
     this.successMessage = this.page.locator('[data-sonner-toast][data-type="success"]')
+
+    // Built-in MCP client row + protected edit page (client-app-mcp-protected)
+    this.mcpRow = this.page.locator(SELECTORS.clientApps.rowByClientId(MCP_CLIENT_ID))
+    this.mcpProtectedPage = this.page.locator(SELECTORS.clientAppMcpProtected.page)
+    this.mcpBackButton = this.page.locator(SELECTORS.clientAppMcpProtected.backButton)
   }
 
   // ============================================================================
@@ -581,6 +593,162 @@ export class ClientAppsPage extends BasePage {
       throw new Error(`Client App "${appName}" not found`)
     }
     await this.deleteClientApp(appId)
+  }
+
+  // ============================================================================
+  // Built-in MCP Client Methods (US-MCP-011 V2/V3/V6)
+  // ============================================================================
+
+  /**
+   * Get the app UUID of the built-in MCP client row
+   */
+  async getMcpAppId(): Promise<string> {
+    await expect(this.mcpRow).toBeVisible()
+    return (await this.mcpRow.getAttribute('data-app-id')) || ''
+  }
+
+  /**
+   * Assert the built-in MCP client is identified and protected in the list:
+   * its row carries the builtin badge and disable hint, and delete is
+   * disabled with an explanatory title. An ordinary app's row (normalAppAppId)
+   * is the contrast: no badge, no hint, delete enabled — the builtin marks
+   * are the MCP row's alone among user-managed apps.
+   */
+  async expectMcpRowProtected(normalAppId?: string): Promise<void> {
+    await expect(this.mcpRow).toHaveCount(1)
+
+    const appId = await this.getMcpAppId()
+    expect(appId).toBeTruthy()
+    await expect(this.page.locator(SELECTORS.clientApps.builtinBadge(appId))).toBeVisible()
+    await expect(this.page.locator(SELECTORS.clientApps.mcpHint(appId))).toBeVisible()
+    // The hint is keyed to clientId === herald-mcp, so it marks the MCP row
+    // alone even though other system rows (console/api-key clients) share
+    // the builtin badge.
+    await expect(this.table.locator('[data-testid="client-app-mcp-hint"]')).toHaveCount(1)
+
+    const deleteButton = this.page.locator(SELECTORS.clientApps.deleteButton(appId))
+    await expect(deleteButton).toBeDisabled()
+    // The title states WHY deletion is blocked (delete_disabled_builtin_title);
+    // asserted non-empty rather than exact copy so wording changes don't
+    // break the demo.
+    expect(await deleteButton.getAttribute('title')).toBeTruthy()
+
+    if (normalAppId) {
+      await expect(
+        this.page.locator(SELECTORS.clientApps.builtinBadge(normalAppId))
+      ).toBeHidden()
+      await expect(this.page.locator(SELECTORS.clientApps.mcpHint(normalAppId))).toBeHidden()
+      await expect(
+        this.page.locator(SELECTORS.clientApps.deleteButton(normalAppId))
+      ).toBeEnabled()
+    }
+  }
+
+  /**
+   * Read a row switch's checked state (data-state on the switch element).
+   */
+  async getSwitchState(appId: string): Promise<'checked' | 'unchecked'> {
+    const state = await this.page
+      .locator(SELECTORS.clientApps.enabledSwitch(appId))
+      .getAttribute('data-state')
+    if (state !== 'checked' && state !== 'unchecked') {
+      throw new Error(`Unexpected switch data-state for app ${appId}: ${state}`)
+    }
+    return state
+  }
+
+  /**
+   * Toggle a row's enabled switch from the list and wait for the mutation to
+   * settle: success toast plus badge/switch reflecting the new state.
+   */
+  async toggleRowEnabled(appId: string, expectedEnabled: boolean): Promise<void> {
+    await this.clickRowSwitch(appId)
+    await expect(this.successMessage.first()).toBeVisible({ timeout: 10000 })
+    await this.expectRowStatus(appId, expectedEnabled ? 'Enabled' : 'Disabled')
+    await expect(
+      this.page.locator(SELECTORS.clientApps.enabledSwitch(appId))
+    ).toHaveAttribute('data-state', expectedEnabled ? 'checked' : 'unchecked')
+  }
+
+  /**
+   * Click a row's enabled switch without waiting for the mutation outcome —
+   * for scenarios where the outcome is intercepted (V6).
+   */
+  async clickRowSwitch(appId: string): Promise<void> {
+    await this.page.locator(SELECTORS.clientApps.enabledSwitch(appId)).click()
+  }
+
+  /**
+   * Assert a row's status badge text (Enabled/Disabled).
+   */
+  async expectRowStatus(appId: string, expected: 'Enabled' | 'Disabled'): Promise<void> {
+    await expect(this.page.locator(SELECTORS.clientApps.statusBadge(appId))).toHaveText(
+      expected
+    )
+  }
+
+  /**
+   * Open the MCP client's edit page via the row's edit button; must land on
+   * the protected state, never the edit form.
+   */
+  async openMcpEditFromRow(): Promise<void> {
+    const appId = await this.getMcpAppId()
+    await this.smartClick(this.page.locator(SELECTORS.clientApps.editButton(appId)))
+    await expect(this.mcpProtectedPage).toBeVisible()
+    await expect(this.formPage).toBeHidden()
+  }
+
+  /**
+   * Navigate directly to the MCP client's edit URL; the route must render
+   * the protected state (client-app-mcp-protected), never the edit form.
+   */
+  async gotoMcpEditDirect(): Promise<void> {
+    const appId = await this.getMcpAppId()
+    await this.page.goto(`/${this.currentRealmId}/manage/client-apps/${appId}/edit`)
+    await expect(this.mcpProtectedPage).toBeVisible()
+    await expect(this.formPage).toBeHidden()
+  }
+
+  /**
+   * Leave the MCP protected page via its back button, returning to the list.
+   */
+  async backFromMcpProtected(): Promise<void> {
+    await this.smartClick(this.mcpBackButton)
+    await this.waitForReady()
+  }
+
+  /**
+   * V6: assert a row is in the post-failure "status unconfirmed" lock —
+   * switch disabled, status error visible, retry affordance reachable.
+   */
+  async expectStatusUnconfirmed(appId: string): Promise<void> {
+    await expect(
+      this.page.locator(SELECTORS.clientApps.enabledSwitch(appId))
+    ).toBeDisabled()
+    await expect(this.page.locator(SELECTORS.clientApps.statusError(appId))).toBeVisible()
+    await expect(
+      this.page.locator(SELECTORS.clientApps.statusRetryButton(appId))
+    ).toBeVisible()
+  }
+
+  /**
+   * V6: assert a row's status is confirmed — no error/retry UI, switch free.
+   */
+  async expectStatusConfirmed(appId: string): Promise<void> {
+    await expect(this.page.locator(SELECTORS.clientApps.statusError(appId))).toBeHidden()
+    await expect(
+      this.page.locator(SELECTORS.clientApps.statusRetryButton(appId))
+    ).toBeHidden()
+    await expect(
+      this.page.locator(SELECTORS.clientApps.enabledSwitch(appId))
+    ).toBeEnabled()
+  }
+
+  /**
+   * V6: click a row's inline status retry button.
+   */
+  async retryRowStatus(appId: string): Promise<void> {
+    await this.smartClick(this.page.locator(SELECTORS.clientApps.statusRetryButton(appId)))
   }
 
   async clientAppExists(appIdOrName: string): Promise<boolean> {

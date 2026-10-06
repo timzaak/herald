@@ -272,6 +272,24 @@ export const SELECTORS = {
       `[data-app-id="${appId}"] [data-testid="delete-client-app-button"]`,
     enabledSwitch: (appId: string) =>
       `[data-app-id="${appId}"] [data-testid="client-app-enabled-switch"]`,
+    statusBadge: (appId: string) =>
+      `[data-app-id="${appId}"] [data-testid="client-app-status-badge"]`,
+    builtinBadge: (appId: string) =>
+      `[data-app-id="${appId}"] [data-testid="builtin-badge"]`,
+    mcpHint: (appId: string) =>
+      `[data-app-id="${appId}"] [data-testid="client-app-mcp-hint"]`,
+    statusError: (appId: string) =>
+      `[data-app-id="${appId}"] [data-testid="client-app-status-error"]`,
+    statusRetryButton: (appId: string) =>
+      `[data-app-id="${appId}"] [data-testid="client-app-status-retry-button"]`,
+    refetchErrorBanner: '[data-testid="client-apps-refetch-error"]',
+  },
+
+  // Direct-link protected state for the built-in MCP client's edit page
+  // (frontend $clientAppId.edit.tsx renders this instead of the form).
+  clientAppMcpProtected: {
+    page: '[data-testid="client-app-mcp-protected"]',
+    backButton: '[data-testid="client-app-mcp-back-button"]',
   },
 
   clientAppForm: {

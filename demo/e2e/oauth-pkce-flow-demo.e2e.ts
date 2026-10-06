@@ -6,17 +6,24 @@
  *   (US-TP-001, US-TP-015, US-TP-016, US-RU-008, US-RU-010)
  * - Test 2: Normal Login Regression
  * - Test 3: OAuth Login Page State Verification (US-RU-010)
+ * - Test 4: MCP Browser Authorization via Built-in herald-mcp Client
+ *   (US-MCP-001 V4, .ai/design/mcp-server/frontend.md §8)
  *
- * @see docs/user-stories/oauth-third-party-integration.md
+ * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）
  */
 
 import { test, expect, cleanupTestData } from './fixtures/demo-page.fixtures'
 import {
   BASE_URL,
+  MCP_CLIENT_ID,
+  MCP_LOOPBACK_REDIRECT_URI,
   generatePKCEPair,
+  mcpAuthorize,
+  mcpResourceUri,
   oauthAuthorize,
   oauthTokenExchange,
   seedOAuthClientApp,
+  completeOAuthLoginAndGetAuthCode,
   blockExternalCallback,
   isLoginApiResponse,
 } from './helpers/oauth-helpers'
@@ -233,6 +240,87 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
       const submitButton = page.getByTestId('login-submit-button')
       await expect(submitButton).toBeVisible()
       await expect(submitButton).toBeDisabled()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test 4: MCP Browser Authorization via Built-in herald-mcp Client (V4)
+  // ---------------------------------------------------------------------------
+  test('MCP Browser Authorization via Built-in herald-mcp Client', async ({ page }) => {
+    const realmId = DEMO_ADMIN.realmId
+    const redirectUri = MCP_LOOPBACK_REDIRECT_URI
+    const resource = mcpResourceUri(BASE_URL, realmId)
+
+    let abandonedLoginUrl: string
+
+    await test.step('When: An MCP authorize URL opens a pending browser session', async () => {
+      const result = await mcpAuthorize(realmId, { resource })
+
+      // The resource indicator is accepted: authorize 302s to the login page
+      // with a server-side pending state instead of erroring back.
+      expect(result.status).toBe(302)
+      expect(result.redirectLocation).toBeTruthy()
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
+      abandonedLoginUrl = result.redirectLocation!
+    })
+
+    await test.step('And: Abandoning before login yields no code and blocks nothing', async () => {
+      // The agent user walks away from the login page without submitting
+      // credentials: the pending state simply goes unused. A brand-new
+      // authorize works immediately afterwards — abandonment leaves no
+      // residue. (Stay on the app origin; navigating to about:blank would
+      // make WebStorage unreachable for the login helper below.)
+      await page.context().clearCookies()
+      await page.goto(`${BASE_URL}${abandonedLoginUrl}`, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByTestId('login-card')).toBeVisible({ timeout: 10000 })
+
+      const fresh = await mcpAuthorize(realmId, { resource })
+      expect(fresh.status).toBe(302)
+      expect(fresh.redirectLocation).toContain(`/${realmId}/auth/login`)
+    })
+
+    let authCode: string
+    let pkce: ReturnType<typeof generatePKCEPair>
+
+    await test.step('When: A fresh full MCP authorization completes in the browser', async () => {
+      // blockExternalCallback (called inside the helper) also fulfills the
+      // loopback callback so the login redirect does not hit a connection
+      // error.
+      const flowResult = await completeOAuthLoginAndGetAuthCode(
+        page,
+        BASE_URL,
+        realmId,
+        MCP_CLIENT_ID,
+        redirectUri,
+        crypto.randomUUID(),
+        { email: DEMO_ADMIN.email, password: DEMO_ADMIN.password },
+        { resource }
+      )
+      authCode = flowResult.authCode
+      pkce = flowResult.pkce
+      expect(authCode).toMatch(/^ac_/)
+    })
+
+    await test.step('Then: The PKCE code exchanges for an MCP access token', async () => {
+      const tokenResult = await oauthTokenExchange(BASE_URL, realmId, {
+        grant_type: 'authorization_code',
+        code: authCode!,
+        redirect_uri: redirectUri,
+        client_id: MCP_CLIENT_ID,
+        code_verifier: pkce.code_verifier,
+      })
+
+      // The public MCP client authenticates with PKCE alone (no secret) and
+      // the issued token is bound to the MCP resource (DEC-mcp-server-003).
+      expect('access_token' in tokenResult).toBe(true)
+      const tokenResponse = tokenResult as {
+        access_token: string
+        token_type: string
+        expires_in: number
+      }
+      expect(tokenResponse.access_token).toBeTruthy()
+      expect(tokenResponse.token_type).toBe('Bearer')
+      expect(tokenResponse.expires_in).toBeGreaterThan(0)
     })
   })
 })

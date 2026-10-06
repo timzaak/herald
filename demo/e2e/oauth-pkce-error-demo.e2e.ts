@@ -2,24 +2,31 @@
  * OAuth PKCE Error and Edge Case Demo Tests
  *
  * Test Coverage:
- * - Test 1: Authorization Code Replay (US-TP-006 scenario 1)
- * - Test 2: PKCE Verification Failure (US-TP-006 scenario 2)
- * - Test 3: redirect_uri Not in Whitelist (US-TP-008)
- * - Test 4: Disabled Client App (US-TP-006 scenario 3)
+ * - Test 1: Authorization Code Replay (US-TP-001 scenario 4)
+ * - Test 2: PKCE Verification Failure (US-TP-001 scenario 6)
+ * - Test 3: redirect_uri Not in Whitelist (US-TP-001 scenario 8)
+ * - Test 4: Disabled Client App (US-TP-010 scenario 1)
  * - Test 5: Invalid Authorization Code (US-TP-006 scenario 4)
- * - Test 6: Login with Mismatched State (US-TP-006 scenario 5)
- * - Test 7: Partial OAuth Params Display Error (US-RU-010 scenario 2)
+ * - Test 6: Login with Mismatched State (US-TP-001 scenario 7)
+ * - Test 7: Partial OAuth Params Display Error (US-RU-010 scenario 4)
+ * - Test 8: MCP authorize with missing/foreign resource → invalid_target
+ * - Test 9: MCP authorize with non-MCP scope token → invalid_scope
+ * - Test 10: Disabled MCP client rejects authorize until re-enabled
+ *   (US-MCP-001 V4 negative paths, .ai/design/mcp-server/frontend.md §8)
  *
  * Each scenario is a separate test() because error tests require
  * different setup state and must not cascade failures.
  *
- * @see docs/user-stories/oauth-third-party-integration.md
+ * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）、docs/user-stories/auth/client-app-settings.md（US-TP-010）
  */
 
 import { test, expect, cleanupTestData } from './fixtures/demo-page.fixtures'
 import {
   BASE_URL,
+  MCP_CLIENT_ID,
   generatePKCEPair,
+  mcpAuthorize,
+  mcpResourceUri,
   oauthAuthorize,
   oauthTokenExchange,
   seedOAuthClientApp,
@@ -353,6 +360,115 @@ test.describe('[OAuth PKCE] Error and Edge Case Demo Tests', () => {
       const submitButton = page.getByTestId('login-submit-button')
       await expect(submitButton).toBeVisible()
       await expect(submitButton).toBeDisabled()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test 8: MCP authorize with missing / foreign resource (V4 negative)
+  // ---------------------------------------------------------------------------
+
+  test('MCP authorize with missing or foreign resource returns invalid_target', async () => {
+    const realmId = DEMO_ADMIN.realmId
+
+    await test.step('When: Authorize omits the resource indicator', async () => {
+      const result = await mcpAuthorize(realmId)
+
+      await test.step('Then: 302 back to the loopback callback with invalid_target, no code', async () => {
+        expect(result.status).toBe(302)
+        expect(result.redirectLocation).toContain('error=invalid_target')
+        expect(result.redirectLocation).not.toContain('code=')
+      })
+    })
+
+    await test.step('When: Authorize points the resource at another realm', async () => {
+      const result = await mcpAuthorize(realmId, {
+        resource: mcpResourceUri(BASE_URL, 'realm1'),
+      })
+
+      await test.step('Then: Also invalid_target — an agent cannot hop tenants', async () => {
+        expect(result.status).toBe(302)
+        expect(result.redirectLocation).toContain('error=invalid_target')
+        expect(result.redirectLocation).not.toContain('code=')
+      })
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test 9: MCP authorize with a non-MCP scope token (V4 negative)
+  // ---------------------------------------------------------------------------
+
+  test('MCP authorize with a non-MCP scope token returns invalid_scope', async () => {
+    const realmId = DEMO_ADMIN.realmId
+
+    await test.step('When: Authorize requests openid alongside an MCP scope', async () => {
+      const result = await mcpAuthorize(realmId, {
+        resource: mcpResourceUri(BASE_URL, realmId),
+        // openid is not one of the four mcp:* wire scopes — the MCP client
+        // only ever receives MCP credentials, never identity tokens.
+        scope: 'openid mcp:profile:read',
+      })
+
+      await test.step('Then: 302 back with invalid_scope, no code', async () => {
+        expect(result.status).toBe(302)
+        expect(result.redirectLocation).toContain('error=invalid_scope')
+        expect(result.redirectLocation).not.toContain('code=')
+      })
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Test 10: Disabled MCP client rejects authorize until re-enabled (V4/V3)
+  // ---------------------------------------------------------------------------
+
+  test('Disabled MCP client rejects authorization until re-enabled', async ({
+    page,
+    loginPage,
+  }) => {
+    const realmId = DEMO_ADMIN.realmId
+    const resource = mcpResourceUri(BASE_URL, realmId)
+
+    let adminApiContext: Awaited<ReturnType<typeof createBearerApiContext>>
+    let mcpAppId: string
+
+    await test.step('Given: Admin locates the built-in MCP client via the admin API', async () => {
+      await loginPage.loginAsAdmin(DEMO_ADMIN.email, DEMO_ADMIN.password, realmId)
+      adminApiContext = await createBearerApiContext(loginPage.getAccessToken())
+      const listResponse = await adminApiContext.get(`${BASE_URL}/api/client?page=0&pageSize=50`)
+      expect(listResponse.ok()).toBe(true)
+      const items = (await listResponse.json()).items as Array<{
+        id: string
+        clientId: string
+      }>
+      mcpAppId = items.find((item) => item.clientId === MCP_CLIENT_ID)!.id
+      expect(mcpAppId).toBeTruthy()
+    })
+
+    try {
+      await test.step('When: The MCP client is disabled via the admin API', async () => {
+        const response = await adminApiContext.put(`${BASE_URL}/api/client/${mcpAppId}`, {
+          data: { enabled: false },
+        })
+        expect(response.ok()).toBe(true)
+      })
+
+      await test.step('Then: Authorize returns 403 with the disabled error', async () => {
+        const result = await mcpAuthorize(realmId, { resource })
+        expect(result.status).toBe(403)
+        expect(result.errorBody).toContain('disabled')
+      })
+    } finally {
+      // Shared preset cleanup: restore the enabled state no matter what.
+      await adminApiContext
+        .put(`${BASE_URL}/api/client/${mcpAppId}`, { data: { enabled: true } })
+        .catch(() => undefined)
+    }
+
+    await test.step('And: A fresh authorization is accepted again after re-enabling', async () => {
+      const result = await mcpAuthorize(realmId, { resource })
+      // Old grants staying dead after re-enable is the backend contract
+      // (mcp_scenarios); here a brand-new authorization is possible again.
+      expect(result.status).toBe(302)
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
     })
   })
 })
