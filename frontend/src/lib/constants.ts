@@ -22,6 +22,13 @@ export const GITHUB_REPO_URL = 'https://github.com/timzaak/herald'
 export const BRAND_NAME = 'Herald'
 
 /**
+ * Reserved client id of the per-realm built-in MCP client. The server rejects
+ * generic field updates and deletion for it, so the UI must never mount the
+ * generic edit form for this client.
+ */
+export const MCP_CLIENT_ID = 'herald-mcp'
+
+/**
  * Default page size for paginated lists
  */
 export const DEFAULT_PAGE_SIZE = 20

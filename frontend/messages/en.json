@@ -851,7 +851,12 @@
     "form_turnstile_secret_key_label": "Turnstile Secret Key",
     "form_turnstile_secret_key_placeholder": "unchanged",
     "form_turnstile_secret_key_hint_create": "Server-side secret used to verify Turnstile responses. Leave blank to not set a secret.",
-    "form_turnstile_secret_key_hint_edit": "Server-side secret used to verify Turnstile responses. Leave blank to keep the existing stored secret."
+    "form_turnstile_secret_key_hint_edit": "Server-side secret used to verify Turnstile responses. Leave blank to keep the existing stored secret.",
+    "mcp_disable_hint": "Disabling closes existing and new authorizations; after re-enabling, old grants cannot be restored and agents must re-authorize.",
+    "mcp_protected_description": "This is the realm's built-in MCP client; its configuration is managed by the system.",
+    "mcp_protection_only_toggle": "It cannot be edited or deleted here. Only enable/disable from the client apps list is supported.",
+    "status_unconfirmed": "Status unconfirmed",
+    "delete_disabled_builtin_title": "Built-in client apps cannot be deleted"
   },
   "realms": {
     "page_title": "Realms",

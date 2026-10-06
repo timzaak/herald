@@ -16,6 +16,7 @@ const mockClientApps: ClientAppItem[] = [
     enabled: true,
     browserRefreshAbsoluteTtlSeconds: 2592000,
     allowedOrigins: ['https://app1.example.com'],
+    isSystemBuiltin: false,
   },
   {
     id: '2',
@@ -28,6 +29,7 @@ const mockClientApps: ClientAppItem[] = [
     enabled: false,
     browserRefreshAbsoluteTtlSeconds: 7776000,
     allowedOrigins: [],
+    isSystemBuiltin: false,
   },
 ]
 

@@ -82,14 +82,13 @@ Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/cont
 - **完整文档全文（LLM）：** https://www.fornetcode.com/llms-full.txt
 - **单页 Markdown：** 在任意文档 URL 后加 `.md`，例如 https://www.fornetcode.com/zh/docs/auth/passkey.md
 - **API 参考（OpenAPI）：** [`docs-web/openapi.json`](docs-web/openapi.json)
-- **MCP 服务：** 用 Client API Key 直连，通过五个只读工具查询你的租户：
+- **MCP 服务：** 用 OAuth 接入——把 agent 指向租户地址，在浏览器登录一次即可：
 
   ```bash
-  claude mcp add --transport http herald https://your-herald-host/mcp \
-    --header "X-API-Key: sk-your-api-key"
+  claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
   ```
 
-  连接后用零入参的 `get_realm_config_status` 工具做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/integration/mcp)。
+  无需 API Key、client id 或 secret。Herald 拉起浏览器完成登录后，agent 即获得九个只读工具。用 `get_my_profile` 做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/integration/mcp)。
 
 ## 联系我们
 

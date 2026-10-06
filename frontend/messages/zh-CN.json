@@ -851,7 +851,12 @@
     "form_turnstile_secret_key_label": "Turnstile Secret Key",
     "form_turnstile_secret_key_placeholder": "未更改",
     "form_turnstile_secret_key_hint_create": "用于校验 Turnstile 响应的服务端密钥。留空则不设置密钥。",
-    "form_turnstile_secret_key_hint_edit": "用于校验 Turnstile 响应的服务端密钥。留空则保留已存储的密钥不变。"
+    "form_turnstile_secret_key_hint_edit": "用于校验 Turnstile 响应的服务端密钥。留空则保留已存储的密钥不变。",
+    "mcp_disable_hint": "停用会关闭已有与新增授权；重新启用后旧授权不可恢复，agent 需重新授权。",
+    "mcp_protected_description": "这是本租户的内置 MCP 客户端，配置由系统管理。",
+    "mcp_protection_only_toggle": "此处不可编辑、不可删除，仅支持在客户端应用列表启用或停用。",
+    "status_unconfirmed": "状态未确认",
+    "delete_disabled_builtin_title": "系统内置客户端应用不可删除"
   },
   "realms": {
     "page_title": "域",

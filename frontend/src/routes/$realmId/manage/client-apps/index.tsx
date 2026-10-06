@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { clientAppsQueryOptions, queryKeys } from '@/data/query-options'
 import { clientAppsSearchSchema } from '@/lib/schemas/search-params'
 import { DeleteClientAppDialog } from '@/components/client-apps/delete-client-app-dialog'
@@ -42,12 +43,26 @@ export function ClientAppsPage() {
 
   const deleteDialog = useDialogManager<ClientAppItem>()
 
-  const { data, isLoading, error } = useQuery(
+  const queryClient = useQueryClient()
+  // Rows whose server-side enabled state could not be re-confirmed after a
+  // failed toggle. A set, not a single slot: a second failure must not
+  // silently release the first app's lock.
+  const [statusErrorAppIds, setStatusErrorAppIds] = useState<string[]>([])
+  const [togglingAppId, setTogglingAppId] = useState<string | null>(null)
+
+  const { data, isLoading, error, refetch } = useQuery(
     clientAppsQueryOptions(realmId, {
       page: search.page,
       pageSize: search.pageSize,
     })
   )
+
+  // Any successful list fetch is authoritative for every row's enabled
+  // state, so stale "unconfirmed" locks must not outlive it (window-focus
+  // refetch, another app's successful toggle, pagination).
+  useEffect(() => {
+    setStatusErrorAppIds((previous) => (previous.length === 0 ? previous : []))
+  }, [data])
 
   const { mutate: deleteMutate } = useFormMutation({
     mutationFn: (app: ClientAppItem) =>
@@ -68,7 +83,7 @@ export function ClientAppsPage() {
         body: { enabled: !app.enabled },
       }).then((response) => {
         if (response.error) throw response.error
-        return { ...app, enabled: !app.enabled }
+        return response.data
       }),
     getSuccessMessage: (data) =>
       m['client_apps.toggled_status']({
@@ -78,7 +93,39 @@ export function ClientAppsPage() {
           : m['client_apps.status_disabled'](),
       }),
     invalidateQueries: [queryKeys.clientAppsList(realmId)],
+    // Only the toggled app's detail cache is affected; invalidating the
+    // whole detail prefix would needlessly stain every other app's cache.
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.clientApp(realmId, data.id) })
+    },
   })
+
+  // A failed toggle may still have persisted server-side (e.g. disable commits
+  // before a Redis cleanup failure returns 500), so recovery must re-fetch the
+  // real state instead of trusting the pre-toggle row.
+  const refetchRealStatus = async (app: ClientAppItem) => {
+    try {
+      const result = await refetch()
+      if (result.error) throw result.error
+      await queryClient.invalidateQueries({ queryKey: queryKeys.clientApp(realmId, app.id) })
+      setStatusErrorAppIds((previous) => previous.filter((id) => id !== app.id))
+    } catch {
+      setStatusErrorAppIds((previous) =>
+        previous.includes(app.id) ? previous : [...previous, app.id]
+      )
+    }
+  }
+
+  const handleToggleEnabled = async (app: ClientAppItem) => {
+    setTogglingAppId(app.id)
+    try {
+      await toggleMutate(app)
+    } catch {
+      await refetchRealStatus(app)
+    } finally {
+      setTogglingAppId(null)
+    }
+  }
 
   const handlePageChange = (newPage: number) => {
     navigate({
@@ -116,9 +163,12 @@ export function ClientAppsPage() {
               })
             }
             onDelete={(app) => deleteDialog.open(app)}
-            onToggleEnabled={(app) => toggleMutate(app)}
+            onToggleEnabled={handleToggleEnabled}
+            onRetryStatus={refetchRealStatus}
             canUpdate={canUpdate}
             canDelete={canDelete}
+            togglingAppId={togglingAppId}
+            statusErrorAppIds={statusErrorAppIds}
           />
         </CardContent>
       </Card>

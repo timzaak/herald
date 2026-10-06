@@ -38,18 +38,19 @@ The interesting part is the set of decisions behind it:
 - **Read-only first.** An agent that reads a points balance is low-risk; an agent that
   issues refunds is not. Read tools cover the common "answer a question about my
   tenant" case, and write tools will only arrive behind explicit permissions.
-- **The key is the boundary.** Every call is authenticated by a Client API Key, and
-  the realm always comes from the credential itself — a key scoped to realm A asking
-  about realm B gets `not_found`, not a leak. An agent cannot wander across tenants.
-- **Permissions gate each tool.** A key without `users.view` gets a clear
-  `permission_denied` error and zero data. Grant roles to a dedicated key with least
-  privilege, widen later if a workflow needs it.
+- **Your identity is the boundary.** Every call runs under the user who completed
+  the browser sign-in, and the realm always comes from that credential — a grant in
+  realm A asking about realm B gets `not_found`, not a leak. An agent cannot wander
+  across tenants.
+- **Permissions gate each tool.** A user without `users.view` gets a clear
+  `permission_denied` error and zero data. Grant roles with least privilege,
+  widen later if a workflow needs it.
 
-Connecting an agent is deliberately one command:
+Connecting an agent is deliberately one command — the tenant URL alone; the client
+registers itself and the browser sign-in grants your identity:
 
 ```bash
-claude mcp add --transport http herald https://your-herald-host/mcp \
-  --header "X-API-Key: sk-your-api-key"
+claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
 ```
 
 From that point the agent answers questions like "how many credits does this user

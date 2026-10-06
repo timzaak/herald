@@ -89,6 +89,7 @@ function makeClientApp(overrides: Partial<ClientAppItem> = {}): ClientAppItem {
     allowedOrigins: [],
     deviceCodeGrantEnabled: false,
     isFirstParty: true,
+    isSystemBuiltin: false,
     turnstileEnabled: false,
     turnstileSiteKey: null,
     ...overrides,

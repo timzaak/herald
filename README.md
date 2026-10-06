@@ -82,14 +82,13 @@ Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-
 - **Full doc text (for LLMs):** https://www.fornetcode.com/llms-full.txt
 - **Single page as Markdown:** append `.md` to any doc URL, e.g. https://www.fornetcode.com/en/docs/auth/passkey.md
 - **API reference (OpenAPI):** [`docs-web/openapi.json`](docs-web/openapi.json)
-- **MCP server:** connect directly with a Client API Key and query your realm through five read-only tools:
+- **MCP server:** connect your agent with OAuth — point it at your realm's tenant URL and sign in once in the browser:
 
   ```bash
-  claude mcp add --transport http herald https://your-herald-host/mcp \
-    --header "X-API-Key: sk-your-api-key"
+  claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
   ```
 
-  Then self-check with the zero-argument `get_realm_config_status` tool. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp).
+  No API key, no client id, no secret. Herald opens your browser for sign-in, then the agent gets nine read-only tools. Self-check with `get_my_profile`. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp).
 
 ## Talk to Us
 

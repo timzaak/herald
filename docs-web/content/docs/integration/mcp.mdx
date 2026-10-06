@@ -1,127 +1,117 @@
 ---
 title: MCP Integration for AI Agents
-description: "Connect Claude Code, Cursor, VS Code, or any MCP client to your Herald realm with a Client API Key and query users, points, audit logs, and config status through five read-only tools."
+description: "Connect Claude Code, VS Code, or any MCP client to your Herald realm with OAuth — no API keys, no client secrets. Sign in once in the browser and query your realm through nine read-only tools."
 ---
 
-Herald ships an official MCP (Model Context Protocol) server, so your AI agent can query your realm's data with structured tool semantics instead of reading REST docs and hand-writing calls. Connect once with a Client API Key and the agent gets five read-only tools covering the day-to-day operations surface.
+Herald ships an official MCP (Model Context Protocol) server, so your AI agent can query your realm's data with structured tool semantics instead of reading REST docs and hand-writing calls. Authorization is OAuth: you sign in once with your Herald account in the browser, and the agent holds user credentials — no API key, no client id, no secret to paste anywhere.
 
-The endpoint is a standard MCP Streamable HTTP endpoint (`/mcp`, protocol version 2026-07-28) served by your Herald instance — the same domain as the REST API, no separate deployment.
+The endpoint is a standard MCP Streamable HTTP endpoint (protocol version 2026-07-28) served by your Herald instance — the same origin as the REST API, no separate deployment. Herald's MCP server does **not** accept API keys.
 
-## 1. Prepare an API Key
+## 1. Get Your Tenant URL
 
-1. In the Herald admin console, create a **Client API Key** for your realm.
-2. Bind it to one or more **roles** that carry the permissions for the tools you want:
+Each realm has one canonical MCP address:
 
-| Tool | Required permission |
-|------|--------------------|
-| `query_users` | `users.view` |
-| `get_points_balance` | `points.view` |
-| `list_points_transactions` | `points.view` |
-| `list_audit_logs` | `audit.view` |
-| `get_realm_config_status` | `settings.view` |
+```text
+https://<origin>/mcp/<realmId>
+```
 
-3. **Create a dedicated key for agent access and grant only the query permissions you need** (least privilege). A key without a tool's permission gets a clear `permission_denied` error and zero data — you can widen access later by editing its roles.
+- `<origin>` — your Herald deployment origin (or the realm's configured custom domain)
+- `<realmId>` — your realm id
 
-New to Client API Keys and role binding? The [third-party integration guide](/docs/integration/third-party-backend) walks through the same admin-console preparation in detail.
+The realm id is part of the address: a token issued for one realm never works against another realm's URL.
 
-Every call is rate-limited to 60 requests per 60 seconds per key.
+## 2. Connect Your Agent Client (URL Only)
 
-## 2. Connect Your Agent Client
+Your client needs the tenant URL and nothing else. Through RFC 9728 / RFC 8414 discovery and a controlled RFC 7591 registration endpoint, the client obtains the realm's preset public MCP client (`herald-mcp`) by itself.
 
-The server accepts the API key either as `X-API-Key` or as `Authorization: Bearer`. Use whichever your client supports.
-
-**Claude Code**
+**Claude Code** — verified end-to-end with Claude Code 2.1.269: registration, browser authorization, tool discovery, and tool calls all work with the URL alone.
 
 ```bash
-claude mcp add --transport http herald https://your-herald-host/mcp \
-  --header "X-API-Key: sk-your-api-key"
+claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
 ```
 
-**Cursor** (`.cursor/mcp.json`)
-
-```json
-{
-  "mcpServers": {
-    "herald": {
-      "url": "https://your-herald-host/mcp",
-      "headers": { "X-API-Key": "sk-your-api-key" }
-    }
-  }
-}
-```
-
-**VS Code** (`.vscode/mcp.json`, or via MCP: Add Server → HTTP)
+**VS Code** (`.vscode/mcp.json`, or via MCP: Add Server → HTTP) — consumes the same discovery and registration contracts verified with Claude Code (checked against VS Code 1.140); the interactive OAuth handshake in VS Code itself is still pending end-to-end verification.
 
 ```json
 {
   "servers": {
     "herald": {
       "type": "http",
-      "url": "https://your-herald-host/mcp",
-      "headers": { "X-API-Key": "sk-your-api-key" }
+      "url": "https://your-herald-host/mcp/your-realm-id"
     }
   }
 }
 ```
 
-For clients that only support `Authorization`, use `"Authorization": "Bearer sk-your-api-key"` instead of the `X-API-Key` header — Herald interprets the Bearer credential as the API key.
+Other MCP clients that implement the MCP authorization specification (protected-resource discovery, browser authorization with PKCE, dynamic client registration) should work the same way — pass them the tenant URL only.
 
-A missing, invalid, disabled, or expired key (or a key whose Client App was disabled) is rejected at connection time with HTTP 401.
+## 3. Sign In Once in the Browser
 
-## 3. Connectivity Self-Check
+On first connect, the client opens Herald's login page in your browser. Sign in as usual — including any consent prompt or second factor your realm enforces. After the browser redirects back, the tools are available.
+
+Closing the browser before completing sign-in simply issues no credentials; reconnect from the client and try again. If your authorization later expires or is revoked, the client asks you to re-authorize the same way.
+
+## 4. The Nine Read-Only Tools
+
+### Admin tools
+
+These check the **authorizing user's RBAC permissions** — grant the user a role with the permission, not a key:
+
+| Tool | What it does | Required permission |
+|------|--------------|--------------------|
+| `query_users` | List or look up users in the realm | `users.view` |
+| `get_points_balance` | A user's realm-wide points balance | `points.view` |
+| `list_points_transactions` | A user's points history, newest first | `points.view` |
+| `list_audit_logs` | The realm's audit events | `audit.view` |
+| `get_realm_config_status` | Which configs exist and whether they are enabled | `settings.view` |
+
+The admin balance tool returns the target user's balance **across the whole realm**, not per client app. Config status never returns configuration values.
+
+### Self tools
+
+These operate on **the authorizing user only**. They take no `userId` — asking one to query someone else is rejected:
+
+| Tool | What it does | Required scope |
+|------|--------------|---------------|
+| `get_my_profile` | Your profile | `mcp:profile:read` |
+| `get_my_points_balance` | Your points balance | `mcp:points:read` |
+| `list_my_points_transactions` | Your points history | `mcp:transactions:read` |
+| `list_my_subscriptions` | Your subscriptions and entitlement status | `mcp:subscriptions:read` |
+
+Any Herald user granted the scopes can call the self tools — no admin role needed.
+
+### Shared conventions
+
+- Pagination is 1-based, default `page=1` / `pageSize=20`, max 100.
+- Time filters accept RFC 3339 timestamps or `YYYY-MM-DD` (interpreted as UTC midnight).
+- Outputs are deliberately narrow because agents may carry results into third-party models: no IP addresses, user agents, trace ids, config values, or payment metadata.
+- Read-only is deliberate. Write operations are excluded and only arrive tool-by-tool after a per-tool security review. For writes or the full field surface, call the REST API with a client credential instead — see the [third-party backend integration guide](/docs/integration/third-party-backend) and the [OpenAPI reference](/docs/api).
+
+## 5. Connectivity Self-Check
 
 After connecting, ask the agent:
 
-> Use the herald `get_realm_config_status` tool.
+> Use the herald `get_my_profile` tool.
 
-This tool takes no arguments and reads the least data of the five. A successful result — the realm id echoed back with the list of configuration entries and their enabled flags — proves the whole chain works: connection, API key, RBAC, and data access.
+It takes no arguments, reads only your own profile, and needs nothing beyond the profile scope — no admin permissions. A successful result echoing your id and email proves the whole chain works: discovery, client registration, browser authorization, and data access.
 
-## 4. The Tools
+## 6. Troubleshooting
 
-### query_users
+| Symptom | Cause | Recovery |
+|---------|-------|----------|
+| Tool returns `permission_denied` — "Your user does not have the 'X' permission" | Admin tools check the authorizing user's RBAC | Ask your realm administrator to grant you a role with that permission; re-login does not help |
+| HTTP 403 with an `insufficient_scope` challenge | A self tool's scope was not granted to your authorization | Re-authorize in the agent client and accept the requested scopes |
+| HTTP 401 authorization challenge on every call | Credentials missing, expired, or revoked — or the realm's MCP access was disabled | Re-authorize; if the realm disabled MCP, ask your realm administrator to re-enable it, then re-authorize (old grants do not revive) |
+| HTTP 404 on connect | Wrong tenant URL | Check `https://<origin>/mcp/<realmId>` — realm id included, no trailing slash |
+| `invalid_target` / `invalid_scope` errors | The authorization request was tampered with or the client is misconfigured | Remove and re-add the server with the tenant URL only |
+| Tool returns `not_found` | The target id does not exist — or belongs to another realm (cross-realm ids always read as not found) | Check the id; an agent cannot query outside the authorized realm |
+| Tool returns `invalid_argument` | A malformed argument — the message names the field and the expected format | Follow the message and re-send with a corrected value (e.g. a valid UUID, `startTime` not after `endTime`) |
+| Tool returns `internal_error` | Server-side failure | Retry; if it persists, check server logs |
 
-List or look up users in the key's realm. Requires `users.view`.
+## 7. Credentials, Isolation, and Limits
 
-| Argument | Type | Required | Notes |
-|----------|------|----------|-------|
-| `userId` | UUID | no | Fetch one user's detail |
-| `email` | string | no | Exact email filter (list mode) |
-| `page` | int | no | 1-based, default 1 |
-| `pageSize` | int | no | Default 20, max 100 |
-
-Returns `{users[], page, pageSize, total}` with `id`, `email`, `nickname`, `status` (1=normal), `createdAt` per user.
-
-### get_points_balance
-
-A user's points balance. Requires `points.view`. Takes a required `userId` (UUID). The `scope` field tells you what the balance covers: `"realm"` (all buckets) or `"client_app"` (only buckets covered by the key's bound client app).
-
-### list_points_transactions
-
-A user's points history, newest first. Requires `points.view`. Takes a required `userId`, optional `transactionType` (`recharge`, `consume`, `subscription_grant`, …), optional `startTime`/`endTime` (RFC 3339), and `page`/`pageSize`. `amount` is signed — consumption is negative.
-
-### list_audit_logs
-
-Audit events for the realm. Requires `audit.view`. Optional filters: `category` (`user_management`, `rbac`, `auth`, …), `action` (e.g. `user.create`), `actorId`, `startTime`/`endTime` (RFC 3339 or `YYYY-MM-DD`), `page`/`pageSize`.
-
-### get_realm_config_status
-
-Which configuration entries exist and whether they are enabled. Requires `settings.view`. No arguments. Configuration **values are never returned** — not even non-sensitive ones.
-
-## 5. Error Semantics
-
-Business errors come back as tool-level errors the agent can read and act on, never as raw stack traces:
-
-| Code | Meaning | What to do |
-|------|---------|------------|
-| `permission_denied` | The key lacks the tool's permission | Ask your realm admin to grant it to a role bound to the key |
-| `not_found` | Resource does not exist in this realm | Check the id; cross-realm ids always read as not found |
-| `invalid_argument` | Malformed UUID / enum / timestamp / page | Follow the message — it names the field and expected format |
-| `internal_error` | Server-side failure | Retry later |
-
-Tools never return partial data alongside an error.
-
-## 6. Data Minimization
-
-Tool outputs are deliberately narrow because agents may carry results into third-party models: audit tools never expose IP addresses, user agents, trace ids, or event details; config status never exposes values; transaction listings omit wallet/bucket/correlation attribution; balance queries omit lifetime totals.
-
-Read-only is also deliberate. Five query tools are the entire surface — write operations (creating users, granting points, changing config) are excluded on purpose and will only arrive tool-by-tool after a per-tool security review. For writes, or for the full field surface, use the REST API with the same API key: see the [third-party integration guide](/docs/integration/third-party-backend) and the [OpenAPI reference](/docs/openapi).
+- **Bidirectional credential isolation:** MCP credentials represent you but are separate from your browser and admin-console sessions — neither side accepts the other's tokens.
+- **Long sessions:** clients renew through the standard refresh token grant; refresh tokens rotate and have an absolute lifetime.
+- **Immediate revocation:** your MCP credentials stop working the moment your account is disabled, you are forced offline, or the realm's built-in MCP client app is disabled.
+- **Realm on/off switch:** each realm has a built-in "Herald MCP" client app in the admin console's Client Apps list. Disabling it closes the realm's MCP access — existing and new authorizations are rejected. Re-enabling does not revive old grants; agents must re-authorize. The built-in client cannot be deleted.
+- **Rate limit:** each authorized user is limited to 60 MCP requests per 60 seconds.

@@ -163,6 +163,7 @@ export const queryKeys = {
   clientApps: (realmId: string, filters: Record<string, unknown>) =>
     [QUERY_KEYS.CLIENT_APPS, realmId, filters] as const,
   clientAppsList: (realmId: string) => [QUERY_KEYS.CLIENT_APPS, realmId] as const,
+  clientAppDetails: (realmId: string) => [QUERY_KEYS.CLIENT_APP, realmId] as const,
   clientApp: (realmId: string, id: string) => [QUERY_KEYS.CLIENT_APP, realmId, id] as const,
   oauthConfigs: (realmId: string) => [QUERY_KEYS.OAUTH_CONFIGS, realmId] as const,
   oauthConfig: (realmId: string, providerType: string) =>

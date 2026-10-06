@@ -29,18 +29,17 @@ Coding tools want structured material, not scraped HTML. The site serves a full 
 
 ### The MCP server
 
-Runtime agents connect directly to Herald's MCP endpoint at `/mcp`, Streamable HTTP transport, same domain as the REST API, no separate deployment. One command:
+Runtime agents connect directly to Herald's MCP endpoint at `/mcp/{realmId}`, Streamable HTTP transport, same domain as the REST API, no separate deployment. The URL is the whole configuration — the client registers itself via the discovery metadata and a browser sign-in grants your user's identity.
 
 ```bash
-claude mcp add --transport http herald https://your-herald-host/mcp \
-  --header "X-API-Key: sk-your-api-key"
+claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
 ```
 
-Five read-only tools come with it: `query_users`, `get_points_balance`, `list_points_transactions`, `list_audit_logs`, and `get_realm_config_status`. Each tool is permission-gated individually: a key without `users.view` calling `query_users` gets `permission_denied` and zero data. The realm always comes from the credential, so an agent cannot wander across tenants. The rate limit is 60 requests per 60 seconds per key.
+Nine read-only tools come with it: five admin queries (`query_users`, `get_points_balance`, `list_points_transactions`, `list_audit_logs`, `get_realm_config_status`) gated by the authorizing user's RBAC, plus four self tools (`get_my_profile`, `get_my_points_balance`, `list_my_points_transactions`, `list_my_subscriptions`) gated by the granted OAuth scopes. A user without `users.view` calling `query_users` gets `permission_denied` and zero data. The realm always comes from the credential, so an agent cannot wander across tenants. The rate limit is 60 requests per 60 seconds per user.
 
 Errors are designed to be agent-readable: `permission_denied`, `not_found`, `invalid_argument`, `internal_error`, and no partial data alongside a failure. Outputs are deliberately minimized, because agents may carry results into third-party models: audit tools never return IP addresses, user agents, or event details; the config status tool reports which entries exist and whether they are enabled, never the values.
 
-After connecting, ask the agent to call the zero-argument `get_realm_config_status`. If it returns the realm id and the config entry list, the whole chain works: connection, key, RBAC, data access.
+After connecting, ask the agent to call the zero-argument `get_my_profile`. If it echoes your own id and email, the whole chain works: discovery, registration, browser authorization, RBAC, data access.
 
 ### SDKs
 

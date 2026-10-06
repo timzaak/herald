@@ -11,6 +11,9 @@ import type { ClientAppItem } from '@/lib/api-generated'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { BuiltinBadge } from '@/components/shared/builtin-badge'
+import { Alert } from '@/components/ui/alert'
+import { MCP_CLIENT_ID } from '@/lib/constants'
 import { m } from '@/paraglide/messages'
 import { getErrorMessage } from '@/lib/error-utils'
 
@@ -21,17 +24,34 @@ interface ClientAppTableProps {
   onEdit?: (clientApp: ClientAppItem) => void
   onDelete?: (clientApp: ClientAppItem) => void
   onToggleEnabled?: (clientApp: ClientAppItem) => void
+  onRetryStatus?: (clientApp: ClientAppItem) => void
   canUpdate?: boolean
   canDelete?: boolean
+  togglingAppId?: string | null
+  statusErrorAppIds?: string[]
 }
 
-function createClientAppColumns(
-  onEdit?: (clientApp: ClientAppItem) => void,
-  onDelete?: (clientApp: ClientAppItem) => void,
-  onToggleEnabled?: (clientApp: ClientAppItem) => void,
+interface ColumnFactoryOptions {
+  onEdit?: (clientApp: ClientAppItem) => void
+  onDelete?: (clientApp: ClientAppItem) => void
+  onToggleEnabled?: (clientApp: ClientAppItem) => void
+  onRetryStatus?: (clientApp: ClientAppItem) => void
+  canUpdate?: boolean
+  canDelete?: boolean
+  togglingAppId?: string | null
+  statusErrorAppIds?: string[]
+}
+
+function createClientAppColumns({
+  onEdit,
+  onDelete,
+  onToggleEnabled,
+  onRetryStatus,
   canUpdate = true,
-  canDelete = true
-): ColumnDef<ClientAppItem>[] {
+  canDelete = true,
+  togglingAppId = null,
+  statusErrorAppIds = [],
+}: ColumnFactoryOptions): ColumnDef<ClientAppItem>[] {
   return [
     {
       id: 'icon',
@@ -64,7 +84,12 @@ function createClientAppColumns(
       id: 'name',
       accessorKey: 'name',
       header: m['client_apps.table_name'](),
-      cell: ({ row }) => row.getValue('name'),
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          {row.getValue('name')}
+          <BuiltinBadge isBuiltin={row.original.isSystemBuiltin} />
+        </div>
+      ),
     },
     {
       id: 'redirectUris',
@@ -93,23 +118,62 @@ function createClientAppColumns(
     {
       id: 'enabled',
       header: m['client_apps.table_status'](),
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={row.original.enabled}
-            onCheckedChange={() => onToggleEnabled?.(row.original)}
-            data-testid="client-app-enabled-switch"
-          />
-          <Badge
-            variant={row.original.enabled ? 'default' : 'secondary'}
-            data-testid="client-app-status-badge"
-          >
-            {row.original.enabled
-              ? m['client_apps.status_enabled_label']()
-              : m['client_apps.status_disabled_label']()}
-          </Badge>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const statusUnconfirmed = statusErrorAppIds.includes(row.original.id)
+        // Serialize the switch being submitted, not the whole table: an
+        // in-flight toggle on one app must not block an urgent disable of
+        // an unrelated app.
+        const thisRowToggling = togglingAppId === row.original.id
+        return (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={row.original.enabled}
+                onCheckedChange={() => onToggleEnabled?.(row.original)}
+                disabled={!canUpdate || thisRowToggling || statusUnconfirmed}
+                aria-label={row.original.name}
+                title={
+                  !canUpdate
+                    ? m['client_apps.edit_disabled_title']()
+                    : statusUnconfirmed
+                      ? m['client_apps.status_unconfirmed']()
+                      : undefined
+                }
+                data-testid="client-app-enabled-switch"
+              />
+              <Badge
+                variant={row.original.enabled ? 'default' : 'secondary'}
+                data-testid="client-app-status-badge"
+              >
+                {row.original.enabled
+                  ? m['client_apps.status_enabled_label']()
+                  : m['client_apps.status_disabled_label']()}
+              </Badge>
+            </div>
+            {row.original.clientId === MCP_CLIENT_ID && (
+              <p className="text-xs text-muted-foreground" data-testid="client-app-mcp-hint">
+                {m['client_apps.mcp_disable_hint']()}
+              </p>
+            )}
+            {statusUnconfirmed && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-destructive" data-testid="client-app-status-error">
+                  {m['client_apps.status_unconfirmed']()}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRetryStatus?.(row.original)}
+                  data-testid="client-app-status-retry-button"
+                >
+                  {m['common.retry']()}
+                </Button>
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     {
       id: 'actions',
@@ -131,8 +195,14 @@ function createClientAppColumns(
             size="sm"
             onClick={() => onDelete?.(row.original)}
             data-testid="delete-client-app-button"
-            disabled={!canDelete}
-            title={!canDelete ? m['client_apps.delete_disabled_title']() : undefined}
+            disabled={!canDelete || row.original.isSystemBuiltin}
+            title={
+              row.original.isSystemBuiltin
+                ? m['client_apps.delete_disabled_builtin_title']()
+                : !canDelete
+                  ? m['client_apps.delete_disabled_title']()
+                  : undefined
+            }
           >
             {m['client_apps.delete_button']()}
           </Button>
@@ -149,10 +219,22 @@ export function ClientAppTable({
   onEdit,
   onDelete,
   onToggleEnabled,
+  onRetryStatus,
   canUpdate = true,
   canDelete = true,
+  togglingAppId = null,
+  statusErrorAppIds = [],
 }: ClientAppTableProps) {
-  const columns = createClientAppColumns(onEdit, onDelete, onToggleEnabled, canUpdate, canDelete)
+  const columns = createClientAppColumns({
+    onEdit,
+    onDelete,
+    onToggleEnabled,
+    onRetryStatus,
+    canUpdate,
+    canDelete,
+    togglingAppId,
+    statusErrorAppIds,
+  })
 
   const table = useReactTable({
     data: data ?? [],
@@ -170,7 +252,7 @@ export function ClientAppTable({
     )
   }
 
-  if (error) {
+  if (error && (!data || data.length === 0)) {
     return (
       <div className="rounded-md border p-8">
         <div className="flex items-center justify-center text-destructive">
@@ -179,6 +261,12 @@ export function ClientAppTable({
       </div>
     )
   }
+
+  // A failed background re-fetch keeps the last data; the rows stay live so
+  // the per-row "status unconfirmed / retry" recovery stays reachable —
+  // replacing the table with a bare banner would hide exactly the UI the
+  // recovery contract needs. The no-data error case returned above.
+  const refetchFailed = Boolean(error)
 
   if (!data || data.length === 0) {
     return (
@@ -192,6 +280,13 @@ export function ClientAppTable({
 
   return (
     <div className="rounded-md border">
+      {refetchFailed && (
+        <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
+          <span data-testid="client-apps-refetch-error">
+            {m['client_apps.error_loading']({ message: getErrorMessage(error) })}
+          </span>
+        </Alert>
+      )}
       <Table data-testid="client-apps-table">
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
