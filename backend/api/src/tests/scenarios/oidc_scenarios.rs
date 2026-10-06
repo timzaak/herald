@@ -356,14 +356,26 @@ async fn test_scenario_oidc_discovery_returns_standard_configuration(ctx: &mut S
         discovery["jwks_uri"].as_str(),
         Some(format!("{issuer}/.well-known/jwks.json").as_str())
     );
-    assert_eq!(discovery["scopes_supported"], serde_json::json!(["openid"]));
+    // The OIDC discovery document shares the real OAuth capability set
+    // (design mcp-server §4.2): the MCP scopes and the refresh grant are
+    // advertised to standard clients alongside openid.
+    assert_eq!(
+        discovery["scopes_supported"],
+        serde_json::json!([
+            "openid",
+            "mcp:profile:read",
+            "mcp:points:read",
+            "mcp:transactions:read",
+            "mcp:subscriptions:read"
+        ])
+    );
     assert_eq!(
         discovery["response_types_supported"],
         serde_json::json!(["code"])
     );
     assert_eq!(
         discovery["grant_types_supported"],
-        serde_json::json!(["authorization_code"])
+        serde_json::json!(["authorization_code", "refresh_token"])
     );
     assert_eq!(discovery["subject_type"].as_str(), Some("public"));
     assert_eq!(

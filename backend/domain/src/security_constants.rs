@@ -114,6 +114,11 @@ pub const OAUTH_AUTHORIZE_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 /// same ceiling as /authorize so an unauthenticated code flood cannot
 /// hammer Redis/DB at network speed.
 pub const OAUTH_TOKEN_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+/// MCP pass-through client registration (DEC-mcp-server-007) is stateless —
+/// every valid call returns the same preset public client — so the cap only
+/// needs to bound response amplification; same ceiling family as the other
+/// unauthenticated OAuth entrances.
+pub const MCP_CLIENT_REGISTRATION_IP_RATE_LIMIT: (i64, usize) = (30, 60);
 pub const DEVICE_AUTHORIZE_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 
 // --- JWT ---

@@ -26,6 +26,19 @@ pub fn normalize_custom_domain_host(host: &str) -> Option<String> {
     }
 }
 
+/// Whether the realm row exists. The single existence probe shared by the
+/// unauthenticated discovery/protocol faces — a realm-semantics change
+/// (soft delete, cache) lands here once instead of per-face copies that
+/// would drift. Distinguishes "no such realm" from infrastructure failure;
+/// callers decide which to render as 404 vs 5xx.
+pub async fn realm_exists(pool: &PgPool, realm_id: &str) -> Result<bool, sqlx::Error> {
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM realm WHERE id = $1")
+        .bind(realm_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(exists.is_some())
+}
+
 /// Build the public web base for a realm and whether realm path prefix is
 /// required in user-facing URLs.
 ///

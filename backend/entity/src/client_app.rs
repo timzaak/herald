@@ -32,6 +32,10 @@ pub struct Model {
     pub turnstile_site_key: Option<String>,
     pub turnstile_secret_key: Option<String>,
 
+    /// MCP disable generation (DEC-mcp-server-006): bumped by the atomic
+    /// disable UPDATE on the built-in MCP client; 0 for every other client.
+    pub mcp_token_generation: i64,
+
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

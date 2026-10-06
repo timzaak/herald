@@ -34,21 +34,34 @@ pub fn scope_requests_openid(scope: Option<&str>) -> bool {
     scope.is_some_and(|s| s.split_whitespace().any(|token| token == "openid"))
 }
 
-/// Add the optional OIDC `scope`/`nonce` parameters to a JSON record being
-/// written.
+/// The optional authorize-transaction parameters that ride the state and
+/// authorization-code records: the OIDC `scope`/`nonce` pair and the MCP
+/// RFC 8707 `resource` indicator.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OptionalAuthorizeParams<'a> {
+    pub scope: Option<&'a str>,
+    pub nonce: Option<&'a str>,
+    pub resource: Option<&'a str>,
+}
+
+/// Add the optional OIDC `scope`/`nonce` and MCP `resource` parameters to a
+/// JSON record being written.
 ///
 /// Keys are only added when the parameter is present, so a flow that never
 /// carried them produces a byte-identical record — the zero-regression
 /// guarantee for pre-OIDC clients.
 pub fn insert_optional_oidc_fields(
     value: &mut serde_json::Value,
-    scope: Option<&str>,
-    nonce: Option<&str>,
+    params: OptionalAuthorizeParams<'_>,
 ) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    for (field, param) in [("scope", scope), ("nonce", nonce)] {
+    for (field, param) in [
+        ("scope", params.scope),
+        ("nonce", params.nonce),
+        ("resource", params.resource),
+    ] {
         if let Some(param) = param {
             object.insert(field.to_string(), serde_json::Value::from(param));
         }
@@ -58,15 +71,14 @@ pub fn insert_optional_oidc_fields(
 /// Serialize the authorization-code record stored under `oauth:code:{code}` —
 /// the write side of the `/token` read contract. One builder for every login
 /// entrance and the OAuth downstream path, so the five base fields plus the
-/// optional OIDC parameters can only drift in one place.
+/// optional OIDC/MCP parameters can only drift in one place.
 pub fn build_oauth_code_record(
     code_challenge: &str,
     client_id: &str,
     redirect_uri: &str,
     user_id: &str,
     realm_id: &str,
-    scope: Option<&str>,
-    nonce: Option<&str>,
+    params: OptionalAuthorizeParams<'_>,
 ) -> String {
     let mut value = serde_json::json!({
         "code_challenge": code_challenge,
@@ -75,13 +87,15 @@ pub fn build_oauth_code_record(
         "user_id": user_id,
         "realm_id": realm_id,
     });
-    insert_optional_oidc_fields(&mut value, scope, nonce);
+    insert_optional_oidc_fields(&mut value, params);
     value.to_string()
 }
 
-/// [`build_oauth_code_record`] with the OIDC parameters sourced from the
-/// stored authorize-state JSON (the login-entrance shape): `scope`/`nonce`
-/// are copied from the state record, everything else is passed explicitly.
+/// [`build_oauth_code_record`] with the OIDC/MCP parameters sourced from the
+/// stored authorize-state JSON (the login-entrance shape): `scope`/`nonce`/
+/// `resource` are copied from the state record, everything else is passed
+/// explicitly. The authorize endpoint only copies these fields from its own
+/// server-side state — login pages and callbacks can never grant them.
 pub fn build_oauth_code_record_from_state(
     code_challenge: &str,
     client_id: &str,
@@ -96,9 +110,59 @@ pub fn build_oauth_code_record_from_state(
         redirect_uri,
         user_id,
         realm_id,
-        state_data.get("scope").and_then(serde_json::Value::as_str),
-        state_data.get("nonce").and_then(serde_json::Value::as_str),
+        OptionalAuthorizeParams {
+            scope: state_data.get("scope").and_then(serde_json::Value::as_str),
+            nonce: state_data.get("nonce").and_then(serde_json::Value::as_str),
+            resource: state_data
+                .get("resource")
+                .and_then(serde_json::Value::as_str),
+        },
     )
+}
+
+/// Re-verify that the OAuth Client App a pending authorization transaction
+/// belongs to is still enabled, at login completion. `/authorize` checked it
+/// when the flow started, but the state (and the user's browser) can outlive
+/// a disable by minutes; a disabled MCP client must not mint codes from
+/// in-flight flows. Non-MCP clients keep their existing behavior (the token
+/// exchange remains the authoritative enablement gate).
+pub async fn ensure_mcp_client_still_enabled(
+    state: &herald_api_base::application::http::state::AppState,
+    realm_id: &str,
+    oauth_client_id: &str,
+) -> Result<(), herald_api_base::application::http::server::api_entities::ApiError> {
+    use herald_core::domain::client::ports::ClientService;
+
+    if !herald_core::domain::client::is_mcp_client(oauth_client_id) {
+        return Ok(());
+    }
+    let client_app = state
+        .service
+        .client_service()
+        .get_client_app_by_client_id(realm_id, oauth_client_id)
+        .await
+        .map_err(|error| match error {
+            // A missing row means the seed is gone; that reads as "not
+            // enabled" for the in-flight flow this guard exists for.
+            herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
+                herald_api_base::application::http::server::api_entities::ApiError::bad_request(
+                    "OAuth client app is not enabled".to_string(),
+                )
+            }
+            // An infrastructure failure must surface as 5xx, not as a
+            // permanent-looking "client disabled".
+            _ => herald_api_base::application::http::server::api_entities::ApiError::internal(
+                "Internal server error".to_string(),
+            ),
+        })?;
+    if !client_app.enabled {
+        return Err(
+            herald_api_base::application::http::server::api_entities::ApiError::forbidden(
+                "Client app is disabled".to_string(),
+            ),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -201,11 +265,53 @@ mod tests {
     fn insert_optional_fields_writes_only_present_parameters() {
         let mut value = json!({"client_id": "client"});
         let before = value.to_string();
-        insert_optional_oidc_fields(&mut value, None, None);
+        insert_optional_oidc_fields(&mut value, OptionalAuthorizeParams::default());
         assert_eq!(value.to_string(), before);
 
-        insert_optional_oidc_fields(&mut value, Some("openid"), Some("n-1"));
+        insert_optional_oidc_fields(
+            &mut value,
+            OptionalAuthorizeParams {
+                scope: Some("openid"),
+                nonce: Some("n-1"),
+                resource: None,
+            },
+        );
         assert_eq!(value["scope"], json!("openid"));
         assert_eq!(value["nonce"], json!("n-1"));
+        assert!(value.get("resource").is_none());
+    }
+
+    // WHY: the resource key is the MCP audience binding the token exchange
+    // re-checks — it must ride the state → code path verbatim, and a null
+    // state value must behave like an absent key.
+    #[test]
+    fn state_record_builder_copies_resource_when_present() {
+        let state = json!({
+            "client_id": "herald-mcp",
+            "scope": "mcp:profile:read",
+            "resource": "https://herald.example/mcp/acme",
+        });
+        let record = build_oauth_code_record_from_state(
+            "challenge",
+            "herald-mcp",
+            "http://127.0.0.1:43119/callback",
+            "u-1",
+            "acme",
+            &state,
+        );
+        let value: serde_json::Value = serde_json::from_str(&record).unwrap();
+        assert_eq!(value["resource"], json!("https://herald.example/mcp/acme"));
+
+        let null_resource = json!({"resource": serde_json::Value::Null});
+        let record = build_oauth_code_record_from_state(
+            "challenge",
+            "c",
+            "https://app/cb",
+            "u-1",
+            "r-1",
+            &null_resource,
+        );
+        let value: serde_json::Value = serde_json::from_str(&record).unwrap();
+        assert!(value.get("resource").is_none());
     }
 }

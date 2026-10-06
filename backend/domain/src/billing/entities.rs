@@ -68,6 +68,14 @@ pub enum SubscriptionStatus {
 pub const ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL: &str =
     "'active','trialing','past_due','scheduled_cancel','dispute'";
 
+/// `IN (...)` list matching `SubscriptionStatus::has_access` — the set that
+/// makes a user "holding an active subscription" regardless of the current
+/// page's rows. Keep in sync with `has_access` below: drifting would make
+/// `hasActiveSubscription` contradict the per-row `hasAccess` in the same
+/// response.
+pub const HAS_ACCESS_SUBSCRIPTION_STATUSES_SQL: &str =
+    "'active','trialing','scheduled_cancel','dispute'";
+
 impl SubscriptionStatus {
     pub fn as_str(&self) -> &'static str {
         match self {

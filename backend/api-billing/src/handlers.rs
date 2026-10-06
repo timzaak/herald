@@ -608,6 +608,7 @@ mod browser_scope_tests {
             family_id: Uuid::now_v7(),
             credential_class: CredentialClass::CustomUserUi,
             allowed_scopes: HashSet::new(),
+            audience: None,
         }
     }
 

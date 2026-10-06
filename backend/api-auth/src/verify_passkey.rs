@@ -587,6 +587,16 @@ async fn finish_login(
             return Err(ApiError::bad_request("OAuth state redirect_uri mismatch"));
         }
 
+        // The authorize endpoint checked the client when the flow started;
+        // the pending state can outlive a disable, so re-check at login
+        // completion before any code is minted.
+        crate::oauth_oidc::ensure_mcp_client_still_enabled(
+            state,
+            &login_state.realm_id,
+            oauth_client_id,
+        )
+        .await?;
+
         let auth_code = format!("ac_{}", Uuid::now_v7());
         let code_challenge = state_data["code_challenge"]
             .as_str()

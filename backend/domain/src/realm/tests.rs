@@ -94,6 +94,7 @@ mod realm_admin_tests {
             turnstile_enabled: false,
             turnstile_site_key: None,
             turnstile_secret_key: None,
+            mcp_token_generation: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -208,7 +209,7 @@ mod realm_admin_tests {
 
         mock_client_repo
             .expect_get_client_app_by_client_id()
-            .times(3)
+            .times(4)
             .returning(|_, _| Box::pin(async { Err(CoreError::NotFound) }));
 
         let captured_client_ids = created_client_ids.clone();
@@ -229,6 +230,10 @@ mod realm_admin_tests {
                 client.client_id = request.client_id;
                 Box::pin(async move { Ok(client) })
             });
+
+        mock_client_repo
+            .expect_seed_mcp_client_app()
+            .returning(|_| Box::pin(async { Ok(client_fixture()) }));
 
         mock_client_repo
             .expect_set_first_party()
@@ -358,6 +363,9 @@ mod realm_admin_tests {
             .expect_create_client_app()
             .returning(|_| Box::pin(async { Ok(client_fixture()) }));
         mock_client_repo
+            .expect_seed_mcp_client_app()
+            .returning(|_| Box::pin(async { Ok(client_fixture()) }));
+        mock_client_repo
             .expect_set_first_party()
             .returning(|_, _| Box::pin(async { Ok(()) }));
         mock_rbac_init
@@ -459,6 +467,9 @@ mod realm_admin_tests {
 
         mock_client_repo
             .expect_create_client_app()
+            .returning(|_| Box::pin(async { Ok(client_fixture()) }));
+        mock_client_repo
+            .expect_seed_mcp_client_app()
             .returning(|_| Box::pin(async { Ok(client_fixture()) }));
 
         mock_client_repo
@@ -571,6 +582,9 @@ mod realm_admin_tests {
 
         mock_client_repo
             .expect_create_client_app()
+            .returning(|_| Box::pin(async { Ok(client_fixture()) }));
+        mock_client_repo
+            .expect_seed_mcp_client_app()
             .returning(|_| Box::pin(async { Ok(client_fixture()) }));
 
         mock_client_repo

@@ -3,8 +3,9 @@ use uuid::Uuid;
 
 use crate::authentication::Identity;
 use crate::client::{
+    MCP_CLIENT_ID,
     entities::ClientApp,
-    is_builtin_first_party_client, normalize_origins,
+    is_system_builtin_client, normalize_origins,
     ports::{ClientRepository, ClientService},
     validate_icon_url, validate_redirect_uri, validate_redirect_uris,
     value_objects::{CreateClientAppRequest, UpdateClientAppRequest},
@@ -80,8 +81,10 @@ where
             ));
         }
 
-        // Reserved client IDs are not available to realm admins.
-        if is_builtin_first_party_client(&request.client_id) {
+        // Reserved client IDs are not available to realm admins. The MCP
+        // client joins the two UI ids and the API Key client: each is seeded
+        // per realm and must not be shadowable through the public create path.
+        if is_system_builtin_client(&request.client_id) {
             return Err(CoreError::Forbidden(
                 "Reserved client id cannot be used".to_string(),
             ));
@@ -248,6 +251,37 @@ where
             return Err(CoreError::Forbidden(
                 "Access denied: cannot update client from a different realm".to_string(),
             ));
+        }
+
+        // The built-in MCP client is administrable through `enabled` only:
+        // its redirect whitelist, PKCE public-client shape, and absence of a
+        // secret are the MCP authorization contract, not tenant
+        // configuration. The repository guard below re-checks this so a
+        // bypassed service path cannot rewrite the callbacks either.
+        if client.client_id == MCP_CLIENT_ID {
+            let only_enabled = request.name.is_none()
+                && request.description.is_none()
+                && request.redirect_uris.is_none()
+                && request.allowed_origins.is_none()
+                && request.email_verify_return_url.is_none()
+                && request.password_reset_return_url.is_none()
+                && request.browser_refresh_absolute_ttl_seconds.is_none()
+                && request.icon_url.is_none()
+                && request.regenerate_secret.is_none_or(|v| !v)
+                && request.device_code_grant_enabled.is_none()
+                && request.turnstile_enabled.is_none()
+                && request.turnstile_site_key.is_none()
+                && request.turnstile_secret_key.is_none();
+            if !only_enabled {
+                return Err(CoreError::BadRequest(
+                    "Built-in MCP client only supports enabled updates".to_string(),
+                ));
+            }
+            let enabled = request.enabled.unwrap_or(client.enabled);
+            return self
+                .client_repository
+                .update_enabled_with_mcp_generation(id, enabled)
+                .await;
         }
 
         // Validate redirect URIs if provided

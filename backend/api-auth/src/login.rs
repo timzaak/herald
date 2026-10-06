@@ -518,6 +518,12 @@ pub async fn login(
             ));
         }
 
+        // The authorize endpoint checked the client when the flow started;
+        // the pending state can outlive a disable, so re-check at login
+        // completion before any code is minted.
+        crate::oauth_oidc::ensure_mcp_client_still_enabled(&state, &realm_id, oauth_client_id)
+            .await?;
+
         // Generate authorization code
         let auth_code = format!("ac_{}", Uuid::now_v7());
         let code_challenge = state_data["code_challenge"]

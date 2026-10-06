@@ -176,6 +176,8 @@ pub struct ClientAppDbModel {
     pub turnstile_enabled: bool,
     pub turnstile_site_key: Option<String>,
     pub turnstile_secret_key: Option<String>,
+
+    pub mcp_token_generation: i64,
 }
 
 // API response model (used for OpenAPI documentation)
@@ -252,6 +254,11 @@ pub struct ClientAppItem {
     /// Cloudflare Turnstile site key (public), shown to the client widget.
     /// `None` when Turnstile is disabled.
     pub turnstile_site_key: Option<String>,
+
+    /// Read-only resource-protection flag: true for the two built-in UI
+    /// clients, the built-in API Key client, and the built-in MCP client.
+    /// Not a user permission — callers still need `clients.view`/`manage`.
+    pub is_system_builtin: bool,
 }
 
 // Conversion from the domain entity to API response model. `client_secret`
@@ -259,10 +266,11 @@ pub struct ClientAppItem {
 // explicitly overrides it (create / secret-regenerate paths).
 impl From<ClientApp> for ClientAppItem {
     fn from(app: ClientApp) -> Self {
+        let client_id = app.client_id.clone();
         Self {
             id: app.id,
             realm_id: app.realm_id,
-            client_id: app.client_id,
+            client_id: client_id.clone(),
             name: app.name,
             description: app.description,
             redirect_uris: app.redirect_uris,
@@ -277,6 +285,7 @@ impl From<ClientApp> for ClientAppItem {
             device_code_grant_enabled: app.device_code_grant_enabled,
             turnstile_enabled: app.turnstile_enabled,
             turnstile_site_key: app.turnstile_site_key,
+            is_system_builtin: herald_core::domain::client::is_system_builtin_client(&client_id),
         }
     }
 }
@@ -284,10 +293,11 @@ impl From<ClientApp> for ClientAppItem {
 // Conversion from DB model to API response model
 impl From<ClientAppDbModel> for ClientAppItem {
     fn from(db_model: ClientAppDbModel) -> Self {
+        let client_id = db_model.client_id.clone();
         Self {
             id: db_model.id,
             realm_id: db_model.realm_id,
-            client_id: db_model.client_id,
+            client_id: client_id.clone(),
             name: db_model.name,
             description: db_model.description,
             redirect_uris: db_model.redirect_uris.0,
@@ -305,6 +315,7 @@ impl From<ClientAppDbModel> for ClientAppItem {
             // turnstile_secret_key is intentionally NOT echoed in responses.
             turnstile_enabled: db_model.turnstile_enabled,
             turnstile_site_key: db_model.turnstile_site_key,
+            is_system_builtin: herald_core::domain::client::is_system_builtin_client(&client_id),
         }
     }
 }

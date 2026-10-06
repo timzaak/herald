@@ -49,11 +49,13 @@ struct DownstreamAuthorizationState {
     redirect_uri: String,
     code_challenge: String,
     // serde(default): states seeded before the OIDC layer existed (or by
-    // non-OIDC authorize requests) carry no scope/nonce keys.
+    // non-OIDC authorize requests) carry no scope/nonce/resource keys.
     #[serde(default)]
     scope: Option<String>,
     #[serde(default)]
     nonce: Option<String>,
+    #[serde(default)]
+    resource: Option<String>,
 }
 
 pub struct OAuthCallbackResult {
@@ -1109,6 +1111,26 @@ pub async fn issue_downstream_authorization_code(
         ));
     }
 
+    // The social entrances reach this shared code-minting point without the
+    // per-entrance MCP enablement re-check the four credential entrances
+    // run; a disabled MCP client must not mint codes from in-flight flows
+    // (the token exchange stays the authoritative backstop).
+    if let Err(error) = herald_api_auth::oauth_oidc::ensure_mcp_client_still_enabled(
+        state,
+        realm_id,
+        &downstream.client_id,
+    )
+    .await
+    {
+        // Preserve the guard's semantics across the error-type boundary:
+        // not-enabled/disabled are 4xx flow outcomes, anything else is 5xx.
+        return Err(match error.status() {
+            axum::http::StatusCode::FORBIDDEN => AuthError::Forbidden(error.to_string()),
+            axum::http::StatusCode::BAD_REQUEST => AuthError::BadRequest(error.to_string()),
+            _ => AuthError::InternalServerError(error.to_string()),
+        });
+    }
+
     let auth_code = format!("ac_{}", Uuid::now_v7());
     let code_value = herald_api_auth::oauth_oidc::build_oauth_code_record(
         &downstream.code_challenge,
@@ -1116,8 +1138,11 @@ pub async fn issue_downstream_authorization_code(
         &downstream.redirect_uri,
         &user_id.to_string(),
         &downstream.realm_id,
-        downstream.scope.as_deref(),
-        downstream.nonce.as_deref(),
+        herald_api_auth::oauth_oidc::OptionalAuthorizeParams {
+            scope: downstream.scope.as_deref(),
+            nonce: downstream.nonce.as_deref(),
+            resource: downstream.resource.as_deref(),
+        },
     );
     redis_conn
         .set_ex::<String, String, ()>(

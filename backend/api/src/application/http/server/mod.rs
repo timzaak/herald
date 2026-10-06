@@ -704,6 +704,14 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             get(oauth::oauth_authorize),
         )
         .route("/api/oauth/{realmId}/token", post(oauth::oauth_token))
+        // Gated pass-through MCP client registration (RFC 7591 shape,
+        // DEC-mcp-server-007): hands the preset herald-mcp public client to
+        // validated MCP clients; advertises as registration_endpoint in the
+        // AS metadata.
+        .route(
+            "/api/oauth/{realmId}/mcp/register",
+            post(oauth::mcp_client_registration),
+        )
         // OIDC discovery + JWKS (public; handler applies per-IP rate limiting
         // and realm existence checks). Static segments, so they win over the
         // parameterized {provider} routes below in the router's matcher.
@@ -960,12 +968,26 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
         )
         // External API routes
         .nest("/api/ext", super::ext::create_router((*state).clone()))
-        // MCP protocol endpoint. Top-level path by design: a protocol
+        // MCP discovery documents (RFC 9728 protected-resource metadata and
+        // the RFC 8414 path-style authorization-server metadata for the
+        // path-style issuer /api/oauth/{realmId}). Public with per-IP rate
+        // limiting; static segments win over the parameterized {provider}
+        // routes above.
+        .route(
+            "/.well-known/oauth-protected-resource/mcp/{realmId}",
+            get(oauth::mcp_protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server/api/oauth/{realmId}",
+            get(oauth::oauth_authorization_server_metadata),
+        )
+        // MCP protocol endpoint. Top-level tenant path by design: a protocol
         // surface, not a REST resource — no OpenAPI, no admin-console token
-        // gate (auth is the crate's own API-key middleware). Mounted here
-        // (inside create_api_routes) so request-id / metrics / trace / CORS
-        // still apply.
-        .nest("/mcp", super::mcp::create_mcp_router((*state).clone()));
+        // gate (auth is the crate's own OAuth resource-server middleware).
+        // Merged (not nested) so the middleware reads the full
+        // /mcp/{realmId} path, and mounted inside create_api_routes so
+        // request-id / metrics / trace / CORS still apply.
+        .merge(super::mcp::create_mcp_router((*state).clone()));
 
     router.merge(billing_test_routes)
 }

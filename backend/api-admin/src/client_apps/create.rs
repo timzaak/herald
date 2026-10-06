@@ -23,6 +23,8 @@ use herald_core::domain::client::value_objects::CreateClientAppRequest;
     responses(
         (status = 201, description = "ClientApp created", body = ClientAppItem),
         (status = 400, description = "Bad request", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 403, description = "Reserved client id (built-in system clients, incl. the built-in MCP client) or insufficient permissions", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
+        (status = 409, description = "A client app with this client_id already exists in the realm", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     )
 )]
@@ -75,6 +77,9 @@ pub async fn create_client_app(
             herald_core::domain::common::entities::app_errors::CoreError::BadRequest(msg) => {
                 tracing::error!("Bad request: {}", msg);
                 ApiError::bad_request(msg)
+            }
+            herald_core::domain::common::entities::app_errors::CoreError::Forbidden(msg) => {
+                ApiError::forbidden(msg)
             }
             e => {
                 tracing::error!("Failed to create client app: {}", e);

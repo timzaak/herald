@@ -24,7 +24,7 @@ pub const MAX_PAGE_SIZE: u64 = 100;
 // ============================================================================
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueryUsersInput {
     /// Optional user ID (UUID). When provided, returns that single user's
     /// detail instead of a list.
@@ -38,14 +38,14 @@ pub struct QueryUsersInput {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GetPointsBalanceInput {
     /// Target user ID (UUID).
     pub user_id: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListPointsTransactionsInput {
     /// Target user ID (UUID).
     pub user_id: String,
@@ -67,7 +67,7 @@ pub struct ListPointsTransactionsInput {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListAuditLogsInput {
     /// Optional audit category filter: user_management, rbac, realm_management,
     /// auth, billing, oauth, compliance.
@@ -85,6 +85,43 @@ pub struct ListAuditLogsInput {
     /// Page size (default 20, clamped to 1..100).
     pub page_size: Option<u64>,
 }
+
+// Self-face inputs: the operating user is always derived from the verified
+// identity — a userId is structurally absent, not merely ignored.
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MyTransactionsInput {
+    /// Optional transaction type filter (same values as the admin tool).
+    pub transaction_type: Option<String>,
+    /// Optional start time bound (RFC 3339 timestamp, or a bare YYYY-MM-DD
+    /// date interpreted as midnight UTC).
+    pub start_time: Option<String>,
+    /// Optional end time bound (RFC 3339 timestamp, or a bare YYYY-MM-DD
+    /// date interpreted as midnight UTC).
+    pub end_time: Option<String>,
+    /// 1-based page number (default 1; values below 1 are rejected).
+    pub page: Option<u64>,
+    /// Page size (default 20, clamped to 1..100).
+    pub page_size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MySubscriptionsInput {
+    /// 1-based page number (default 1; values below 1 are rejected).
+    pub page: Option<u64>,
+    /// Page size (default 20, clamped to 1..100).
+    pub page_size: Option<u64>,
+}
+
+/// Input for the argument-less self tools. Without a typed parameter rmcp
+/// silently drops `arguments`, so a client asking for another user via
+/// `userId` would believe it succeeded; `deny_unknown_fields` turns that
+/// into a visible invalid-params error instead.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NoInput {}
 
 // ============================================================================
 // Output DTOs (minimal field surfaces — see each tool's mapping notes)
@@ -114,8 +151,8 @@ pub struct UsersPage {
 #[serde(rename_all = "camelCase")]
 pub struct PointsBalanceView {
     pub user_id: String,
-    /// "realm" for realm-wide keys, "client_app" when a client-app-bound
-    /// (non-admin) key reads only its app's covered buckets.
+    /// Always "realm": balances sum every account bucket in the realm and
+    /// are never narrowed by the connecting client.
     pub scope: String,
     pub balance: i64,
     pub topup_balance: i64,
@@ -184,6 +221,41 @@ pub struct ConfigStatusItem {
 pub struct RealmConfigStatus {
     pub realm_id: String,
     pub configs: Vec<ConfigStatusItem>,
+}
+
+/// One of the caller's own subscriptions. `activeEntitlements` carries the
+/// row's entitlement key only while the status actually grants access
+/// (SubscriptionStatus::has_access); payment metadata and external
+/// provider ids are deliberately absent (field minimization for third-party
+/// model surfaces).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionItem {
+    pub id: String,
+    /// Subscription status as-is (active, trialing, canceled, expired, …):
+    /// expired/canceled rows stay visible with hasAccess=false.
+    pub status: String,
+    pub billing_type: String,
+    pub entitlement_key: String,
+    pub has_access: bool,
+    pub current_period_start: Option<String>,
+    pub current_period_end: Option<String>,
+    pub cancel_at_period_end: bool,
+    pub active_entitlements: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MySubscriptionsPage {
+    /// Whether the user has ANY subscription row (all statuses).
+    pub has_subscription: bool,
+    /// Whether ANY of the user's rows currently grants access — computed
+    /// over the full row set, unaffected by the current page.
+    pub has_active_subscription: bool,
+    pub subscriptions: Vec<SubscriptionItem>,
+    pub page: u64,
+    pub page_size: u64,
+    pub total: u64,
 }
 
 // ============================================================================
@@ -258,6 +330,42 @@ pub fn parse_query_time(field: &str, value: &str) -> Result<DateTime<Utc>, ToolE
     Err(ToolError::invalid_argument(format!(
         "'{field}' must be an RFC 3339 timestamp or a YYYY-MM-DD date."
     )))
+}
+
+/// A time range with its bounds swapped would silently match zero rows —
+/// the agent would read a parameter error as "no data for this period" and
+/// keep reasoning on the empty result. Reject it as invalid_argument naming
+/// both fields instead.
+pub fn ensure_time_order(
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+) -> Result<(), ToolError> {
+    if let (Some(start), Some(end)) = (start, end)
+        && start > end
+    {
+        return Err(ToolError::invalid_argument(
+            "'startTime' must not be later than 'endTime'.",
+        ));
+    }
+    Ok(())
+}
+
+/// A parsed optional time bound pair.
+pub type TimeRange = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
+/// Parse an optional (startTime, endTime) pair AND enforce their order in
+/// one call — a caller cannot accidentally take the parsing half without
+/// the swapped-bounds rejection, which would silently return empty result
+/// sets for inverted ranges.
+pub fn parse_time_range(start: Option<&str>, end: Option<&str>) -> Result<TimeRange, ToolError> {
+    let start = start
+        .map(|value| parse_query_time("startTime", value))
+        .transpose()?;
+    let end = end
+        .map(|value| parse_query_time("endTime", value))
+        .transpose()?;
+    ensure_time_order(start, end)?;
+    Ok((start, end))
 }
 
 #[cfg(test)]

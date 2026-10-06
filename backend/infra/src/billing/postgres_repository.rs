@@ -12,6 +12,7 @@ use herald_domain::billing::credit_bucket::{
 };
 use herald_domain::billing::entities::ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL;
 use herald_domain::billing::entities::EntitlementMapping;
+use herald_domain::billing::entities::HAS_ACCESS_SUBSCRIPTION_STATUSES_SQL;
 use herald_domain::billing::{
     BatchMappingError, BatchUpdateMappingsInput, BatchUpdateResult, BillingRepository,
     FeatureFacts, HistoryEventType, PaymentEvent, SortOrder, Subscription,
@@ -1661,6 +1662,62 @@ impl BillingRepository for PostgresBillingRepository {
             .into_iter()
             .map(Self::model_to_subscription)
             .collect()
+    }
+
+    async fn list_user_subscriptions(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        page: u64,
+        page_size: u64,
+    ) -> Result<(Vec<Subscription>, u64, bool), CoreError> {
+        // User-facing read surface: every status stays visible (expired and
+        // canceled rows are part of the answer, unlike the protection-guard
+        // set above), newest first. `has_access` uses the same four statuses
+        // as SubscriptionStatus::has_access — NOT the wider
+        // ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL (which adds past_due for
+        // config-protection guards and would overstate user entitlements).
+        let base = || {
+            subscription::Entity::find()
+                .filter(subscription::Column::RealmId.eq(realm_id))
+                .filter(subscription::Column::UserId.eq(user_id))
+        };
+
+        // One aggregate answers both figures: the total, and whether any row
+        // sits in the has_access set (the constant kept next to
+        // `SubscriptionStatus::has_access`, so SQL and Rust cannot drift).
+        let (total, access_rows): (i64, i64) = sqlx::query_as(&format!(
+            "SELECT COUNT(*),
+                    COUNT(*) FILTER (
+                        WHERE status IN ({HAS_ACCESS_SUBSCRIPTION_STATUSES_SQL})
+                    )
+             FROM subscription
+             WHERE realm_id = $1 AND user_id = $2"
+        ))
+        .bind(realm_id)
+        .bind(user_id)
+        .fetch_one(self.db.get_postgres_connection_pool())
+        .await
+        .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+        let total = total as u64;
+        let has_access_anywhere = access_rows > 0;
+
+        // Tool-facing paging is 1-based (dto::normalize_page); the offset
+        // math happens in the caller-agnostic repository as (page-1)*size.
+        let offset = page.saturating_sub(1).saturating_mul(page_size);
+        let results = base()
+            .order_by_desc(subscription::Column::CreatedAt)
+            .order_by_desc(subscription::Column::Id)
+            .offset(offset)
+            .limit(page_size)
+            .all(&self.db)
+            .await?;
+
+        let subscriptions = results
+            .into_iter()
+            .map(Self::model_to_subscription)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((subscriptions, total, has_access_anywhere))
     }
 
     async fn save_history_event(

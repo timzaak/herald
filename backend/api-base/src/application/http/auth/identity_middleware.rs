@@ -10,7 +10,9 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
 };
-use herald_core::domain::authentication::{BrowserTokenService, Identity, TokenCredentialContext};
+use herald_core::domain::authentication::{
+    BrowserTokenService, CredentialClass, ExpectedTokenAudience, Identity, TokenCredentialContext,
+};
 use herald_core::domain::user::UserRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use uuid::Uuid;
@@ -32,9 +34,25 @@ pub async fn inject_token_identity(
     Ok(next.run(req).await)
 }
 
+/// Shared Bearer validation for the default (browser-only) credential face:
+/// every `/api/*` Bearer surface. MCP credentials are rejected here.
 pub async fn authenticate_bearer(
     state: &AppState,
     headers: &HeaderMap,
+) -> Result<(Identity, TokenCredentialContext), ApiError> {
+    authenticate_bearer_for(state, headers, &ExpectedTokenAudience::BrowserOnly).await
+}
+
+/// Bearer validation parameterized by the credential face the calling surface
+/// accepts. `/api/*` routes use [`authenticate_bearer`] (BrowserOnly); the
+/// MCP transport passes `McpResource(canonical)` and additionally enforces
+/// the token's generation against the live client_app row, so a disabled
+/// (generation-bumped) MCP client's credentials die even if the Redis family
+/// is still alive.
+pub async fn authenticate_bearer_for(
+    state: &AppState,
+    headers: &HeaderMap,
+    expected: &ExpectedTokenAudience,
 ) -> Result<(Identity, TokenCredentialContext), ApiError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -58,14 +76,41 @@ pub async fn authenticate_bearer(
         })?
         .ok_or_else(|| ApiError::unauthorized("invalid bearer token"))?;
 
-    let client_id =
-        match lookup_token_client_app(state, token_data.client_app_id, &token_data.realm_id).await?
-        {
-            TokenClientAppLookup::Active { client_id } => client_id,
-            TokenClientAppLookup::Missing | TokenClientAppLookup::Disabled => {
+    let TokenClientAppLookup::Active {
+        client_id,
+        mcp_token_generation,
+    } = lookup_token_client_app(state, token_data.client_app_id, &token_data.realm_id).await?
+    else {
+        return Err(ApiError::unauthorized("invalid bearer token"));
+    };
+
+    // Credential-face gate: audience and class must match the surface. This
+    // is the bidirectional isolation point — a browser credential never
+    // carries an MCP audience, and an MCP credential is valid ONLY with the
+    // exact canonical resource URI and a generation that still matches the
+    // live client row (a disable bumped it).
+    match expected {
+        ExpectedTokenAudience::BrowserOnly => {
+            if token_data.credential_class == CredentialClass::Mcp || token_data.audience.is_some()
+            {
                 return Err(ApiError::unauthorized("invalid bearer token"));
             }
-        };
+        }
+        ExpectedTokenAudience::McpResource(canonical) => {
+            if token_data.credential_class != CredentialClass::Mcp
+                || token_data.audience.as_deref() != Some(canonical.as_str())
+            {
+                return Err(ApiError::unauthorized("invalid bearer token"));
+            }
+            if token_data.mcp_token_generation != Some(mcp_token_generation) {
+                tracing::warn!(
+                    client_app_id = %token_data.client_app_id,
+                    "MCP token rejected: stale generation (client disabled/re-enabled)"
+                );
+                return Err(ApiError::unauthorized("invalid bearer token"));
+            }
+        }
+    }
 
     let user_id = Uuid::parse_str(&token_data.user_id)
         .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
@@ -99,6 +144,7 @@ pub async fn authenticate_bearer(
         family_id: token_data.family_id,
         credential_class: token_data.credential_class,
         allowed_scopes: token_data.allowed_scopes,
+        audience: token_data.audience,
     };
     Ok((Identity::User(user), credential_context))
 }

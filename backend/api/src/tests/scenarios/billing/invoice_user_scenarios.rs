@@ -605,6 +605,7 @@ mod tests {
             family_id: Uuid::now_v7(),
             credential_class: CredentialClass::CustomUserUi,
             allowed_scopes: std::collections::HashSet::new(),
+            audience: None,
         };
         let err = match get_my_invoice(
             State((*ctx.app_state).clone()),

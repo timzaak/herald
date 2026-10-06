@@ -96,6 +96,18 @@ pub async fn check_permission(
         }));
     };
 
+    // The probed token belongs to a different credential face: MCP tokens
+    // must read as not-allowed with no user id, mirroring the ext probe's
+    // invalid_token, so agent credentials cannot be introspected into the
+    // browser permission surface.
+    if token_data.credential_class == herald_core::domain::authentication::CredentialClass::Mcp {
+        tracing::warn!("MCP credential presented to the browser permission check");
+        return Ok(ApiResult::ok(PermissionCheckResponse {
+            allowed: false,
+            user_id: None,
+        }));
+    }
+
     if token_data.user_id != identity.user_id() || token_data.realm_id != identity.realm_id() {
         return Err(ApiError::forbidden(
             "Access denied: can only check a token that belongs to you",

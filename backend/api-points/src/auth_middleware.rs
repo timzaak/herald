@@ -94,6 +94,7 @@ pub async fn flexible_auth_middleware(
                 family_id: Uuid::nil(),
                 credential_class: CredentialClass::CustomUserUi,
                 allowed_scopes: HashSet::new(),
+                audience: None,
             });
             return next.run(req).await;
         }

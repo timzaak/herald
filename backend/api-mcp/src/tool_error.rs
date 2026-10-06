@@ -53,8 +53,8 @@ impl ToolError {
         ToolError {
             code: ToolErrorCode::PermissionDenied,
             message: format!(
-                "This API key does not have the '{permission}' permission. \
-Ask your realm administrator to grant it to a role bound to this key."
+                "Your user does not have the '{permission}' permission. \
+Ask your realm administrator to grant a role with this permission."
             ),
         }
     }
@@ -100,11 +100,13 @@ Ask your realm administrator to grant it to a role bound to this key."
     }
 }
 
-/// Tool-layer permission gate — the ONLY RBAC defense on this surface.
-/// The user and points services apply no permission checks to ThirdParty
-/// identities, so skipping this call means unauthenticated-by-RBAC data
-/// access; every tool must run it as its first business statement.
+/// Tool-layer permission gate for the admin-face tools — the ONLY RBAC
+/// defense on this surface. The caller is the OAuth-authenticated user
+/// (USER principal); skipping this call means unauthenticated-by-RBAC data
+/// access, and every admin tool must run it as its first business statement.
 /// The realm is taken from the credential, never from tool arguments.
+/// Self-face tools do NOT run this — their gate is the MCP scope checked in
+/// the transport preflight.
 ///
 /// Mirrors api-ext `authz::require_principal_permission` (checker errors are
 /// treated as denial, never as allowance) but returns the agent-readable
@@ -158,7 +160,7 @@ pub fn identity_from_parts(parts: &Parts) -> Result<Identity, rmcp::ErrorData> {
     })
 }
 
-/// Map a user-lookup failure. `get_user` returns Forbidden for users of
+/// Map a user-lookup failure. Lookups return NotFound/Forbidden for users of
 /// another realm; since the realm is always taken from the credential and
 /// cannot be requested cross-realm, a Forbidden here is indistinguishable
 /// from "does not exist" — both surface as not_found with zero data.

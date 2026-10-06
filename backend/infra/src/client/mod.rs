@@ -3,6 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use herald_domain::client::{
+    MCP_CLIENT_ID,
     entities::ClientApp,
     is_builtin_first_party_client,
     ports::ClientRepository,
@@ -11,6 +12,17 @@ use herald_domain::client::{
 use herald_domain::client_api_keys::ADMIN_API_CLIENT_ID;
 use herald_domain::common::entities::app_errors::CoreError;
 use herald_entity::{client_api_key, client_app};
+
+/// Loopback redirect whitelist seeded onto every built-in MCP client:
+/// the `/callback` template on each loopback host form, with the port left
+/// unspecified so the MCP-only dynamic-port matcher accepts any port
+/// (backend.md §9.6). Other clients keep exact-match, production-HTTPS
+/// semantics; this list is frozen by the real-client verification gate.
+pub const MCP_LOOPBACK_REDIRECT_TEMPLATES: &[&str] = &[
+    "http://127.0.0.1/callback",
+    "http://localhost/callback",
+    "http://[::1]/callback",
+];
 
 pub struct PostgresClientRepository {
     db: Arc<sea_orm::DatabaseConnection>,
@@ -47,6 +59,7 @@ impl PostgresClientRepository {
             turnstile_enabled: model.turnstile_enabled,
             turnstile_site_key: model.turnstile_site_key.clone(),
             turnstile_secret_key: model.turnstile_secret_key.clone(),
+            mcp_token_generation: model.mcp_token_generation,
             created_at: model.created_at.into(),
             updated_at: model.updated_at.into(),
         })
@@ -98,6 +111,7 @@ impl ClientRepository for PostgresClientRepository {
             turnstile_enabled: sea_orm::Set(request.turnstile_enabled.unwrap_or(false)),
             turnstile_site_key: sea_orm::Set(request.turnstile_site_key),
             turnstile_secret_key: sea_orm::Set(request.turnstile_secret_key),
+            mcp_token_generation: sea_orm::Set(0),
             created_at: sea_orm::Set(now.into()),
             updated_at: sea_orm::Set(now.into()),
         };
@@ -185,11 +199,23 @@ impl ClientRepository for PostgresClientRepository {
         id: Uuid,
         request: UpdateClientAppRequest,
     ) -> Result<ClientApp, CoreError> {
-        let mut active_model: client_app::ActiveModel = client_app::Entity::find_by_id(id)
+        let existing = client_app::Entity::find_by_id(id)
             .one(&*self.db)
             .await?
-            .ok_or(CoreError::NotFound)?
-            .into();
+            .ok_or(CoreError::NotFound)?;
+
+        // Repository-level twin of the service guard: the MCP client's
+        // redirect whitelist and secret-free public shape are the MCP
+        // authorization contract, so no caller can rewrite them here either.
+        // `enabled` itself must go through update_enabled_with_mcp_generation
+        // (the generation-bumping disable path).
+        if existing.client_id == MCP_CLIENT_ID {
+            return Err(CoreError::BadRequest(
+                "Built-in MCP client only supports enabled updates".to_string(),
+            ));
+        }
+
+        let mut active_model: client_app::ActiveModel = existing.into();
 
         if let Some(name) = request.name {
             active_model.name = sea_orm::Set(name);
@@ -270,6 +296,15 @@ impl ClientRepository for PostgresClientRepository {
             ));
         }
 
+        // The built-in MCP client is the realm's agent-access entry point and
+        // carries no deletable state of its own; disabling it is the supported
+        // "turn this realm's MCP access off" operation.
+        if client.client_id == MCP_CLIENT_ID {
+            return Err(CoreError::BadRequest(
+                "Cannot delete the built-in MCP client app".to_string(),
+            ));
+        }
+
         // The realm's built-in API Key Client App is seeded only at realm
         // creation; deleting it would permanently break default API key
         // creation for the realm (no auto-recreation path).
@@ -310,6 +345,80 @@ impl ClientRepository for PostgresClientRepository {
         active_model.updated_at = sea_orm::Set(chrono::Utc::now().into());
         active_model.update(&*self.db).await?;
         Ok(())
+    }
+
+    async fn update_enabled_with_mcp_generation(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<ClientApp, CoreError> {
+        // Single atomic UPDATE: the generation increment is derived from the
+        // row being updated (`CASE WHEN ... enabled ... THEN gen + 1`), so a
+        // disable of the MCP client bumps the generation in the same write
+        // that flips `enabled`. A read-then-write pair could lose a concurrent
+        // disable between the two statements; this cannot. Re-enables never
+        // touch the generation, so pre-disable credentials stay dead
+        // (DEC-mcp-server-006).
+        let stmt = sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            r#"
+            UPDATE client_app
+            SET enabled = $1,
+                mcp_token_generation = CASE
+                    WHEN client_id = $2 AND enabled AND NOT $1
+                    THEN mcp_token_generation + 1
+                    ELSE mcp_token_generation
+                END,
+                updated_at = NOW()
+            WHERE id = $3
+            RETURNING *
+            "#,
+            [enabled.into(), MCP_CLIENT_ID.into(), id.into()],
+        );
+        let model = client_app::Entity::find()
+            .from_raw_sql(stmt)
+            .one(&*self.db)
+            .await?
+            .ok_or(CoreError::NotFound)?;
+        Self::to_domain(&model)
+    }
+
+    async fn seed_mcp_client_app(&self, realm_id: &str) -> Result<ClientApp, CoreError> {
+        let now = chrono::Utc::now();
+        let redirect_uris = serde_json::to_value(MCP_LOOPBACK_REDIRECT_TEMPLATES)
+            .map_err(|e| CoreError::BadRequest(format!("Invalid MCP redirect URIs: {e}")))?;
+        let active_model = client_app::ActiveModel {
+            id: sea_orm::Set(herald_domain::common::entities::generate_uuid_v7()),
+            realm_id: sea_orm::Set(realm_id.to_string()),
+            client_id: sea_orm::Set(MCP_CLIENT_ID.to_string()),
+            name: sea_orm::Set("Herald MCP".to_string()),
+            description: sea_orm::Set(Some(
+                "Built-in read-only AI agent access client".to_string(),
+            )),
+            redirect_uris: sea_orm::Set(redirect_uris),
+            allowed_origins: sea_orm::Set(serde_json::json!([])),
+            email_verify_return_url: sea_orm::Set(None),
+            password_reset_return_url: sea_orm::Set(None),
+            browser_refresh_absolute_ttl_seconds: sea_orm::Set(2_592_000),
+            is_first_party: sea_orm::Set(false),
+            enabled: sea_orm::Set(true),
+            icon_url: sea_orm::Set(None),
+            // A PKCE-only public client has no secret to leak; the authorize
+            // and token paths never consult one.
+            client_secret: sea_orm::Set(None),
+            device_code_grant_enabled: sea_orm::Set(false),
+            turnstile_enabled: sea_orm::Set(false),
+            turnstile_site_key: sea_orm::Set(None),
+            turnstile_secret_key: sea_orm::Set(None),
+            mcp_token_generation: sea_orm::Set(0),
+            created_at: sea_orm::Set(now.into()),
+            updated_at: sea_orm::Set(now.into()),
+        };
+        let result = active_model
+            .insert(&*self.db)
+            .await
+            .map_err(|e| unique_violation_or(e, "client_app_realm_client_idx"))?;
+        Self::to_domain(&result)
     }
 }
 

@@ -42,6 +42,17 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // MCP protocol surface and its RFC 9728/8414 discovery documents live
+      // on the backend; the dev origin (public_base_url) must route them the
+      // same way production's single-origin deployment does.
+      '/mcp': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/.well-known': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

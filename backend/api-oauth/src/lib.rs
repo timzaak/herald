@@ -13,6 +13,7 @@ pub mod device_verify;
 pub mod google_one_tap;
 pub mod helper;
 pub mod login;
+pub mod mcp_metadata;
 pub mod oidc_discovery;
 pub mod oidc_id_token;
 pub mod oidc_jwks;
@@ -33,6 +34,7 @@ pub use device_token::*;
 pub use device_verify::*;
 pub use google_one_tap::*;
 pub use login::*;
+pub use mcp_metadata::*;
 pub use oidc_discovery::*;
 pub use oidc_jwks::*;
 pub use oidc_rotation::*;
@@ -68,6 +70,9 @@ pub use wechat_miniprogram::*;
         crate::oidc_jwks::oidc_jwks,
         crate::oidc_userinfo::oidc_userinfo,
         crate::oidc_rotation::oidc_rotate_signing_key,
+        crate::mcp_metadata::mcp_protected_resource_metadata,
+        crate::mcp_metadata::oauth_authorization_server_metadata,
+        crate::mcp_metadata::mcp_client_registration,
     ),
     components(schemas(
         crate::login::OAuthLoginRequest,
@@ -101,7 +106,13 @@ pub use wechat_miniprogram::*;
         crate::device_confirm::DeviceConfirmErrorResponse,
         crate::token::TokenRequest,
         crate::token::TokenResponse,
+        crate::token::McpTokenResponse,
+        crate::token::OAuthTokenError,
         crate::oidc_discovery::OidcDiscoveryResponse,
+        crate::mcp_metadata::McpProtectedResourceMetadata,
+        crate::mcp_metadata::McpAuthorizationServerMetadata,
+        crate::mcp_metadata::McpClientRegistrationRequest,
+        crate::mcp_metadata::McpClientRegistrationResponse,
         crate::oidc_jwks::OidcJwk,
         crate::oidc_jwks::OidcJwksResponse,
         crate::oidc_userinfo::OidcUserInfoResponse,

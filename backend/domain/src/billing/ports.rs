@@ -125,6 +125,21 @@ pub trait BillingRepository: Send + Sync {
         user_id: Uuid,
     ) -> impl Future<Output = Result<Vec<Subscription>, CoreError>> + Send;
 
+    /// List ALL of a user's subscriptions in a realm (every status —
+    /// expired/canceled rows stay visible), newest first, 1-based paging.
+    /// Returns (page rows, total, has_access_anywhere): the third value is an
+    /// EXISTS over the user's full row set using `SubscriptionStatus::has_access`
+    /// semantics, unaffected by the current page. Unlike
+    /// `list_active_subscriptions_by_user` (the protection-guard set that
+    /// includes past_due), this is the user-facing read surface.
+    fn list_user_subscriptions(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        page: u64,
+        page_size: u64,
+    ) -> impl Future<Output = Result<(Vec<Subscription>, u64, bool), CoreError>> + Send;
+
     // ===== Subscription History =====
     /// Save a subscription history event
     fn save_history_event(

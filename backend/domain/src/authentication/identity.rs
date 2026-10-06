@@ -17,6 +17,10 @@ use uuid::Uuid;
 pub enum CredentialClass {
     FirstParty,
     CustomUserUi,
+    /// OAuth user credential bound to a per-realm MCP resource (RFC 8707
+    /// audience). Valid only on `/mcp/{realmId}`; every browser-facing
+    /// Bearer surface rejects it, and browser credentials never carry it.
+    Mcp,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema, Hash, PartialEq, Eq)]
@@ -41,6 +45,67 @@ pub enum CredentialScope {
     SubscriptionRead,
     SubscriptionCancel,
     Openid,
+    /// MCP self-face read scopes. Requested on the MCP authorize flow as the
+    /// wire tokens `mcp:profile:read` / `mcp:points:read` /
+    /// `mcp:transactions:read` / `mcp:subscriptions:read` (explicit match in
+    /// the OAuth handlers — the serde names are storage-only).
+    McpProfileRead,
+    McpPointsRead,
+    McpTransactionsRead,
+    McpSubscriptionsRead,
+}
+
+/// The credential face a Bearer surface accepts. `BrowserOnly` is the default
+/// for every existing `/api/*` route (browser credentials only, audience
+/// absent); `McpResource` is the canonical per-realm MCP resource URI and is
+/// the only face that accepts `CredentialClass::Mcp`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpectedTokenAudience {
+    BrowserOnly,
+    McpResource(String),
+}
+
+/// The four MCP self-face scope wire tokens, in the order advertised by the
+/// authorize/discovery metadata.
+pub const MCP_SCOPES_WIRE: [&str; 4] = [
+    "mcp:profile:read",
+    "mcp:points:read",
+    "mcp:transactions:read",
+    "mcp:subscriptions:read",
+];
+
+/// The scope authorize grants when an MCP authorization request omits
+/// `scope` — the smallest useful authorization. Shared by the authorize
+/// defaulting, the token fallback, and the initial-connection challenge
+/// hint so the three can never advertise different defaults.
+pub const MCP_DEFAULT_SCOPE: &str = "mcp:profile:read";
+
+impl CredentialScope {
+    /// Wire token this scope serializes to on the MCP authorize/token
+    /// surface. The colon-bearing wire form is mapped through explicit
+    /// matches (never via the serde storage name). `None` for every
+    /// non-MCP scope.
+    pub fn mcp_wire(self) -> Option<&'static str> {
+        match self {
+            CredentialScope::McpProfileRead => Some("mcp:profile:read"),
+            CredentialScope::McpPointsRead => Some("mcp:points:read"),
+            CredentialScope::McpTransactionsRead => Some("mcp:transactions:read"),
+            CredentialScope::McpSubscriptionsRead => Some("mcp:subscriptions:read"),
+            _ => None,
+        }
+    }
+
+    /// Inverse of [`CredentialScope::mcp_wire`]: parse one MCP scope wire
+    /// token. Any other string (including `openid`) yields `None`.
+    pub fn from_mcp_wire(token: &str) -> Option<CredentialScope> {
+        match token {
+            "mcp:profile:read" => Some(CredentialScope::McpProfileRead),
+            "mcp:points:read" => Some(CredentialScope::McpPointsRead),
+            "mcp:transactions:read" => Some(CredentialScope::McpTransactionsRead),
+            "mcp:subscriptions:read" => Some(CredentialScope::McpSubscriptionsRead),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +115,9 @@ pub struct TokenCredentialContext {
     pub family_id: Uuid,
     pub credential_class: CredentialClass,
     pub allowed_scopes: HashSet<CredentialScope>,
+    /// RFC 8707 audience the credential was issued for. `Some` only for
+    /// `CredentialClass::Mcp`; browser credentials keep `None`.
+    pub audience: Option<String>,
 }
 
 /// Authenticated identity representing the caller
@@ -275,6 +343,7 @@ mod tests {
             turnstile_enabled: false,
             turnstile_site_key: None,
             turnstile_secret_key: None,
+            mcp_token_generation: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

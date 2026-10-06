@@ -46,6 +46,9 @@ pub async fn status(
         CredentialClass::CustomUserUi => context
             .allowed_scopes
             .contains(&CredentialScope::ProfileRead),
+        // MCP credentials never reach this browser surface; fail closed if
+        // a future mount lets one through.
+        CredentialClass::Mcp => false,
     };
     let mut scopes: Vec<_> = context.allowed_scopes.into_iter().collect();
     scopes.sort_by_key(|scope| format!("{scope:?}"));

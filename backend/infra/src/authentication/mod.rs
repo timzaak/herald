@@ -12,7 +12,7 @@ use herald_domain::authentication::{
     CredentialClass, CredentialScope,
     entities::{
         BrowserAccessTokenData, BrowserRefreshTokenData, BrowserTokenSet, FamilyLifecycle,
-        ReauthResult, RefreshError, TargetOperation, UserSessionSummary,
+        ReauthResult, RefreshBinding, RefreshError, TargetOperation, UserSessionSummary,
     },
     ports::BrowserTokenService,
 };
@@ -93,6 +93,50 @@ local function browser_token_revoke_family(keys, args)
   return 'OK'
 end
 
+-- Standard MCP refresh: the rotation of browser_token_refresh plus atomic
+-- binding checks (credential class, realm, client, audience, generation).
+-- The caller re-verifies the bindings against the database first; this
+-- function re-checks them against the Redis family record inside the same
+-- atomic call, so a disable that raced between the DB read and this write
+-- (bumping mcp_token_generation) still fails the refresh closed.
+local function browser_token_refresh_mcp(keys, args)
+  local raw = redis.call('GET', keys[1])
+  if not raw then return 'INVALID' end
+  local current = cjson.decode(raw)
+  local raw_family = redis.call('GET', keys[2])
+  if not raw_family then return 'INVALID' end
+  local family = cjson.decode(raw_family)
+  if current.successor_digest ~= cjson.null then
+    revoke_family_data(keys[2], keys[5], keys[6])
+    return 'REUSE'
+  end
+  if current.revoked or family.revoked or tonumber(args[1]) >= family.absolute_expires_at_ts then
+    return 'INVALID'
+  end
+  if family.credential_class ~= 'mcp' then return 'INVALID' end
+  if family.realm_id ~= args[8] then return 'INVALID' end
+  if family.client_app_id ~= args[9] then return 'INVALID' end
+  if family.audience == cjson.null or family.audience == nil then return 'INVALID' end
+  if family.audience ~= args[10] then return 'INVALID' end
+  if family.mcp_token_generation == cjson.null or family.mcp_token_generation == nil
+      or tonumber(family.mcp_token_generation) ~= tonumber(args[11]) then
+    return 'INVALID'
+  end
+
+  current.successor_digest = args[2]
+  current.revoked = true
+  if redis.call('TTL', keys[1]) <= 0 or redis.call('TTL', keys[2]) <= 0 then
+    return 'INVALID'
+  end
+  redis.call('SET', keys[1], cjson.encode(current), 'KEEPTTL')
+  redis.call('SETEX', keys[3], args[3], args[4])
+  redis.call('SETEX', keys[4], args[5], args[6])
+  table.insert(family.access_digests, args[7])
+  table.insert(family.refresh_digests, args[2])
+  redis.call('SET', keys[2], cjson.encode(family), 'KEEPTTL')
+  return 'OK'
+end
+
 local function reauth_consume(keys, args)
 local raw = redis.call('GET', keys[1])
 if not raw then return 'INVALID' end
@@ -114,6 +158,7 @@ end
 redis.register_function('browser_token_create_family', browser_token_create_family)
 redis.register_function('browser_token_refresh', browser_token_refresh)
 redis.register_function('browser_token_revoke_family', browser_token_revoke_family)
+redis.register_function('browser_token_refresh_mcp', browser_token_refresh_mcp)
 redis.register_function('reauth_consume', reauth_consume)
 "#;
 
@@ -147,6 +192,20 @@ pub enum ReauthConsumeError {
     Invalid,
     Consumed,
     TargetMismatch,
+}
+
+/// Public read view of a token family's MCP-relevant bindings, returned by
+/// [`RedisBrowserTokenService::lookup_refresh_family`] for the standard MCP
+/// refresh grant. Values come from the family record in Redis only — never
+/// from request parameters.
+#[derive(Debug, Clone)]
+pub struct McpFamilyContext {
+    pub realm_id: String,
+    pub client_app_id: Uuid,
+    pub credential_class: CredentialClass,
+    pub audience: Option<String>,
+    pub mcp_token_generation: Option<i64>,
+    pub allowed_scopes: HashSet<CredentialScope>,
 }
 
 pub struct RedisReauthStore {
@@ -241,6 +300,16 @@ struct BrowserTokenFamilyData {
     /// family requested `openid`; copied onto every refreshed access token
     /// via `allowed_scopes`.
     allowed_scopes: HashSet<CredentialScope>,
+    /// RFC 8707 audience; `Some` only on `CredentialClass::Mcp` families.
+    /// `#[serde(default)]`: families written before the MCP layer carry no
+    /// key and must keep parsing (as browser credentials).
+    #[serde(default)]
+    audience: Option<String>,
+    /// MCP disable generation the family was issued under. `Some` only on
+    /// MCP families; a value stale vs the client_app row means the client
+    /// was disabled and every credential of this family is dead.
+    #[serde(default)]
+    mcp_token_generation: Option<i64>,
     absolute_expires_at_ts: i64,
     access_digests: Vec<String>,
     refresh_digests: Vec<String>,
@@ -377,6 +446,8 @@ impl RedisBrowserTokenService {
             client_app.id,
             CredentialClass::CustomUserUi,
             [ProfileRead, DeleteAccount, Logout].into_iter().collect(),
+            None,
+            None,
             client_app.browser_refresh_absolute_ttl_seconds as u64,
             Some(client_app.name.clone()),
             user_agent,
@@ -392,6 +463,8 @@ impl RedisBrowserTokenService {
         client_app_id: Uuid,
         credential_class: CredentialClass,
         allowed_scopes: HashSet<CredentialScope>,
+        audience: Option<String>,
+        mcp_token_generation: Option<i64>,
         refresh_absolute_ttl_seconds: u64,
         client_app_name: Option<String>,
         user_agent: Option<String>,
@@ -413,6 +486,8 @@ impl RedisBrowserTokenService {
             family_id,
             credential_class,
             allowed_scopes: allowed_scopes.clone(),
+            audience: audience.clone(),
+            mcp_token_generation,
             expires_at: access_expires_at,
         };
         let refresh_data = BrowserRefreshTokenData {
@@ -432,6 +507,8 @@ impl RedisBrowserTokenService {
             user_id: user_id.clone(),
             credential_class,
             allowed_scopes,
+            audience,
+            mcp_token_generation,
             absolute_expires_at_ts: absolute_expires_at.timestamp(),
             access_digests: vec![access_digest.clone()],
             refresh_digests: vec![refresh_digest.clone()],
@@ -528,6 +605,51 @@ impl RedisBrowserTokenService {
             client_app.id,
             credential_class,
             scopes,
+            None,
+            None,
+            client_app.browser_refresh_absolute_ttl_seconds as u64,
+            Some(client_app.name.clone()),
+            user_agent,
+            client_ip,
+        )
+        .await
+    }
+
+    /// Mint the token family for an MCP authorization-code exchange
+    /// (or the initial issuance of any MCP credential). The credential is
+    /// bound to the canonical MCP resource (`audience`) and to the client's
+    /// current `mcp_token_generation`; both ride on the family and every
+    /// access token refreshed from it.
+    pub async fn create_mcp_token_family(
+        &self,
+        user: &User,
+        client_app: &ClientApp,
+        audience: &str,
+        scopes: HashSet<CredentialScope>,
+        user_agent: Option<String>,
+        client_ip: Option<String>,
+    ) -> Result<BrowserTokenSet, CoreError> {
+        if scopes.iter().any(|scope| {
+            !matches!(
+                scope,
+                CredentialScope::McpProfileRead
+                    | CredentialScope::McpPointsRead
+                    | CredentialScope::McpTransactionsRead
+                    | CredentialScope::McpSubscriptionsRead
+            )
+        }) {
+            return Err(CoreError::BadRequest(
+                "MCP token families only carry the four mcp read scopes".to_string(),
+            ));
+        }
+        self.create_family(
+            user.realm_id.clone(),
+            user.id.to_string(),
+            client_app.id,
+            CredentialClass::Mcp,
+            scopes,
+            Some(audience.to_string()),
+            Some(client_app.mcp_token_generation),
             client_app.browser_refresh_absolute_ttl_seconds as u64,
             Some(client_app.name.clone()),
             user_agent,
@@ -569,6 +691,18 @@ impl RedisBrowserTokenService {
             RefreshError::Invalid
         })?;
 
+        // The browser refresh endpoint is browser-only by contract: an MCP
+        // refresh token presented here is simply invalid, and never rotates
+        // (the standard MCP refresh grant is the only rotation path for MCP
+        // families — see refresh_mcp).
+        if family.credential_class == CredentialClass::Mcp {
+            tracing::warn!(
+                family_id = %current.family_id,
+                "MCP refresh token presented to the browser refresh path"
+            );
+            return Err(RefreshError::Invalid);
+        }
+
         let now = Utc::now();
         let remaining = (current.absolute_expires_at - now).num_seconds();
         if remaining <= 0 {
@@ -586,6 +720,8 @@ impl RedisBrowserTokenService {
             family_id: current.family_id,
             credential_class: family.credential_class,
             allowed_scopes: family.allowed_scopes,
+            audience: family.audience,
+            mcp_token_generation: family.mcp_token_generation,
             expires_at: now + Duration::seconds(access_ttl as i64),
         };
         let next_refresh_data = BrowserRefreshTokenData {
@@ -615,6 +751,147 @@ impl RedisBrowserTokenService {
             .await
             .map_err(|error| {
                 tracing::error!(%error, "Browser token rotation function failed");
+                RefreshError::Invalid
+            })?;
+
+        match result.as_str() {
+            "OK" => Ok(BrowserTokenSet {
+                access_token,
+                refresh_token: next_refresh_token,
+                expires_in: access_ttl,
+                refresh_expires_in: remaining as u64,
+                token_type: "Bearer".to_string(),
+            }),
+            "REUSE" => Err(RefreshError::ReuseDetected),
+            _ => Err(RefreshError::Invalid),
+        }
+    }
+
+    /// Read a refresh token's stored record WITHOUT rotating or revoking
+    /// anything. The standard MCP refresh grant uses this to inspect the
+    /// token's family bindings (realm/client/audience/generation) and
+    /// re-verify them against the database before the atomic rotation.
+    /// Returns `Ok(None)` when the token is unknown.
+    pub async fn lookup_refresh_context(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<BrowserRefreshTokenData>, CoreError> {
+        let digest = Self::token_digest(refresh_token);
+        let mut connection = self.get_connection().await?;
+        let raw: Option<String> = connection.get(Self::token_key("rt", &digest)).await?;
+        match raw {
+            Some(json) => Ok(Some(serde_json::from_str(&json)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Read the family record a refresh token belongs to (no rotation). Used
+    /// by the MCP refresh grant to re-derive the trusted audience/generation
+    /// bindings before rotation; every binding the caller does not already
+    /// know comes from here, never from client parameters. Returns `None`
+    /// when the family record is gone.
+    pub async fn lookup_refresh_family(
+        &self,
+        family_id: Uuid,
+    ) -> Result<Option<McpFamilyContext>, CoreError> {
+        let mut connection = self.get_connection().await?;
+        let raw: Option<String> = connection.get(Self::family_key(family_id)).await?;
+        let Some(json) = raw else {
+            return Ok(None);
+        };
+        let family: BrowserTokenFamilyData = serde_json::from_str(&json)?;
+        Ok(Some(McpFamilyContext {
+            realm_id: family.realm_id,
+            client_app_id: family.client_app_id,
+            credential_class: family.credential_class,
+            audience: family.audience,
+            mcp_token_generation: family.mcp_token_generation,
+            allowed_scopes: family.allowed_scopes,
+        }))
+    }
+
+    /// Standard OAuth refresh grant for an MCP token family. The caller has
+    /// already re-verified the binding against the database; this runs the
+    /// atomic rotation whose Lua half re-checks class/realm/client/audience/
+    /// generation before writing any key. Reuse detection revokes the family
+    /// exactly like the browser path. The caller supplies the refresh-token
+    /// and family records it already loaded for its DB re-checks — re-reading
+    /// them here would double the Redis round-trips for nothing, since the
+    /// Lua half re-verifies against the live keys anyway.
+    pub async fn refresh_mcp(
+        &self,
+        refresh_token: &str,
+        current: &BrowserRefreshTokenData,
+        family: &McpFamilyContext,
+        binding: &RefreshBinding,
+    ) -> Result<BrowserTokenSet, RefreshError> {
+        let old_digest = Self::token_digest(refresh_token);
+        let old_key = Self::token_key("rt", &old_digest);
+        let mut connection = self.get_connection().await.map_err(|error| {
+            tracing::error!(%error, "MCP token refresh could not connect to Redis");
+            RefreshError::Invalid
+        })?;
+        // The family record is the trusted source for the new access token's
+        // scope set and for the audience/generation the rotation re-checks;
+        // request parameters never contribute.
+        if family.credential_class != CredentialClass::Mcp {
+            return Err(RefreshError::Invalid);
+        }
+        let family_audience = family.audience.clone().ok_or(RefreshError::Invalid)?;
+        let family_generation = family.mcp_token_generation.ok_or(RefreshError::Invalid)?;
+
+        let now = Utc::now();
+        let remaining = (current.absolute_expires_at - now).num_seconds();
+        if remaining <= 0 {
+            return Err(RefreshError::Invalid);
+        }
+        let access_ttl = BROWSER_ACCESS_TOKEN_TTL_SECONDS.min(remaining as u64);
+        let access_token = Self::generate_token();
+        let next_refresh_token = Self::generate_token();
+        let access_digest = Self::token_digest(&access_token);
+        let refresh_digest = Self::token_digest(&next_refresh_token);
+        let access_data = BrowserAccessTokenData {
+            realm_id: current.realm_id.clone(),
+            client_app_id: current.client_app_id,
+            user_id: current.user_id.clone(),
+            family_id: current.family_id,
+            credential_class: CredentialClass::Mcp,
+            allowed_scopes: family.allowed_scopes.clone(),
+            audience: Some(family_audience.clone()),
+            mcp_token_generation: Some(family_generation),
+            expires_at: now + Duration::seconds(access_ttl as i64),
+        };
+        let next_refresh_data = BrowserRefreshTokenData {
+            successor_digest: None,
+            expires_at: current.absolute_expires_at,
+            revoked: false,
+            ..current.clone()
+        };
+
+        let result: String = redis::cmd("FCALL")
+            .arg("browser_token_refresh_mcp")
+            .arg(6)
+            .arg(&old_key)
+            .arg(Self::family_key(current.family_id))
+            .arg(Self::token_key("at", &access_digest))
+            .arg(Self::token_key("rt", &refresh_digest))
+            .arg(Self::client_families_key(current.client_app_id))
+            .arg(Self::user_families_key(&current.user_id))
+            .arg(now.timestamp())
+            .arg(&refresh_digest)
+            .arg(access_ttl)
+            .arg(serde_json::to_string(&access_data).map_err(|_| RefreshError::Invalid)?)
+            .arg(remaining as u64)
+            .arg(serde_json::to_string(&next_refresh_data).map_err(|_| RefreshError::Invalid)?)
+            .arg(&access_digest)
+            .arg(&binding.realm_id)
+            .arg(binding.client_app_id.to_string())
+            .arg(&binding.audience)
+            .arg(binding.mcp_token_generation.to_string())
+            .query_async(&mut connection)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "MCP token rotation function failed");
                 RefreshError::Invalid
             })?;
 
@@ -684,6 +961,8 @@ impl BrowserTokenService for RedisBrowserTokenService {
             client_app.id,
             CredentialClass::CustomUserUi,
             Self::custom_user_ui_scopes(),
+            None,
+            None,
             client_app.browser_refresh_absolute_ttl_seconds as u64,
             Some(client_app.name.clone()),
             user_agent,
@@ -710,6 +989,8 @@ impl BrowserTokenService for RedisBrowserTokenService {
             client_app.id,
             CredentialClass::FirstParty,
             Self::first_party_scopes(),
+            None,
+            None,
             client_app.browser_refresh_absolute_ttl_seconds as u64,
             Some(client_app.name.clone()),
             user_agent,
@@ -1031,6 +1312,8 @@ mod browser_token_tests {
                 client_app_id,
                 CredentialClass::CustomUserUi,
                 RedisBrowserTokenService::custom_user_ui_scopes(),
+                None,
+                None,
                 absolute_ttl_seconds,
                 Some("Test Client App".to_string()),
                 Some("test-user-agent/1.0".to_string()),
@@ -1078,6 +1361,8 @@ mod browser_token_tests {
                 Uuid::now_v7(),
                 CredentialClass::FirstParty,
                 RedisBrowserTokenService::first_party_scopes(),
+                None,
+                None,
                 60,
                 Some("First-Party App".to_string()),
                 Some("test-user-agent/1.0".to_string()),
@@ -1189,6 +1474,8 @@ mod browser_token_tests {
                 client_app_id,
                 CredentialClass::CustomUserUi,
                 RedisBrowserTokenService::custom_user_ui_scopes(),
+                None,
+                None,
                 ttl_seconds,
                 Some("Test Client App".to_string()),
                 user_agent,

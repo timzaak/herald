@@ -30,8 +30,9 @@ use herald_core::infrastructure::authentication::RedisBrowserTokenService;
     ),
     responses(
         (status = 200, description = "ClientApp updated", body = ClientAppItem),
+        (status = 400, description = "Bad request, or the built-in MCP client only supports enabled updates", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
         (status = 404, description = "ClientApp not found", body = herald_api_base::application::http::server::api_entities::ErrorResponse),
-        (status = 500, description = "Internal server error", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
+        (status = 500, description = "Internal server error (incl. token revocation failure after a persisted disable — the disable holds, refresh to read the real state)", body = herald_api_base::application::http::server::api_entities::ErrorResponse)
     )
 )]
 pub async fn update_client_app(

@@ -166,17 +166,39 @@ where
             ));
         }
 
-        let now = chrono::Utc::now();
+        self.compute_user_balance(realm_id, user_id).await
+    }
 
-        // Read-path realization. Independent committed short
-        // transaction; the derived SUM below runs in a separate transaction
-        // and under the project default READ COMMITTED sees the committed
-        // realization rows. Failure is fail-loud (5xx) — never silently
-        // degrade to an old balance or `InsufficientBalance`.
+    /// Read-path computation shared by the balance entrances: realize due
+    /// schedule grants, then build the realm-summed balance view. Callers
+    /// own the authorization gates.
+    ///
+    /// Read-path realization is an independent committed short
+    /// transaction; the derived SUM below runs in a separate transaction
+    /// and under the project default READ COMMITTED sees the committed
+    /// realization rows. Failure is fail-loud (5xx) — never silently
+    /// degrade to an old balance or `InsufficientBalance`.
+    async fn compute_user_balance(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> Result<PointsBalance, CoreError> {
+        let now = chrono::Utc::now();
         self.reconcile_due_for_user(realm_id, user_id, now).await?;
 
-        // Analytics still from Stored wallet columns (lifetime totals).
-        let account = self.get_wallet(identity, realm_id, user_id).await?;
+        // Analytics still from Stored wallet columns (lifetime totals);
+        // synthesized zero view when the user has no wallet row yet (same
+        // rule as get_wallet's tail).
+        let account = match self.repository.find_by_user_id(realm_id, user_id).await? {
+            Some(account) => account,
+            None => {
+                tracing::info!(
+                    "No points wallet for user {}; returning zero-balance user-total view",
+                    user_id
+                );
+                Self::synthesized_empty_wallet(realm_id, user_id)
+            }
+        };
 
         // Derived SUM by credit_type plus the earliest upcoming pool expiry
         // (PRD points.md §4.1 「用户可查看即将过期的池子类型积分」) — one
@@ -199,6 +221,19 @@ where
             window_balances,
             expires_at,
         ))
+    }
+
+    /// MCP admin-tool balance read. The caller's RBAC (`points.view`) is
+    /// enforced at the tool layer, so the REST identity policy — which
+    /// keeps cross-user reads points.manage-only for the HTTP face — must
+    /// not re-gate this path; the tool surface is view-only by design
+    /// (design mcp-server §9.5: REST semantics unchanged).
+    pub async fn get_balance_for_admin_tool(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> Result<PointsBalance, CoreError> {
+        self.compute_user_balance(realm_id, user_id).await
     }
 
     /// Client-app scoped variant of [`get_balance`]: every spendable figure

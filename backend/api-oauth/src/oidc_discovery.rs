@@ -60,15 +60,16 @@ pub(crate) fn build_issuer(origin: &str, realm_id: &str) -> String {
 }
 
 pub(crate) async fn ensure_realm_exists(state: &AppState, realm_id: &str) -> Result<(), ApiError> {
-    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM realm WHERE id = $1")
-        .bind(realm_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(realm_id = %realm_id, error = %e, "Realm lookup failed");
-            ApiError::internal("Internal server error")
-        })?;
-    if exists.is_none() {
+    let exists = herald_api_base::application::http::common::public_helper::realm_exists(
+        &state.pool,
+        realm_id,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(realm_id = %realm_id, error = %e, "Realm lookup failed");
+        ApiError::internal("Internal server error")
+    })?;
+    if !exists {
         // The realm table has no enabled concept; a missing row is the only
         // failure mode and must not yield partial configuration.
         return Err(ApiError::not_found("Realm not found"));
@@ -132,11 +133,15 @@ pub async fn oidc_discovery(
         token_endpoint: format!("{issuer}/token"),
         userinfo_endpoint: format!("{issuer}/userinfo"),
         jwks_uri: format!("{issuer}/.well-known/jwks.json"),
-        // The only scope with semantics is `openid`; other tokens are carried
-        // verbatim and ignored, so the advertised list stays honest.
-        scopes_supported: vec!["openid".to_string()],
+        // Scopes with semantics: `openid` (OIDC flows) and the four MCP
+        // self-face tokens; other tokens are carried verbatim and ignored,
+        // so the advertised list stays honest.
+        scopes_supported: crate::mcp_metadata::openid_plus_mcp_scopes(),
         response_types_supported: vec!["code".to_string()],
-        grant_types_supported: vec!["authorization_code".to_string()],
+        grant_types_supported: vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
         subject_type: "public".to_string(),
         id_token_signing_alg_values_supported: vec!["RS256".to_string()],
         // /token is a pure PKCE public client and never validates a client

@@ -33,6 +33,12 @@ pub struct ClientApp {
     pub turnstile_site_key: Option<String>,
     pub turnstile_secret_key: Option<String>,
 
+    /// MCP disable generation (DEC-mcp-server-006). Bumped in the same DB
+    /// update that disables the built-in MCP client; MCP credentials carry
+    /// the generation they were issued under and die when it goes stale.
+    /// Always 0 for non-MCP clients.
+    pub mcp_token_generation: i64,
+
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

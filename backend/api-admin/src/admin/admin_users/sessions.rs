@@ -28,6 +28,7 @@ fn credential_class_to_string(c: CredentialClass) -> &'static str {
     match c {
         CredentialClass::FirstParty => "first_party",
         CredentialClass::CustomUserUi => "custom_user_ui",
+        CredentialClass::Mcp => "mcp",
     }
 }
 

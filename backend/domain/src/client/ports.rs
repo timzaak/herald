@@ -50,6 +50,28 @@ pub trait ClientRepository: Send + Sync {
         id: Uuid,
         is_first_party: bool,
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
+
+    /// Set `enabled` on a Client App in one database UPDATE that also bumps
+    /// `mcp_token_generation` when the row is the built-in MCP client and the
+    /// update is a disable (DEC-mcp-server-006). The generation increment is
+    /// computed from the current row (`CASE WHEN enabled THEN gen + 1`), so
+    /// concurrent enable/disable races resolve to the committed final state
+    /// and a disable can never be lost between a read and a write.
+    fn update_enabled_with_mcp_generation(
+        &self,
+        id: Uuid,
+        enabled: bool,
+    ) -> impl Future<Output = Result<ClientApp, CoreError>> + Send;
+
+    /// Create the per-realm built-in MCP client (reserved id, PKCE-only
+    /// public shape: no secret, not first-party, generation 0) with the
+    /// frozen loopback redirect whitelist. Seeding path for realm creation
+    /// and the存量 migration; a conflicting (realm_id, client_id) row is a
+    /// hard error, never an update-in-place.
+    fn seed_mcp_client_app(
+        &self,
+        realm_id: &str,
+    ) -> impl Future<Output = Result<ClientApp, CoreError>> + Send;
 }
 
 #[cfg_attr(test, mockall::automock)]

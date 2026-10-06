@@ -355,6 +355,52 @@ where
             }
         }
 
+        // 2.6 Seed the built-in MCP client (client_id='herald-mcp',
+        // DEC-mcp-server-007). The internal repository path keeps the
+        // PKCE-only public shape the public create entry cannot express
+        // (no secret, port-free loopback redirect templates). Only a
+        // NotFound result means "needs seeding" — any other query error
+        // must surface, not silently route into the seed branch (which
+        // would then fail on the unique constraint and misdirect
+        // troubleshooting).
+        {
+            match self
+                .client_repository
+                .get_client_app_by_client_id(&realm.id, crate::client::MCP_CLIENT_ID)
+                .await
+            {
+                Ok(_) => {}
+                Err(CoreError::NotFound) => {
+                    tracing::info!(
+                        realm_id = %realm.id,
+                        "Seeding built-in MCP client app"
+                    );
+                    if let Err(e) = self.client_repository.seed_mcp_client_app(&realm.id).await {
+                        tracing::error!(
+                            realm_id = %realm.id,
+                            error = %e,
+                            "Failed to seed built-in MCP client app, rolling back realm creation"
+                        );
+                        return Err(CoreError::InternalServerError(format!(
+                            "Failed to create MCP client app for realm {}: {}",
+                            realm.id, e
+                        )));
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        realm_id = %realm.id,
+                        error = %e,
+                        "MCP client lookup failed before seeding, rolling back realm creation"
+                    );
+                    return Err(CoreError::InternalServerError(format!(
+                        "Failed to look up MCP client app for realm {}: {}",
+                        realm.id, e
+                    )));
+                }
+            }
+        }
+
         // 3. Create admin user (now required)
         {
             // 3.1 Create user

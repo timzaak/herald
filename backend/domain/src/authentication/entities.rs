@@ -17,6 +17,15 @@ pub struct BrowserAccessTokenData {
     /// this token's family requested the `openid` scope (an id_token was
     /// issued); gates the OIDC userinfo endpoint (OIDC Core §5.3.1).
     pub allowed_scopes: HashSet<CredentialScope>,
+    /// RFC 8707 audience (canonical MCP resource URI). `Some` only for
+    /// `CredentialClass::Mcp` credentials. `#[serde(default)]`: families
+    /// issued before the MCP layer carry no key and must keep parsing.
+    #[serde(default)]
+    pub audience: Option<String>,
+    /// MCP token generation the credential was issued under. Stale vs the
+    /// client_app row → the credential is dead (disable bumped the column).
+    #[serde(default)]
+    pub mcp_token_generation: Option<i64>,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -74,6 +83,19 @@ pub struct BrowserRefreshTokenData {
     pub expires_at: DateTime<Utc>,
     pub absolute_expires_at: DateTime<Utc>,
     pub revoked: bool,
+}
+
+/// Trusted bindings a standard MCP refresh must present: the family's
+/// realm/client/audience/generation as re-verified against the database.
+/// The Redis rotation function re-checks every field before writing new
+/// keys, so a stale (pre-disable) refresh token cannot rotate even if the
+/// DB recheck raced a concurrent disable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefreshBinding {
+    pub realm_id: String,
+    pub client_app_id: Uuid,
+    pub audience: String,
+    pub mcp_token_generation: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, PartialEq)]

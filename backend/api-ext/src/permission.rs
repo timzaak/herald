@@ -146,6 +146,15 @@ pub async fn check_permission(
         }
     };
 
+    // MCP credentials are a different credential face: this probe answers
+    // for browser tokens, and an MCP token probing here must read as an
+    // invalid token (never allowed, never leaking a user id) so agent
+    // credentials cannot be repurposed against the SDK surface.
+    if token_data.credential_class == herald_core::domain::authentication::CredentialClass::Mcp {
+        tracing::warn!("MCP credential presented to the ext permission check");
+        return Ok(denied_response(Some("invalid_token".to_string())));
+    }
+
     if !identity.has_access_to_realm(&token_data.realm_id) {
         tracing::warn!(
             api_key_realm_id = %identity.realm_id(),
@@ -178,7 +187,10 @@ pub async fn check_permission(
         match lookup_token_client_app(&state, token_data.client_app_id, &token_data.realm_id)
             .await?
         {
-            TokenClientAppLookup::Active { client_id } => Some(client_id),
+            TokenClientAppLookup::Active {
+                client_id,
+                mcp_token_generation: _,
+            } => Some(client_id),
             TokenClientAppLookup::Missing => {
                 tracing::warn!(
                     token_client_app_id = %token_data.client_app_id,

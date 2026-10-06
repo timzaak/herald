@@ -18,6 +18,11 @@ pub mod device_code_helpers;
 pub mod email_config_helpers;
 #[cfg(test)]
 pub mod iap_mocks;
+// MCP OAuth chain helpers (authorize -> login -> token, refresh grant, browser
+// refresh probe). Imported explicitly by the MCP scenario tests, mirroring the
+// `oauth_pkce_helpers` pattern.
+#[cfg(test)]
+pub mod mcp_oauth_helpers;
 pub mod oauth_pkce_helpers;
 pub mod oauth_test_helpers;
 #[cfg(test)]

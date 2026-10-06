@@ -220,8 +220,13 @@ pub async fn record_permission_denied_audit(
 /// Principal state of the Client App a browser token was issued to.
 #[derive(Debug)]
 pub enum TokenClientAppLookup {
-    /// The Client App row exists and is enabled; carries its `client_id`.
-    Active { client_id: String },
+    /// The Client App row exists and is enabled; carries its `client_id` and
+    /// current MCP generation (0 for non-MCP clients — only the MCP face
+    /// compares it).
+    Active {
+        client_id: String,
+        mcp_token_generation: i64,
+    },
     /// No row for `(client_app_id, realm_id)` — the app was deleted.
     Missing,
     /// The row exists but `enabled = false`. Disabling a Client App does not
@@ -241,24 +246,28 @@ pub async fn lookup_token_client_app(
     client_app_id: Uuid,
     realm_id: &str,
 ) -> Result<TokenClientAppLookup, ApiError> {
-    let row: Option<(bool, String)> =
-        sqlx::query_as("SELECT enabled, client_id FROM client_app WHERE id = $1 AND realm_id = $2")
-            .bind(client_app_id)
-            .bind(realm_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    %error,
-                    client_app_id = %client_app_id,
-                    realm_id = %realm_id,
-                    "Browser token Client App lookup failed"
-                );
-                ApiError::internal("Internal server error")
-            })?;
+    let row: Option<(bool, String, i64)> = sqlx::query_as(
+        "SELECT enabled, client_id, mcp_token_generation FROM client_app WHERE id = $1 AND realm_id = $2",
+    )
+    .bind(client_app_id)
+    .bind(realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|error| {
+        tracing::error!(
+            %error,
+            client_app_id = %client_app_id,
+            realm_id = %realm_id,
+            "Browser token Client App lookup failed"
+        );
+        ApiError::internal("Internal server error")
+    })?;
     Ok(match row {
-        Some((true, client_id)) => TokenClientAppLookup::Active { client_id },
-        Some((false, _)) => TokenClientAppLookup::Disabled,
+        Some((true, client_id, mcp_token_generation)) => TokenClientAppLookup::Active {
+            client_id,
+            mcp_token_generation,
+        },
+        Some((false, ..)) => TokenClientAppLookup::Disabled,
         None => TokenClientAppLookup::Missing,
     })
 }
@@ -279,6 +288,10 @@ pub fn require_token_scope(
             Ok(())
         }
         CredentialClass::CustomUserUi => Err(ApiError::forbidden("token scope denied")),
+        // MCP credentials are rejected one layer earlier (the browser-only
+        // Bearer gate); keeping an explicit deny here means a future mount
+        // mistake cannot silently admit them.
+        CredentialClass::Mcp => Err(ApiError::forbidden("token scope denied")),
     }
 }
 
@@ -315,6 +328,9 @@ pub fn require_authenticated_user_in_realm_with_token(
         CredentialClass::FirstParty | CredentialClass::CustomUserUi => {
             require_authenticated_user_in_realm(identity, realm_id, context)
         }
+        CredentialClass::Mcp => Err(ApiError::forbidden(
+            "Access denied: browser credential required",
+        )),
     }
 }
 
@@ -427,6 +443,7 @@ mod tests {
             turnstile_enabled: false,
             turnstile_site_key: None,
             turnstile_secret_key: None,
+            mcp_token_generation: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -439,6 +456,7 @@ mod tests {
         let client_id = match credential_class {
             CredentialClass::FirstParty => ADMIN_WEB_CONSOLE_CLIENT_ID,
             CredentialClass::CustomUserUi => "custom-user-ui",
+            CredentialClass::Mcp => "herald-mcp",
         };
         TokenCredentialContext {
             client_app_id: generate_uuid_v7(),
@@ -446,6 +464,7 @@ mod tests {
             family_id: generate_uuid_v7(),
             credential_class,
             allowed_scopes: HashSet::from_iter(allowed_scopes),
+            audience: None,
         }
     }
 
