@@ -11,15 +11,13 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| US-TP-001 | 创建 Client App | P0 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-002 | 查看 Client App 列表 | P0 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-003 | 查看 Client App 详情 | P0 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-004 | 编辑 Client App | P0 | `docs/user-stories/auth/third-party-app.md` |
-| US-TP-005 | 删除 Client App | P0 | `docs/user-stories/auth/third-party-app.md` |
-| — | 配置 OAuth 2.0 设置 | P0 | `docs/user-stories/auth/client-app-settings.md` |
-| — | 配置浏览器 token 生命周期 | P0 | `docs/user-stories/auth/client-app-settings.md` |
-| — | 重新生成 Client Secret | P0 | `docs/user-stories/auth/client-app-settings.md` |
-| — | 配置应用外观 | P1 | `docs/user-stories/auth/client-app-settings.md` |
+| US-TP-005 | Client App 配置管理（创建、client_secret、回调 URL 配置） | P0 | `docs/user-stories/auth/third-party-app.md` |
+| US-TP-008 | 配置 Client App 跳转地址白名单 | P0 | `docs/user-stories/auth/client-app-settings.md` |
+| US-TP-009 | 管理 Client App 图标 | P0 | `docs/user-stories/auth/client-app-settings.md` |
+| US-TP-010 | 启用/禁用 Client App | P0 | `docs/user-stories/auth/client-app-settings.md` |
+| US-TP-011 | 配置浏览器 token 生命周期策略 | P0 | `docs/user-stories/auth/client-app-settings.md` |
+
+> 编号口径：US-TP-001~004 属 OAuth 授权流故事（见 [docs/prd/auth/oauth.md](../auth/oauth.md) §1）；Client App 的列表/详情/编辑/删除等管理端 CRUD 未单列用户故事，由 US-TP-005 配置管理与本 PRD §4 规则承载。
 
 ---
 

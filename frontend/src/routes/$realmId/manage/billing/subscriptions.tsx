@@ -6,7 +6,8 @@ import { ADMIN_WEB_CONSOLE_CLIENT_ID } from '@/lib/constants/auth-constants'
 import { AdminSubscriptionListPage } from '@/components/billing/admin-subscription-list-page'
 import { useCurrentSearch, useResolvedRealmId } from '@/lib/realm-routing'
 
-const subscriptionsSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const subscriptionsSearchSchema = z.object({
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   entitlementKey: z.string().optional(),

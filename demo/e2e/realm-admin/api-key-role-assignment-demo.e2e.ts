@@ -11,7 +11,6 @@
  * - Verify ext API returns 403 after role removal
  *
  * @see ../../../docs/user-stories/core/realm-admin.md
- * @see .ai/task/api_key_and_role/demo/dev/DM-D02-role-assignment-demo.md
  */
 
 import { test, cleanupTestData, expect } from "../fixtures/demo-page.fixtures";

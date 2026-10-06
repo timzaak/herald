@@ -7,7 +7,7 @@
  *   a renewal payment attempt exists with provider_reference
  *   `creem_renewal:{ext_sub_id}:{tran_}`. This is the production-readiness layer
  *   for design §7 P1 risk (tran_ stability not yet verified on real Creem traffic)
- *   and tech-research .ai/tech-research/payment-invoice-mapping.md §5.5.
+ *   and docs/user-stories/billing/payment-invoice-mapping.md (tech-research §5.5, working layer).
  *   Does NOT count as full user-story coverage for US-PM-001/002.
  *
  *   IMPORTANT: Creem test mode does NOT expose a documented, scriptable
@@ -82,7 +82,7 @@
  * Design references:
  *   - Design §7 (P1 risk: last_transaction_id production stability unverified)
  *   - Design §6.2 (Creem test mode renewal + retry)
- *   - Tech research .ai/tech-research/payment-invoice-mapping.md §5.5
+ *   - Tech research §5.5 (working layer; story: docs/user-stories/billing/payment-invoice-mapping.md)
  *   - Backend renewal write path: backend/api-billing/src/webhook_handlers.rs:1203-1331
  *     (provider_reference = creem_renewal:{ext_sub_id}:{last_transaction_id};
  *      external_invoice_id = last_transaction_id)

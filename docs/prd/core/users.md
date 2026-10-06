@@ -19,6 +19,7 @@
 | US-RU-005 | 查看个人资料 | P1 | `docs/user-stories/core/regular-user.md` |
 | US-RU-006 | 修改个人昵称 | P1 | `docs/user-stories/core/regular-user.md` |
 | US-RU-007 | 退出登录 | P0 | `docs/user-stories/core/regular-user.md` |
+| US-RU-009 | 认证重定向流程 | P1 | `docs/user-stories/core/regular-user.md` |
 
 ---
 

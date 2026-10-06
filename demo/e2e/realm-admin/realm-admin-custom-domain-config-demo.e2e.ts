@@ -7,10 +7,10 @@
  *
  * ⚠️ 范围声明（OUT OF SCOPE / DEFERRED）：
  * 本测试只覆盖 config-admin 单次保存（PUT /config/custom-domain 的 UI 映射 + 持久后端状态）。
- * host→realm 路由相关的用户故事 —— US-CD-002（终端用户在自定义域名下完成 auth 流）、
- * US-CD-004（自定义域名与 path-based canonical 域名并存）以及 US-CD-005 中 host-resolution
- * 部分 —— 均 OUT OF SCOPE / DEFERRED。原因：host-mapping 机制已于 2026-07-09 回退，
- * 当前没有任何 host-based 公共入口可断言。authorize (ask) 门禁是独立 item 的职责，本测试不断言。
+ * 终端用户在自定义域名下完成 auth 流（旧 ID US-CD-002）与自定义域名/path-based canonical
+ * 域名并存（旧 ID US-CD-004）在现行故事体系（US-CD-001/003/005）中已无对应故事——
+ * host-mapping 机制已于 2026-07-09 回退，当前没有任何 host-based 公共入口可断言。
+ * US-CD-005（未授权域名访问的拒绝）的 authorize 证书门控是独立 item 的职责，本测试不断言。
  *
  * Teardown 策略：
  * 在 afterEach 中对每个被触及的 realm（admin / realm-001）通过 UI 驱动

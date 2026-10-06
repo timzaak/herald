@@ -7,7 +7,6 @@
  * - US-IV-011: Regular user applies for invoice
  * - US-IV-012: Admin reviews and issues user-applied invoice
  *
- * Design Doc: .ai/design/invoice.md
  * User Stories: docs/user-stories/billing/invoice.md
  *
  * Session switching:

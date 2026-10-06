@@ -2,12 +2,12 @@
  * Stripe Payment Comprehensive Demo Tests
  *
  * User Stories:
- * - docs/user-stories/billing/subscription.md:
- *   - US-BI-001: Sync Stripe Provider Products
- *   - US-BI-004: Configure Entitlement Mapping
- *   - US-BI-007: View Subscription Change History (Including Stripe Payment Events)
  * - docs/user-stories/billing/entitlement-mapping.md:
  *   - US-EM-001: View Provider Entitlement Mappings
+ *   - US-EM-002: Sync Stripe Provider Products (触发 Provider 产品同步)
+ *   - US-EM-004: Configure Entitlement Mapping (基于 Entitlement 应用积分策略)
+ * - docs/user-stories/billing/subscription.md:
+ *   - US-BI-008: View Subscription Change History (查看订阅变更历史)
  * - docs/user-stories/billing/payment-provider.md:
  *   - US-PV-001: Configure Stripe Payment Provider
  *   - US-PV-002: View Payment Provider Configuration
@@ -16,9 +16,9 @@
  * 1. Configure Stripe (Payment Providers page)
  * 2. Sync Stripe Products & View Entitlement Mappings
  * 3. Configure Entitlement Mapping (read provider-owned key, set points policy)
- * 4. Stripe Checkout Flow (API-level verification via entitlement key)
- * 5. Handle Checkout Failure (invalid entitlement key)
- * 6. View Subscription History (Stripe events)
+ * 4. Checkout API error path only: unknown entitlement mapping id → 404
+ *    (no real Stripe checkout happy path is driven in this demo)
+ * 5. View Subscription History (Stripe events)
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
@@ -84,7 +84,7 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
   // Scenario 2: Sync Stripe Products & View Entitlement Mappings
   // ============================================================================
 
-  test.describe('Scenario 2: Sync Stripe Products (US-EM-001)', () => {
+  test.describe('Scenario 2: Sync Stripe Products (US-EM-002)', () => {
     test('should sync Stripe products and display entitlement mappings', async ({ page, loginPage, demoLogger }) => {
       await test.step('Given: 管理员已登录', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', DEMO_ADMIN.realmId)
@@ -138,7 +138,7 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
   })
 
   // ============================================================================
-  // Scenario 3: Configure Entitlement Mapping (US-BI-004)
+  // Scenario 3: Configure Entitlement Mapping (US-EM-004)
   // The old detail dialog is gone; configuration happens inline in the
   // right-hand detail panel via the EntitlementMappingsPage POM
   // (selectProduct → configureFixedPointRule → saveChanges).
@@ -290,10 +290,10 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
   })
 
   // ============================================================================
-  // Scenario 5: View Subscription History (US-BI-007)
+  // Scenario 5: View Subscription History (US-BI-008)
   // ============================================================================
 
-  test.describe('Scenario 5: View Subscription History (US-BI-007)', () => {
+  test.describe('Scenario 5: View Subscription History (US-BI-008)', () => {
     test('should display subscription change history', async ({ page, loginPage, demoLogger }) => {
       await test.step('Given: 管理员已登录并配置 Stripe', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', DEMO_ADMIN.realmId)

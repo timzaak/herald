@@ -105,7 +105,7 @@
 - 详细接口契约与错误模型在技术设计文档中维护
 
 **前端 / 交互边界:**
-- **配置页入口**：管理后台 Settings 页面新增「品牌化」Tab（与现有 Turnstile / Registration / Email / TOTP / Passkey 等 Tab 同级），realmId 从 UI 上下文获取
+- **配置页入口**：管理后台 Settings 页面新增「品牌化」Tab（与 Registration / Email / TOTP / Passkey 等 Tab 同级），realmId 从 UI 上下文获取
 - **配置表单**：包含 logo URL、主色（accent color，颜色选择）、背景（图片 URL 或背景渐变）、页脚文案、登录/注册页标题与副标题文案等字段，支持保存草稿、实时预览、放弃草稿、发布和恢复上一版
 - **主色对比度反馈**：Admin 选择主色时实时计算对比度，低于 WCAG AA（≥4.5:1）显示警告文案但允许保存
 - **终端用户呈现**：登录、注册、忘记密码、邮箱验证、OAuth 同意、TOTP、passkey 等所有 auth 流页面经统一布局出口呈现品牌资产（logo 在头部、主色作用于主按钮与链接、背景作用于页面、页脚文案在底部、标题副标题文案替换默认）

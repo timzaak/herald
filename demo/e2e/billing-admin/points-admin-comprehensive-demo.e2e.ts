@@ -2,9 +2,9 @@
  * Points Admin Comprehensive Demo Tests
  *
  * User Stories:
- * - US-PO-02: View All User Wallets
- * - US-PO-03: View User Points Transaction History
- * - US-PO-06: Configure Realm Registration and Free Periodic Rules
+ * - US-PO-002: View All User Wallets
+ * - US-PO-003: View User Points Transaction History
+ * - US-PO-006: Configure Realm Registration and Free Periodic Rules
  *
  * User story sources:
  * - docs/user-stories/billing/points-admin.md
@@ -102,10 +102,10 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-PO-02: View All User Wallets
+  // User Story US-PO-002: View All User Wallets
   // ============================================================================
 
-  test.describe('US-PO-02: View All User Wallets', () => {
+  test.describe('US-PO-002: View All User Wallets', () => {
     test('should view and search user points accounts', async ({ page, loginPage }) => {
       await test.step('Given: 管理员已登录', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', DEMO_ADMIN.realmId)
@@ -140,10 +140,10 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-PO-03: View User Points Transaction History
+  // User Story US-PO-003: View User Points Transaction History
   // ============================================================================
 
-  test.describe('US-PO-03: View User Points Transaction History', () => {
+  test.describe('US-PO-003: View User Points Transaction History', () => {
     test('should view and filter user transaction history', async ({ page, loginPage }) => {
       await test.step('Given: 管理员已登录', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', DEMO_ADMIN.realmId)
@@ -178,7 +178,7 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
     })
   })
 
-  test.describe('US-PO-06: Configure Realm Registration and Free Periodic Rules', () => {
+  test.describe('US-PO-006: Configure Realm Registration and Free Periodic Rules', () => {
     test('should validate and persist a free periodic fixed rule', async ({
       page,
       loginPage,

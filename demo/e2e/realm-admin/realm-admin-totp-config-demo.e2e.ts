@@ -222,10 +222,10 @@ test.describe('[Realm Admin] TOTP 配置综合演示测试', () => {
   })
 
   // ============================================================================
-  // 用户故事 US-REG-001：Registration 配置管理
+  // 用户故事 US-RA-015：邮件依赖的功能开关前置验证（Registration Tab）
   // ============================================================================
 
-  test.describe('Registration 配置管理 [US-REG-001]', () => {
+  test.describe('Registration 配置管理 [US-RA-015]', () => {
     test('Registration 配置管理流程', async ({ page, demoLogger }) => {
       testStartTime = Date.now()
       settingsPage = new SettingsPage(page, demoLogger, realmId)

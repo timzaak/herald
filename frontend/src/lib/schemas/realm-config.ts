@@ -45,12 +45,6 @@ export const platformSignupConfigSchema = z.object({
   enabled: z.boolean(), // 是否允许公开自助开通 Realm
 })
 
-// Turnstile 配置 Schema
-export const turnstileConfigSchema = z.object({
-  siteKey: z.string(),
-  secretKey: z.string(),
-})
-
 // Email 配置 Schema
 export const emailConfigSchema = z.object({
   provider: z.enum(['resend', 'smtp']),
@@ -193,7 +187,6 @@ export type PasskeyConfigForm = z.infer<typeof passkeyConfigSchema>
 export type EmailOtpConfigForm = z.infer<typeof emailOtpConfigSchema>
 export type RegistrationConfigForm = z.infer<typeof registrationConfigSchema>
 export type PlatformSignupConfigForm = z.infer<typeof platformSignupConfigSchema>
-export type TurnstileConfigForm = z.infer<typeof turnstileConfigSchema>
 export type EmailConfigForm = z.infer<typeof emailConfigSchema>
 export type WhiteLabelBackgroundForm = z.infer<typeof whiteLabelBackgroundSchema>
 export type WhiteLabelConfigForm = z.infer<typeof whiteLabelConfigSchema>

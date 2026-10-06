@@ -13,7 +13,7 @@ import type { UnifiedLogger } from '../helpers/unified-logger'
  * The sidebar entry testid `sidebar-menu-credit-buckets` is i18n-derived
  * (sidebar.tsx derives it from the localized nav label) and differs per
  * locale. This POM navigates by route, NOT by clicking the sidebar testid.
- * See `.ai/design/credit-bucket.md` / demo/dev/dev.md loud notes.
+ * See docs/user-stories/billing/credit-bucket.md (bucket editor loud notes).
  *
  * User stories:
  * - US-CB-001: admin CRUD on the directory

@@ -9,7 +9,6 @@
  * - Scenario 1b: Switch Chinese -> English, verify text reverts
  * - Scenario 1c: Switched language persists across page navigation
  *
- * @see .ai/task/i18n/demo/dev/DE-D02-language-switching.md
  * @see docs/user-stories/core/i18n.md (US-I18N-001, US-I18N-003)
  */
 

@@ -41,6 +41,7 @@ const clientApp: ClientAppItem = {
   scopes: ['openid'],
   grantTypes: ['authorization_code'],
   realmId: REALM_ID,
+  isSystemBuiltin: false,
   createdAt: '2025-01-01T00:00:00Z',
   updatedAt: '2025-01-01T00:00:00Z',
 }

@@ -2,12 +2,11 @@
  * Points User Comprehensive Demo Tests (Optimized)
  *
  * User Stories:
- * - US-PU-01: View My Points Balance
- * - US-PU-02: View My Transaction History
- * - US-PU-03: Filter Transaction Records
+ * - US-PU-001: View My Points Balance
+ * - US-PU-002: View My Transaction History
+ * - US-PU-003: Filter Transaction Records
  *
- * Design Doc: .ai/design/points.md
- * User Stories: docs/user-stories/points-user-view.md
+ * User Stories: docs/user-stories/billing/points-user.md
  *
  * Optimization Notes:
  * - Tests consolidated using test.step() to reduce login overhead
@@ -50,10 +49,10 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-PU-01: View My Points Balance
+  // User Story US-PU-001: View My Points Balance
   // ============================================================================
 
-  test.describe('US-PU-01: View My Points Balance', () => {
+  test.describe('US-PU-001: View My Points Balance', () => {
     test('should view complete points balance information', async ({ page, loginPage, demoLogger }) => {
       // Consolidated 5 tests into 1 with test.step() for better performance
       // Single login and page load for all balance-related verifications
@@ -72,7 +71,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         // the loading skeleton / null-bucket fallback. The seed gives
         // user@realm-001.com balance in `primary-pool`, so at least one
         // bucket-grouped card renders. Asserted via the shared prefix locator
-        // (`firstBalanceCard`) to keep US-PU-01 intent ("my balance is
+        // (`firstBalanceCard`) to keep US-PU-001 intent ("my balance is
         // visible") without resolving a specific bucket UUID in this suite.
         await expect(page.locator(SELECTORS.pointsUser.firstBalanceCard)).toBeVisible({
           timeout: 15000,
@@ -81,20 +80,20 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         // `points-wallet-status` (accountStatus) testids were REMOVED by the
         // credit-bucket UI refactor — the bucket-grouped card now shows the
         // total inline (`points-balance-total-${bucketId}`) and has no
-        // separate "wallet status" element. The original US-PU-01 assertions
+        // separate "wallet status" element. The original US-PU-001 assertions
         // on those testids are dropped here (bucket-aware replacement above).
         // A per-bucket total assertion lives in DE-D03
         // (credit-bucket-balance-history-demo) which resolves the bucket UUID.
         demoLogger.testCode.log('[Test] ✓ Balance card displayed (bucket-grouped)')
       })
 
-      await test.step('Verify: Account status details', async () => {
+      await test.step('Document: Account status details (no assertion in this suite)', async () => {
         // LOUD NOTE (DE-D07): the `points-wallet-status` testid no longer
-        // exists in the bucket-aware UI. The original US-PU-01 "account
+        // exists in the bucket-aware UI. The original US-PU-001 "account
         // status" intent is now expressed per-bucket via the disabled badge
         // (`points-balance-card-disabled-${bucketId}`) on disabled buckets —
         // covered by DE-D02 directory tests, not this comprehensive suite.
-        // Kept as a documentation step so the original US-PU-01 scenario
+        // Kept as a documentation step so the original US-PU-001 scenario
         // mapping is preserved for accept audit.
         demoLogger.testCode.info(
           '[Test] ℹ Account-status testid removed by credit-bucket UI; ' +
@@ -131,10 +130,10 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-PU-02: View My Transaction History
+  // User Story US-PU-002: View My Transaction History
   // ============================================================================
 
-  test.describe('US-PU-02: View My Transaction History', () => {
+  test.describe('US-PU-002: View My Transaction History', () => {
     test('should view transaction history with pagination', async ({ page, loginPage, demoLogger }) => {
       // Consolidated: view + order + pagination into single test with test.step()
 
@@ -157,7 +156,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         demoLogger.testCode.log('[Test] ✓ Transactions ordered by time (descending)')
       })
 
-      await test.step('Verify: Pagination controls and behavior (US-PU-02 Scenario 5)', async () => {
+      await test.step('Verify: Pagination controls and behavior (US-PU-002 Scenario 5)', async () => {
         const pagination = page.locator('[data-testid="transaction-pagination"]')
         const isVisible = await pagination.isVisible().catch(() => false)
 
@@ -210,13 +209,13 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         demoLogger.testCode.log('[Test] ✓ Export button clicked')
       })
 
-      await test.step('Then: Verify export functionality (US-PU-02 Scenario 6)', async () => {
+      await test.step('Then: Verify export functionality (US-PU-002 Scenario 6)', async () => {
         // Verify export is initiated
         // Expected: CSV or Excel file download starts
         // File contains all transaction records
 
-        // Document expected export behavior per US-PU-02 Scenario 6
-        demoLogger.testCode.info('[Test] ℹ Expected behavior (US-PU-02 Scenario 6):')
+        // Document expected export behavior per US-PU-002 Scenario 6
+        demoLogger.testCode.info('[Test] ℹ Expected behavior (US-PU-002 Scenario 6):')
         demoLogger.testCode.info('[Test] ℹ - Clicking export button triggers file download')
         demoLogger.testCode.info('[Test] ℹ - File format: CSV or Excel (.xlsx)')
         demoLogger.testCode.info('[Test] ℹ - File contains ALL transaction records (not just current page)')
@@ -229,10 +228,10 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-PU-03: Filter Transaction Records
+  // User Story US-PU-003: Filter Transaction Records
   // ============================================================================
 
-  test.describe('US-PU-03: Filter Transaction Records', () => {
+  test.describe('US-PU-003: Filter Transaction Records', () => {
     test('should apply individual filters', async ({ page, loginPage, demoLogger }) => {
       // Consolidated: type filters + time filters into single test with test.step()
 
@@ -353,7 +352,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
 
     test('should document source filter behavior (admin-only)', async ({ page, loginPage, demoLogger }) => {
       // Documentation test for admin-only feature
-      // Per user stories (docs/user-stories/points-user-view.md),
+      // Per user stories (docs/user-stories/billing/points-user.md),
       // source filter by Client App ID is an ADMIN-ONLY feature
 
       await test.step('Setup: Login and navigate to transaction history', async () => {
@@ -364,7 +363,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
 
       await test.step('Document: Source filter is admin-only feature', async () => {
         // User story clarification:
-        // - US-PU-03 Scenario 5 describes "filter by transaction source"
+        // - US-PU-003 Scenario 5 describes "filter by transaction source"
         // - However, user stories specify this is for admins only
         // - Regular users (tenant users) cannot filter by client app
         //
@@ -384,9 +383,9 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-FU-01: Registration with Initial Points
-  // User Story US-FU-02: Daily Points Grant
-  // User Story US-FU-03: Upgrade to Paid Plan
+  // User Story US-FU-001: Registration with Initial Points
+  // User Story US-FU-002: Daily Points Grant
+  // User Story US-FU-003: Upgrade to Paid Plan
   // ============================================================================
 
   // TODO: Skip until backend implements automatic points grant on registration
@@ -457,11 +456,11 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
   })
 
   // ============================================================================
-  // User Story US-FU-01/02/03: Free User Points Experience
+  // User Story US-FU-001/02/03: Free User Points Experience
   // ============================================================================
 
-  test.describe.skip('Free User Points Experience (US-FU-01/02/03)', () => {
-    test('should receive registration and periodic points on signup (US-FU-01/02)', async ({ page, loginPage, demoLogger, testStartTime }) => {
+  test.describe.skip('Free User Points Experience (US-FU-001/02/03)', () => {
+    test('should receive registration and periodic points on signup (US-FU-001/02)', async ({ page, loginPage, demoLogger, testStartTime }) => {
       const email = generateTestEmail(testStartTime)
 
       await test.step('Given: 新用户注册', async () => {
@@ -476,7 +475,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         demoLogger.testCode.log('[Test] ✓ Navigated to points page')
       })
 
-      await test.step('Then: 验证注册初始积分（US-FU-01）', async () => {
+      await test.step('Then: 验证注册初始积分（US-FU-001）', async () => {
         // 验证注册初始积分：1000 积分，永久有效
         await expect(page.getByText(/注册初始积分|registration.*credit/i)).toBeVisible()
         await expect(page.getByText('1000')).toBeVisible()
@@ -484,7 +483,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         demoLogger.testCode.log('[Test] ✓ Registration bonus points verified (1000, permanent)')
       })
 
-      await test.step('Then: 验证定期积分首次发放（US-FU-02）', async () => {
+      await test.step('Then: 验证定期积分首次发放（US-FU-002）', async () => {
         // 验证定期积分：50 积分，有效期 1 天
         await expect(page.getByText(/免费定期积分|free.*periodic.*credit/i)).toBeVisible()
         await expect(page.getByText('50')).toBeVisible()
@@ -512,7 +511,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
       })
     })
 
-    test('should handle different periodic grant periods (US-FU-02)', async ({ page, loginPage, demoLogger, testStartTime }) => {
+    test('should handle different periodic grant periods (US-FU-002)', async ({ page, loginPage, demoLogger, testStartTime }) => {
       // 注意：此测试依赖 Realm 配置的周期类型
       // 默认为 daily，但如果 Realm 配置为 once/weekly/monthly，测试会相应验证
 
@@ -552,7 +551,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
       })
     })
 
-    test('should preserve registration points on subscription upgrade (US-FU-03)', async ({ page, loginPage, demoLogger, testStartTime }) => {
+    test('should preserve registration points on subscription upgrade (US-FU-003)', async ({ page, loginPage, demoLogger, testStartTime }) => {
       // 注意：此测试需要订阅功能支持
       // 如果订阅流程未实现，此测试将仅验证当前状态
 
@@ -574,7 +573,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         // LOUD NOTE (DE-D07): `points-balance` (balanceAmount) testid was
         // removed by the credit-bucket UI; read the bucket-grouped card's
         // total text instead (best-effort log only — not asserted, matching
-        // the original US-FU-03 doc-test intent).
+        // the original US-FU-003 doc-test intent).
         const balanceBefore = await page
           .locator(SELECTORS.pointsUser.firstBalanceCard)
           .textContent()
@@ -582,7 +581,7 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
       })
 
       await test.step('Document: 升级流程说明', async () => {
-        demoLogger.testCode.info('[Test] ℹ Upgrade flow (US-FU-03):')
+        demoLogger.testCode.info('[Test] ℹ Upgrade flow (US-FU-003):')
         demoLogger.testCode.info('[Test] ℹ 1. User subscribes to a paid plan')
         demoLogger.testCode.info('[Test] ℹ 2. Registration credit (1000) is preserved')
         demoLogger.testCode.info('[Test] ℹ 3. Free periodic credit (50) is immediately revoked')

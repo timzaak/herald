@@ -5,7 +5,6 @@
  * - US-IF-005: Regular user views external provider invoices
  * - US-IF-006: Download external invoice PDF or view provider page
  *
- * Design Doc: .ai/design/invoice-fallback.md Section 4.4
  * User Stories: docs/user-stories/billing/invoice-fallback.md
  *
  * Session switching:

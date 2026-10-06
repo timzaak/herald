@@ -5,7 +5,7 @@
  * - US-WO-001: WeChat OAuth Provider 配置
  * - US-WO-002: WeChat Mini Program Provider 配置
  *
- * Design Doc: .ai/design/wechat-oauth.md
+ * User Stories: docs/user-stories/auth/wechat-oauth.md
  *
  * Test Phases:
  * - Phase 1: WeChat Provider configuration

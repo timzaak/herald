@@ -3,7 +3,7 @@
  *
  * Shared helper functions for the Grant Points feature demo tests.
  * Covers two user stories:
- * - US-PO-08: Admin grants points to a user via UI dialog
+ * - US-PO-008: Admin grants points to a user via UI dialog
  * - US-TP-017: SDK grants points via ext API
  *
  * Selectors are imported from `../selectors` (single source of truth).
@@ -72,7 +72,7 @@ export interface ApiKeyWithPermission {
 }
 
 // ============================================================================
-// UI Flow Helpers (US-PO-08)
+// UI Flow Helpers (US-PO-008)
 // ============================================================================
 
 /**

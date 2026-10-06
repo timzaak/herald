@@ -28,19 +28,9 @@ import type { SubscriptionListItemResponse, SubscriptionListResponse } from '@/l
 
 const PAGE_SIZE = 20
 
-const STATUS_FILTER_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'active', label: 'Active' },
-  { value: 'past_due', label: 'Past Due' },
-  { value: 'canceled', label: 'Canceled' },
-  { value: 'expired', label: 'Expired' },
-] as const
+const STATUS_FILTER_OPTIONS = ['all', 'active', 'past_due', 'canceled', 'expired'] as const
 
-const PROVIDER_FILTER_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'stripe', label: 'Stripe' },
-  { value: 'creem', label: 'Creem' },
-] as const
+const PROVIDER_FILTER_OPTIONS = ['all', 'stripe', 'creem'] as const
 
 function getStatusBadgeClass(status: string): string {
   switch (status) {
@@ -154,12 +144,14 @@ export function AdminSubscriptionListPage({
           }
         >
           <SelectTrigger className="w-[160px]" data-testid="status-filter-select">
-            <SelectValue placeholder="All Statuses" />
+            <SelectValue placeholder={m['billing.subscription_filter_all_statuses']()} />
           </SelectTrigger>
           <SelectContent>
-            {STATUS_FILTER_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.value === 'all' ? m['billing.subscription_filter_all_statuses']() : opt.label}
+            {STATUS_FILTER_OPTIONS.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value === 'all'
+                  ? m['billing.subscription_filter_all_statuses']()
+                  : formatStatusLabel(value)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -172,12 +164,14 @@ export function AdminSubscriptionListPage({
           }
         >
           <SelectTrigger className="w-[160px]" data-testid="payment-provider-filter-select">
-            <SelectValue placeholder="All Providers" />
+            <SelectValue placeholder={m['billing.subscription_filter_all_providers']()} />
           </SelectTrigger>
           <SelectContent>
-            {PROVIDER_FILTER_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+            {PROVIDER_FILTER_OPTIONS.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value === 'all'
+                  ? m['billing.subscription_filter_all_providers']()
+                  : formatProviderName(value)}
               </SelectItem>
             ))}
           </SelectContent>

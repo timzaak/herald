@@ -18,7 +18,7 @@ export interface ResolvedRealmContext {
  * Session-scoped routes carry no realm in the URL — their realm is read from
  * the session store. The root loader must NOT treat these as "realm root"
  * paths (which would redirect an authenticated admin back to `/manage`,
- * creating a self-redirect loop). See `.ai/future/f1.md`.
+ * creating a self-redirect loop). Route-tree conventions: `frontend/README.md`.
  */
 export function isSessionScopedPath(pathname: string): boolean {
   return SESSION_SCOPED_ROOT_SEGMENTS.has(firstPathSegment(pathname) ?? '')

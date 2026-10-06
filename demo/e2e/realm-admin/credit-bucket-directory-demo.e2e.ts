@@ -71,7 +71,7 @@ const REALM_ID = CREDIT_BUCKET_REALMS.POINTS
 
 /**
  * Design truth: NO `isDefault` / `set-default` / `default-bucket` control
- * exists anywhere in the Bucket editor (`.ai/design/credit-bucket.md` +
+ * exists anywhere in the Bucket editor (docs/user-stories/billing/credit-bucket.md;
  * `frontend/src/components/billing/credit-bucket/*.tsx` — verified by grep:
  * no `data-testid` matching these patterns is emitted). The test below asserts
  * this absence with a negative locator so a future regression that reintroduces

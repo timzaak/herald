@@ -1,7 +1,7 @@
 /**
  * Live One-Time Mapping Purchase Flow Test
  *
- * Related User Stories: US-PU-006, US-PU-06 S2, US-PA-001, US-PA-002
+ * Related User Stories: US-PU-006, US-PU-006 S2, US-PA-001, US-PA-002
  * Coverage: partial live smoke; Stripe/Creem redirect initiation,
  *   payment state recovery after page refresh.
  * Not Covered: payment completion via webhook callback, points fulfillment, expired/failed

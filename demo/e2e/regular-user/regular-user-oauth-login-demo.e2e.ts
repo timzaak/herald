@@ -4,7 +4,7 @@
  * User Stories:
  * - US-RU-003: OAuth 第三方登录
  *
- * Design Doc: .ai/design/oauth-config-frontend-and-demo.md
+ * User Stories: docs/user-stories/core/regular-user.md
  *
  * Test Coverage:
  * - OAuth Login button visibility when providers are enabled

@@ -11,12 +11,12 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| — | 注册同意 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
-| — | 登录同意 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
-| — | 协议更新后重新同意 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
-| — | 自助注销账户 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
-| — | 查看协议 | P1 | `docs/user-stories/core/legal-consent-account-deletion.md` |
-| — | Realm Admin 协议管理 | P1 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RU-011 | 注册时同意用户协议与隐私政策 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RU-015 | 登录时确认同意用户协议与隐私政策 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RU-012 | 协议更新后重新同意 | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RU-014 | 自助注销账户（软删除） | P0 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RU-013 | 查看当前生效的用户协议与隐私政策 | P1 | `docs/user-stories/core/legal-consent-account-deletion.md` |
+| US-RA-019 | 管理本 Realm 的用户协议与隐私政策 | P1 | `docs/user-stories/core/legal-consent-account-deletion.md` |
 | US-RU-001 | 账号注册（注册流程嵌入同意闸门） | — | `docs/user-stories/core/regular-user.md` |
 | US-RU-002 | 账号登录（登录嵌入同意选项） | — | `docs/user-stories/core/regular-user.md` |
 | US-RU-007 | 退出登录（注销账户的关联入口） | — | `docs/user-stories/core/regular-user.md` |

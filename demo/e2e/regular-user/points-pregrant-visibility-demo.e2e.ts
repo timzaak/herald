@@ -11,7 +11,7 @@
  *   regular user's visible balance and is NOT consumable until `effective_at
  *   <= NOW()`. `effective_at` is admin/audit-only.
  *
- * Feature backend design (`.ai/design/point-time.md`): pure backend, zero
+ * Feature backend design (story US-PU-009, docs/user-stories/billing/points-user.md): pure backend, zero
  * frontend changes (PRD §7/§8). Both the derived balance and the consumption
  * selection predicate gate on
  *   (effective_at IS NULL OR effective_at <= NOW())
@@ -69,7 +69,7 @@
  * Backend contract verified against:
  * - backend/api-ext/src/points.rs (consume 409 `insufficient_points` body
  *   shape: { code, message, have, need }).
- * - .ai/design/point-time.md (derived balance + consume predicate
+ * - docs/user-stories/billing/points-user.md US-PU-009 (derived balance + consume predicate
  *   both gate on effective_at).
  *
  * Assertion discipline: assertions 1 & 2 land on persistent UI state
@@ -550,7 +550,7 @@ test.describe('[Regular User / SDK] 预发未来生效积分对普通用户不�
   }) => {
     // LOUD NOTE — assertion 3 SKIPPED at runtime with justification.
     //
-    // The point-time design (`.ai/design/point-time.md`) exposes
+    // The point-time design (US-PU-009, docs/user-stories/billing/points-user.md) exposes
     // `effective_at` to admins/auditors ONLY via `PointsTransactionResponse`
     // (admin path fills it; `points.view` path forces it to None + skips
     // serialization). But the seed inserts the pregrant as a LEDGER row

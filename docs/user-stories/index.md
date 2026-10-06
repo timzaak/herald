@@ -69,13 +69,13 @@
 | US-RA-021 | 禁用用户时即时撤销其全部活跃会话 | Realm Admin | P1 | [core/realm-admin](core/realm-admin.md#故事-20禁用用户时即时撤销其全部活跃会话-us-ra-021) |
 | US-RU-001 | 账号注册 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-1账号注册-us-ru-001) |
 | US-RU-002 | 账号登录 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-2账号登录-us-ru-002) |
-| US-RU-003 | OAuth 第三方登录 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-3oauth-第三方登录-us-ru-003) |
-| US-RU-004 | 修改个人密码 | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-4修改个人密码-us-ru-004) |
+| US-RU-003 | OAuth 第三方登录 | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-3oauth-第三方登录-us-ru-003) |
+| US-RU-004 | 修改个人密码 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-4修改个人密码-us-ru-004) |
 | US-RU-005 | 查看个人资料 | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-5查看个人资料-us-ru-005) |
-| US-RU-006 | 修改个人昵称 | Regular User | P2 | [core/regular-user](core/regular-user.md#故事-6修改个人昵称-us-ru-006) |
-| US-RU-007 | 退出登录 | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-7退出登录-us-ru-007) |
+| US-RU-006 | 修改个人昵称 | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-6修改个人昵称-us-ru-006) |
+| US-RU-007 | 退出登录 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-7退出登录-us-ru-007) |
 | US-RU-008 | 访问第三方应用（SSO） | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-8访问第三方应用-us-ru-008) |
-| US-RU-009 | 认证重定向流程 | All Users | P0 | [core/regular-user](core/regular-user.md#故事-9认证重定向流程-us-ru-009) |
+| US-RU-009 | 认证重定向流程 | All Users | P1 | [core/regular-user](core/regular-user.md#故事-9认证重定向流程-us-ru-009) |
 | US-RU-010 | 从第三方 Web 应用跳转登录 | Regular User | P0 | [core/regular-user](core/regular-user.md#故事-10从第三方-web-应用跳转登录-us-ru-010) |
 | US-RU-011 | 注册时同意用户协议与隐私政策 | Regular User | P0 | [core/legal-consent-account-deletion](core/legal-consent-account-deletion.md#故事-11注册时同意用户协议与隐私政策-us-ru-011) |
 | US-RU-012 | 协议更新后重新同意 | Regular User | P0 | [core/legal-consent-account-deletion](core/legal-consent-account-deletion.md#故事-12协议更新后重新同意-us-ru-012) |

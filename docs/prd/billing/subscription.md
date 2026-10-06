@@ -15,11 +15,12 @@
 | US-EM-007～009 | 多价格同步配置、Webhook 解析与指定价格购买 | — | `docs/user-stories/billing/entitlement-mapping.md` |
 | US-BL-SYNC-001～004 | Stripe metadata、产品名、价格单位与计费周期同步展示 | — | `docs/user-stories/billing/entitlement-mapping.md` |
 | US-WC-001～002 | 定时检测缺失 Webhook 事件与补偿幂等性 | — | `docs/user-stories/billing/webhook-compensation.md` |
+| US-PA-005 | 用户自助取消支付尝试 | P1 | `docs/user-stories/billing/payment-attempt.md` |
 | US-BI-006 | 查看订阅列表 | P0 | `docs/user-stories/billing/subscription.md` |
 | US-BI-007 | 第三方应用查询套餐状态 | P0 | `docs/user-stories/billing/subscription.md` |
 | US-BI-008 | 查看订阅变更历史 | P1 | `docs/user-stories/billing/subscription.md` |
 | US-BI-009 | 查看自己的订阅变更历史 | P1 | `docs/user-stories/billing/subscription.md` |
-| — | Realm Admin 订阅套餐管理 | P0 | `docs/user-stories/core/realm-admin.md` |
+| US-RA-008 | 订阅套餐管理（现行口径：Provider 商品同步 + Entitlement 映射配置，不提供本地套餐 CRUD/Client App 套餐分配） | P0 | `docs/user-stories/core/realm-admin.md` |
 
 ---
 

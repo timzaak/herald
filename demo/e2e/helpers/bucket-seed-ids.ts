@@ -13,7 +13,7 @@
  * - Exactly one bucket per realm is the registration pool
  *   (`receives_registration_credits = true`). That is the `REGISTRATION_POOL`
  *   key below. Registration / free-periodic grants target this bucket
- *   (`.ai/design/credit-bucket.md`).
+ *   (docs/user-stories/billing/credit-bucket.md).
  * - The legacy `default` key was the single-bucket predecessor; the directory
  *   now seeds `primary-pool` (registration) + `promo-pool` (secondary). Tests
  *   that need a deterministic non-registration bucket use `SECONDARY_POOL`.

@@ -367,41 +367,33 @@ And 拥有 "user-admin" 角色的用户无法再管理用户资源
 
 **优先级**: P0
 
+> **边界说明（按 [docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md) §4.1 编目边界改写）**：商品与价格生命周期由支付平台管理；Herald **不维护本地 Product/Plan**，不提供本地创建套餐（Create Plan）、套餐删除、升降级或 Client App 套餐分配能力。原「本地 Create Plan / Assign 到 Client App」场景与 PRD 冲突，已改写为现行能力：套餐选项 = Provider 商品同步 + Herald 侧 Entitlement 映射配置。
+
 **【用户故事】**
 **作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
-**我希望**：管理订阅套餐，以便为用户提供不同的订阅选项
+**我希望**：通过支付平台同步商品并在 Herald 配置权益映射，以便为用户提供不同的订阅选项
 **从而**：实现灵活的订阅计费模式
 
 **【验收标准】**
 
 > 验收标准只描述用户动作与可见结果，不写 API 路径、数据表、字段变更、技术实现步骤。
 
-**场景 1：创建订阅套餐**
+**场景 1：同步 Provider 商品并查看映射列表**
 ```gherkin
 Given 我是 realm-1 的管理员
-When 我在 Billing 管理页面点击 "Create Plan" 按钮
-And 我填写套餐信息：
-  | Name         | basic                |
-  | Title        | 基础版               |
-  | Description  | 适合小型团队          |
-  | Type         | monthly              |
-  | Price        | 1000                 |
-  | Currency     | USD                  |
-And 我提交表单
-Then 订阅套餐创建成功
-And 套餐列表显示新创建的套餐
+And realm-1 已配置 Stripe/Creem 支付平台
+When 我在 Billing 管理页面触发 Provider 产品同步
+Then 同步的商品与价格出现在 Entitlement 映射列表中
+（详细验收见 [US-EM-002](/docs/user-stories/billing/entitlement-mapping.md)）
 ```
 
-**场景 2：分配套餐到 Client App**
+**场景 2：为映射配置积分策略**
 ```gherkin
 Given 我是 realm-1 的管理员
-And 已存在套餐 "basic"
-And 已存在 Client App "mobile-app"
-When 我在套餐管理页面点击 "Assign" 按钮
-And 我选择 "mobile-app"
-And 我保存分配
-Then 套餐分配成功
-And "mobile-app" 的用户可以看到 "basic" 套餐
+And 映射列表中存在某 Provider 商品对应的映射条目
+When 我在该映射上配置积分策略并保存
+Then 该商品的购买/续费事件按此策略发放积分
+（详细验收见 [US-EM-004](/docs/user-stories/billing/entitlement-mapping.md)）
 ```
 
 **场景 3：查看订阅列表**
@@ -410,6 +402,7 @@ Given 我是 realm-1 的管理员
 When 我访问订阅管理页面
 Then 我看到订阅列表
 And 列表包含用户、套餐、状态、计费周期等信息
+（详细验收见 [US-BI-006](/docs/user-stories/billing/subscription.md)）
 ```
 
 ---

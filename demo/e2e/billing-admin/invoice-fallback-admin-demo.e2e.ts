@@ -7,7 +7,7 @@
  * - US-IF-004: Admin views external provider invoices with provider column,
  *   provider filter, and readonly actions
  *
- * Design Doc: .ai/design/invoice-fallback.md Section 4.4
+ * User Stories: docs/user-stories/billing/invoice-fallback.md
  *
  * Coverage gaps (accepted, better suited for backend integration tests):
  * - US-IF-001 Scenario 4: Creem MoR override protection

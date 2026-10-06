@@ -234,7 +234,7 @@
 - API Keys 页面：有 `api_keys.view` 但无 `api_keys.manage` 时能查看列表，管理按钮不可用
 - 前端不做 `*` 或其他前端特例判断，权限检查结果以后端为准
 
-**菜单权限映射**:
+**菜单权限映射**（与 `frontend/src/components/admin/sidebar.tsx` 的分组一致；billing/points 子菜单除权限外还受 feature 可用性门控，任一门不通过即不显示）:
 
 | 菜单 | 权限 |
 |-------|------|
@@ -242,16 +242,17 @@
 | Realms | `realm.view`（仅 admin realm） |
 | Clients | `clients.view` |
 | Users | `users.view` |
-| Permissions | `permissions.view` |
-| Roles | `roles.view` |
-| API Keys | `api_keys.view` |
-| Products | `billing.view` |
-| Payment Providers | `billing.view` |
-| Subscription Plans | `billing.view` |
-| Points Rules | `points.view` |
-| Invoices | `billing.view` |
-| Subscription History | `billing.view` |
-| Points Wallets | `points.view` |
+| Authorization › Permissions | `permissions.view` |
+| Authorization › Roles | `roles.view` |
+| Authorization › API Keys | `api_keys.view` |
+| Products & Payments › Payment Providers | `billing.view` ＋ feature `billingConfigVisible` |
+| Products & Payments › Entitlement Mappings | `billing.view` ＋ feature `entitlementMappingsVisible` |
+| Products & Payments › Registration Rules | `points.view` ＋ feature `pointsVisible` |
+| Products & Payments › Credit Buckets | `points.view` ＋ feature `pointsVisible` |
+| Transactions › Invoices | `billing.view` ＋ feature `invoicesVisible` |
+| Transactions › Subscription History | `billing.view` ＋ feature `subscriptionHistoryVisible` |
+| Transactions › Points Wallets | `points.view` ＋ feature `pointsVisible` |
+| Transactions › Statistics | `billing.view` / `points.view` 任一 |
 | Audit Log | `audit.view` |
 | Settings | `settings.view` |
 

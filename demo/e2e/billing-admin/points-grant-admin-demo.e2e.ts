@@ -1,8 +1,8 @@
 /**
- * Points Grant Admin Demo Tests (US-PO-08)
+ * Points Grant Admin Demo Tests (US-PO-008)
  *
  * Tests the Admin Grant Points UI dialog on the Points Wallets page.
- * Covers US-PO-08 scenarios 1-6 from docs/user-stories/billing/points-admin.md (Story 8).
+ * Covers US-PO-008 scenarios 1-6 from docs/user-stories/billing/points-admin.md (Story 8).
  *
  * Scenarios:
  * - S1: Grant points with validity days (happy path)
@@ -13,7 +13,6 @@
  * - S6: Reason required validation (client-side)
  *
  * @see docs/user-stories/billing/points-admin.md (Story 8)
- * @see .ai/design/points-grant.md
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
@@ -27,7 +26,7 @@ import {
 import { SELECTORS } from '../selectors'
 import { CREDIT_BUCKET_NAMES, REGISTRATION_POOL_KEY } from '../helpers/bucket-seed-ids'
 
-test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
+test.describe('[Points Admin] Grant Points Demo Tests (US-PO-008)', () => {
   let testStartTime: number
 
   test.beforeEach(async ({ page }) => {
@@ -46,10 +45,10 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 1: Grant points with validity days
+  // US-PO-008 Scenario 1: Grant points with validity days
   // ==========================================================================
 
-  test('should grant points with validity days to a user (US-PO-08 S1)', async ({
+  test('should grant points with validity days to a user (US-PO-008 S1)', async ({
     page,
     loginPage,
     demoLogger,
@@ -68,7 +67,7 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
         reason: 'Event reward',
         // bucketId is required. The admin realm is
         // seeded with `primary-pool` (the registration pool); targeting it keeps
-        // US-PO-08 S1 intent (grant-with-validity lands for the user) intact.
+        // US-PO-008 S1 intent (grant-with-validity lands for the user) intact.
         bucketId: REGISTRATION_POOL_KEY,
       })
       await confirmGrantDialog(page)
@@ -82,10 +81,10 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 2: Grant permanent points
+  // US-PO-008 Scenario 2: Grant permanent points
   // ==========================================================================
 
-  test('should grant permanent points to a user (US-PO-08 S2)', async ({
+  test('should grant permanent points to a user (US-PO-008 S2)', async ({
     page,
     loginPage,
     demoLogger,
@@ -116,9 +115,9 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 3: Amount auto-correction prevents invalid input
+  // US-PO-008 Scenario 3: Amount auto-correction prevents invalid input
   //
-  // NOTE: US-PO-08 S3 says "display validation error" but the actual frontend
+  // NOTE: US-PO-008 S3 says "display validation error" but the actual frontend
   // implementation uses Number() coercion in NumberField onChange, which
   // converts 0 to 0 (passed to Zod). However, the form default is 1 and the
   // Zod schema has min(1), so submitting 0 would trigger Zod validation.
@@ -127,7 +126,7 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   // The acceptance report should flag this discrepancy for user story reconciliation.
   // ==========================================================================
 
-  test('should auto-correct or reject invalid amount input (US-PO-08 S3)', async ({
+  test('should auto-correct or reject invalid amount input (US-PO-008 S3)', async ({
     page,
     loginPage,
     demoLogger,
@@ -191,10 +190,10 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 6: Reason required validation
+  // US-PO-008 Scenario 6: Reason required validation
   // ==========================================================================
 
-  test('should show validation error when reason is empty (US-PO-08 S6)', async ({
+  test('should show validation error when reason is empty (US-PO-008 S6)', async ({
     page,
     loginPage,
     demoLogger,
@@ -254,13 +253,13 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 4: Server error for non-existent user via admin UI
+  // US-PO-008 Scenario 4: Server error for non-existent user via admin UI
   //
   // Uses page.route() to intercept the POST grant request and modify the userId
   // to a non-existent UUID, testing the full admin UI -> backend -> error display chain.
   // ==========================================================================
 
-  test('should display server error when granting points to non-existent user (US-PO-08 S4)', async ({
+  test('should display server error when granting points to non-existent user (US-PO-008 S4)', async ({
     page,
     loginPage,
     demoLogger,
@@ -333,13 +332,13 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-08)', () => {
   })
 
   // ==========================================================================
-  // US-PO-08 Scenario 5: Cross-realm user rejected via admin UI
+  // US-PO-008 Scenario 5: Cross-realm user rejected via admin UI
   //
   // Uses page.route() to intercept the POST grant request and replace the userId
   // with a cross-realm user ID, testing the admin UI cross-realm rejection path.
   // ==========================================================================
 
-  test('should display permission denied error for cross-realm user (US-PO-08 S5)', async ({
+  test('should display permission denied error for cross-realm user (US-PO-008 S5)', async ({
     page,
     loginPage,
     demoLogger,

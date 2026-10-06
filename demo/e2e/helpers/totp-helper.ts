@@ -5,7 +5,7 @@
  * Implements RFC 6238 TOTP algorithm with HMAC-SHA256 (backend compatible).
  *
  * @see https://tools.ietf.org/html/rfc6238
- * @see .ai/design/totp-authentication-frontend-and-demo.md
+ * @see docs/user-stories/auth/totp.md
  */
 
 import crypto from 'crypto'

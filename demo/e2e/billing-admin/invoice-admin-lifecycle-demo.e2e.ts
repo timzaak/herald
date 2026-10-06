@@ -8,7 +8,7 @@
  * - US-IV-006: Void invoice (draft/issued -> void)
  * - US-IV-007: Mark invoice as paid (issued/overdue -> paid)
  *
- * Design Doc: .ai/design/invoice.md
+ * User Stories: docs/user-stories/billing/invoice.md
  *
  * UnifiedLogger Usage:
  * - All tests use UnifiedLogger through 'demoLogger' fixture

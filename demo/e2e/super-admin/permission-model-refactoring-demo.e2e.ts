@@ -10,9 +10,13 @@
  * - New permissions exist: dashboard.view, audit.view, api_keys.view, realm.manage
  * - Legacy permissions absent: realm.create, realm.admin
  * - Built-in permissions are protected (badge present, delete disabled)
- * - Sidebar menus gated by new permissions
- * - QuickNav items filtered by permission
+ * - Sidebar menus visible under full admin permissions (positive path only)
+ * - QuickNav items visible under full admin permissions (positive path only)
  * - Dashboard stats render under dashboard.view
+ *
+ * 范围声明：本 demo 以全权限 admin 登录，只做「有权限→可见」的正向断言；
+ * 「无权限→菜单/QuickNav 隐藏」的过滤负向断言不在本文件覆盖范围，
+ * 且当前 demo 体系内无其他文件承接该负向路径（US-RA-012 过滤断言为已知缺口）。
  *
  * @note Uses single browser session pattern (one test with multiple steps)
  */

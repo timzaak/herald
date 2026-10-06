@@ -6,7 +6,6 @@
  * - Scenario 3: Browser language zh defaults to Chinese (via localStorage simulation)
  * - Scenario 4: Unsupported locale falls back to English
  *
- * @see .ai/task/i18n/demo/dev/DE-D04-persistence-detection.md
  * @see docs/user-stories/core/i18n.md (US-I18N-001)
  */
 

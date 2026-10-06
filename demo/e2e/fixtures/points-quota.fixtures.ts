@@ -5,8 +5,8 @@
  * demo E2E suite (DE-D02..DE-D06).
  *
  * Sources:
- * - `.ai/task/points-grant-redesign/frontend/accept/FE-A07-report.md`
- * - `.ai/design/points-grant-redesign.md` §4.2.2 / §4.4.3
+ * - docs/user-stories/billing/points-user.md (US-PU-010, converged testid contract)
+ * - quota-window semantics per US-PU-010 acceptance scenarios
  * - `scripts/lib/demo_seed.py` (seeded realm / users / entitlement mappings)
  */
 

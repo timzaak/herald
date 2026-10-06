@@ -6,7 +6,7 @@
  * - US-IV-004: View invoice detail with line items, amounts, and status history
  * - Status-dependent action menu visibility
  *
- * Design Doc: .ai/design/invoice.md
+ * User Stories: docs/user-stories/billing/invoice.md
  *
  * UnifiedLogger Usage:
  * - All tests use UnifiedLogger through 'demoLogger' fixture

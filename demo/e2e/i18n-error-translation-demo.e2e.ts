@@ -12,7 +12,6 @@
  * - English: "Role name is required"
  * - Chinese: "角色名称为必填项"
  *
- * @see .ai/task/i18n/demo/dev/DE-D03-error-translation.md
  * @see docs/user-stories/core/i18n.md (US-I18N-002)
  */
 

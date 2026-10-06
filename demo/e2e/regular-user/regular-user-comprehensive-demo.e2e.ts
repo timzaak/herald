@@ -2,7 +2,6 @@
  * Regular User Comprehensive Demo Tests
  *
  * User Stories: docs/user-stories/core/regular-user.md
- * Design Doc: .ai/design/user-management.md
  *
  * Test Scenarios:
  * - US-RU-004: Change Personal Password

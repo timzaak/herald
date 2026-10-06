@@ -18,7 +18,6 @@ import { PasskeyConfigForm as PasskeyConfigFormComponent } from '@/components/re
 import { RegistrationConfigForm as RegistrationConfigFormComponent } from '@/components/realm-config/registration-config-form'
 import { PlatformSignupConfigForm as PlatformSignupConfigFormComponent } from '@/components/realm-config/platform-signup-config-form'
 import { EmailConfigForm as EmailConfigFormComponent } from '@/components/realm-config/email-config-form'
-import { TurnstileConfigForm as TurnstileConfigFormComponent } from '@/components/realm-config/turnstile-config-form'
 import { LdapConfigForm as LdapConfigFormComponent } from '@/components/realm-config/ldap-config-form'
 import { WhiteLabelConfigForm as WhiteLabelConfigFormComponent } from '@/components/realm-config/white-label-config-form'
 import { CustomDomainConfigForm as CustomDomainConfigFormComponent } from '@/components/realm-config/custom-domain-config-form'
@@ -33,7 +32,6 @@ import type {
   RegistrationConfigForm,
   PlatformSignupConfigForm,
   EmailConfigForm,
-  TurnstileConfigForm,
   PasskeyConfigForm,
   EmailOtpConfigForm,
   LdapConfigForm,
@@ -45,12 +43,10 @@ import {
   parseRegistrationConfig,
   parsePlatformSignupConfig,
   parseEmailConfig,
-  parseTurnstileConfig,
   buildTOTPConfigRequest,
   buildRegistrationConfigRequest,
   buildPlatformSignupConfigRequest,
   buildEmailConfigRequest,
-  buildTurnstileConfigRequest,
   parseLdapConfig,
   buildLdapConfigRequest,
   normalizeWhiteLabelConfig,
@@ -495,7 +491,6 @@ export function SettingsPage() {
   }
 
   const totpConfig = parseTOTPConfig(configs || [])
-  const turnstileConfig = parseTurnstileConfig(configs || [])
   const registrationConfig = parseRegistrationConfig(configs || [])
   const emailConfig = parseEmailConfig(configs || [])
   // Platform self-service signup is an admin-realm-only switch (DEC-001/009).
@@ -526,15 +521,6 @@ export function SettingsPage() {
     // rejection (per vitest config, rejections are expected to be handled in
     // components). Sibling forms share this latent leak; see FE-T06 handoff.
     await mutation.mutateAsync([buildTOTPConfigRequest(config)]).catch(() => {})
-  }
-
-  async function saveTurnstileConfig(config: TurnstileConfigForm) {
-    if (!canUpdateConfig) {
-      toast.error(m['settings.config_modify_denied']())
-      return
-    }
-
-    await mutation.mutateAsync(buildTurnstileConfigRequest(config)).catch(() => {})
   }
 
   async function saveRegistrationConfig(config: RegistrationConfigForm) {
@@ -658,9 +644,6 @@ export function SettingsPage() {
           <TabsTrigger value="passkey" data-testid="passkey-tab">
             {m['settings.tab_passkey']()}
           </TabsTrigger>
-          <TabsTrigger value="turnstile" data-testid="turnstile-tab">
-            {m['settings.tab_turnstile']()}
-          </TabsTrigger>
           <TabsTrigger value="registration" data-testid="registration-tab">
             {m['settings.tab_registration']()}
           </TabsTrigger>
@@ -706,15 +689,6 @@ export function SettingsPage() {
           <PasskeyConfigFormComponent
             initialConfig={passkeyInitialConfig}
             onSave={savePasskeyConfig}
-            isLoading={isLoading}
-            disabled={!canUpdateConfig}
-          />
-        </TabsContent>
-
-        <TabsContent value="turnstile">
-          <TurnstileConfigFormComponent
-            initialConfig={turnstileConfig}
-            onSave={saveTurnstileConfig}
             isLoading={isLoading}
             disabled={!canUpdateConfig}
           />

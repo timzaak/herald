@@ -8,9 +8,9 @@
  * - US-PU-010 (docs/user-stories/billing/points-user.md) — 滚动窗口额度与充值余额的可用性体验
  *
  * Design contract:
- * - `.ai/design/points-grant-redesign.md` §4.2.2 / §4.4.3
- * - `.ai/design-ui/points-grant-redesign/ui-spec.md` §3.1 / §4 / §7
- * - Converged testid contract: `.ai/task/points-grant-redesign/frontend/accept/FE-A07-report.md`
+ * - quota-window semantics per US-PU-010 acceptance scenarios
+ * - UI layout per DESIGN.md (visual single source of truth)
+ * - Converged testid contract: demo/e2e/selectors.ts (pointsQuota group)
  *
  * This file reuses the selectors, fixtures and helpers produced by DE-D01:
  * - `demo/e2e/selectors.ts`

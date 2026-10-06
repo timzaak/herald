@@ -2,10 +2,12 @@
  * Regular User WeChat OAuth Login Demo Tests
  *
  * User Stories:
- * - US-RU-010: 微信网站应用登录
- * - US-RU-011: 微信小程序登录
+ * - docs/user-stories/auth/wechat-oauth.md:
+ *   - US-WO-001: WeChat OAuth Provider 配置（按钮随 provider 配置/启用状态显隐）
+ *   - US-WO-002: WeChat Mini Program Provider 配置
  *
- * Design Doc: .ai/design/wechat-oauth.md
+ * 范围声明：本 demo 只断言登录按钮可见性（provider 配置状态的渲染面），
+ * 不驱动真实微信 OAuth 流（US-WO-003/004 的授权登录链路不在覆盖范围）。
  *
  * Test Coverage:
  * - WeChat login button visibility when provider is enabled

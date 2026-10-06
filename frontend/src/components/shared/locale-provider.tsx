@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  Fragment,
+  type ReactNode,
+} from 'react'
 import { setLocale, baseLocale, locales, type Locale } from '@/paraglide/runtime'
 
 type LocaleContextValue = {
@@ -49,17 +57,20 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     (newLocale: Locale) => {
       if (!locales.includes(newLocale)) return
       if (newLocale === locale) return
-      // Reload the page so every component re-evaluates its `m.*` messages in the
-      // new locale. Without the reload, only consumers of this context re-render;
-      // the ~140 components that call `m.*` directly would keep the old language.
-      setLocale(newLocale)
+      // Flip the paraglide runtime locale without a page reload (PRD i18n §6:
+      // switching must not reload or re-navigate). Remounting the tree below
+      // via `key={locale}` re-evaluates every `m.*` call site in the new
+      // locale — only context consumers would re-render otherwise.
+      setLocale(newLocale, { reload: false })
       setLocalState(newLocale)
     },
     [locale]
   )
 
   return (
-    <LocaleContext.Provider value={{ locale, switchLocale }}>{children}</LocaleContext.Provider>
+    <LocaleContext.Provider value={{ locale, switchLocale }}>
+      <Fragment key={locale}>{children}</Fragment>
+    </LocaleContext.Provider>
   )
 }
 

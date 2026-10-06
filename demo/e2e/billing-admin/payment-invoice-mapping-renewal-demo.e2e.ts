@@ -14,9 +14,9 @@
  * - US-PM-003: external invoices carry non-null local attribution
  *              (subscription_id + payment_attempt_id); gaps are discoverable.
  *
- * Design: .ai/design/payment-invoice-mapping.md §5.1 (renewal attempt +
- * provider_reference idempotency keys), §5.2 (Creem renewal invoice), §5.3
- * (Stripe renewal attribution), §6.2 (demo acceptance).
+ * Design contract (docs/user-stories/billing/payment-invoice-mapping.md): renewal attempt,
+ * provider_reference idempotency keys, Creem renewal invoice,
+ * Stripe renewal attribution.
  *
  * Backend assertion targets (verified):
  * - Renewal attempt: payment_attempts row status=succeeded,

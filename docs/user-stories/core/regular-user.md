@@ -162,7 +162,8 @@ Then 系统提示"邮箱或密码错误"
 ```gherkin
 Given 用户账号已被管理员禁用
 When 用户尝试登录
-Then 系统提示"账号已被禁用，请联系管理员"
+Then 登录被拒绝
+And 系统采用与密码错误/邮箱不存在相同的防枚举统一文案（"email not verified or account not active"），不区分禁用/未验证等原因（见 [docs/prd/core/users.md](/docs/prd/core/users.md) §4.1）
 ```
 
 **场景 5：人机验证失败**
@@ -375,7 +376,7 @@ Then 系统重定向到登录页面
 
 ### 故事 8：访问第三方应用 [US-RU-008]
 
-**优先级**: P1
+**优先级**: P0
 
 **【用户故事】**
 **作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
@@ -466,7 +467,7 @@ Then 系统清除登录状态并重定向到登录页面
 
 ### 故事 10：从第三方 Web 应用跳转登录 [US-RU-010]
 
-**优先级**: P1
+**优先级**: P0
 
 **【用户故事】**
 **作为**：普通用户（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）

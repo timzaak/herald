@@ -23,6 +23,7 @@
 | US-PO-009 | 配置多时间窗滚动配额 | P0 | `docs/user-stories/billing/points-admin.md` |
 | US-PU-001 | 查看我的积分余额 | P0 | `docs/user-stories/billing/points-user.md` |
 | US-PU-002 | 查看我的交易历史 | P1 | `docs/user-stories/billing/points-user.md` |
+| US-PU-005 | 积分过期通知 | P1 | `docs/user-stories/billing/points-user.md` |
 | US-PU-003 | 筛选交易记录 | P2 | `docs/user-stories/billing/points-user.md` |
 | US-PU-009 | 按时使用本期积分（不受分发延迟影响）——由 US-PU-010 取代 | P0 | `docs/user-stories/billing/points-user.md` |
 | US-PU-010 | 滚动窗口额度与充值余额的可用性体验 | P0 | `docs/user-stories/billing/points-user.md` |

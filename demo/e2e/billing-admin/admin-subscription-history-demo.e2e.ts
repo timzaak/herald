@@ -4,7 +4,7 @@
  * User Story:
  * - US-BI-008: View Subscription History (Realm Admin)
  *
- * Design Doc: .ai/design/subscription-history.md
+ * User Stories: docs/user-stories/billing/subscription.md
  *
  * UnifiedLogger Usage:
  * - All tests use UnifiedLogger through 'demoLogger' fixture

@@ -10,7 +10,6 @@ import {
   type TOTPConfigForm,
   type RegistrationConfigForm,
   type PlatformSignupConfigForm,
-  type TurnstileConfigForm,
   type EmailConfigForm,
   type WhiteLabelConfigForm,
   type WhiteLabelBackgroundForm,
@@ -138,48 +137,6 @@ export function buildPlatformSignupConfigRequest(config: PlatformSignupConfigFor
 
 /** Masked placeholder returned by backend for secret fields */
 const MASKED_SECRET = '••••••••'
-
-/**
- * Parses Turnstile configuration from realm config array
- */
-export function parseTurnstileConfig(configs: RealmConfigResponse[]): TurnstileConfigForm {
-  const turnstileConfigs = configs.filter((c) => c.configType === 'turnstile')
-
-  const find = (key: string) => turnstileConfigs.find((c) => c.configKey === key)
-
-  return {
-    siteKey: find('site_key')?.configValue ?? '',
-    secretKey: find('secret_key')?.configValue ?? '',
-  }
-}
-
-/**
- * Builds Turnstile config request for upsert operation.
- * Secret field (secretKey) is only included when the user has changed it.
- */
-export function buildTurnstileConfigRequest(config: TurnstileConfigForm) {
-  const entries: {
-    configKey: string
-    configValue: string
-    isSecret: boolean
-  }[] = [{ configKey: 'site_key', configValue: config.siteKey, isSecret: false }]
-
-  // Only include secret field when the user has entered a new value
-  if (config.secretKey && config.secretKey !== MASKED_SECRET) {
-    entries.push({
-      configKey: 'secret_key',
-      configValue: config.secretKey,
-      isSecret: true,
-    })
-  }
-
-  return entries.map((entry) => ({
-    configType: 'turnstile' as const,
-    configKey: entry.configKey,
-    configValue: entry.configValue,
-    isSecret: entry.isSecret,
-  }))
-}
 
 /**
  * Parses Email configuration from realm config array

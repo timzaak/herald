@@ -9,7 +9,7 @@
  * - US-BI-006 Scene 2: Filter subscriptions by status (commented out, pending subscription API)
  * - US-BI-006 Scene 3: View single subscription details (commented out, pending subscription API)
  *
- * Design Doc: .ai/design/subscription-billing.md
+ * User Stories: docs/user-stories/billing/subscription.md
  *
  * UnifiedLogger Usage:
  * - All tests use UnifiedLogger through 'demoLogger' fixture

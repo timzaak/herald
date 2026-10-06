@@ -1,10 +1,15 @@
 /**
  * API Key Management Demo Tests
  *
- * User Stories:
- * - US-RA-016: API Key CRUD Lifecycle (Create -> Reveal -> Copy -> Done -> Edit -> Delete)
- * - US-RA-017: API Key with Expiration Date
- * - US-RA-018: Toggle Enabled Status from List
+ * 相关用户故事（同页面的在册故事，本 demo 未逐条断言其验收场景）:
+ * - docs/user-stories/core/realm-admin.md:
+ *   - US-RA-016: API Key 角色管理
+ *   - US-RA-017: 创建 API Key 时绑定角色
+ *   - US-RA-018: API Key 按 Client App 隔离
+ *
+ * 范围声明：本 demo 覆盖的是 API Key 页面的通用 CRUD 生命周期、过期时间与
+ * 启用/禁用切换——这些行为未编入在册用户故事；上述三条故事的验收场景
+ * （角色分配/创建时绑定/Client App 隔离）不在本 demo 断言范围内。
  * @see ../../../docs/user-stories/core/realm-admin.md
  *
  * Test Structure:
