@@ -114,7 +114,15 @@ fn host_is_acceptable(host_header: &str, canonical_origin: &str) -> bool {
     if request_host == "localhost" {
         return true;
     }
-    if let Ok(ip) = request_host.parse::<std::net::IpAddr>()
+    // `Authority::host()` keeps the brackets on IPv6 literals while
+    // `IpAddr::from_str` rejects them — unbracket only for the parse; the
+    // origin comparison below stays bracketed on both sides (url's
+    // `host_str()` keeps brackets too).
+    let ip_literal = request_host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(&request_host);
+    if let Ok(ip) = ip_literal.parse::<std::net::IpAddr>()
         && ip.is_loopback()
     {
         return true;
@@ -695,6 +703,10 @@ mod tests {
     fn host_gate_rejects_foreign_and_rebound_hosts() {
         let origin = "https://api.example.com";
         assert!(!host_is_acceptable("evil.example.net", origin));
+        // Unbracketing for the loopback parse must not widen the gate: a
+        // bracketed non-loopback IPv6 literal is neither loopback nor the
+        // canonical host.
+        assert!(!host_is_acceptable("[2001:db8::1]", origin));
         // A loopback Host with a non-loopback canonical origin is dev/test
         // traffic; a PUBLIC Host against a loopback canonical origin is the
         // classic rebinding shape and must fail.
