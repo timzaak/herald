@@ -193,38 +193,6 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         demoLogger.testCode.log('[Test] ✓ Transaction details displayed with all required fields')
       })
     })
-
-    test.skip('should export transaction history', async ({ page, loginPage, demoLogger }) => {
-      // SKIPPED: Export feature not yet implemented in frontend
-      // When export functionality is implemented, unskip this test
-
-      await test.step('Setup: Login and navigate to transaction history', async () => {
-        await loginPage.loginAsUser(TEST_USER, 'password', TEST_REALM)
-        await page.goto(`/${TEST_REALM}/user/points`)
-        await expect(page.locator(SELECTORS.pointsUser.transactionsSection)).toBeVisible()
-      })
-
-      await test.step('When: Click export button', async () => {
-        await page.locator(SELECTORS.pointsUser.exportButton).click()
-        demoLogger.testCode.log('[Test] ✓ Export button clicked')
-      })
-
-      await test.step('Then: Verify export functionality (US-PU-002 Scenario 6)', async () => {
-        // Verify export is initiated
-        // Expected: CSV or Excel file download starts
-        // File contains all transaction records
-
-        // Document expected export behavior per US-PU-002 Scenario 6
-        demoLogger.testCode.info('[Test] ℹ Expected behavior (US-PU-002 Scenario 6):')
-        demoLogger.testCode.info('[Test] ℹ - Clicking export button triggers file download')
-        demoLogger.testCode.info('[Test] ℹ - File format: CSV or Excel (.xlsx)')
-        demoLogger.testCode.info('[Test] ℹ - File contains ALL transaction records (not just current page)')
-        demoLogger.testCode.info('[Test] ℹ - File includes columns: 交易时间, 交易类型, 积分类型, 金额, 交易后余额, 描述, 来源')
-        demoLogger.testCode.info('[Test] ℹ - File name format: transactions_YYYYMMDD_HHMMSS.csv')
-        demoLogger.testCode.info('[Test] ℹ - Export respects applied filters (if any filters active)')
-        demoLogger.testCode.info('[Test] ℹ Verification: Check browser downloads folder for generated file')
-      })
-    })
   })
 
   // ============================================================================

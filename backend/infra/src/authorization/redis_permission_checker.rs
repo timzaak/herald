@@ -273,6 +273,9 @@ impl PermissionService for RedisPermissionChecker {
     /// Returns all permissions a user has, including:
     /// - Permissions inherited from roles
     /// - Direct permissions assigned to the user
+    /// - Hierarchy-implied permissions (`manage` conveys `view`/`create` on
+    ///   the same resource), so exact-string consumers see the same access
+    ///   the check path enforces
     ///
     /// Returns permission strings in dot form "resource.action"
     /// (e.g., "users.view", "roles.manage"), matching the canonical permission
@@ -347,12 +350,13 @@ impl PermissionService for RedisPermissionChecker {
             permissions.push(format!("{}.{}", policy.resource, policy.action));
         }
 
-        // 4. Remove duplicates while preserving order
-        let mut seen = std::collections::HashSet::new();
-        let unique_permissions: Vec<String> = permissions
-            .into_iter()
-            .filter(|p| seen.insert(p.clone()))
-            .collect();
+        // 4. Expand the manage→view/create hierarchy and deduplicate,
+        //    preserving first-seen order. Callers do exact-string matching
+        //    (frontend menu gating, admin-console eligibility), so the
+        //    returned set must be the *effective* permissions — identical to
+        //    what `action_matches_hierarchy` enforces on the check path
+        //    (permissions PRD §4.1).
+        let unique_permissions = expand_permission_hierarchy(permissions);
 
         debug!(
             count = unique_permissions.len(),
@@ -619,7 +623,7 @@ impl RedisPermissionChecker {
         }
 
         // Check action match (with hierarchy)
-        let matches = self.action_matches_hierarchy(&policy.action, action);
+        let matches = action_matches_hierarchy(&policy.action, action);
 
         if matches {
             debug!(
@@ -631,23 +635,6 @@ impl RedisPermissionChecker {
         }
 
         matches
-    }
-
-    /// Check if a granted action covers the requested action (with hierarchy)
-    ///
-    /// Permission hierarchy: manage > create > view
-    fn action_matches_hierarchy(&self, granted_action: &str, requested_action: &str) -> bool {
-        // Exact match always works
-        if granted_action == requested_action {
-            return true;
-        }
-
-        // Hierarchical checks
-        match granted_action {
-            "manage" => matches!(requested_action, "view" | "create"),
-            "view" => false,
-            _ => false,
-        }
     }
 
     /// Get cached value with error handling (fallback to None on error)
@@ -685,6 +672,117 @@ impl RedisPermissionChecker {
     /// Cache permission check result
     async fn cache_result(&self, key: &str, value: bool, ttl: u64) {
         self.cache(key, &value, ttl).await;
+    }
+}
+
+/// Actions a `manage` grant conveys on the same resource. Single source of
+/// the manage→view/create implication (permissions PRD §4.1): both the
+/// policy-check path (`action_matches_hierarchy`) and the listing path
+/// (`expand_permission_hierarchy`) read this constant, so the two cannot
+/// drift apart.
+const MANAGE_IMPLIES: &[&str] = &["view", "create"];
+
+/// Check if a granted action covers the requested action (with hierarchy)
+///
+/// Permission hierarchy: manage > create > view — `manage` is the only action
+/// with downward implication, covering `view` and `create` on the same
+/// resource (permissions PRD §4.1). Both the policy-check path
+/// (`matches_policy`) and the effective-permission expansion
+/// (`expand_permission_hierarchy`) derive from `MANAGE_IMPLIES`.
+fn action_matches_hierarchy(granted_action: &str, requested_action: &str) -> bool {
+    // Exact match always works
+    if granted_action == requested_action {
+        return true;
+    }
+
+    // Hierarchical checks
+    match granted_action {
+        "manage" => MANAGE_IMPLIES.contains(&requested_action),
+        "view" => false,
+        _ => false,
+    }
+}
+
+/// Expand a raw permission list into the effective set.
+///
+/// For every `resource.action`, appends `resource.<implied>` for each implied
+/// action the hierarchy grants. Deduplicates while preserving first-seen
+/// order. `get_user_permissions` feeds exact-string consumers (frontend menu
+/// gating, admin-console eligibility), so the expansion here keeps the listed
+/// set identical to what `action_matches_hierarchy` enforces on checks.
+fn expand_permission_hierarchy(permissions: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::with_capacity(permissions.len());
+    let mut expanded: Vec<String> = Vec::with_capacity(permissions.len());
+    for permission in permissions {
+        // Derive implied permissions while `permission` is still borrowed.
+        // `implied == action` would only reproduce the permission itself,
+        // which is inserted right below — skip it.
+        let derived = match permission.rsplit_once('.') {
+            Some((resource, action)) => MANAGE_IMPLIES
+                .iter()
+                .filter(|&&implied| implied != action && action_matches_hierarchy(action, implied))
+                .map(|implied| format!("{resource}.{implied}"))
+                .collect::<Vec<_>>(),
+            None => Vec::new(),
+        };
+        if seen.insert(permission.clone()) {
+            expanded.push(permission);
+        }
+        expanded.extend(derived.into_iter().filter(|p| seen.insert(p.clone())));
+    }
+    expanded
+}
+
+// Hierarchy-expansion unit tests.
+//
+// WHY: `get_user_permissions` feeds exact-string consumers (frontend menu
+// gating, admin-console eligibility). If the expansion ever diverges from
+// `action_matches_hierarchy` — e.g. stops deriving view/create from manage,
+// or starts deriving from view/create — a manage-only custom role would pass
+// backend checks while the frontend hides every entry, or vice versa.
+#[cfg(test)]
+mod hierarchy_expansion_tests {
+    use super::expand_permission_hierarchy;
+
+    #[test]
+    fn manage_expands_to_view_and_create() {
+        let expanded = expand_permission_hierarchy(vec!["users.manage".to_string()]);
+        assert_eq!(expanded, vec!["users.manage", "users.view", "users.create"]);
+    }
+
+    #[test]
+    fn view_and_create_do_not_expand() {
+        // Hierarchy is downward only: view/create convey nothing beyond
+        // themselves (permissions PRD §4.1 — `create` does not imply `view`).
+        let expanded = expand_permission_hierarchy(vec![
+            "billing.view".to_string(),
+            "roles.create".to_string(),
+        ]);
+        assert_eq!(
+            expanded,
+            vec!["billing.view".to_string(), "roles.create".to_string()]
+        );
+    }
+
+    #[test]
+    fn explicit_and_derived_duplicates_collapse_keeping_first_seen_order() {
+        // A role granting both users.manage and an explicit users.view must
+        // not list users.view twice; order follows first appearance.
+        let expanded = expand_permission_hierarchy(vec![
+            "users.manage".to_string(),
+            "users.view".to_string(),
+            "audit.view".to_string(),
+        ]);
+        assert_eq!(
+            expanded,
+            vec!["users.manage", "users.view", "users.create", "audit.view"]
+        );
+    }
+
+    #[test]
+    fn malformed_permission_without_action_passes_through() {
+        let expanded = expand_permission_hierarchy(vec!["users".to_string()]);
+        assert_eq!(expanded, vec!["users"]);
     }
 }
 

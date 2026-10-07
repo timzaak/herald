@@ -76,6 +76,10 @@ pub mod realm_manage_permission_scenarios;
 // API Keys view/manage permission split scenarios
 pub mod api_keys_permission_scenarios;
 
+// User permissions endpoint hierarchy-expansion scenarios
+// (GET /api/user/permissions returns the expanded effective set)
+pub mod user_permissions_expansion_scenarios;
+
 // API Key roles CRUD + permission + cache scenarios
 pub mod api_key_roles_scenarios;
 

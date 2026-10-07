@@ -255,15 +255,6 @@ export async function viewTransactionDetail(page: Page, index: number): Promise<
   await expect(page.locator('[data-testid="transaction-detail-dialog"]')).toBeVisible()
 }
 
-export async function exportTransactionHistory(page: Page): Promise<void> {
-  // Set up the download listener before triggering the download.
-  const downloadPromise = page.waitForEvent('download')
-
-  await page.locator(SELECTORS.pointsUser.exportButton).click()
-
-  await downloadPromise
-}
-
 export const POINTS_ROUTES = {
   FREE_USERS: (realmId: string) => `/manage/points/free-users`,
   USER_POINTS: (realmId: string) => `/user/points`,

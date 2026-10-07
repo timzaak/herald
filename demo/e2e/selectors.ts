@@ -567,7 +567,6 @@ export const SELECTORS = {
     filterEndTime: '[data-testid="filter-to-date"]',
     resetFiltersButton: '[data-testid="clear-filters-button"]',
     applyFiltersButton: '[data-testid="apply-filters-button"]',
-    exportButton: '[data-testid="export-transactions-button"]',
     firstTransactionRow: () => '[data-testid^="transaction-row-"]',
   },
 
