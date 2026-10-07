@@ -120,7 +120,7 @@
 | US-AL-003 | Apple native 登录与已有账号关联 | Regular User | P1 | [auth/support-mobile-apple-login](auth/support-mobile-apple-login.md#故事-3apple-native-登录与已有账号关联-us-al-003) |
 | US-EO-001 | 用户用邮箱验证码登录已有账号 | Regular User | P0 | [auth/email-otp-login](auth/email-otp-login.md#故事-1用户用邮箱验证码登录已有账号-us-eo-001) |
 | US-EO-002 | 未注册邮箱验证成功后自动注册（受 Realm 注册政策门控） | Regular User | P0 | [auth/email-otp-login](auth/email-otp-login.md#故事-2未注册邮箱验证成功后自动注册-us-eo-002) |
-| US-EO-003 | Realm 管理员配置邮箱验证码登录与自动注册 | Realm Admin | P0 | [auth/email-otp-login](auth/email-otp-login.md#故事-3realm-管理员配置邮箱验证码登录与自动注册-us-eo-003) |
+| US-EO-003 | Realm 管理员配置邮箱验证码登录与自动注册 | Realm Admin | P1 | [auth/email-otp-login](auth/email-otp-login.md#故事-3realm-管理员配置邮箱验证码登录与自动注册-us-eo-003) |
 | US-OT-001 | 通过 One Tap 在第三方应用一键登录 | Regular User | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-1通过-one-tap-在第三方应用一键登录-us-ot-001) |
 | US-OT-002 | 第三方应用集成 One Tap | 第三方应用开发者 | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-2第三方应用集成-one-tap-us-ot-002) |
 | US-OT-003 | One Tap 用户与已有账号关联 | Regular User | P1 | [auth/google-one-tap](auth/google-one-tap.md#故事-3one-tap-用户与已有账号关联-us-ot-003) |
@@ -299,11 +299,11 @@
 | US-NR-004 | 查询非续期订阅（与 US-BM-004 同场景） | Third-Party App | P1 | [billing/pay_model](billing/pay_model.md#故事-7查询权益非续期订阅与买断us-nr-004买断部分对应-us-bm-004) |
 | US-NR-005 | 处理非续期订阅生命周期 | System | P0 | [billing/pay_model](billing/pay_model.md#故事-9处理非续期订阅生命周期-us-nr-005) |
 | US-PW-001 | 配置 entitlement 映射的 role 授予维度 | Realm Admin | P0 | [billing/support-paywall](billing/support-paywall.md#故事-1配置-entitlement-映射的-role-授予维度-us-pw-001) |
-| US-PW-002 | 一次性纯权益购买成功且不报错 | Realm Admin | P1 | [billing/support-paywall](billing/support-paywall.md#故事-2一次性纯权益购买成功且不报错-us-pw-002) |
+| US-PW-002 | 一次性纯权益购买成功且不报错 | Realm Admin | P0 | [billing/support-paywall](billing/support-paywall.md#故事-2一次性纯权益购买成功且不报错-us-pw-002) |
 | US-PW-003 | 支付成功自动授予 role | System | P0 | [billing/support-paywall](billing/support-paywall.md#故事-3支付成功自动授予-role-us-pw-003) |
 | US-PW-004 | 一次性永久权益一人一次防重复购买 | Regular User | P0 | [billing/support-paywall](billing/support-paywall.md#故事-4一次性永久权益一人一次防重复购买-us-pw-004) |
 | US-PW-005 | 支付事件触发 role 撤销 | System | P0 | [billing/support-paywall](billing/support-paywall.md#故事-5支付事件触发-role-撤销-us-pw-005) |
-| US-PW-006 | 第三方应用凭 role 一行判断解锁功能 | Third-Party App | P1 | [billing/support-paywall](billing/support-paywall.md#故事-6第三方应用凭-role-一行判断解锁功能-us-pw-006) |
+| US-PW-006 | 第三方应用凭 role 一行判断解锁功能 | Third-Party App | P0 | [billing/support-paywall](billing/support-paywall.md#故事-6第三方应用凭-role-一行判断解锁功能-us-pw-006) |
 | US-MC-003 | 购买页按货币分组、显式选择货币（无默认） | Regular User | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-3购买页按货币分组显式选择货币无默认-us-mc-003) |
 | US-MC-004 | 按（显式选定的）货币价格行发起购买 | Regular User | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-4按显式选定的货币价格行发起购买-us-mc-004) |
 | US-MC-005 | 查询可购权益支持的货币集合 | Third-Party App | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-5查询可购权益支持的货币集合-us-mc-005) |

@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { CreditBucketsDirectoryPage } from '@/components/billing/credit-bucket/credit-bucket-directory-page'
 import { realmPath, useCurrentSearch, useResolvedRealmContext } from '@/lib/realm-routing'
 
-const creditBucketsSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const creditBucketsSearchSchema = z.object({
   selected: z.string().optional(),
 })
 

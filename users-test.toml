@@ -1,7 +1,0 @@
-[[users]]
-name = "postgres"
-password = "postgres"
-database = "postgres"
-pooler_mode = "session"
-pool_size = 32
-min_pool_size = 1

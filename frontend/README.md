@@ -28,5 +28,5 @@ React（Vite）+ TanStack Router（文件式路由）+ TanStack Query + paraglid
 
 ## 其他入口
 
-- 视觉规范单一事实源：`docs/DESIGN.md`
+- 视觉规范单一事实源：仓库根 `DESIGN.md`
 - 测试与脚本入口：仓库根 `scripts/index.md`

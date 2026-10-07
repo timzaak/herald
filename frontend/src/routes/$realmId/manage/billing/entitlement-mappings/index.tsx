@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { EntitlementMappingsPage } from '@/components/billing/entitlement-mappings-page'
 import { useResolvedRealmId } from '@/lib/realm-routing'
 
-const entitlementMappingsSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const entitlementMappingsSearchSchema = z.object({
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 })

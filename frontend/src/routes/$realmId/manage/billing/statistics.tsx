@@ -5,7 +5,8 @@ import { useCurrentSearch, useResolvedRealmId } from '@/lib/realm-routing'
 
 // The statistics view (section tab + stats window) lives in the querystring
 // so a refresh or shared deep link restores the exact view.
-const statisticsSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const statisticsSearchSchema = z.object({
   tab: z.enum(['payment', 'points']).optional(),
   days: z.union([z.literal(7), z.literal(30)]).optional(),
 })

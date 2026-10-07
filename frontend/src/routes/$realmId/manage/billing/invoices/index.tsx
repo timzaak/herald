@@ -25,7 +25,8 @@ import { realmPath, useCurrentSearch, useResolvedRealmContext } from '@/lib/real
 // Search param that lets Billing hub deep-link to seller config or policy config dialog.
 // Mirrors the zod-schema-on-validateSearch convention used by sibling billing routes
 // (subscriptions.tsx, entitlement-mappings.tsx).
-const invoiceAdminSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const invoiceAdminSearchSchema = z.object({
   open: z.enum(['seller', 'policy']).optional(),
 })
 

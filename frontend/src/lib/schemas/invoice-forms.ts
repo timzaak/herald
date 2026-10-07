@@ -155,7 +155,8 @@ export type InvoiceSellerConfigFormData = z.infer<typeof invoiceSellerConfigSche
 
 // The apply form is only reachable with a pre-filled resource reference
 // (paymentAttemptId or subscriptionId) supplied by the route's search params;
-// there is no manual-ID-entry path. See P1-3 in `.ai/future/invoice_ux.md`.
+// there is no manual-ID-entry path (US-IV-011 申请发票的上下文入口口径，
+// 见 docs/user-stories/billing/invoice.md)。
 export const applyInvoiceSchema = z.object({
   currency: z.string().min(3).max(3).default('CNY'),
   paymentAttemptId: z.string().optional().nullable(),

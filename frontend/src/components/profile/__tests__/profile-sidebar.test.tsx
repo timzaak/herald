@@ -98,6 +98,30 @@ describe('ProfileSidebar', () => {
     expect(screen.queryByTestId('profile-menu-invoices')).not.toBeInTheDocument()
   })
 
+  it('shows the subscription entry when the realm has subscription capability', () => {
+    // US-BI-009 scenario 0: with an enabled entitlement mapping the sidebar
+    // must expose the my-subscriptions entry — without it the page is only
+    // reachable by URL guessing.
+    featureData = {
+      user: {
+        pointsVisible: false,
+        subscriptionVisible: true,
+        invoicesVisible: false,
+      },
+    }
+
+    render(
+      <LocaleProvider>
+        <ProfileSidebar />
+      </LocaleProvider>
+    )
+
+    const entry = screen.getByTestId('profile-menu-subscription')
+    expect(entry).toBeInTheDocument()
+    expect(entry).toHaveAttribute('href', '/subscription/my-subscriptions')
+    expect(entry).toHaveTextContent('Subscription')
+  })
+
   it('shows invoices when invoice features are available', () => {
     featureData = {
       user: {
@@ -133,5 +157,7 @@ describe('ProfileSidebar', () => {
 
     expect(screen.queryByTestId('profile-menu-purchaserecords')).not.toBeInTheDocument()
     expect(screen.queryByTestId('profile-menu-points')).not.toBeInTheDocument()
+    // The subscription area stays reachable in a subscription-only realm.
+    expect(screen.getByTestId('profile-menu-subscription')).toBeInTheDocument()
   })
 })

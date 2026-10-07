@@ -11,13 +11,16 @@
  * - Test 7: Partial OAuth Params Display Error (US-RU-010 scenario 4)
  * - Test 8: MCP authorize with missing/foreign resource → invalid_target
  * - Test 9: MCP authorize with non-MCP scope token → invalid_scope
+ *   (resource/audience 绑定与 scope 门控规则见 docs/prd/integration/mcp-server.md §4.1，
+ *   线级错误码无单列故事场景)
  * - Test 10: Disabled MCP client rejects authorize until re-enabled
- *   (US-MCP-001 V4 negative paths, .ai/design/mcp-server/frontend.md §8)
+ *   (US-MCP-011 场景 2 新的 MCP 浏览器授权被拒绝)
  *
  * Each scenario is a separate test() because error tests require
  * different setup state and must not cascade failures.
  *
- * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）、docs/user-stories/auth/client-app-settings.md（US-TP-010）
+ * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）、docs/user-stories/auth/client-app-settings.md（US-TP-010）、
+ *   docs/user-stories/integration/mcp-server.md（US-MCP-*）
  */
 
 import { test, expect, cleanupTestData } from './fixtures/demo-page.fixtures'
@@ -364,7 +367,9 @@ test.describe('[OAuth PKCE] Error and Edge Case Demo Tests', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Test 8: MCP authorize with missing / foreign resource (V4 negative)
+  // Test 8: MCP authorize with missing / foreign resource
+  // (resource/audience 绑定规则见 docs/prd/integration/mcp-server.md §4.1，
+  //  线级错误码无单列故事场景)
   // ---------------------------------------------------------------------------
 
   test('MCP authorize with missing or foreign resource returns invalid_target', async () => {
@@ -394,7 +399,8 @@ test.describe('[OAuth PKCE] Error and Edge Case Demo Tests', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Test 9: MCP authorize with a non-MCP scope token (V4 negative)
+  // Test 9: MCP authorize with a non-MCP scope token
+  // (scope 门控规则见 docs/prd/integration/mcp-server.md §4.1，无单列故事场景)
   // ---------------------------------------------------------------------------
 
   test('MCP authorize with a non-MCP scope token returns invalid_scope', async () => {
@@ -417,7 +423,8 @@ test.describe('[OAuth PKCE] Error and Edge Case Demo Tests', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Test 10: Disabled MCP client rejects authorize until re-enabled (V4/V3)
+  // Test 10: Disabled MCP client rejects authorize until re-enabled
+  // (US-MCP-011 场景 2 新的 MCP 浏览器授权被拒绝)
   // ---------------------------------------------------------------------------
 
   test('Disabled MCP client rejects authorization until re-enabled', async ({

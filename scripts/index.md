@@ -15,3 +15,4 @@
 - **日志**：后端看 `backend-test-output.log`；Demo 看 `demo/test-results/runs/<run-id>/playwright-output.log`；其余看终端。
 - **重试**：保留失败日志，修复后重跑原命令；Demo 每次换新 run ID，单用例筛选可追加 `--grep "<测试标题>"`，通过后重跑整文件。
 - **结果**：零用例、类型检查和编译成功不等于测试通过；未运行须说明。测试入口变更时同步更新本文件。
+- **前端路由树约定**（真实树/镜像树/公共页三组入口）见 `frontend/README.md`。

@@ -405,7 +405,8 @@ test.describe('[Regular User] 按 Bucket 分组的积分余额与交易历史 (U
     await test.step('When: 打开 filter-bucket Select 选择 promo-pool 并应用筛选', async () => {
       // Open the Bucket Select. The option list shows each bucket's display
       // name (e.g. "Promo Pool"); select by visible name — the established
-      // pattern across the demo suite (see subscription-history.helpers.ts).
+      // pattern across the demo suite (see the billing-admin
+      // subscription-history helpers).
       await page.locator(SELECTORS.pointsUser.filterBucket).click()
       await page
         .getByRole('option', { name: CREDIT_BUCKET_NAMES.SECONDARY_POOL })

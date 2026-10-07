@@ -169,7 +169,8 @@ export async function fillGrantForm(
   //    visible label is the bucket display name. Resolve the display name from
   //    the seeded directory via `bucket-seed-ids.ts` so callers only need the
   //    stable bucket KEY. Selecting by visible name matches the established
-  //    demo-suite Radix-Select pattern (see subscription-history helpers).
+  //    demo-suite Radix-Select pattern (see the billing-admin
+  //    subscription-history helpers).
   const bucketName = bucketDisplayName(options.bucketId)
   await page.locator(gp.bucketSelect).click()
   await page.getByRole('option', { name: bucketName }).click()

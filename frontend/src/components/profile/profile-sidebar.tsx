@@ -31,6 +31,7 @@ export function ProfileSidebar() {
     const map: Record<string, () => string> = {
       Profile: m['nav_profile.profile'],
       Security: m['nav_profile.security'],
+      Subscription: m['nav_profile.subscription'],
       Points: m['nav_profile.points'],
       PurchaseRecords: m['nav_profile.purchase_records'],
       Invoices: m['nav_profile.invoices'],
@@ -48,6 +49,13 @@ export function ProfileSidebar() {
       {
         name: 'Security',
         path: realmPath({ ...realmContext, realmId }, '/user/security'),
+      },
+      {
+        name: 'Subscription',
+        path: realmPath({ ...realmContext, realmId }, '/subscription/my-subscriptions'),
+        // US-BI-009 scenario 0: the entry follows the realm's subscription
+        // capability (enabled entitlement mappings), not mere history records.
+        visible: userFeatures?.subscriptionVisible === true,
       },
       {
         name: 'Points',

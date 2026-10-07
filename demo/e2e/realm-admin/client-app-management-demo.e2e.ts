@@ -7,8 +7,9 @@
  * - US-TP-009: Manage Client App Icon
  * - US-TP-010: Enable/Disable Client App
  * - US-TP-011: Configure Session TTL Policy
- * - US-MCP-011: Built-in MCP client list protection / disable semantics /
- *   failed-toggle recovery (V2/V3/V6, .ai/design/mcp-server/frontend.md §8)
+ * - US-MCP-011: Built-in MCP client list protection (场景 1/3) /
+ *   disable semantics (场景 2) / failed-toggle recovery (前端韧性验收，
+ *   无故事场景对应)
  *
  * Test Structure:
  * 1. Complete Client App Lifecycle (Create -> Edit -> Delete)
@@ -17,9 +18,9 @@
  * 4. Tab Controls (Verify all tabs present, Active tab styling)
  * 5. Keyboard Navigation (Tab through fields, Enter to submit, Cancel button)
  * 6. Keyboard Shortcuts (Shift+Tab, Focus management)
- * 7. V2: Built-in MCP client identification and protection
- * 8. V3: MCP client disable persists and blocks authorization until re-enabled
- * 9. V6: Failed toggle shows re-queried real state, locks only while unknown
+ * 7. US-MCP-011 场景 1/3: Built-in MCP client identification and protection
+ * 8. US-MCP-011 场景 2: MCP client disable persists and blocks authorization until re-enabled
+ * 9. 韧性（无故事场景）: Failed toggle shows re-queried real state, locks only while unknown
  */
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
@@ -639,16 +640,17 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
   })
 
   // ============================================================================
-  // Test 7: V2 — Built-in MCP client identification and protection (US-MCP-011)
+  // Test 7: US-MCP-011 场景 1/3 — Built-in MCP client identification and
+  // protection (查看系统内置 MCP 客户端 / 不能删除内置客户端)
   // ============================================================================
-  test('V2: Built-in MCP client identification and protection', async ({
+  test('US-MCP-011 场景 1/3: Built-in MCP client identification and protection', async ({
     page,
     loginPage,
     demoLogger,
     testStartTime,
   }) => {
     const clientAppsPage = new ClientAppsPage(page, demoLogger)
-    const normalAppName = `V2 Normal App ${testStartTime}`
+    const normalAppName = `MCP Protect Normal App ${testStartTime}`
 
     await test.step('Given: Admin is logged in', async () => {
       await loginPage.loginAsAdmin('admin@cas.com', 'password', 'admin')
@@ -710,9 +712,10 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
   })
 
   // ============================================================================
-  // Test 8: V3 — MCP disable persists and blocks authorization until re-enabled
+  // Test 8: US-MCP-011 场景 2 — MCP disable persists and blocks authorization
+  // until re-enabled (禁用关闭已有连接与新授权)
   // ============================================================================
-  test('V3: MCP client disable persists and blocks authorization until re-enabled', async ({
+  test('US-MCP-011 场景 2: MCP client disable persists and blocks authorization until re-enabled', async ({
     page,
     loginPage,
     demoLogger,
@@ -788,17 +791,17 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
   })
 
   // ============================================================================
-  // Test 9: V6 — Failed toggle shows re-queried real state, locks only while
-  // the status is unknown (frontend design §8 V6)
+  // Test 9: 前端韧性验收（无故事场景对应）— Failed toggle shows re-queried real
+  // state, locks only while the status is unknown
   // ============================================================================
-  test('V6: Failed toggle shows re-queried real state and locks only while unknown', async ({
+  test('Toggle resilience (no story scenario): failed toggle shows re-queried real state and locks only while unknown', async ({
     page,
     loginPage,
     demoLogger,
     testStartTime,
   }) => {
     const clientAppsPage = new ClientAppsPage(page, demoLogger)
-    const appName = `V6 Recovery App ${testStartTime}`
+    const appName = `Toggle Recovery App ${testStartTime}`
 
     // The update endpoint is PUT /api/client/{uuid}; the list re-query is
     // GET /api/client?... — regexes keep the two apart.
@@ -887,11 +890,11 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
     } finally {
       // cleanupTestData does not remove client apps; a leaked app would
       // eventually push the migration-seeded MCP row (oldest) onto page 2
-      // and break the row-scoped V2/V3 assertions.
+      // and break the row-scoped identification/disable assertions.
       await page.unroute(updateRoute).catch(() => undefined)
       await page.unroute(listRoute).catch(() => undefined)
       await clientAppsPage.deleteClientApp(appId).catch(() => undefined)
-      console.log('V6 seeded app deleted (cleanup)')
+      console.log('Toggle-recovery seeded app deleted (cleanup)')
     }
   })
 })

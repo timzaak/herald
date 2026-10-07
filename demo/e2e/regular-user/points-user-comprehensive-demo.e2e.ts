@@ -29,6 +29,61 @@ import { POINTS_ROUTES, generateTestEmail, registerUser, navigateToPointsPageAnd
 const TEST_REALM = 'realm-001'
 const TEST_USER = 'user@realm-001.com'
 
+/**
+ * The time cell renders "YYYY-MM-DD HH:mm …" (formatDateTimeShort), so the
+ * first 16 characters compare lexicographically as timestamps.
+ */
+async function comparableRowTime(
+  page: import('@playwright/test').Page,
+  index: number
+): Promise<string> {
+  const text = await page.locator(SELECTORS.pointsUser.transactionTime(index)).textContent()
+  return (text ?? '').trim().slice(0, 16)
+}
+
+/**
+ * After a transaction filter settles, the table must show ONLY matching
+ * rows — either every visible row matches the expectation, or the filtered
+ * empty state is on screen. A filter that silently leaves mismatched rows
+ * visible (or renders neither state) must fail here.
+ */
+async function expectFilteredTransactionRows(
+  page: import('@playwright/test').Page,
+  expectation:
+    | { kind: 'type'; badgeText: string }
+    | { kind: 'notBefore'; date: string }
+    | { kind: 'within'; from: string; to: string }
+) {
+  const rows = page.locator(SELECTORS.pointsUser.firstTransactionRow())
+  const rowCount = await rows.count()
+
+  if (rowCount === 0) {
+    await expect(page.getByText('No transactions found matching your criteria')).toBeVisible()
+    return
+  }
+
+  if (expectation.kind === 'type') {
+    for (let i = 0; i < rowCount; i++) {
+      await expect(page.locator(SELECTORS.pointsUser.transactionType(i))).toContainText(
+        expectation.badgeText
+      )
+    }
+    return
+  }
+
+  // Both time expectations reduce to inclusive day bounds; "to" extends to
+  // the last minute of that day.
+  const min = expectation.kind === 'notBefore' ? expectation.date : expectation.from
+  const max = expectation.kind === 'within' ? `${expectation.to} 23:59` : undefined
+  for (let i = 0; i < rowCount; i++) {
+    const time = await comparableRowTime(page, i)
+    expect(time >= min, `row ${i} (${time}) must be on/after ${min}`).toBe(true)
+    if (max !== undefined) {
+      expect(time <= max, `row ${i} (${time}) must be within ${min}..${max}`).toBe(true)
+    }
+  }
+}
+
 test.describe('[Points User] Comprehensive Demo Tests', () => {
   let testStartTime: number
 
@@ -151,37 +206,57 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
       })
 
       await test.step('Verify: Transactions in reverse chronological order', async () => {
-        const firstRow = page.locator(SELECTORS.pointsUser.transactionRow(0))
-        await expect(firstRow).toBeVisible()
-        demoLogger.testCode.log('[Test] ✓ Transactions ordered by time (descending)')
+        // US-PU-002 场景 1: the timeline must be newest-first; row times are
+        // compared via `comparableRowTime`'s lexicographic contract.
+        const rows = page.locator(SELECTORS.pointsUser.firstTransactionRow())
+        const rowCount = await rows.count()
+        expect(rowCount).toBeGreaterThan(0)
+
+        if (rowCount >= 2) {
+          const times: string[] = []
+          for (let i = 0; i < Math.min(rowCount, 5); i++) {
+            times.push(await comparableRowTime(page, i))
+          }
+          for (let i = 1; i < times.length; i++) {
+            expect(
+              times[i - 1] >= times[i],
+              `row ${i - 1} (${times[i - 1]}) must not be older than row ${i} (${times[i]})`
+            ).toBe(true)
+          }
+          demoLogger.testCode.log(
+            `[Test] ✓ Transactions ordered by time (descending): ${times.join(' > ')}`
+          )
+        } else {
+          demoLogger.testCode.info(
+            '[Test] ℹ Only one transaction visible; ordering needs ≥2 rows to compare'
+          )
+        }
       })
 
-      await test.step('Verify: Pagination controls and behavior (US-PU-002 Scenario 5)', async () => {
-        const pagination = page.locator('[data-testid="transaction-pagination"]')
-        const isVisible = await pagination.isVisible().catch(() => false)
+      await test.step('Verify: Loading more history (US-PU-002 Scenario 5, load-more model)', async () => {
+        // The user transaction history is a growing load-more window, not
+        // the classic pagination controls the story text describes: rows
+        // render up to a visible cap and the Load More button grows it.
+        const rows = page.locator(SELECTORS.pointsUser.firstTransactionRow())
+        const beforeCount = await rows.count()
+        const loadMore = page.locator('[data-testid="transaction-load-more"]')
 
-        if (isVisible) {
-          demoLogger.testCode.log('[Test] ✓ Pagination controls found')
-
-          // Verify pagination shows result summary text
-          const summaryText = page.getByText(/Showing \d+ to \d+ of \d+ results/)
-          if (await summaryText.isVisible().catch(() => false)) {
-            const text = await summaryText.textContent()
-            demoLogger.testCode.log(`[Test] ✓ Pagination summary: ${text}`)
-          }
-
-          // Verify previous/next buttons exist
-          const prevButton = page.locator('[data-testid="transaction-pagination-previous"]')
-          const nextButton = page.locator('[data-testid="transaction-pagination-next"]')
-          if (await prevButton.isVisible().catch(() => false)) {
-            demoLogger.testCode.log('[Test] ✓ Previous page button found')
-          }
-          if (await nextButton.isVisible().catch(() => false)) {
-            demoLogger.testCode.log('[Test] ✓ Next page button found')
-          }
+        if (await loadMore.isVisible().catch(() => false)) {
+          await loadMore.click()
+          // The reload disables the filter actions while refetching; wait
+          // for the query to settle before reading the new row count.
+          await expect(page.locator(SELECTORS.pointsUser.applyFiltersButton)).toBeEnabled()
+          await expect.poll(async () => await rows.count()).toBeGreaterThan(beforeCount)
+          demoLogger.testCode.log(
+            `[Test] ✓ Load more grew the visible window: ${beforeCount} -> ${await rows.count()} rows`
+          )
         } else {
-          demoLogger.testCode.info('[Test] ℹ Pagination not needed (fewer than 20 transactions)')
-          demoLogger.testCode.info('[Test] ℹ Pagination will appear when transactions exceed 20 items')
+          // No Load More button means every transaction fits the first
+          // window — but the window itself must not be empty here.
+          expect(beforeCount).toBeGreaterThan(0)
+          demoLogger.testCode.info(
+            '[Test] ℹ All transactions fit the first window; Load More not rendered'
+          )
         }
       })
 
@@ -213,18 +288,22 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
         await page.locator(SELECTORS.pointsUser.filterType).click()
         await page.getByRole('option', { name: 'Recharge' }).click()
         await page.locator(SELECTORS.pointsUser.applyFiltersButton).click()
+        // The filter query disables the actions while loading; wait for it
+        // to settle before asserting the filtered content.
+        await expect(page.locator(SELECTORS.pointsUser.applyFiltersButton)).toBeEnabled()
 
-        await expect(page.locator(SELECTORS.pointsUser.transactionsSection)).toBeVisible()
-        demoLogger.testCode.log('[Test] ✓ Filter applied by type: recharge')
+        await expectFilteredTransactionRows(page, { kind: 'type', badgeText: 'Recharge' })
+        demoLogger.testCode.log('[Test] ✓ Filter applied by type: recharge (all rows match or empty)')
       })
 
       await test.step('Verify: Filter by transaction type (consume)', async () => {
         await page.locator(SELECTORS.pointsUser.filterType).click()
         await page.getByRole('option', { name: 'Consume' }).click()
         await page.locator(SELECTORS.pointsUser.applyFiltersButton).click()
+        await expect(page.locator(SELECTORS.pointsUser.applyFiltersButton)).toBeEnabled()
 
-        await expect(page.locator(SELECTORS.pointsUser.transactionsSection)).toBeVisible()
-        demoLogger.testCode.log('[Test] ✓ Filter applied by type: consume')
+        await expectFilteredTransactionRows(page, { kind: 'type', badgeText: 'Consume' })
+        demoLogger.testCode.log('[Test] ✓ Filter applied by type: consume (all rows match or empty)')
       })
 
       await test.step('Verify: Filter by time range (last 7 days)', async () => {
@@ -233,18 +312,22 @@ test.describe('[Points User] Comprehensive Demo Tests', () => {
           .split('T')[0]
         await page.locator(SELECTORS.pointsUser.filterStartTime).fill(sevenDaysAgo)
         await page.locator(SELECTORS.pointsUser.applyFiltersButton).click()
+        await expect(page.locator(SELECTORS.pointsUser.applyFiltersButton)).toBeEnabled()
 
-        await expect(page.locator(SELECTORS.pointsUser.transactionsSection)).toBeVisible()
-        demoLogger.testCode.log('[Test] ✓ Filter applied by time range: last 7 days')
+        await expectFilteredTransactionRows(page, { kind: 'notBefore', date: sevenDaysAgo })
+        demoLogger.testCode.log(
+          `[Test] ✓ Filter applied by time range: on/after ${sevenDaysAgo} (all rows match or empty)`
+        )
       })
 
       await test.step('Verify: Filter by custom date range', async () => {
         await page.locator(SELECTORS.pointsUser.filterStartTime).fill('2026-03-01')
         await page.locator(SELECTORS.pointsUser.filterEndTime).fill('2026-03-31')
         await page.locator(SELECTORS.pointsUser.applyFiltersButton).click()
+        await expect(page.locator(SELECTORS.pointsUser.applyFiltersButton)).toBeEnabled()
 
-        await expect(page.locator(SELECTORS.pointsUser.transactionsSection)).toBeVisible()
-        demoLogger.testCode.log('[Test] ✓ Filter applied by custom date range')
+        await expectFilteredTransactionRows(page, { kind: 'within', from: '2026-03-01', to: '2026-03-31' })
+        demoLogger.testCode.log('[Test] ✓ Filter applied by custom date range (all rows within March or empty)')
       })
     })
 

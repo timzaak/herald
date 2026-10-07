@@ -24,6 +24,7 @@ import { Route as UserPurchasePointsRouteImport } from './routes/user/purchase-p
 import { Route as UserProfileRouteImport } from './routes/user/profile'
 import { Route as UserPointsRouteImport } from './routes/user/points'
 import { Route as UserInvoicesRouteImport } from './routes/user/invoices'
+import { Route as SubscriptionMySubscriptionsRouteImport } from './routes/subscription/my-subscriptions'
 import { Route as ManageUsersRouteImport } from './routes/manage/users'
 import { Route as ManageSubscriptionHistoryRouteImport } from './routes/manage/subscription-history'
 import { Route as ManageSubscriptionRouteImport } from './routes/manage/subscription'
@@ -221,6 +222,12 @@ const UserInvoicesRoute = UserInvoicesRouteImport.update({
   path: '/invoices',
   getParentRoute: () => UserRouteRoute,
 } as any)
+const SubscriptionMySubscriptionsRoute =
+  SubscriptionMySubscriptionsRouteImport.update({
+    id: '/subscription/my-subscriptions',
+    path: '/subscription/my-subscriptions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ManageUsersRoute = ManageUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -922,6 +929,7 @@ export interface FileRoutesByFullPath {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
+  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/invoices': typeof UserInvoicesRouteWithChildren
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
@@ -1054,6 +1062,7 @@ export interface FileRoutesByTo {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
+  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
   '/user/purchase-points': typeof UserPurchasePointsRoute
@@ -1179,6 +1188,7 @@ export interface FileRoutesById {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
+  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/invoices': typeof UserInvoicesRouteWithChildren
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
@@ -1319,6 +1329,7 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
+    | '/subscription/my-subscriptions'
     | '/user/invoices'
     | '/user/points'
     | '/user/profile'
@@ -1451,6 +1462,7 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
+    | '/subscription/my-subscriptions'
     | '/user/points'
     | '/user/profile'
     | '/user/purchase-points'
@@ -1575,6 +1587,7 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
+    | '/subscription/my-subscriptions'
     | '/user/invoices'
     | '/user/points'
     | '/user/profile'
@@ -1690,6 +1703,7 @@ export interface RootRouteChildren {
   ManageRouteRoute: typeof ManageRouteRouteWithChildren
   UserRouteRoute: typeof UserRouteRouteWithChildren
   DeviceRoute: typeof DeviceRouteWithChildren
+  SubscriptionMySubscriptionsRoute: typeof SubscriptionMySubscriptionsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1798,6 +1812,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/invoices'
       preLoaderRoute: typeof UserInvoicesRouteImport
       parentRoute: typeof UserRouteRoute
+    }
+    '/subscription/my-subscriptions': {
+      id: '/subscription/my-subscriptions'
+      path: '/subscription/my-subscriptions'
+      fullPath: '/subscription/my-subscriptions'
+      preLoaderRoute: typeof SubscriptionMySubscriptionsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/manage/users': {
       id: '/manage/users'
@@ -3264,6 +3285,7 @@ const rootRouteChildren: RootRouteChildren = {
   ManageRouteRoute: ManageRouteRouteWithChildren,
   UserRouteRoute: UserRouteRouteWithChildren,
   DeviceRoute: DeviceRouteWithChildren,
+  SubscriptionMySubscriptionsRoute: SubscriptionMySubscriptionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

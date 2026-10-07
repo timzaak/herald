@@ -7,9 +7,10 @@
  * - Test 2: Normal Login Regression
  * - Test 3: OAuth Login Page State Verification (US-RU-010)
  * - Test 4: MCP Browser Authorization via Built-in herald-mcp Client
- *   (US-MCP-001 V4, .ai/design/mcp-server/frontend.md §8)
+ *   (US-MCP-001 场景 1 零配置接入/场景 2 放弃授权)
  *
- * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）
+ * @see docs/user-stories/auth/third-party-app.md（US-TP-*）、docs/user-stories/core/regular-user.md（US-RU-*）、
+ *   docs/user-stories/integration/mcp-server.md（US-MCP-*）
  */
 
 import { test, expect, cleanupTestData } from './fixtures/demo-page.fixtures'
@@ -244,7 +245,8 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Test 4: MCP Browser Authorization via Built-in herald-mcp Client (V4)
+  // Test 4: MCP Browser Authorization via Built-in herald-mcp Client
+  // (US-MCP-001 场景 1 零配置接入 / 场景 2 放弃授权)
   // ---------------------------------------------------------------------------
   test('MCP Browser Authorization via Built-in herald-mcp Client', async ({ page }) => {
     const realmId = DEMO_ADMIN.realmId

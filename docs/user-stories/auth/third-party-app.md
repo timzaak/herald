@@ -336,7 +336,7 @@ Then 提示用户重新登录以获取新令牌
 
 ## 故事 8：第三方 Web SPA 发起 SSO 登录 [US-TP-015]
 
-**优先级**: P1
+**优先级**: P0
 
 **【用户故事】**
 **作为**：第三方应用开发者（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
@@ -388,7 +388,7 @@ Then SPA 拒绝接受该授权码，提示可能的安全风险
 
 ## 故事 9：第三方后端用授权码换取令牌 [US-TP-016]
 
-**优先级**: P1
+**优先级**: P0
 
 **【用户故事】**
 **作为**：第三方应用开发者（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）

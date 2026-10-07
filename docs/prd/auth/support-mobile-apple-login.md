@@ -15,7 +15,7 @@
 | US-AL-001 | 在 iOS App 内使用 Apple 账号一键登录 | P0 | `docs/user-stories/auth/support-mobile-apple-login.md` |
 | US-AL-002 | 接入方在 iOS App 中集成 Apple native 登录 | P0 | `docs/user-stories/auth/support-mobile-apple-login.md` |
 | US-AL-003 | Apple native 登录与已有账号关联 | P1 | `docs/user-stories/auth/support-mobile-apple-login.md` |
-| US-RU-003 | OAuth 第三方登录 | P0 | `docs/user-stories/core/regular-user.md` |
+| US-RU-003 | OAuth 第三方登录 | P1 | `docs/user-stories/core/regular-user.md` |
 | US-TP-001 | OAuth 授权码登录 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-015 | 第三方 Web SPA 发起 SSO 登录 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-016 | 第三方后端用授权码换取令牌 | P0 | `docs/user-stories/auth/third-party-app.md` |

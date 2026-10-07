@@ -15,6 +15,7 @@
 | US-TP-001 | OAuth 授权码登录 Authorization Code + PKCE | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-002 | 验证用户登录状态 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-003 | 检查用户权限 | P0 | `docs/user-stories/auth/third-party-app.md` |
+| US-TP-004 | 获取用户信息 | P0 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-006 | 处理异常情况 | P1 | `docs/user-stories/auth/third-party-app.md` |
 | US-TP-007 | 会话管理 | P1 | `docs/user-stories/auth/third-party-app.md` |
 | US-BI-007 | 第三方应用查询订阅状态（SDK 集成） | P0 | `docs/user-stories/billing/subscription.md` |
@@ -190,7 +191,7 @@
 - 详细端点契约、认证方式和错误模型下沉到技术设计或接口说明文档
 
 **前端 / 交互边界:**
-- Provider 配置入口在 Settings 页面的 Providers Tab，与 Turnstile、Registration 并列；列表以表格形式展示名称、Client ID、状态（Enabled/Disabled 用不同颜色 Badge 区分）、Scopes 和操作按钮（编辑、启用/禁用切换、删除）
+- Provider 配置入口在 Settings 页面的 Providers Tab，与 Registration 等并列；列表以表格形式展示名称、Client ID、状态（Enabled/Disabled 用不同颜色 Badge 区分）、Scopes 和操作按钮（编辑、启用/禁用切换、删除）
 - 新增/编辑 Provider 通过对话框表单完成，字段包含 Provider Type（下拉选择）、Client ID、Client Secret（编辑时可选，提示"留空保持不变"）、Scopes（多选）、Enabled 开关
 - 删除 Provider 需要二次确认交互
 - 登录页动态加载已启用的 Provider 列表，展示为独立的登录按钮

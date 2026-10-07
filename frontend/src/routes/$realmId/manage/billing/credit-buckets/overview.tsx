@@ -11,7 +11,8 @@ const creditTypeKeySchema = z.enum([
   'granted',
 ])
 
-const overviewSearchSchema = z.object({
+// eslint-disable-next-line react-refresh/only-export-components
+export const overviewSearchSchema = z.object({
   enabledOnly: z.boolean().optional(),
   creditTypes: z.array(creditTypeKeySchema).optional(),
 })
