@@ -1,11 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500;1,6..72,600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500;1,6..72,600&display=swap");
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 @import "fumadocs-openapi/css/preset.css";
 
 @theme {
-  --font-serif: "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-serif:
+    "Newsreader", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
@@ -40,6 +41,16 @@ html {
 }
 
 html > body[data-scroll-locked] {
+  /* biome-ignore lint/complexity/noImportantStyles: must match the !important inline
+     styles react-remove-scroll injects to neutralise its scrollbar compensation */
   margin-right: 0px !important;
+  /* biome-ignore lint/complexity/noImportantStyles: same scroll-lock override */
   --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* Mermaid SVG carries a fixed pixel width; keep wide diagrams scrollable inside
+   the prose container instead of overflowing the page. */
+.mermaid-diagram {
+  max-width: 100%;
+  overflow-x: auto;
 }

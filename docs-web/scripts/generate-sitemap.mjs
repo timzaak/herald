@@ -31,7 +31,12 @@ async function generateSitemap() {
     .map((file) => {
       const rel = relative(OUTPUT_DIR, file);
       // /docs/getting-started/index.html → /docs/getting-started/
-      const urlPath = "/" + rel.replace(/[/\\]index\.html$/, "").replace(/index\.html$/, "").replace(/\\/g, "/");
+      const urlPath =
+        "/" +
+        rel
+          .replace(/[/\\]index\.html$/, "")
+          .replace(/index\.html$/, "")
+          .replace(/\\/g, "/");
       return urlPath;
     })
     .sort()
@@ -39,7 +44,7 @@ async function generateSitemap() {
       (path) => `  <url>
     <loc>${SITE_URL}${path}</loc>
     <lastmod>${today}</lastmod>
-  </url>`
+  </url>`,
     )
     .join("\n");
 
@@ -50,7 +55,9 @@ ${urls}
 
   const outPath = join(OUTPUT_DIR, "sitemap.xml");
   await writeFile(outPath, sitemap, "utf-8");
-  console.log(`Generated sitemap with ${urls.split("\n").length / 5} URLs → ${outPath}`);
+  console.log(
+    `Generated sitemap with ${urls.split("\n").length / 5} URLs → ${outPath}`,
+  );
 }
 
 generateSitemap().catch((err) => {

@@ -1,8 +1,5 @@
 {
   "title": "品牌与域名",
   "defaultOpen": true,
-  "pages": [
-    "branding",
-    "custom-domain"
-  ]
+  "pages": ["branding", "custom-domain"]
 }

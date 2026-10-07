@@ -23,8 +23,8 @@ backend/
 ├── api-admin/           # Admin panel handlers (user management, roles, permission definitions)
 ├── api-auth/            # Auth handlers (registration, login, password reset)
 ├── api-ext/             # External API handlers (API Key auth, for third-party consumption)
-├── api-mcp/             # MCP server endpoints (read-only agent queries over the ext surface)
-├── api-oauth/           # OAuth handlers (GitHub/Google/WeChat login)
+├── api-mcp/             # MCP server endpoints (agent-facing read-only tools, OAuth user credentials)
+├── api-oauth/           # OAuth/OIDC handlers (authorize/token, social login, device code, discovery, MCP metadata)
 ├── api-points/          # Points handlers (balance queries, consumption, top-up)
 ├── worker/              # Background jobs (points expiration, points pre-grant, invoice overdue marking)
 ├── app/                 # Entry point (main.rs, database migrations)
@@ -137,9 +137,9 @@ Nine crates form the API layer:
 | `api-auth` | Registration, login, password reset, email verification | Bearer token (public endpoints + token issuance) |
 | `api-admin` | User CRUD, role management, permission definition management | Bearer token (FirstParty) + inject_identity |
 | `api-billing` | Credit account directory, entitlement mappings, subscription projection, payment webhooks (Stripe/Creem), invoices, one-time purchases | mixed |
-| `api-oauth` | OAuth login (GitHub/Google/WeChat), OAuth configuration management | mixed |
+| `api-oauth` | OAuth authorization server: authorize/token endpoints (authorization code + PKCE, refresh), OIDC discovery / id_token / JWKS / userinfo, Device Code Grant (RFC 8628), social login (GitHub/Google/WeChat), MCP resource metadata and pass-through client registration | mixed |
 | `api-ext` | Third-party API: permission checks, subscription queries, points balance and consumption, isolated by the API key's bound client app | API Key |
-| `api-mcp` | MCP server for AI agent clients: read-only queries (users, points balance/transactions, audit logs, realm config status) over the ext surface | API Key |
+| `api-mcp` | MCP server for AI agent clients: nine read-only tools, five admin-plane queries (users, points balance/transactions, audit logs, realm config status) gated by the authorizing user's RBAC and four self-plane queries (my profile, points balance, transactions, subscriptions) gated by MCP scopes | OAuth user credentials (MCP audience) |
 | `api-points` | Points balance, transaction history, consumption, top-up | Bearer token or API Key |
 
 `api` crate's `create_api_routes()` is the single entry point for route registration. It nests sub-crate routes under unified prefixes and attaches the `inject_identity` middleware. Each sub-crate defines its own `ApiDoc` (utoipa OpenApi spec), which get merged into one complete OpenAPI document in `build_openapi_spec()`.
@@ -172,15 +172,13 @@ Recurring tasks that run in the same process as the API server:
 
 Steps 8 and 9 run concurrently. `tokio::select!` waits for either one to finish or a shutdown signal (Ctrl+C or SIGTERM).
 
-### sdk — Rust SDK
+### sdk — third-party SDKs
 
-A Rust crate published for third-party applications. Wraps all endpoints under `/api/ext/`:
+Three packages under `sdk/`, published separately (`.github/workflows/publish-sdk.yml`, `publish-node-sdk.yml`, `publish-web-sdk.yml`):
 
-- `check_permission` — permission check (with moka local cache, auto-invalidation)
-- `get_subscription` — subscription status query with `entitlement_key`
-- `get_balance` / `consume_points` — points queries and consumption
-
-The constructor takes `base_url` and `api_key`. All requests include the `X-API-Key` header automatically. Permission checks use a local moka cache with a 5-minute TTL; when a token expires, associated cache entries are cleared in batch.
+- `sdk/rust` (crate `herald-sdk`) — server-side Rust wrapper over `/api/ext/`: `check_permission` (moka local cache with a 5-minute TTL; cache entries are cleared in batch when a token expires), `get_subscription` by `entitlement_key`, `get_balance` / `consume_points`. The constructor takes `base_url` and `api_key`; all requests include the `X-API-Key` header automatically.
+- `sdk/node` (npm package `herald-sdk`) — the TypeScript counterpart with the same API surface and caching behaviour, plus realm / user / client-app administration over the external API. Zero runtime dependencies (native `fetch`, Node 18+).
+- `sdk/web` (npm package `herald-auth-web`) — browser SDK for end-user authentication on third-party pages: register, email verification, password reset, login (TOTP / passkey / email-OTP second factors), silent access-token refresh, logout. Framework-agnostic, ESM-only, with an IIFE bundle for `<script>` / CDN integration.
 
 Each API key is bound to a client app. A key bound to the default `admin-api-client` is realm-wide and can access external API resources for any client app in the same realm. A key bound to an ordinary client app can only access permission checks, subscriptions, and points for that client app. `api-ext` enforces this scope for subscription, points, and permission-check endpoints. API key authentication rechecks the bound client app's enabled state even on cache hits, so disabling a client app immediately blocks its API keys.
 

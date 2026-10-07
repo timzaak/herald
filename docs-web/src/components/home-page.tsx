@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { HomeLayout } from "fumadocs-ui/layouts/home";
 import {
   Bot,
@@ -11,7 +12,6 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import type { HomeTexts } from "@/lib/home-texts";
 import { baseOptions, SiteFooter } from "@/lib/layout.shared";
 import { contactEmail, gitConfig } from "@/lib/shared";

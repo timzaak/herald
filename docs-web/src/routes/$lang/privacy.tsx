@@ -5,7 +5,9 @@ import { i18n } from "@/lib/i18n";
 export const Route = createFileRoute("/$lang/privacy")({
   component: Page,
   beforeLoad: ({ params }) => {
-    if (!i18n.languages.includes(params.lang as (typeof i18n.languages)[number])) {
+    if (
+      !i18n.languages.includes(params.lang as (typeof i18n.languages)[number])
+    ) {
       throw notFound();
     }
   },

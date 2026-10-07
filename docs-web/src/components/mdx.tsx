@@ -1,6 +1,6 @@
 import defaultMdxComponents from "fumadocs-ui/mdx";
-import { Mermaid } from "./mermaid";
 import type { MDXComponents } from "mdx/types";
+import { Mermaid } from "./mermaid";
 
 export function getMDXComponents(components?: MDXComponents) {
   return {

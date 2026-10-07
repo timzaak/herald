@@ -1,10 +1,5 @@
 {
   "title": "登录方式",
   "defaultOpen": true,
-  "pages": [
-    "passkey",
-    "email-otp",
-    "apple-native",
-    "ldap"
-  ]
+  "pages": ["passkey", "email-otp", "apple-native", "ldap"]
 }

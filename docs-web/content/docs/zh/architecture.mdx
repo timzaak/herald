@@ -23,8 +23,8 @@ backend/
 ├── api-admin/           # 管理后台 handler（用户管理、角色、权限定义）
 ├── api-auth/            # 认证 handler（注册、登录、密码重置）
 ├── api-ext/             # 外部 API handler（API Key 认证，供第三方调用）
-├── api-mcp/             # MCP server 端点（面向 agent 的只读查询）
-├── api-oauth/           # OAuth handler（GitHub/Google/微信登录）
+├── api-mcp/             # MCP server 端点（面向 agent 的只读工具，OAuth 用户凭证）
+├── api-oauth/           # OAuth/OIDC handler（authorize/token、社交登录、Device Code、发现、MCP 元数据）
 ├── api-points/          # 积分 handler（余额查询、消费、充值）
 ├── worker/              # 后台任务（积分过期、积分预发放、发票逾期标记）
 ├── app/                 # 入口（main.rs、数据库迁移）
@@ -138,9 +138,9 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 | `api-auth` | 注册、登录、密码重置、邮箱验证 | Bearer token（公开端点 + 签发 token） |
 | `api-admin` | 用户 CRUD、角色管理、权限定义管理 | Bearer token（FirstParty）+ inject_identity |
 | `api-billing` | 积分账户目录、Entitlement 映射、订阅投影、支付 webhook（Stripe/Creem）、发票、一次性购买 | 混合 |
-| `api-oauth` | OAuth 登录（GitHub/Google/微信）、Device Code Grant（RFC 8628）、OAuth 配置管理 | 混合 |
+| `api-oauth` | OAuth 授权服务器：authorize/token 端点（授权码 + PKCE、刷新）、OIDC 发现 / id_token / JWKS / userinfo、Device Code Grant（RFC 8628）、社交登录（GitHub/Google/微信）、MCP 资源元数据与 pass-through 客户端注册 | 混合 |
 | `api-ext` | 第三方 API：权限检查、订阅查询、积分余额和消费，按 API Key 绑定的 Client App 隔离 | API Key |
-| `api-mcp` | 面向 AI agent 客户端的 MCP server：基于 ext 面的只读查询（用户、积分余额/流水、审计日志、realm 配置状态） | API Key |
+| `api-mcp` | 面向 AI agent 客户端的 MCP server：九项只读工具，管理面五项（用户、积分余额/流水、审计日志、realm 配置状态）按授权用户的 RBAC 放行，self 面四项（我的资料、积分余额、流水、订阅）按 MCP scope 放行 | OAuth 用户凭证（MCP audience） |
 | `api-points` | 积分余额、交易历史、消费、充值 | Bearer token 或 API Key |
 
 `api` crate 的 `create_api_routes()` 是路由注册的唯一入口。它把子 crate 的路由 `nest` 到统一前缀下，挂上 `inject_identity` 中间件。每个子 crate 独立定义自己的 `ApiDoc`（utoipa OpenApi spec），最后在 `build_openapi_spec()` 里 merge 成一份完整的 OpenAPI 文档。
@@ -173,15 +173,13 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 
 8 和 9 并发运行，`tokio::select!` 等待任意一个结束或收到 shutdown 信号（Ctrl+C 或 SIGTERM）。
 
-### sdk — Rust SDK
+### sdk — 第三方 SDK
 
-发布给第三方应用的 Rust crate。封装了 `/api/ext/` 下的所有接口：
+`sdk/` 下三个包，各自独立发布（`.github/workflows/publish-sdk.yml`、`publish-node-sdk.yml`、`publish-web-sdk.yml`）：
 
-- `check_permission` — 权限检查（带 moka 本地缓存，自动失效）
-- `get_subscription` — 订阅状态查询，返回 `entitlement_key`
-- `get_balance` / `consume_points` — 积分查询和消费
-
-构造函数接收 `base_url` 和 `api_key`，所有请求自动带上 `X-API-Key` header。权限检查有本地缓存（moka），5 分钟 TTL，token 过期时批量清除关联缓存。
+- `sdk/rust`（crate `herald-sdk`）：服务端 Rust 封装，覆盖 `/api/ext/` 下的 `check_permission`（moka 本地缓存，5 分钟 TTL，token 过期时批量清除关联缓存）、按 `entitlement_key` 的 `get_subscription`、`get_balance` / `consume_points`。构造函数接收 `base_url` 和 `api_key`，所有请求自动带上 `X-API-Key` header。
+- `sdk/node`（npm 包 `herald-sdk`）：TypeScript 对应实现，API 面与缓存行为和 Rust 版一致，另有 realm / 用户 / Client App 管理接口。零运行时依赖（原生 `fetch`，Node 18+）。
+- `sdk/web`（npm 包 `herald-auth-web`）：面向第三方页面的浏览器端用户认证 SDK：注册、邮箱验证、密码重置、登录（TOTP / passkey / 邮箱验证码二次认证）、静默刷新 access token、登出。框架无关，仅 ESM，另有供 `<script>` / CDN 集成的 IIFE 产物。
 
 API Key 绑定到一个 Client App。默认绑定 `admin-api-client` 的 Key 是 realm 级 Key，可以访问同一 realm 下所有 Client App 的外部 API 资源；绑定普通 Client App 的 Key 只能访问该 Client App 的权限检查、订阅和积分资源。`api-ext` 在处理订阅、积分和权限检查时都会校验这个范围；API Key 认证即使命中缓存，也会重新检查绑定 Client App 是否仍启用，因此禁用 Client App 会立即阻断它的 API Key。
 

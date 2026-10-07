@@ -1,10 +1,5 @@
 {
   "title": "Points",
   "defaultOpen": true,
-  "pages": [
-    "account",
-    "consumption",
-    "quota",
-    "paywall"
-  ]
+  "pages": ["account", "consumption", "quota", "paywall"]
 }

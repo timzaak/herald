@@ -102,7 +102,7 @@ docs/
 | [api-key-roles.md](integration/api-key-roles.md) | API Key 角色绑定 | Realm Admin |
 | [custom-user-ui.md](integration/custom-user-ui.md) | 自建用户 UI（跨域 Bearer token + 双轨凭证类，集成方自建全套终端用户 UI） | Third-Party App, Regular User |
 | [js-sdk.md](integration/js-sdk.md) | JS 浏览器 SDK（第三方网页集成，官方浏览器认证生命周期封装） | Third-Party App |
-| [mcp-server.md](integration/mcp-server.md) | MCP Server（AI Agent 查询接入，五项只读工具） | Third-Party App |
+| [mcp-server.md](integration/mcp-server.md) | MCP Server（AI Agent OAuth 接入，九项只读查询工具） | Third-Party App, Realm Admin, Regular User |
 
 ## 相关文档
 

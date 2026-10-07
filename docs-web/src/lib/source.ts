@@ -83,7 +83,9 @@ export async function getLLMText(page: (typeof source)["$inferPage"]) {
     const paths = schema.paths ?? {};
     const lines: string[] = [`# ${page.data.title} (${page.url})`, ""];
     for (const [path, ops] of Object.entries(paths)) {
-      for (const [method, op] of Object.entries(ops as Record<string, unknown>)) {
+      for (const [method, op] of Object.entries(
+        ops as Record<string, unknown>,
+      )) {
         const summary = (op as { summary?: string }).summary ?? "";
         lines.push(`- ${method.toUpperCase()} ${path} — ${summary}`);
       }

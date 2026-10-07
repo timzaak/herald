@@ -21,11 +21,7 @@ import { Suspense } from "react";
 import { ClientAPIPage } from "@/components/api-page";
 import { useMDXComponents } from "@/components/mdx";
 import { i18n } from "@/lib/i18n";
-import {
-  baseOptions,
-  footerLabels,
-  SiteFooter,
-} from "@/lib/layout.shared";
+import { baseOptions, footerLabels, SiteFooter } from "@/lib/layout.shared";
 import { gitConfig } from "@/lib/shared";
 import { slugsToMarkdownPath, source } from "@/lib/source";
 
@@ -61,7 +57,9 @@ const loader = createServerFn({
     // "OpenAPI reference" entry point, so redirect to the first real page.
     // Uses the loader's emitted order, so it stays valid as the spec changes.
     if (slugs.length === 1 && slugs[0] === "openapi") {
-      const first = source.getPages(locale).find((p) => p.data.type === "openapi");
+      const first = source
+        .getPages(locale)
+        .find((p) => p.data.type === "openapi");
       if (first?.url) throw redirect({ href: first.url });
     }
 

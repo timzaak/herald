@@ -308,12 +308,17 @@
 | US-MC-004 | 按（显式选定的）货币价格行发起购买 | Regular User | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-4按显式选定的货币价格行发起购买-us-mc-004) |
 | US-MC-005 | 查询可购权益支持的货币集合 | Third-Party App | P0 | [billing/multiple-currency](billing/multiple-currency.md#故事-5查询可购权益支持的货币集合-us-mc-005) |
 | US-MC-006 | Creem / IAP / WeChat Pay 单一价格降级展示 | Regular User | P2 | [billing/multiple-currency](billing/multiple-currency.md#故事-6creem--iap--wechat-pay-单一价格降级展示-us-mc-006) |
-| US-MCP-001 | 把 Herald 接入 AI agent 客户端 | Third-Party App | P0 | [integration/mcp-server](integration/mcp-server.md#故事-1把-herald-接入-ai-agent-客户端-us-mcp-001) |
-| US-MCP-002 | 通过 agent 查询用户 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-2通过-agent-查询用户-us-mcp-002) |
-| US-MCP-003 | 通过 agent 查询积分余额 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-3通过-agent-查询积分余额-us-mcp-003) |
-| US-MCP-004 | 通过 agent 查询积分交易流水 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-4通过-agent-查询积分交易流水-us-mcp-004) |
-| US-MCP-005 | 通过 agent 查询审计日志 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-5通过-agent-查询审计日志-us-mcp-005) |
-| US-MCP-006 | 通过 agent 查询 Realm 配置状态 | Third-Party App | P1 | [integration/mcp-server](integration/mcp-server.md#故事-6通过-agent-查询-realm-配置状态-us-mcp-006) |
+| US-MCP-001 | 把 Herald 接入 AI agent 客户端（浏览器授权） | Third-Party App | P0 | [integration/mcp-server](integration/mcp-server.md#故事-1把-herald-接入-ai-agent-客户端浏览器授权-us-mcp-001) |
+| US-MCP-002 | 通过 agent 查询用户 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-2通过-agent-查询用户-us-mcp-002) |
+| US-MCP-003 | 通过 agent 查询积分余额 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-3通过-agent-查询积分余额-us-mcp-003) |
+| US-MCP-004 | 通过 agent 查询积分交易流水 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-4通过-agent-查询积分交易流水-us-mcp-004) |
+| US-MCP-005 | 通过 agent 查询审计日志 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-5通过-agent-查询审计日志-us-mcp-005) |
+| US-MCP-006 | 通过 agent 查询 Realm 配置状态 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-6通过-agent-查询-realm-配置状态-us-mcp-006) |
+| US-MCP-007 | 通过 agent 查询我的资料 | Regular User | P1 | [integration/mcp-server](integration/mcp-server.md#故事-7通过-agent-查询我的资料-us-mcp-007) |
+| US-MCP-008 | 通过 agent 查询我的积分余额 | Regular User | P1 | [integration/mcp-server](integration/mcp-server.md#故事-8通过-agent-查询我的积分余额-us-mcp-008) |
+| US-MCP-009 | 通过 agent 查询我的积分交易流水 | Regular User | P1 | [integration/mcp-server](integration/mcp-server.md#故事-9通过-agent-查询我的积分交易流水-us-mcp-009) |
+| US-MCP-010 | 通过 agent 查询我的订阅 | Regular User | P1 | [integration/mcp-server](integration/mcp-server.md#故事-10通过-agent-查询我的订阅-us-mcp-010) |
+| US-MCP-011 | 查看与关闭本租户 MCP 接入 | Realm Admin | P1 | [integration/mcp-server](integration/mcp-server.md#故事-11查看与关闭本租户-mcp-接入-us-mcp-011) |
 
 ---
 
