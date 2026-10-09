@@ -2,6 +2,7 @@
   "title": "Tutorials",
   "pages": [
     "getting-started",
+    "realm-setup",
     "architecture",
     "configuration",
     "deployment",

@@ -44,24 +44,70 @@ function setupAdminAgreementsHandler(response: { agreements: AdminAgreementView[
 
 // Stub the per-(realm,type) draft GET to return a 404 ("no draft") by default.
 // Individual tests override with a 200 when they need a staged draft. The 404
-// path is the normal "no draft yet" state the query option collapses to null.
+// path is the normal "no draft yet" state the query option collapses to null —
+// the body must mirror the backend's ErrorResponse (a numeric `status` field),
+// because the option reads `response.error.status` to detect it; an empty-body
+// 404 would parse to no error object and surface as a query error instead.
+const draftNotFound = () =>
+  new HttpResponse(JSON.stringify({ status: 404, code: 'not_found', message: 'no draft' }), {
+    status: 404,
+    headers: { 'Content-Type': 'application/json' },
+  })
 function setupDraftNotFound() {
   server.use(
     http.get(
       `http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`,
-      () => new HttpResponse(null, { status: 404 })
+      draftNotFound
     ),
-    http.get(
-      `http://localhost:3000/api/legal/admin/agreements/privacy_policy/draft`,
-      () => new HttpResponse(null, { status: 404 })
-    )
+    http.get(`http://localhost:3000/api/legal/admin/agreements/privacy_policy/draft`, draftNotFound)
   )
+}
+
+// Stub the version-detail GET (the platform-default prefill source) with a
+// fixed template body for any version id. Default-source cards seed their
+// editor from this once no-draft is confirmed, so tests exercising the editor
+// must either wait for this prefill or override with a specific body.
+const DEFAULT_TEMPLATE_BODY = '# Platform default template\n\nTemplate body.'
+function setupDefaultVersionTemplate(body: string = DEFAULT_TEMPLATE_BODY, onCall?: () => void) {
+  server.use(
+    http.get(`http://localhost:3000/api/legal/admin/agreements/versions/:versionId`, () => {
+      onCall?.()
+      return HttpResponse.json({
+        agreement_type: 'terms_of_service',
+        version_no: 1,
+        version_label: null,
+        content: { en: body },
+        effective_at: '2026-06-29T00:00:00Z',
+        mode: 'full_text',
+        external_url: null,
+      })
+    })
+  )
+}
+
+// Wait for the platform-default prefill to land in the editor so subsequent
+// typing/clearing is deterministic (typing before the seed resolves would
+// append to or race with the seeded content).
+async function waitForPrefill() {
+  await waitFor(() => {
+    expect(
+      (screen.getByTestId('legal-content-en-input-terms_of_service') as HTMLTextAreaElement).value
+    ).toBe(DEFAULT_TEMPLATE_BODY)
+  })
+}
+
+// Wait for the platform-default prefill to land, then clear the editor so a
+// test starts from empty content deterministically.
+async function clearPrefilledEditor(user: ReturnType<typeof userEvent.setup>) {
+  await waitForPrefill()
+  await user.clear(screen.getByTestId('legal-content-en-input-terms_of_service'))
 }
 
 describe('LegalAgreementTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupDraftNotFound()
+    setupDefaultVersionTemplate()
   })
 
   it('shows loading state while fetching agreements', () => {
@@ -176,6 +222,9 @@ describe('LegalAgreementTab', () => {
     const user = userEvent.setup()
 
     const publishButton = await screen.findByTestId('legal-publish-button-terms_of_service')
+    // Clear the prefilled template so the "cannot publish empty content"
+    // guard fires.
+    await clearPrefilledEditor(user)
     await user.click(publishButton)
 
     expect(await screen.findByText(/English content is required/i)).toBeInTheDocument()
@@ -229,6 +278,9 @@ describe('LegalAgreementTab', () => {
     const user = userEvent.setup()
 
     await screen.findByTestId('legal-publish-button-terms_of_service')
+    // Start from an empty editor so the saved draft content is exactly what
+    // was typed.
+    await clearPrefilledEditor(user)
 
     await user.type(
       screen.getByTestId('legal-version-label-input-terms_of_service'),
@@ -295,6 +347,7 @@ describe('LegalAgreementTab', () => {
     const user = userEvent.setup()
 
     await screen.findByTestId('legal-save-draft-button-terms_of_service')
+    await clearPrefilledEditor(user)
     await user.type(
       screen.getByTestId('legal-content-en-input-terms_of_service'),
       'work in progress'
@@ -324,6 +377,9 @@ describe('LegalAgreementTab', () => {
     const user = userEvent.setup()
 
     await screen.findByTestId('legal-preview-button-terms_of_service')
+    // Start from an empty editor so the previewed Markdown is exactly the
+    // markup typed below.
+    await clearPrefilledEditor(user)
     await user.type(
       screen.getByTestId('legal-content-en-input-terms_of_service'),
       '# Heading{enter}{enter}**bold** text'
@@ -517,8 +573,9 @@ describe('LegalAgreementTab', () => {
     renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
 
     const previewButton = await screen.findByTestId('legal-preview-button-terms_of_service')
-    // No content typed yet → preview is disabled (the dialog would only show
-    // "Nothing to preview yet." otherwise).
+    // The guard under test is "no content → no preview".
+    const user = userEvent.setup()
+    await clearPrefilledEditor(user)
     expect(previewButton).toBeDisabled()
   })
 
@@ -566,5 +623,91 @@ describe('LegalAgreementTab', () => {
       expect(dialog.querySelector('h1')).not.toBeNull()
     })
     expect(versionCalls).toBe(1)
+  })
+
+  it('prefills the editor with the platform default template on a default-source realm', async () => {
+    setupAdminAgreementsHandler({
+      agreements: [makeAgreementView({ source: 'default' })],
+    })
+
+    renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
+
+    // A brand-new realm rides the platform default; the editor must open with
+    // that template so the admin tweaks it instead of writing from scratch,
+    // and the hint explains that publishing makes it a custom version.
+    await waitForPrefill()
+    expect(
+      (screen.getByTestId('legal-version-label-input-terms_of_service') as HTMLInputElement).value
+    ).toBe('')
+    expect(screen.getByTestId('legal-default-prefill-hint-terms_of_service')).toBeInTheDocument()
+  })
+
+  it('does not prefill the editor or show the hint on a custom-source realm', async () => {
+    let versionCalls = 0
+    setupDefaultVersionTemplate(DEFAULT_TEMPLATE_BODY, () => {
+      versionCalls += 1
+    })
+    setupAdminAgreementsHandler({
+      agreements: [makeAgreementView({ source: 'custom' })],
+    })
+
+    renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
+
+    await screen.findByTestId('legal-agreement-card-terms_of_service')
+    // Custom realms start blank on purpose: publishing mints a new immutable
+    // version and triggers reconsent, so edits must start deliberately. Let a
+    // potential (buggy) prefill fetch land before asserting absence.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(
+      (screen.getByTestId('legal-content-en-input-terms_of_service') as HTMLTextAreaElement).value
+    ).toBe('')
+    expect(versionCalls).toBe(0)
+    expect(
+      screen.queryByTestId('legal-default-prefill-hint-terms_of_service')
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the editor blank after publishing instead of reseeding the platform template', async () => {
+    // Regression: publishing deletes the draft and refetches both queries;
+    // the draft-null resolution can land while `source` still reads the stale
+    // 'default'. The prefill must stay suppressed after publish so the editor
+    // doesn't fill back up with the platform template.
+    let publishCalls = 0
+    server.use(
+      http.put(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/draft`, () =>
+        HttpResponse.json({
+          agreement_type: 'terms_of_service',
+          content: { en: DEFAULT_TEMPLATE_BODY },
+          version_label: null,
+          updated_at: '2026-07-01T00:00:00Z',
+        })
+      ),
+      http.post(`http://localhost:3000/api/legal/admin/agreements/terms_of_service/publish`, () => {
+        publishCalls += 1
+        return HttpResponse.json({
+          version_id: 'tos-v2',
+          version_no: 2,
+          effective_at: '2026-07-01T00:00:00Z',
+        })
+      })
+    )
+    setupAdminAgreementsHandler({
+      agreements: [makeAgreementView({ source: 'default' })],
+    })
+
+    renderWithProviders(<LegalAgreementTab realmId={realmId} canManage />)
+    const user = userEvent.setup()
+
+    // Publish the prefilled template unmodified.
+    await waitForPrefill()
+    await user.click(screen.getByTestId('legal-publish-button-terms_of_service'))
+    await waitFor(() => {
+      expect(publishCalls).toBe(1)
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(
+      (screen.getByTestId('legal-content-en-input-terms_of_service') as HTMLTextAreaElement).value
+    ).toBe('')
   })
 })

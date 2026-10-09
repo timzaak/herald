@@ -877,7 +877,7 @@ Then "mobile-key" 所在行显示所属客户端已禁用的醒目提示
 And 提示说明该 Key 当前无法认证
 ```
 
-**场景 5：禁用 Client App 后其 API Key 不可用**
+**场景 6：禁用 Client App 后其 API Key 不可用**
 ```gherkin
 Given API Key "mobile-key" 绑定到 Client App "mobile-app"
 When 管理员禁用 "mobile-app"

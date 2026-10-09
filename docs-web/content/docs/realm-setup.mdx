@@ -1,0 +1,78 @@
+---
+title: Create a Realm and Set Up the Basics
+description: "Create your own realm on the hosted instance at auth.fornetcode.com, then do the three things every new realm needs: open registration, publish your own Terms and Privacy Policy, and brand the auth pages."
+---
+
+Herald is multi-tenant: every realm is an isolated space with its own users, roles, client apps, and settings. This walkthrough uses the hosted instance at [auth.fornetcode.com](https://auth.fornetcode.com). If you run your own Herald, the same steps apply on your own domain once self-service signup is switched on (Settings → Platform, admin realm only; a fresh install ships with it off).
+
+You need a browser and about ten minutes. At the end you have your own realm, its admin account, registration open for users, your own agreements published, and branded login pages.
+
+## Create the realm
+
+Open [auth.fornetcode.com](https://auth.fornetcode.com). The sign-in page carries a "Create Your Realm" button; it takes you to the signup page, which asks for:
+
+| Field | Rules |
+|-------|-------|
+| Workspace Name | 3–50 characters. The display name of the realm. |
+| Workspace ID (Optional) | 3–36 characters: letters, numbers, hyphens, underscores. Reserved words (`admin`, `system`, `api`, `www`) are rejected. Leave it blank and the backend assigns an id for you. |
+| Email | Your login. This account becomes the realm's first admin. |
+| Password | At least 8 characters. |
+
+If the host has Turnstile enabled on its console client, you also pass a security verification checkbox. Click "Create Workspace".
+
+Two things worth knowing before you submit:
+
+- Signup is rate limited to 2 realms per IP address per 24 hours. Hitting the quota returns "Your IP has reached the signup limit", and you wait or switch networks.
+- Creating the realm records your consent to the platform's Terms of Service and Privacy Policy, the same consent any registering user gives.
+
+Herald provisions the realm with default roles and permissions, the built-in client apps, and your account with the `realm-admin` role. You are logged in immediately and land in the admin console at `https://auth.fornetcode.com/<realmId>/manage`, with a welcome banner on first visit. Everything below happens in this console.
+
+## Open registration
+
+A new realm ships with registration off; nobody can sign up until you turn it on.
+
+Go to Settings and open the Registration tab. Flip "Enable Registration" and click Save. The second switch, "Require Email Verification", only takes effect after email delivery is configured under Settings → Email, so leave it off until that's done.
+
+When you save, the console checks your agreements first. If either the Terms of Service or the Privacy Policy still runs on the platform default template, a dialog asks you to configure your agreements before opening the door:
+
+- "Go to agreements" jumps to the Legal tab and leaves the switch unsaved. Publish your own versions, come back, and save.
+- "Enable anyway" saves the switch as-is. Users then consent to the platform default text until you replace it.
+
+The dialog does not reappear once both agreements have custom versions, and it stays quiet when you save unrelated changes on an already-open realm.
+
+## Publish your Terms and Privacy Policy
+
+Settings → Legal has one card per agreement: Terms of Service and Privacy Policy. On a new realm both badges read "Platform default", and the editor under each card is prefilled with that default template.
+
+Work through the template instead of writing from zero. It contains placeholder markers like `[Operator name]`, `[Email]`, and `[jurisdiction]`; every one of them is a spot you must fill in before the text describes your service. Edit the sections you keep, delete the ones that don't apply, then click "Publish draft". An optional "Version label" (say, `2026-10-en`) helps you track versions in the history table later.
+
+"Save draft" stages the text without publishing, "Preview" renders the Markdown the way users will see it, and each publish lands in the "Version history" table with its label and effective date.
+
+Two behaviors to plan around:
+
+- Every publish is a new consent version. Users who accepted an older version are asked to re-confirm at their next login, so batch your edits into one publish rather than shipping five versions in an afternoon.
+- Hosting mode defaults to "Herald full text", which renders the Markdown on a Herald page. Switch to "External link" if you host the document on your own site; the card then asks for the URL.
+
+Until a custom version is published, everyone consents to the platform default template, which is placeholder text and not legal advice. That is the reason the registration reminder in the previous section exists.
+
+## Brand the auth pages
+
+Settings → Branding controls what users see on the hosted auth pages. The fields: Brand name, Logo URL, Favicon URL, Accent color, Background (an image URL or a CSS gradient), Footer text, and the Login / Registration title and subtitle pairs. All of them are optional; an empty field falls back to the Herald default while the rest still apply.
+
+The form shows a live preview next to the fields, with a toggle between the login and register layouts, so you can check the result before it goes anywhere. Saving is two-step by design: "Save draft" writes a private draft that users never see, and "Publish" puts it live. "Restore previous version" undoes the last publish.
+
+Assets are URLs, not uploads. Host the logo on your own CDN or image host and paste the URL; a dead URL degrades to the fallback rather than a broken image. The accent color input warns when the contrast against white text drops below the WCAG 4.5:1 threshold, but the warning does not block publishing.
+
+The full field-by-field behavior, fallback rules, and the draft/publish lifecycle are documented in [White-label (Realm Branding)](/docs/customization/branding). Putting the auth pages on your own domain is a separate feature: [Custom Domain](/docs/customization/custom-domain).
+
+## Check the result
+
+Open `https://auth.fornetcode.com/<realmId>/auth/login`. You should see your logo, accent color, background, and login copy instead of the Herald defaults. With registration on, the register page carries your "Registration title"/"Registration subtitle" and asks new users to agree to the Terms of Service and Privacy Policy you published.
+
+Register a throwaway account to walk the consent step end to end, then remove it under Users.
+
+## Where to go next
+
+- [Getting Started](/docs/getting-started) to run Herald locally instead of on the hosted instance.
+- Login methods beyond passwords: [Email code](/docs/auth/email-otp), [Passkey](/docs/auth/passkey), [LDAP](/docs/auth/ldap).
+- [Integrate your application](/docs/integration/oidc) through the OIDC endpoints, or give an agent access with the [MCP server](/docs/integration/mcp).

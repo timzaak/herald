@@ -74,6 +74,15 @@ const publishSchema = z
 
 const SUPPORTED_LOCALES = ['en'] as const
 
+// Agreement bodies are locale-keyed objects (`{ en: '...' }`, per
+// SUPPORTED_LOCALES); read the English text shared by draft seeding,
+// platform-default prefill, and the past-version dialog.
+function contentEnOf(content: unknown): string {
+  return typeof content === 'object' && content !== null
+    ? String((content as Record<string, unknown>).en ?? '')
+    : ''
+}
+
 function getAgreementTitle(agreementType: AgreementType): string {
   if (agreementType === 'terms_of_service') {
     return m['legal.terms_of_service']()
@@ -175,10 +184,29 @@ function AgreementCard({
   // yet (a backend 404); a populated draft seeds the edit form so an admin can
   // resume an in-progress edit across sessions/browsers.
   const { data: draft } = useQuery(legalDraftQueryOptions(realmId, agreementType))
-  const draftContentEn =
-    draft && typeof draft.content === 'object' && draft.content !== null
-      ? String((draft.content as Record<string, unknown>).en ?? '')
-      : ''
+
+  // Platform-default prefill: a realm still on the platform template
+  // (`source === 'default'`) has no realm-scoped rows, so without this the
+  // editor would open blank and an admin would have to write a whole document
+  // from scratch. Once no-draft is confirmed, fetch the effective version's
+  // full body (the platform default row — `admin_get_version` admits
+  // realm-less rows) and seed the editor from it; the admin tweaks the
+  // template and publishes it as the realm's first custom version.
+  // Custom-source realms are NOT prefilled: publishing mints a new immutable
+  // version and triggers reconsent, so edits there must start deliberately.
+  // Suppress the platform-default prefill after a publish on this mount.
+  // Publishing deletes the draft and refetches both queries; the draft-null
+  // resolution can land while `view.source` is still the stale 'default', and
+  // without this latch that race would reseed the just-published editor with
+  // the platform template.
+  const [prefillSuppressed, setPrefillSuppressed] = useState(false)
+
+  const shouldPrefillDefault =
+    canManage && !prefillSuppressed && view.source === 'default' && draft === null
+  const { data: defaultVersion } = useQuery({
+    ...legalVersionQueryOptions(realmId, view.current_version.version_id),
+    enabled: shouldPrefillDefault,
+  })
 
   // Lazily fetch the full body of a past version when an admin opens it from the
   // history table. Gated on `activeVersion` so nothing is fetched until a row's
@@ -227,6 +255,7 @@ function AgreementCard({
     ],
     onSuccess: () => {
       form.reset({ versionLabel: '', contentEn: '', mode: 'full_text', externalUrl: '' })
+      setPrefillSuppressed(true)
     },
   })
 
@@ -266,13 +295,14 @@ function AgreementCard({
     },
   })
 
-  // Seed the form once the draft resolves. A draft is fetched per
-  // (realm, agreement_type); until it resolves the form stays blank so an admin
-  // never edits a published version's content by mistake. When a draft resolves,
-  // prefill both fields; `form.reset` re-runs validation against the new values.
+  // Seed the form once the draft (or, failing that, the platform default
+  // template) resolves. A draft is fetched per (realm, agreement_type); until
+  // it resolves the form stays blank so an admin never edits a published
+  // version's content by mistake. When a draft resolves, prefill both fields;
+  // `form.reset` re-runs validation against the new values.
   //
   // Only seed while the form is still pristine. React Query hands back a fresh
-  // `draft` reference on every background refetch / window-focus / invalidation,
+  // `draft` reference on every background refetch / window focus / invalidation,
   // and a draft can also resolve *after* the admin has started editing (e.g. a
   // staged draft left by a previous session). Reseeding then would `form.reset`
   // and wipe the in-flight edit — most visibly reverting an admin's manual switch
@@ -282,17 +312,19 @@ function AgreementCard({
   // next draft resolution can seed cleanly).
   const isFormDirty = useStore(form.store, (state) => state.isDirty)
   useEffect(() => {
-    if (draft !== undefined && !isFormDirty) {
+    if (isFormDirty) return
+    const seed = draft ?? (shouldPrefillDefault ? defaultVersion : undefined)
+    if (seed) {
       form.reset({
-        versionLabel: draft?.version_label ?? '',
-        contentEn: draftContentEn,
-        mode: draft?.mode ?? view.current_version.mode ?? 'full_text',
-        externalUrl: draft?.external_url ?? '',
+        versionLabel: seed.version_label ?? '',
+        contentEn: contentEnOf(seed.content),
+        mode: seed.mode ?? view.current_version.mode ?? 'full_text',
+        externalUrl: seed.external_url ?? '',
       })
     }
-    // draftContentEn derives from `draft`; form is stable across renders.
+    // form is stable across renders; the seed derives from draft/defaultVersion.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, draftContentEn, isFormDirty])
+  }, [draft, isFormDirty, defaultVersion, shouldPrefillDefault])
 
   // Publish = save the current edit as a draft, then publish that draft.
   async function handlePublish() {
@@ -343,6 +375,12 @@ function AgreementCard({
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {canManage && shouldPrefillDefault && (
+          <Alert data-testid={`legal-default-prefill-hint-${agreementType}`}>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{m['settings.legal.default_prefill_hint']()}</AlertDescription>
+          </Alert>
+        )}
         {canManage ? (
           <AppForm>
             <form
@@ -541,13 +579,7 @@ function AgreementCard({
                 {m['settings.legal.version_dialog_loading']()}
               </p>
             ) : (
-              <MarkdownContent
-                content={
-                  activeVersionDetail.content && typeof activeVersionDetail.content === 'object'
-                    ? String((activeVersionDetail.content as Record<string, unknown>).en ?? '')
-                    : ''
-                }
-              />
+              <MarkdownContent content={contentEnOf(activeVersionDetail.content)} />
             )}
           </DialogContent>
         </Dialog>

@@ -2,6 +2,7 @@
   "title": "教程",
   "pages": [
     "getting-started",
+    "realm-setup",
     "architecture",
     "configuration",
     "deployment",

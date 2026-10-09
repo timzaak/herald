@@ -1,0 +1,78 @@
+---
+title: 创建 Realm 并完成基础配置
+description: "在托管实例 auth.fornetcode.com 上创建自己的 realm，然后完成每个新 realm 都要做的三件事：开启注册、发布自己的用户协议与隐私政策、给 auth 页面做品牌化。"
+---
+
+Herald 是多租户系统：每个 realm 是一个隔离的空间，有自己的用户、角色、Client App 和配置。本教程使用托管实例 [auth.fornetcode.com](https://auth.fornetcode.com)。如果你自己部署了 Herald，在自家域名上开启自助注册后（Settings → 平台，仅 admin realm 可配；全新安装默认关闭），步骤完全相同。
+
+你只需要一个浏览器和大约十分钟。做完后你会拥有：自己的 realm、它的管理员账号、对外开放的注册、自己发布的协议，以及带品牌的登录页。
+
+## 创建 realm
+
+打开 [auth.fornetcode.com](https://auth.fornetcode.com)。登录页上有「开通自己的 Realm」入口，点进去是注册页，表单字段如下：
+
+| 字段 | 规则 |
+|------|------|
+| 工作区名称 | 3–50 个字符，realm 的显示名。 |
+| 工作区 ID（可选） | 3–36 个字符：字母、数字、连字符、下划线。保留字（`admin`、`system`、`api`、`www`）不可用。留空则由后端自动生成。 |
+| 邮箱 | 你的登录账号，会成为该 realm 的第一个管理员。 |
+| 密码 | 至少 8 个字符。 |
+
+如果宿主实例的 console client 开启了 Turnstile，还会多一个安全验证的勾选。点击「创建工作区」。
+
+提交前有两件事值得知道：
+
+- 注册有速率限制：每个 IP 每 24 小时最多创建 2 个 realm。超限会提示「你的 IP 已达开通上限」，只能等或换网络。
+- 创建 realm 时会记录你对平台《用户协议》和《隐私政策》的同意，和任何注册用户给出的同意是同一份。
+
+Herald 会为新 realm 初始化默认角色与权限、内置的 Client App，以及带 `realm-admin` 角色的管理员账号。创建成功后你直接登录，落在管理控制台 `https://auth.fornetcode.com/<realmId>/manage`，首次进入有欢迎横幅。下面的操作都在这个控制台里完成。
+
+## 开启注册
+
+新 realm 默认关闭注册，你不打开它就没有人能注册进来。
+
+进入 Settings，切到「注册」标签页，打开「启用注册」并保存。另一个开关「需要邮箱验证」只有在 Settings → 邮件 里配置好邮件发送之后才会生效，没配之前先关着。
+
+保存时控制台会先检查协议状态。如果《用户协议》或《隐私政策》仍在使用平台默认模板，会弹窗提醒你先配置协议：
+
+- 「去配置协议」跳到「协议」标签页，此时开关不会被保存。发布完自己的版本后回来再保存。
+- 「仍要开启」按现状保存，用户将同意平台默认文本，直到你替换它。
+
+两个协议都有自定义版本后这个弹窗不再出现；对已经开放注册的 realm 做无关修改再保存，也不会重复打扰。
+
+## 发布用户协议与隐私政策
+
+Settings → 协议 下有两张卡片：用户协议（Terms of Service）和隐私政策（Privacy Policy）。新 realm 的两张卡片徽标都是「平台默认模板」，卡片下方的编辑器已经预填了该模板。
+
+从模板改起，不要从零写。模板里有 `[Operator name]`、`[Email]`、`[jurisdiction]` 这类占位标记，每一个都是你必须填写的位置，填完文本才真正描述你的服务。保留的章节改内容，用不到的章节删掉，然后点「Publish draft」。「版本标签」选填（比如 `2026-10-en`），方便日后在版本历史里辨认。
+
+「Save draft」只存草稿不发布，「Preview」按用户看到的 Markdown 效果渲染，每次发布都会记入「版本历史」表格，带标签和生效日期。
+
+两个行为要提前规划：
+
+- 每次发布都是新的同意版本。同意过旧版本的用户会在下次登录时被要求重新确认，所以把改动攒成一次发布，别一个下午连发五个版本。
+- 承载模式默认是「Herald 站内全文」，Markdown 渲染在 Herald 页面上。文档放在自己网站上就切到「外部链接」，卡片会改为要求填 URL。
+
+在你发布自定义版本之前，所有人同意的都是平台默认模板，那是占位文本，不构成法律意见。上一节的注册提醒弹窗就是为此存在的。
+
+## 给 auth 页面做品牌化
+
+Settings → 品牌化 控制用户在托管 auth 页面上看到的样子。字段有：品牌名、Logo URL、Favicon URL、主色、背景（图片 URL 或 CSS 渐变）、页脚文案，以及登录页和注册页各自的标题与副标题。全部可选，留空的字段回退 Herald 默认值，其余照常生效。
+
+表单旁边有实时预览，可以在登录和注册两套布局之间切换，发布前就能核对效果。保存分两步：先「Save draft」存一份用户看不到的草稿，再「Publish」上线。「Restore previous version」可以撤销上一次发布。
+
+资产是 URL 而不是上传。把 logo 放在你自己的 CDN 或图床上，把 URL 贴进来；URL 失效时回退默认值，不会出现裂图。主色与白色文字对比度低于 WCAG 4.5:1 时表单会警告，但不阻止发布。
+
+逐字段的完整行为、回退规则和草稿/发布生命周期见 [White-label（Realm 品牌化）](/docs/zh/customization/branding)。把 auth 页面搬到你自己的域名是另一个功能：[自定义域名](/docs/zh/customization/custom-domain)。
+
+## 验证结果
+
+打开 `https://auth.fornetcode.com/<realmId>/auth/login`，应该看到你的 logo、主色、背景和登录文案。注册开启后，注册页带你的「Registration title」「Registration subtitle」文案，并要求新用户同意你发布的《用户协议》与《隐私政策》。
+
+注册一个测试账号，把同意步骤完整走一遍，然后到「用户」页删掉它。
+
+## 接下来去哪
+
+- [快速上手](/docs/zh/getting-started)：在本地跑一套 Herald，而不是用托管实例。
+- 密码之外的登录方式：[邮箱验证码](/docs/zh/auth/email-otp)、[Passkey](/docs/zh/auth/passkey)、[LDAP](/docs/zh/auth/ldap)。
+- [接入你的应用](/docs/zh/integration/oidc)走 OIDC 端点，或者用 [MCP 服务器](/docs/zh/integration/mcp)给 agent 授权访问。

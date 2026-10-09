@@ -65,6 +65,7 @@ import {
   ldapRealmConfigQueryOptions,
   whiteLabelRealmConfigQueryOptions,
   customDomainRealmConfigQueryOptions,
+  legalAdminAgreementsQueryOptions,
 } from '@/data/query-options'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
 import { updateRealmSchema, type UpdateRealmFormData } from '@/lib/schemas/realm'
@@ -268,6 +269,19 @@ export function SettingsPage() {
     ...customDomainRealmConfigQueryOptions(realmId),
     enabled: !!realmId && canViewConfig,
   })
+
+  // Legal agreement sources via GET /api/legal/admin/agreements (summaries
+  // only — the same key the legal tab's own query uses, so no extra request
+  // once both mount). Feeds the registration tab's agreements reminder:
+  // enabling signup while an agreement still rides the platform default
+  // template intercepts the save with a dialog. Unknown (loading/failed)
+  // fails open to "needs configuring" so the reminder errs on showing.
+  const { data: legalAgreementsData } = useQuery({
+    ...legalAdminAgreementsQueryOptions(realmId),
+    enabled: !!realmId && canViewConfig,
+  })
+  const agreementsUsingDefault =
+    legalAgreementsData?.agreements?.some((agreement) => agreement.source === 'default') ?? true
 
   const mutation = useMutation({
     mutationFn: (configs: UpsertRealmConfigRequest[]) =>
@@ -701,6 +715,8 @@ export function SettingsPage() {
             isLoading={isLoading}
             disabled={!canUpdateConfig}
             emailConfigured={emailStatusData?.configured ?? false}
+            agreementsUsingDefault={agreementsUsingDefault}
+            onGoToLegal={() => setActiveTab('legal')}
           />
         </TabsContent>
 
