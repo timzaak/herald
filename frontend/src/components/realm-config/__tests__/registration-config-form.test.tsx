@@ -117,11 +117,16 @@ describe('RegistrationConfigForm', () => {
     expect(requireEmailSwitch).toBeDisabled()
   })
 
-  it('GIVEN email not configured WHEN rendering THEN should show email config required hint', async () => {
+  // 无法开启的原因通过 tooltip 告知（而非静态提示文字）：
+  // 悬停被禁用的开关时应说明"邮箱未配置"这一前置条件缺失。
+  it('GIVEN email not configured WHEN hovering the disabled switch THEN should explain the reason in a tooltip', async () => {
+    const user = userEvent.setup()
     const screen = render(<RegistrationConfigForm {...defaultProps} emailConfigured={false} />)
 
-    expect(screen.getByTestId('email-config-required-hint')).toBeInTheDocument()
-    expect(screen.getByTestId('email-config-required-hint')).toHaveTextContent(
+    expect(screen.queryByTestId('email-config-required-hint')).not.toBeInTheDocument()
+
+    await user.hover(screen.getByTestId('reg-require-email-switch-tooltip-trigger'))
+    expect(await screen.findByTestId('reg-require-email-switch-tooltip')).toHaveTextContent(
       'Email verification requires email configuration'
     )
   })
@@ -131,6 +136,7 @@ describe('RegistrationConfigForm', () => {
 
     const requireEmailSwitch = screen.getByTestId('reg-require-email-switch')
     expect(requireEmailSwitch).not.toBeDisabled()
+    expect(screen.queryByTestId('reg-require-email-switch-tooltip-trigger')).not.toBeInTheDocument()
   })
 
   // email 失效时开关视觉应反映"实际生效状态"(OFF),而非 DB 存储值(ON)。

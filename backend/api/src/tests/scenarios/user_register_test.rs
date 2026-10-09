@@ -785,3 +785,136 @@ async fn test_scenario_verify_email_confirm_cannot_unban_forbidden_user(ctx: &mu
         .await
         .unwrap();
 }
+
+/// ============================================================================
+/// User Story: 注册昵称落库
+///
+/// **场景描述**：
+/// 注册接口的 `nickname` 字段必须写入用户的 profile 行——账户表没有昵称列，
+/// profile 是 GET /api/user/profile 的数据源；跳过这次写入会静默丢失 UI 必填
+/// 的昵称（历史上的 `username` 字段就是被这样丢弃的）。
+///
+/// **验收标准**：
+/// - 携带 nickname 注册成功后，profile.nickname 与提交值一致
+/// - 不带 nickname 的注册（SDK/程序化调用）依旧成功，且不产生 profile 行
+/// - 超长 nickname（51 字符）被 400 拒绝
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_user_register_persists_nickname(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    sqlx::query(
+        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled)
+         VALUES ($1, 'registration', 'enabled', 'true', true)",
+    )
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .unwrap();
+
+    // --- 携带昵称注册 → profile 行写入提交值 ---
+    let email_with_nickname = "nickname-persist@cas.com";
+    let payload = json!({
+        "clientId": ctx._client_id,
+        "email": email_with_nickname,
+        "nickname": "Nick Tester",
+        "password": "password123",
+        "turnstileToken": "dummy"
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/register", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "3.3.3.4")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "registration must succeed"
+    );
+
+    let stored_nickname: Option<String> = sqlx::query_scalar(
+        "SELECT p.nickname FROM profile p JOIN account a ON a.id = p.id WHERE a.email = $1",
+    )
+    .bind(email_with_nickname)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored_nickname.as_deref(),
+        Some("Nick Tester"),
+        "the registration nickname must land in the profile row"
+    );
+
+    // --- 不带昵称注册（程序化调用）→ 依旧成功，无 profile 行 ---
+    let email_no_nickname = "no-nickname@cas.com";
+    let payload = json!({
+        "clientId": ctx._client_id,
+        "email": email_no_nickname,
+        "password": "password123",
+        "turnstileToken": "dummy"
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/register", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "3.3.3.5")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "registering without a nickname (programmatic callers) must stay allowed"
+    );
+    let user_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM account WHERE email = $1")
+        .bind(email_no_nickname)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    let profile_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM profile WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    assert_eq!(profile_rows, 0, "no nickname supplied → no profile row");
+
+    // --- 超长昵称 → 400 校验拒绝 ---
+    let email_long_nickname = "long-nickname@cas.com";
+    let payload = json!({
+        "clientId": ctx._client_id,
+        "email": email_long_nickname,
+        "nickname": "x".repeat(51),
+        "password": "password123",
+        "turnstileToken": "dummy"
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/register", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "3.3.3.6")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "a 51-character nickname must fail validation"
+    );
+
+    for email in [email_with_nickname, email_no_nickname, email_long_nickname] {
+        sqlx::query("DELETE FROM email_verification_code WHERE email = $1")
+            .bind(email)
+            .execute(&ctx._app_state.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM account WHERE email = $1")
+            .bind(email)
+            .execute(&ctx._app_state.pool)
+            .await
+            .unwrap();
+    }
+}

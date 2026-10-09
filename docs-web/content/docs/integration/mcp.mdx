@@ -24,6 +24,8 @@ The realm id is part of the address: a token issued for one realm never works ag
 
 Your client needs the tenant URL and nothing else. Through RFC 9728 / RFC 8414 discovery and a controlled RFC 7591 registration endpoint, the client obtains the realm's preset public MCP client (`herald-mcp`) by itself.
 
+> **Enable the realm's MCP access first**: the built-in Herald MCP client ships disabled. A realm admin must enable it once in the admin console's Client App list before an agent can register and authorize (see the per-realm switch in section 7).
+
 **Claude Code** — verified end-to-end with Claude Code 2.1.269: registration, browser authorization, tool discovery, and tool calls all work with the URL alone.
 
 ```bash

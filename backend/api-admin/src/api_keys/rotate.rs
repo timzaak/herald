@@ -5,7 +5,7 @@ use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::client_api_keys::services::ClientApiKeyService;
 
-use crate::api_keys::client_app_info::client_app_name;
+use crate::api_keys::client_app_info::client_app_name_and_enabled;
 use crate::api_keys::types::RotateApiKeyResponse;
 
 /// Rotate an API Key
@@ -74,8 +74,14 @@ pub async fn rotate_api_key(
         // key. Authentication itself fails closed while Redis is unavailable.
     }
 
+    let (client_app_name, client_app_enabled) =
+        client_app_name_and_enabled(&state, saved.client_app_id).await?;
+
     let response = RotateApiKeyResponse {
-        client_app_name: client_app_name(&state, saved.client_app_id).await?,
+        client_app_name,
+        // Legacy unbound keys skip the app gate on auth, so they report as
+        // not blocked rather than as a disabled-app warning.
+        client_app_enabled: client_app_enabled.unwrap_or(true),
         id: saved.id,
         name: saved.name,
         key: plaintext_key,

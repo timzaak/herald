@@ -317,9 +317,11 @@ pub const MCP_LOOPBACK_REDIRECT_TEMPLATES: [&str; 3] = [
     "http://[::1]/callback",
 ];
 
-/// Idempotently seed the realm's built-in MCP client, mirroring migration
-/// `0011_mcp_oauth_client.sql` (same column values; uuidv7 + timestamps from
-/// the application side like `seed_realm_api_key_client`).
+/// Idempotently seed the realm's built-in MCP client, mirroring
+/// `seed_mcp_client_app` (same column values; uuidv7 + timestamps from the
+/// application side like `seed_realm_api_key_client`). The seed is DISABLED:
+/// agent access is opt-in, and a realm admin must enable the row before any
+/// MCP flow can authorize.
 ///
 /// WHY a test-side seed: the shared test schema's template realm is inserted
 /// by `init_template_data` AFTER `run_template_migrations` runs, so migration
@@ -335,7 +337,7 @@ pub async fn ensure_mcp_client_seeded(ctx: &SchemaTestContext) -> uuid::Uuid {
             device_code_grant_enabled, turnstile_enabled, mcp_token_generation
         ) VALUES (
             $1, $2, 'herald-mcp', 'Herald MCP', 'Built-in read-only AI agent access client',
-            $3::jsonb, '[]'::jsonb, 2592000, false, true, NULL, false, false, 0
+            $3::jsonb, '[]'::jsonb, 2592000, false, false, NULL, false, false, 0
         )
         ON CONFLICT (realm_id, client_id) DO NOTHING
         RETURNING id",
@@ -357,6 +359,23 @@ pub async fn ensure_mcp_client_seeded(ctx: &SchemaTestContext) -> uuid::Uuid {
         .await
         .expect("built-in MCP client app must exist after seed"),
     }
+}
+
+/// Ensure the built-in MCP client exists AND is enabled — the state after a
+/// realm admin opts in. Flow tests (authorize/token/login chains) call this;
+/// enabling never touches `mcp_token_generation`, matching the repository's
+/// toggle semantics (only a true→false transition bumps the generation).
+pub async fn ensure_mcp_client_enabled(ctx: &SchemaTestContext) -> uuid::Uuid {
+    ensure_mcp_client_seeded(ctx).await;
+    sqlx::query_scalar(
+        "UPDATE client_app SET enabled = true, updated_at = NOW()
+         WHERE realm_id = $1 AND client_id = 'herald-mcp'
+         RETURNING id",
+    )
+    .bind(&ctx._realm_id)
+    .fetch_one(&ctx._app_state.pool)
+    .await
+    .expect("failed to enable built-in MCP client app")
 }
 
 /// Call the authorize endpoint with the RFC 8707 `resource` indicator (plus

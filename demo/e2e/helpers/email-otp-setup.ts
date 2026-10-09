@@ -13,16 +13,22 @@
  * - Frontend commit 364767b2 guards the UI switches/save button behind
  *   `emailStatus.configured` (email-config-form.tsx `emailOtpDisabled`), so
  *   clicking them requires a configured email channel.
- * - But this demo suite REQUIRES the email channel to stay UNCONFIGURED:
- *   `EmailService::send_email` (backend/core/src/third/email.rs) silently
- *   skips delivery when the realm has no email config, while the OTP code is
- *   persisted to Redis BEFORE the send attempt — so the send endpoint returns
- *   200 and the tests read the code from Redis via email-otp-redis-helper.
- *   With a provider configured (even with a fake Resend key) the backend
- *   really attempts delivery and the send endpoint 500s ("resend send
- *   failed: 401 Unauthorized").
- * - The API endpoint is not subject to the UI guard, so it is the only path
- *   that satisfies both constraints.
+ * - The PUT endpoint enforces the same prerequisite server-side (write-path
+ *   guard mirroring the registration-side one): enabling with
+ *   `enabled=true` while the email channel is unconfigured is a 400.
+ * - But this demo suite REQUIRES the email channel to stay UNCONFIGURED
+ *   during the login flow: `EmailService::send_email`
+ *   (backend/core/src/third/email.rs) silently skips delivery when the realm
+ *   has no email config, while the OTP code is persisted to Redis BEFORE the
+ *   send attempt — so the send endpoint returns 200 and the tests read the
+ *   code from Redis via email-otp-redis-helper. With a provider configured
+ *   (even with a fake Resend key) the backend really attempts delivery and
+ *   the send endpoint 500s ("resend send failed: 401 Unauthorized").
+ * - `enableEmailOtpForRealm` therefore satisfies both constraints in
+ *   sequence: provision a minimal fake Resend config via POST
+ *   /api/configs/batch (so the PUT passes the write-path guard), flip the
+ *   OTP config on, then delete the `config_type='email'` rows to restore
+ *   the unconfigured channel the send step depends on.
  *
  * `enableEmailOtpForRealm` additionally restores the unconfigured email
  * channel (deleting leftover `config_type='email'` rows) when a previous
@@ -59,6 +65,63 @@ const EMAIL_CONFIG_KEYS = [
   'smtp_encryption',
 ] as const
 
+const EMAIL_STATUS_POLL_TIMEOUT = 15000
+
+interface EmailChannelStatus {
+  configured: boolean
+  provider?: string
+}
+
+/**
+ * GET /api/configs/email/status, failing loud on transport/server errors —
+ * shared by both ensure* helpers so the endpoint contract lives in one place.
+ */
+async function fetchEmailStatus(
+  api: APIRequestContext,
+  realmId: string
+): Promise<EmailChannelStatus> {
+  const response = await api.get(`${BASE_URL}/api/configs/email/status`)
+  if (!response.ok()) {
+    const body = await response.text().catch(() => '')
+    throw new Error(
+      `[EmailOtp Setup] Email status check failed for realm "${realmId}": ` +
+        `${response.status()} ${body}`
+    )
+  }
+  return await response.json()
+}
+
+/**
+ * Poll the email status endpoint until `configured` reaches `expected`. The
+ * poll body tolerates transient non-ok responses as "not configured" instead
+ * of throwing (unlike fetchEmailStatus) so it can ride out restarts — EXCEPT
+ * 401/403: an expired admin token never recovers mid-poll, and reporting it as
+ * "not configured" would mask the real failure behind a poll timeout.
+ */
+async function pollEmailConfigured(
+  api: APIRequestContext,
+  expected: boolean
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const response = await api.get(`${BASE_URL}/api/configs/email/status`)
+        if (response.ok()) {
+          return (await response.json()).configured
+        }
+        if (response.status() === 401 || response.status() === 403) {
+          const body = await response.text().catch(() => '')
+          throw new Error(
+            `[EmailOtp Setup] Email status poll got ${response.status()} (admin token rejected?) ${body}`
+          )
+        }
+        return false
+      },
+      { timeout: EMAIL_STATUS_POLL_TIMEOUT }
+    )
+    .toBe(expected)
+}
+
 /**
  * Log in as the realm admin via the login UI and return an APIRequestContext
  * authenticated with the post-login Bearer token (the same token the frontend
@@ -94,16 +157,7 @@ async function ensureEmailChannelNotConfigured(
   demoLogger: UnifiedLogger,
   realmId: string
 ): Promise<void> {
-  const statusUrl = `${BASE_URL}/api/configs/email/status`
-  const statusResponse = await api.get(statusUrl)
-  if (!statusResponse.ok()) {
-    const body = await statusResponse.text().catch(() => '')
-    throw new Error(
-      `[EmailOtp Setup] Email status check failed for realm "${realmId}": ` +
-        `${statusResponse.status()} ${body}`
-    )
-  }
-  const status = await statusResponse.json()
+  const status = await fetchEmailStatus(api, realmId)
 
   if (!status.configured) {
     demoLogger.testCode.log(
@@ -116,10 +170,16 @@ async function ensureEmailChannelNotConfigured(
     `[EmailOtp Setup] Email channel is configured (provider=${status.provider}); ` +
       `deleting config rows so OTP send silently skips instead of 500ing`
   )
-  for (const key of EMAIL_CONFIG_KEYS) {
-    const deleteResponse = await api.delete(
-      `${BASE_URL}/api/configs/email/${key}`
-    )
+  // The deletes hit distinct keys and each tolerates 404, so they run in
+  // parallel; errors are then checked in key order for a deterministic
+  // fail-loud message.
+  const deleteResponses = await Promise.all(
+    EMAIL_CONFIG_KEYS.map(async (key) => ({
+      key,
+      response: await api.delete(`${BASE_URL}/api/configs/email/${key}`),
+    }))
+  )
+  for (const { key, response: deleteResponse } of deleteResponses) {
     // 404 = the key was never stored; everything else must fail loud.
     if (!deleteResponse.ok() && deleteResponse.status() !== 404) {
       const body = await deleteResponse.text().catch(() => '')
@@ -130,13 +190,70 @@ async function ensureEmailChannelNotConfigured(
     }
   }
 
-  await expect.poll(
-    async () => {
-      const response = await api.get(statusUrl)
-      return response.ok() ? (await response.json()).configured : false
+  await pollEmailConfigured(api, false)
+}
+
+/**
+ * Provision a minimal (fake) Resend email configuration via the admin API.
+ *
+ * The PUT config/email-otp endpoint rejects `enabled: true` while the email
+ * channel is unconfigured (write-path guard mirroring the registration-side
+ * prerequisite), so the enable helper must make `configured` flip to true
+ * first. Idempotent: when the status endpoint already reports
+ * `configured: true`, nothing is written.
+ *
+ * The rows match the backend test helper `insert_resend_email_config_direct`
+ * (provider / from_address / resend_api_key — the three fields
+ * `EmailService::is_email_configured` requires for Resend). The key is
+ * fake; it only needs to be non-empty because the helper deletes these rows
+ * again before the demo's send step (see ensureEmailChannelNotConfigured).
+ */
+async function ensureEmailChannelConfigured(
+  api: APIRequestContext,
+  demoLogger: UnifiedLogger,
+  realmId: string
+): Promise<void> {
+  if ((await fetchEmailStatus(api, realmId)).configured) {
+    demoLogger.testCode.log(
+      `[EmailOtp Setup] Email channel already configured for realm "${realmId}"; nothing to provision`
+    )
+    return
+  }
+
+  demoLogger.testCode.log(
+    `[EmailOtp Setup] Provisioning temporary Resend config for realm "${realmId}" ` +
+      `(write-path guard requires a configured channel to enable OTP)`
+  )
+  const response = await api.post(`${BASE_URL}/api/configs/batch`, {
+    data: {
+      configs: [
+        { configType: 'email', configKey: 'provider', configValue: 'resend', isSecret: false, enabled: true },
+        {
+          configType: 'email',
+          configKey: 'from_address',
+          configValue: 'noreply@example.com',
+          isSecret: false,
+          enabled: true,
+        },
+        {
+          configType: 'email',
+          configKey: 'resend_api_key',
+          configValue: 're_demo_setup_key',
+          isSecret: true,
+          enabled: true,
+        },
+      ],
     },
-    { timeout: 15000 }
-  ).toBe(false)
+  })
+  if (!response.ok()) {
+    const body = await response.text().catch(() => '')
+    throw new Error(
+      `[EmailOtp Setup] Failed to provision email config for realm "${realmId}": ` +
+        `${response.status()} ${body}`
+    )
+  }
+
+  await pollEmailConfigured(api, true)
 }
 
 /**
@@ -169,11 +286,12 @@ async function putEmailOtpConfig(
 /**
  * Enable Email-OTP login for a realm (the "Given Realm has OTP on" step).
  *
- * Logs in as the realm admin, restores the unconfigured email channel when a
- * previous run/demo left a provider configured (see
- * ensureEmailChannelNotConfigured), then flips the OTP config on via the
- * admin API. Idempotent: the PUT re-writes the same values when OTP is
- * already on.
+ * Logs in as the realm admin, provisions a temporary minimal email config
+ * (the PUT write-path guard rejects enabling without one — see
+ * ensureEmailChannelConfigured), flips the OTP config on via the admin API,
+ * then restores the unconfigured email channel the demo's send step depends
+ * on (see ensureEmailChannelNotConfigured). Idempotent: the PUT re-writes
+ * the same values when OTP is already on.
  *
  * @param page        Playwright Page.
  * @param demoLogger  UnifiedLogger from the test fixture.
@@ -195,9 +313,18 @@ export async function enableEmailOtpForRealm(
 
   const api = await createAdminApiContext(page, demoLogger, realmId)
   try {
-    await ensureEmailChannelNotConfigured(api, demoLogger, realmId)
+    // Order matters: the PUT write-path guard rejects enabling without a
+    // configured email channel, so provision one first, enable, then restore
+    // the unconfigured channel the demo's send step depends on (silent-skip
+    // delivery + Redis-only codes).
+    await ensureEmailChannelConfigured(api, demoLogger, realmId)
     await putEmailOtpConfig(api, realmId, true, autoRegister)
   } finally {
+    // The restore must run even when the PUT fails: a leftover fake Resend
+    // config breaks the "unconfigured ⇒ send silently skips" premise every
+    // later OTP step (and the email-config demo's clean-state assertions)
+    // relies on.
+    await ensureEmailChannelNotConfigured(api, demoLogger, realmId)
     await api.dispose()
   }
 

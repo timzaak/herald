@@ -89,24 +89,27 @@ pub async fn list_api_keys(
                     ApiError::internal("Failed to load API key Client Apps")
                 })?
         };
-        let client_app_name_by_id: std::collections::HashMap<uuid::Uuid, String> = client_apps
+        let client_app_by_id: std::collections::HashMap<uuid::Uuid, (String, bool)> = client_apps
             .into_iter()
-            .map(|app| (app.id, app.name))
+            .map(|app| (app.id, (app.name, app.enabled)))
             .collect();
 
         api_keys
             .into_iter()
             .map(|k| {
                 let roles = role_map.remove(&k.id).unwrap_or_default();
-                let client_app_name = k
+                let (client_app_name, client_app_enabled) = k
                     .client_app_id
-                    .and_then(|id| client_app_name_by_id.get(&id).cloned());
+                    .and_then(|id| client_app_by_id.get(&id).cloned())
+                    .map(|(name, enabled)| (Some(name), Some(enabled)))
+                    .unwrap_or((None, None));
                 ApiKeyListItem {
                     id: k.id,
                     name: k.name,
                     realm_id: k.realm_id,
                     client_app_id: k.client_app_id,
                     client_app_name,
+                    client_app_enabled,
                     enabled: k.enabled,
                     expires_at: k.expires_at.map(|dt| dt.to_rfc3339()),
                     last_used_at: k.last_used_at.map(|dt| dt.to_rfc3339()),

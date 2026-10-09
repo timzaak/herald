@@ -181,7 +181,7 @@ domain 层 trait 的具体实现。`PostgresXxxRepository` 命名，一个 trait
 - `sdk/node`（npm 包 `herald-sdk`）：TypeScript 对应实现，API 面与缓存行为和 Rust 版一致，另有 realm / 用户 / Client App 管理接口。零运行时依赖（原生 `fetch`，Node 18+）。
 - `sdk/web`（npm 包 `herald-auth-web`）：面向第三方页面的浏览器端用户认证 SDK：注册、邮箱验证、密码重置、登录（TOTP / passkey / 邮箱验证码二次认证）、静默刷新 access token、登出。框架无关，仅 ESM，另有供 `<script>` / CDN 集成的 IIFE 产物。
 
-API Key 绑定到一个 Client App。默认绑定 `admin-api-client` 的 Key 是 realm 级 Key，可以访问同一 realm 下所有 Client App 的外部 API 资源；绑定普通 Client App 的 Key 只能访问该 Client App 的权限检查、订阅和积分资源。`api-ext` 在处理订阅、积分和权限检查时都会校验这个范围；API Key 认证即使命中缓存，也会重新检查绑定 Client App 是否仍启用，因此禁用 Client App 会立即阻断它的 API Key。
+每个 API Key 在创建时必须显式绑定一个 Client App（无默认绑定）。绑定内置 `admin-api-client`（新 realm 种子默认停用，需管理员启用）的 Key 是 realm 级 Key，可以访问同一 realm 下所有 Client App 的外部 API 资源；绑定普通 Client App 的 Key 只能访问该 Client App 的权限检查、订阅和积分资源。`api-ext` 在处理订阅、积分和权限检查时都会校验这个范围；API Key 认证即使命中缓存，也会重新检查绑定 Client App 是否仍启用，因此禁用 Client App 会立即阻断它的 API Key。
 
 ### frontend — React 管理后台
 

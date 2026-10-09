@@ -81,11 +81,15 @@ export function EmailConfigForm({
   const provider = useStore(form.store, (state) => state.values.provider)
 
   // Email-OTP login depends on the email channel being configured. When it
-  // isn't, the switches are disabled and a hint is shown (mirrors the
-  // `emailConfigured` pattern in registration-config-form). The dependency
-  // re-evaluates live because `emailStatus` is invalidated on email save.
+  // isn't, the switches are disabled and the reason is shown as a tooltip on
+  // each switch (mirrors the `emailConfigured` pattern in
+  // registration-config-form). The dependency re-evaluates live because
+  // `emailStatus` is invalidated on email save.
   const emailConfigured = emailStatus?.configured ?? false
   const emailOtpDisabled = disabled || !emailConfigured
+  const emailOtpSwitchTooltip = emailConfigured
+    ? undefined
+    : m['realm_config.email_otp_email_not_configured']()
 
   const otpForm = useAppForm({
     schema: emailOtpConfigSchema,
@@ -355,6 +359,7 @@ export function EmailConfigForm({
                       label={m['realm_config.email_otp_enable_label']()}
                       description={m['realm_config.email_otp_enable_description']()}
                       disabled={emailOtpDisabled}
+                      switchTooltip={emailOtpSwitchTooltip}
                       errorTestId="email-otp-enabled-error"
                     />
                   )}
@@ -370,19 +375,11 @@ export function EmailConfigForm({
                       label={m['realm_config.email_otp_auto_register_label']()}
                       description={m['realm_config.email_otp_auto_register_description']()}
                       disabled={emailOtpDisabled}
+                      switchTooltip={emailOtpSwitchTooltip}
                       errorTestId="email-otp-auto-register-error"
                     />
                   )}
                 />
-
-                {!emailConfigured && (
-                  <span
-                    className="text-sm text-muted-foreground"
-                    data-testid="email-otp-email-required-hint"
-                  >
-                    {m['realm_config.email_otp_email_not_configured']()}
-                  </span>
-                )}
 
                 <div className="flex justify-end">
                   <Button

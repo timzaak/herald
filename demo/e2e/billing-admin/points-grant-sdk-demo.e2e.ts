@@ -213,8 +213,11 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
 
       for (const appName of appNames) {
         try {
-          // List client apps to find the one to delete
-          const listRes = await apiContext.get(`${backendUrl}/api/client/admin`)
+          // List client apps to find the one to delete (session-scoped route:
+          // the admin-console token pins the realm)
+          const listRes = await apiContext.get(
+            `${backendUrl}/api/client?page=0&pageSize=100`,
+          )
           if (!listRes.ok()) continue
           const listBody = await listRes.json()
           const items = listBody.items ?? []
@@ -222,7 +225,7 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
           if (!app?.id) continue
 
           // Delete the client app
-          await apiContext.delete(`${backendUrl}/api/client/admin/${app.id}`)
+          await apiContext.delete(`${backendUrl}/api/client/${app.id}`)
         } catch (error) {
           console.warn(`[Cleanup] Failed to delete client app "${appName}":`, error)
         }
@@ -473,7 +476,8 @@ async function resolveClientAppId(
     process.env.API_BASE_URL ||
     process.env.BASE_URL?.replace(/:\d+/, ':8080') ||
     'http://localhost:8080'
-  const resp = await request.get(`${backendUrl}/api/client/${realmId}`)
+  // Session-scoped admin route: the bearer token pins the realm, no path segment.
+  const resp = await request.get(`${backendUrl}/api/client?page=0&pageSize=100`)
   if (!resp.ok()) {
     throw new Error(
       `could not list client apps in ${realmId}: ${resp.status()} ${await resp.text()}`,

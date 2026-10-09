@@ -14,6 +14,7 @@
 //
 // =============================================================================
 
+use crate::tests::helpers::email_config_helpers::*;
 use crate::tests::helpers::*;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -70,6 +71,9 @@ async fn test_scenario_admin_enable_disable_email_otp(ctx: &mut TestContext) {
     let (token, user_id) =
         create_admin_session_with_user(ctx, "email-otp-config-admin@test.com", 1800).await;
     grant_realm_admin_role(ctx, &user_id).await;
+    // The PUT write-path guard rejects enabling OTP without an email channel
+    // (see test_scenario_enable_email_otp_without_email_config_rejected).
+    insert_resend_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
 
     // Enable.
     let resp = app
@@ -197,6 +201,8 @@ async fn test_scenario_admin_email_otp_auto_register_toggle(ctx: &mut TestContex
     let (token, user_id) =
         create_admin_session_with_user(ctx, "email-otp-autoreg@test.com", 1800).await;
     grant_realm_admin_role(ctx, &user_id).await;
+    // Enabling requires a configured email channel (write-path guard).
+    insert_resend_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
 
     // Enable OTP with auto-register ON.
     let resp = app
@@ -272,4 +278,98 @@ async fn test_scenario_admin_email_otp_config_permission_enforced(ctx: &mut Test
         "GET config/email-otp without settings.view should be 403"
     );
     let _: serde_json::Value = crate::tests::response_json(resp).await;
+}
+
+/// User Story: US-EO-003
+/// Covers: 写入时前置校验 — OTP codes are delivered by email, so enabling
+/// Email-OTP without an email channel must be rejected (400) instead of
+/// dead-ending users at "send code". Mirrors the registration-side guard
+/// (`validate_email_verification_prerequisite`). Only the master switch is
+/// gated: disabling, or pre-setting `autoRegister` while `enabled` stays
+/// false, must remain allowed without email config.
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_enable_email_otp_without_email_config_rejected(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+    let (token, user_id) =
+        create_admin_session_with_user(ctx, "email-otp-no-email@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+
+    delete_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
+
+    // Enable without email config → 400 naming the missing prerequisite.
+    let resp = app
+        .clone()
+        .oneshot(put_config_request(&ctx._realm_id, &token, true, false))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "enabling Email-OTP without email config should be 400"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Cannot enable Email OTP login without email configuration"),
+        "error message should mention missing email configuration, got: {:?}",
+        body
+    );
+
+    // The rejected write must not persist: GET still reports disabled.
+    let resp = app
+        .clone()
+        .oneshot(get_config_request(&ctx._realm_id, &token))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert_eq!(body["enabled"], false);
+    assert_eq!(body["autoRegister"], false);
+
+    // The guard only gates enabling: pre-setting autoRegister with the master
+    // switch off stays allowed (the handler documents this pre-set flow).
+    let resp = app
+        .clone()
+        .oneshot(put_config_request(&ctx._realm_id, &token, false, true))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "disabling / pre-setting autoRegister without email config should stay allowed"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert_eq!(body["enabled"], false);
+    assert_eq!(body["autoRegister"], true);
+}
+
+/// User Story: US-EO-003
+/// Covers: 写入时前置校验的反向分支 — with the email channel configured,
+/// enabling Email-OTP succeeds (the guard must not over-block).
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_enable_email_otp_with_email_config_succeeds(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+    let (token, user_id) =
+        create_admin_session_with_user(ctx, "email-otp-with-email@test.com", 1800).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+
+    insert_resend_email_config_direct(&ctx._app_state.pool, &ctx._realm_id).await;
+
+    let resp = app
+        .clone()
+        .oneshot(put_config_request(&ctx._realm_id, &token, true, true))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "enabling Email-OTP with email configured should succeed"
+    );
+    let body: serde_json::Value = crate::tests::response_json(resp).await;
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["autoRegister"], true);
 }

@@ -44,7 +44,10 @@ import type { AssertionResultJSON } from './webauthn'
 export interface RegisterPayload {
   email: string
   password: string
+  /** Deprecated: ignored by the backend. Use `nickname` instead. */
   username?: string
+  /** Registration nickname, persisted as the user's profile row. */
+  nickname?: string
   turnstileToken?: string
 }
 
@@ -245,6 +248,7 @@ export function createAuth(deps: AuthDeps) {
             email: payload.email,
             password: payload.password,
             ...(payload.username ? { username: payload.username } : {}),
+            ...(payload.nickname ? { nickname: payload.nickname } : {}),
             ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
           },
         }),

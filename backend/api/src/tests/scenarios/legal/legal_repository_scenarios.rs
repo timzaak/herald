@@ -114,8 +114,8 @@ async fn count_consent_rows(ctx: &TestContext, user_id: Uuid, agreement_type: &s
     .expect("Failed to count consent rows")
 }
 
-/// Count `agreement.consent` audit rows for a realm — each consented item must
-/// produce exactly one audit event.
+/// Count `agreement.consent` audit rows for a realm — each `record_consent`
+/// call must produce exactly one audit event.
 async fn count_agreement_consent_audit(ctx: &TestContext, realm_id: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_events
@@ -548,21 +548,24 @@ async fn test_record_consent_rejects_stale_version(ctx: &mut TestContext) {
 }
 
 // =============================================================================
-// Scenario 8: record_consent writes one audit event per item
+// Scenario 8: record_consent writes one audit event per call
 // =============================================================================
 
 /// User Story: US-RU-011 (consent is auditable per agreement)
-/// Covers: per-item audit — each consented agreement type
-/// produces its own `agreement.consent` audit row under category `compliance`,
-/// carrying `agreement_type`, `version_id`, and `source` (matching the
-/// ConsentSource) in `details`.
+/// Covers: per-action audit — one `record_consent` call produces a single
+/// `agreement.consent` audit row under category `compliance`, whose `details`
+/// carries the `source` (matching the ConsentSource) plus an `agreements`
+/// array listing every accepted `(agreement_type, version_id)` pair.
 ///
-/// WHY this matters: compliance evidence is per-agreement; collapsing both
-/// types into one audit row would lose which text the user actually agreed to,
-/// and a missing `source` would erase why the consent was collected.
+/// WHY this matters: one user action (accepting the login/registration
+/// consent prompt) is one compliance event — per-type rows made a single
+/// login show up as two audit entries. The per-agreement evidence (which
+/// text version was agreed to) must survive the merge inside
+/// `details.agreements`, and a missing `source` would erase why the consent
+/// was collected.
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_record_consent_writes_per_item_audit(ctx: &mut TestContext) {
+async fn test_record_consent_writes_single_audit_per_call(ctx: &mut TestContext) {
     let realm_id = ctx._realm_id.clone();
     let svc = ctx.app_state.legal_service.clone();
 
@@ -597,49 +600,50 @@ async fn test_record_consent_writes_per_item_audit(ctx: &mut TestContext) {
     let after = count_agreement_consent_audit(ctx, &realm_id).await;
     assert_eq!(
         after - baseline,
-        2,
-        "exactly one agreement.consent audit row per consented item"
+        1,
+        "one record_consent call must produce exactly one agreement.consent audit row"
     );
 
-    // Verify the details payload carries the per-item facts we rely on for
-    // compliance evidence.
-    let rows = sqlx::query(
+    // Verify the details payload carries the per-agreement facts we rely on
+    // for compliance evidence.
+    let row = sqlx::query(
         "SELECT details FROM audit_events
          WHERE realm_id = $1 AND action = 'agreement.consent'
-         ORDER BY created_at DESC LIMIT 2",
+         ORDER BY created_at DESC LIMIT 1",
     )
     .bind(&realm_id)
-    .fetch_all(&ctx.app_state.pool)
+    .fetch_one(&ctx.app_state.pool)
     .await
     .expect("must query audit_events");
 
-    let mut sources = Vec::new();
+    let details: serde_json::Value = row.get("details");
+    assert_eq!(
+        details.get("source").and_then(|v| v.as_str()),
+        Some("reconsent"),
+        "details.source must reflect the ConsentSource passed in"
+    );
+    let agreements = details
+        .get("agreements")
+        .and_then(|v| v.as_array())
+        .expect("details.agreements array must be present");
+    assert_eq!(
+        agreements.len(),
+        2,
+        "both accepted agreement types must be listed in details.agreements"
+    );
     let mut types = Vec::new();
-    for row in &rows {
-        let details: serde_json::Value = row.get("details");
-        sources.push(
-            details
-                .get("source")
-                .and_then(|v| v.as_str())
-                .expect("details.source must be present")
-                .to_string(),
-        );
+    for item in agreements {
         types.push(
-            details
-                .get("agreement_type")
+            item.get("agreement_type")
                 .and_then(|v| v.as_str())
-                .expect("details.agreement_type must be present")
+                .expect("each agreement item must carry agreement_type")
                 .to_string(),
         );
         assert!(
-            details.get("version_id").is_some(),
-            "details.version_id must be present"
+            item.get("version_id").is_some(),
+            "each agreement item must carry version_id"
         );
     }
-    assert!(
-        sources.iter().all(|s| s == "reconsent"),
-        "details.source must reflect the ConsentSource passed in"
-    );
     assert!(types.contains(&"terms_of_service".to_string()));
     assert!(types.contains(&"privacy_policy".to_string()));
 }

@@ -268,6 +268,9 @@ test.describe('[Regular User] Account Registration Demo Tests', () => {
         // Fill other fields minimally to enable submit button
         await page.getByTestId('register-password-input').fill('Password123!')
         await page.getByTestId('register-confirm-password-input').fill('Password123!')
+        // Nickname is required — without it the email alert would be joined by
+        // a second role="alert" and the strict-mode getByRole below would match 2
+        await page.getByTestId('register-nickname-input').fill(`user${testStartTime}`)
         // Click submit button to trigger validation
         await page.getByTestId('register-submit-button').click()
         // Wait for validation error to appear

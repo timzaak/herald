@@ -21,7 +21,7 @@ Complete these steps in the Herald admin console before writing code:
 
 1. Create a realm (tenant) and note the `realm_id`
 2. Create a client app under that realm and note the `client_id`
-3. Generate an API Key for the realm. The secret is shown once. Store it somewhere your backend can read at startup -- config file or secret manager, not hardcoded. Choose the client app this backend serves; if left empty, Herald binds the key to `admin-api-client`
+3. Generate an API Key for the realm. The secret is shown once. Store it somewhere your backend can read at startup -- config file or secret manager, not hardcoded. You must choose the client app this key binds to; pick the built-in `admin-api-client` only for realm-wide scope (it ships disabled on new realms — enable it in the Client App list first)
 4. Define permission points in `resource:action` format, e.g. `product:read`, `device:manage`
 5. Create roles and assign permission points to them
 6. Create an admin user and assign roles
@@ -826,7 +826,7 @@ let apps = herald_client.list_client_apps("my-realm").await?;
 let app = herald_client.get_client_app("my-realm", "my-mobile-app").await?;
 ```
 
-Prefer an API key bound to the client app your backend serves. Use the `admin-api-client` key only for cross-client-app management.
+Prefer an API key bound to the client app your backend serves. Use the `admin-api-client` key only for cross-client-app management (it ships disabled on new realms — enable it before issuing keys against it).
 
 ## 5. Points System
 

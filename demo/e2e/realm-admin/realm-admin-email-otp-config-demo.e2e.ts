@@ -24,11 +24,14 @@
  * 所有交互均通过 SettingsPage 的 Email-OTP 方法驱动，
  * 不在本文件内内联任何 data-testid 字符串。
  *
- * NOT-COVERED（显式声明）: US-EO-003 场景 4（跨 Realm 403 守卫）在本 Demo
- * 中不覆盖。原因：需要一个稳定可用的第二 Realm + 管理员，且需验证
+ * NOT-COVERED（显式声明）: US-EO-003 场景 4（跨 Realm 403 守卫）与场景 5
+ * （邮件服务未配置时启用被拒）在本 Demo 中不覆盖。场景 4 原因：需要一个
+ * 稳定可用的第二 Realm + 管理员，且需验证
  * `GET /api/realms/{otherRealm}/config/email-otp` 在跨 Realm 访问时稳定返回
  * 403；这些运行时前提无法在编译期确认（本项为 compile-only，不执行测试）。
- * 该场景由后端测试覆盖，验收时亦不重复执行。
+ * 场景 5 原因：本 Demo 的 Phase 0 必须先配置邮件通道才能操作开关，反向的
+ * "未配置被拒"路径与 Demo 前提互斥。两个场景均由后端测试覆盖
+ * （realm_email_otp_config_scenarios），验收时亦不重复执行。
  *
  * @see docs/user-stories/auth/email-otp-login.md
  */

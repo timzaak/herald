@@ -315,6 +315,11 @@ export async function registerUser(
 
   await page.getByTestId('register-email-input').waitFor({ state: 'visible', timeout: 5000 })
   await page.getByTestId('register-email-input').fill(email)
+  // Nickname is required on the register form; derive it from the email local
+  // part so points demos don't need an extra parameter.
+  await page
+    .getByTestId('register-nickname-input')
+    .fill(email.split('@')[0] || 'points-user')
   await page.getByTestId('register-password-input').fill(password)
   await page.getByTestId('register-confirm-password-input').fill(password)
 

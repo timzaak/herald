@@ -135,7 +135,8 @@ And 账户身份与自动注册时一致
 
 **场景 1：启用邮箱验证码登录**
 ```gherkin
-Given Realm 管理员在"Settings" -> "Security"页面
+Given Realm 管理员在"Settings" -> "Email"页面的"Email-OTP"区块
+And 本 Realm 已配置邮件服务
 When 管理员启用"邮箱验证码登录"
 Then 本 Realm 用户可在登录页看到邮箱验证码登录入口
 ```
@@ -161,6 +162,16 @@ And 已注册用户仍可使用密码 / TOTP / Passkey 登录
 Given 管理员属于 realm-1
 When 尝试访问 realm-2 的邮箱验证码登录设置
 Then 系统提示权限不足并拒绝访问
+```
+
+**场景 5：邮件服务未配置时启用被拒**
+```gherkin
+Given Realm 未配置邮件服务
+When 管理员尝试启用"邮箱验证码登录"
+Then 两个配置开关不可操作，悬停提示需先配置邮件服务
+And 直接调用 API 启用被拒绝并提示"需先配置邮件服务"
+When 管理员关闭该功能或仅预设"未注册邮箱自动注册"
+Then 不受邮件服务配置限制，操作成功
 ```
 
 ---

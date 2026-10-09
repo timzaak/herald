@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::oauth_pkce_helpers::{
-        MCP_LOOPBACK_REDIRECT_TEMPLATES, ensure_mcp_client_seeded,
+        MCP_LOOPBACK_REDIRECT_TEMPLATES, ensure_mcp_client_enabled, ensure_mcp_client_seeded,
     };
     use crate::tests::helpers::*;
     use crate::tests::response_json;
@@ -401,8 +401,8 @@ mod tests {
 
     /// 测试：内置 API Key Client App（admin-api-client）不允许被删除
     ///
-    /// 该 App 仅在 Realm 创建时播种、无自动重建路径；删除后该 Realm 将
-    /// 永久无法创建默认绑定 API Key（client-app PRD §4.1 / api-key-roles PRD §5）。
+    /// 该 App 仅在 Realm 创建时播种、无自动重建路径；删除后该 Realm 的
+    /// API Key 将失去可绑定的内置宿主（client-app PRD §4.1 / api-key-roles PRD §5）。
     #[test_context(ClientAppTestContext)]
     #[tokio::test]
     async fn test_cannot_delete_builtin_api_key_client_app(ctx: &mut ClientAppTestContext) {
@@ -438,6 +438,80 @@ mod tests {
         assert_eq!(count, 1, "the builtin API Key client app must survive");
     }
 
+    /// 种子形状测试的共用 arrange：以 super admin 身份走真实
+    /// POST /api/realms 链路创建一个全新 realm 并断言 201。请求契约
+    /// （payload 形状、adminUser 字段）钉在这一处——路由契约变化时两个
+    /// seed 测试同步演化，而不是只有一个因 arrange 失败而变红。
+    async fn create_realm_for_seed_test(
+        ctx: &mut ClientAppTestContext,
+        super_admin_email: &str,
+        new_realm_id: &str,
+        realm_name: &str,
+        admin_user_email: &str,
+    ) {
+        let (super_admin_token, super_admin_user_id) =
+            create_admin_session_with_user(ctx, super_admin_email, 1800).await;
+        grant_realm_admin_role(ctx, &super_admin_user_id).await;
+
+        let app = ctx.create_unified_test_router();
+        let create_request = Request::builder()
+            .method("POST")
+            .uri("/api/realms".to_string())
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {}", super_admin_token))
+            .body(Body::from(
+                json!({
+                    "id": new_realm_id,
+                    "name": realm_name,
+                    "adminUser": { "email": admin_user_email, "password": "Password123" }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let create_response = app.oneshot(create_request).await.unwrap();
+        assert_eq!(
+            create_response.status(),
+            201,
+            "realm creation must succeed so the real seed path runs"
+        );
+    }
+
+    /// 测试：通过真实创建 Realm 链路（POST /api/realms → create_realm），
+    /// 新 Realm seed 的内置 admin-api-client 处于禁用状态。
+    ///
+    /// WHY：API Key 绑定的 Client App 是认证门禁（app 禁用 ⇒ 名下 key 全部
+    /// 401）。opt-in 契约要求新 realm 不在管理员不知情时暴露可用的机器
+    /// 凭证面；seed 默认翻回启用会静默扩大攻击面。
+    #[test_context(ClientAppTestContext)]
+    #[tokio::test]
+    async fn test_new_realm_seeds_builtin_api_key_client_disabled(ctx: &mut ClientAppTestContext) {
+        let new_realm_id = format!(
+            "apikeyrealm{}",
+            chrono::Utc::now().timestamp_millis() % 1000000000
+        );
+        create_realm_for_seed_test(
+            ctx,
+            "apikey-seed-superadmin@test.com",
+            &new_realm_id,
+            "API Key Seed Realm",
+            "seed-admin@apikeyrealm.com",
+        )
+        .await;
+
+        let row = sqlx::query(
+            "SELECT enabled FROM client_app
+             WHERE realm_id = $1 AND client_id = 'admin-api-client'",
+        )
+        .bind(&new_realm_id)
+        .fetch_one(&ctx.app_state.pool)
+        .await
+        .unwrap();
+        assert!(
+            !row.get::<bool, _>("enabled"),
+            "the built-in API Key client must be seeded disabled — machine credentials are opt-in"
+        );
+    }
+
     // =========================================================================
     // V7: built-in MCP client app protection (mcp-server US-MCP-001 场景 3 /
     // US-MCP-011 候选故事——管理台对内置 MCP 客户端只能查看与停用)
@@ -449,43 +523,28 @@ mod tests {
 
     /// 测试：通过真实创建 Realm 链路（POST /api/realms → create_realm），
     /// 新 Realm 恰好 seed 一行 herald-mcp，且形状是 PKCE 公共客户端契约
-    /// （enabled、无 secret、非 first-party、generation 0、三条 loopback 模板）。
+    /// （禁用默认、无 secret、非 first-party、generation 0、三条 loopback 模板）。
     ///
     /// WHY：该行是整个 MCP 授权面的锚点——redirect 白名单、无 secret 的
     /// 公共客户端形状都来自它；seed 漂移（比如带上 secret 或改 redirect）
-    /// 会在 authorize/token 处静默改变安全边界。
+    /// 会在 authorize/token 处静默改变安全边界。默认禁用是 opt-in 契约：
+    /// agent 访问必须由租户管理员显式开启，seed 默认翻转为启用会让新
+    /// realm 在管理员不知情时暴露 agent 接入面。
     #[test_context(ClientAppTestContext)]
     #[tokio::test]
     async fn test_new_realm_seeds_exactly_one_builtin_mcp_client(ctx: &mut ClientAppTestContext) {
-        let app = ctx.create_unified_test_router();
-        let (super_admin_token, super_admin_user_id) =
-            create_admin_session_with_user(ctx, "mcp-seed-superadmin@test.com", 1800).await;
-        grant_realm_admin_role(ctx, &super_admin_user_id).await;
-
         let new_realm_id = format!(
             "mcprealm{}",
             chrono::Utc::now().timestamp_millis() % 1000000000
         );
-        let create_request = Request::builder()
-            .method("POST")
-            .uri("/api/realms".to_string())
-            .header("content-type", "application/json")
-            .header("authorization", format!("Bearer {}", super_admin_token))
-            .body(Body::from(
-                json!({
-                    "id": new_realm_id,
-                    "name": "MCP Seed Realm",
-                    "adminUser": { "email": "seed-admin@mcprealm.com", "password": "Password123" }
-                })
-                .to_string(),
-            ))
-            .unwrap();
-        let create_response = app.oneshot(create_request).await.unwrap();
-        assert_eq!(
-            create_response.status(),
-            201,
-            "realm creation must succeed so the real seed path runs"
-        );
+        create_realm_for_seed_test(
+            ctx,
+            "mcp-seed-superadmin@test.com",
+            &new_realm_id,
+            "MCP Seed Realm",
+            "seed-admin@mcprealm.com",
+        )
+        .await;
 
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM client_app WHERE realm_id = $1 AND client_id = 'herald-mcp'",
@@ -508,8 +567,8 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            row.get::<bool, _>("enabled"),
-            "the MCP client must be seeded enabled"
+            !row.get::<bool, _>("enabled"),
+            "the MCP client must be seeded disabled — agent access is opt-in"
         );
         assert!(
             row.get::<Option<String>, _>("client_secret").is_none(),
@@ -771,8 +830,9 @@ mod tests {
     }
 
     /// 测试：内置 MCP 客户端只接受 enabled 开关——改 name/redirectUris 是
-    /// 400 固定文案；disable 落库且递增 mcp_token_generation；再 enable 与
-    /// 同值幂等均 200，且 redirect 白名单始终未被改动。
+    /// 400 固定文案；从禁用 seed 先 opt-in enable，disable 落库且递增
+    /// mcp_token_generation；再 enable 与同值幂等均 200，且 redirect 白名单
+    /// 始终未被改动。
     ///
     /// WHY：redirect 白名单与无 secret 形状是 MCP 授权契约本身，不是租户
     /// 配置；generation 递增（DEC-006）保证 disable 期间签发的凭证在
@@ -821,6 +881,15 @@ mod tests {
                 "the protection message is the admin-UI contract"
             );
         }
+
+        // seed 默认禁用；先走管理员 opt-in 的 enable，后续 disable 断言才有
+        // 真实的 true→false 转换可覆盖。
+        let response = update(json!({ "enabled": true })).await;
+        assert_eq!(
+            response.status(),
+            200,
+            "the admin opt-in enable must be accepted"
+        );
 
         // disable → 200，落库 enabled=false 且 generation 递增。
         let response = update(json!({ "enabled": false })).await;
@@ -900,7 +969,9 @@ mod tests {
         ctx: &mut ClientAppTestContext,
     ) {
         let app = ctx.create_unified_test_router();
-        let mcp_app_id = ensure_mcp_client_seeded(ctx).await;
+        // seed 默认禁用；这里先到"管理员已 opt-in"状态，让零副作用断言
+        // 钉住的是启用态不被越权改动，而非 seed 的初始值。
+        let mcp_app_id = ensure_mcp_client_enabled(ctx).await;
 
         // 有用户身份但未授予任何角色（无 clients.manage）。
         let (unprivileged_token, _user_id) =

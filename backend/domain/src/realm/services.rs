@@ -324,7 +324,11 @@ where
                         email_verify_return_url: None,
                         password_reset_return_url: None,
                         browser_refresh_absolute_ttl_seconds: Some(2_592_000),
-                        enabled: Some(true),
+                        // Opt-in default: the built-in API Key client seeds
+                        // disabled (same policy as herald-mcp). Keys bound to
+                        // a disabled app fail auth until a realm admin
+                        // enables it from the client-app list.
+                        enabled: Some(false),
                         icon_url: None,
                         device_code_grant_enabled: None,
                         turnstile_enabled: None,

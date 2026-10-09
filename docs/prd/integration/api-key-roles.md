@@ -29,9 +29,9 @@
 - API Key 列表页增加「Roles」操作按钮（打开角色管理对话框）
 - API Key 角色管理对话框（查看、分配、清除角色，即时保存）
 - 创建 API Key 表单增加可选角色选择器（创建成功后自动绑定）
-- 创建 API Key 表单增加 Client App 选择器；未选择时默认绑定内置 `admin-api-client`（历史遗留的 NULL Client App 绑定 key 在认证语义上视为 Realm 级作用域，仅兼容存量数据，新建不可产生 NULL 绑定）
-- API Key 列表展示绑定的 Client App 名称
-- 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，默认 `enabled=true`）
+- 创建 API Key 表单增加 Client App 选择器；**必选**——创建请求必须显式指定 `clientAppId`，省略时拒绝（历史遗留的 NULL Client App 绑定 key 在认证语义上视为 Realm 级作用域，仅兼容存量数据，新建不可产生 NULL 绑定）
+- API Key 列表展示绑定的 Client App 名称；绑定的 Client App 被禁用时列表行内显示醒目告警（该 Key 无法认证）
+- 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，**默认 `enabled=false`**，需租户管理员显式开启）
 - API Key 认证路径受关联 Client App 的 `enabled` 状态影响（Client App 禁用时其下所有 API Key 均不可用）
 - ext API 对非 `admin-api-client` 的 API Key 执行 Client App 作用域隔离
 - API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（轮换生成新密钥，旧密钥失效，新明文仅返回一次）。旧密钥失效的精确语义：轮换在数据库换绑前后各执行一次缓存驱逐，正常情况下旧密钥立即失效；缓存驱逐为 best-effort——驱逐失败（如缓存短暂不可用）时轮换仍成功返回（新明文仅返回一次，不能因驱逐失败而 500 弃单），旧密钥最长残留一个 300s 的缓存 TTL 窗口后自然失效
@@ -58,7 +58,7 @@
 - API Key 不允许绑定内置角色（`is_builtin=true`），仅可绑定自定义角色
 - 创建 API Key 时支持通过 `role_ids` 字段绑定角色（上限 20 个，超出校验失败），创建成功后自动绑定所选角色
 - 角色变更后权限缓存立即失效
-- API Key 必须绑定到本 Realm 下存在的 Client App；未显式选择时绑定内置 `admin-api-client`
+- API Key 必须绑定到本 Realm 下存在的 Client App（`clientAppId` 必填，指向本 Realm 不存在的 App 时 400 拒绝）
 - 绑定 `admin-api-client` 的 API Key 保持 Realm 级 ext API 访问范围
 - 绑定普通 Client App 的 API Key 只能访问该 Client App 的订阅、套餐分配、积分消费和权限检查上下文；该绑定同样收窄 ext API 的 Client App 列表可见性——绑定普通 Client App 的 Key 即便持有 `clients:view`，`GET /api/ext/realms/{realmId}/client-apps` 也只返回其绑定的 App（未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表）
 - 禁用单个 API Key 只更新该 Key 自身的 `enabled` 状态，不影响内置 Client App
@@ -112,6 +112,7 @@
 - **创建时绑定失败策略**：不回滚 API Key 创建，保留明文 Key 展示，toast 提示用户稍后手动管理角色
 - **创建表单权限门控**：无 `roles.manage` 权限时不显示角色选择区，创建 API Key 仍由 `api_keys.manage` 控制
 - **超级范围判断**：仅 `client_id = 'admin-api-client'` 的绑定视为 Realm 级 API Key；其他 Client App 均按自身作用域隔离
+- **显式绑定 + 内置 App 默认停用**（user，2026-10-09）：创建 API Key 的 `clientAppId` 必填，移除"省略时默认绑定 admin-api-client"的隐式行为（省略 → 请求校验拒绝；指向本 Realm 不存在的 App → 400）；内置 `admin-api-client` 的 realm 种子默认 `enabled=false`（与 herald-mcp 同一 opt-in 策略），管理员显式开启后其名下 Key 方可认证。存量已启用行不加迁移、保持原状。落点：§2.1、§4.1、§4.2
 
 ---
 

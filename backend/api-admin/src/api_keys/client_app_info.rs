@@ -1,7 +1,6 @@
 use herald_api_base::application::http::server::api_entities::ApiError;
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
-use herald_core::domain::client_api_keys::constants::ADMIN_API_CLIENT_ID;
 use herald_core::domain::user::RoleAssignmentService;
 use herald_core::domain::user::admin_errors::UserAdminError;
 use herald_core::entity::client_app;
@@ -10,48 +9,35 @@ use uuid::Uuid;
 
 use crate::api_keys::types::ApiKeyRoleSummary;
 
+/// Resolve the Client App an API key creation must bind to. The app is
+/// always explicit — there is no default binding — and must exist in the
+/// key's realm.
 pub async fn resolve_client_app_for_create(
     state: &AppState,
     realm_id: &str,
-    client_app_id: Option<Uuid>,
+    client_app_id: Uuid,
 ) -> Result<client_app::Model, ApiError> {
-    let query = client_app::Entity::find().filter(client_app::Column::RealmId.eq(realm_id));
-    let app = match client_app_id {
-        Some(id) => {
-            query
-                .filter(client_app::Column::Id.eq(id))
-                .one(state.db.as_ref())
-                .await
-        }
-        None => {
-            query
-                .filter(client_app::Column::ClientId.eq(ADMIN_API_CLIENT_ID))
-                .one(state.db.as_ref())
-                .await
-        }
-    }
-    .map_err(|e| {
-        tracing::error!("Failed to query Client App for API key: {e}");
-        ApiError::internal("Failed to create API key")
-    })?;
-
-    app.ok_or_else(|| {
-        if client_app_id.is_some() {
-            ApiError::bad_request("Client App not found in this realm")
-        } else {
-            ApiError::bad_request(
-                "Realm is missing the built-in API Key Client App. Please contact support.",
-            )
-        }
-    })
+    client_app::Entity::find()
+        .filter(client_app::Column::RealmId.eq(realm_id))
+        .filter(client_app::Column::Id.eq(client_app_id))
+        .one(state.db.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query Client App for API key: {e}");
+            ApiError::internal("Failed to create API key")
+        })?
+        .ok_or_else(|| ApiError::bad_request("Client App not found in this realm"))
 }
 
-pub async fn client_app_name(
+/// Load the bound Client App's display `(name, enabled)` for API key
+/// responses: `(None, None)` when the key has no bound app (legacy rows).
+/// The enabled flag drives the admin-UI "bound app disabled" warning.
+pub async fn client_app_name_and_enabled(
     state: &AppState,
     client_app_id: Option<Uuid>,
-) -> Result<Option<String>, ApiError> {
+) -> Result<(Option<String>, Option<bool>), ApiError> {
     let Some(id) = client_app_id else {
-        return Ok(None);
+        return Ok((None, None));
     };
 
     let app = client_app::Entity::find_by_id(id)
@@ -62,7 +48,9 @@ pub async fn client_app_name(
             ApiError::internal("Failed to load API key Client App")
         })?;
 
-    Ok(app.map(|app| app.name))
+    Ok(app
+        .map(|app| (Some(app.name), Some(app.enabled)))
+        .unwrap_or((None, None)))
 }
 
 /// Load the role summaries embedded in `ApiKeyListItem` responses, shared by

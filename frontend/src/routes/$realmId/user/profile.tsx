@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Label } from '@/components/ui/label'
 import { profileQueryOptions } from '@/data/query-options'
 import { PageHeader } from '@/components/shared'
+import { NicknameEditForm } from '@/components/profile/nickname-edit-form'
 import { m } from '@/paraglide/messages'
 
 export const Route = createFileRoute('/$realmId/user/profile')({
@@ -33,12 +34,10 @@ export function ProfileIndex() {
               {profile.email}
             </p>
           </div>
-          <div className="space-y-1">
-            <Label>{m['profile.nickname_label']()}</Label>
-            <p className="text-sm text-muted-foreground" data-testid="nickname-display">
-              {profile.nickname || m['profile.nickname_not_set']()}
-            </p>
-          </div>
+          {/* TanStack Form reads defaultValues only at mount: keying on the
+              server nickname re-mounts the form when a refetch brings a new
+              value, so a stale tab cannot save its outdated nickname back. */}
+          <NicknameEditForm key={profile.nickname ?? ''} initialNickname={profile.nickname ?? ''} />
           <div className="space-y-1">
             <Label>{m['profile.status_label']()}</Label>
             <p className="text-sm text-muted-foreground" data-testid="status-display">

@@ -15,11 +15,12 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { RedirectUrisInput, type UriItem } from '@/components/client-apps/redirect-uris-input'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 import { queryKeys } from '@/data/query-options'
 import { toast } from 'sonner'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Info } from 'lucide-react'
 import type { ClientAppItem } from '@/lib/api-generated'
 import { m } from '@/paraglide/messages'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
@@ -495,9 +496,31 @@ export function ClientAppFormPage({ mode, realmId, clientApp }: ClientAppFormPag
                   children={(field) => (
                     <div className="flex items-center justify-between pt-4 border-t">
                       <div>
-                        <Label htmlFor="regenerate-secret">
-                          {m['client_apps.form_regenerate_secret_label']()}
-                        </Label>
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="regenerate-secret">
+                            {m['client_apps.form_regenerate_secret_label']()}
+                          </Label>
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  tabIndex={0}
+                                  aria-label={m['client_apps.form_client_secret_tooltip']()}
+                                  data-testid="client-secret-info-tooltip-trigger"
+                                  className="inline-flex text-muted-foreground"
+                                >
+                                  <Info className="h-4 w-4" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                className="max-w-80"
+                                data-testid="client-secret-info-tooltip"
+                              >
+                                {m['client_apps.form_client_secret_tooltip']()}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           {m['client_apps.form_regenerate_secret_hint']()}
                         </p>

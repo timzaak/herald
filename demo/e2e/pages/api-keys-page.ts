@@ -285,12 +285,19 @@ export class ApiKeysPage extends BasePage {
   /**
    * Fill the create form fields
    *
-   * @param data Form data: name (required), expiresAt (optional), clientAppId (optional)
+   * @param data Form data: name (required), expiresAt (optional),
+   *   clientAppId (app UUID, optional), clientAppClientId (client_id text
+   *   match, optional — default "admin-api-client")
+   *
+   * The Client App is required on the create contract, so a selection is
+   * always made: an explicit app UUID wins, otherwise the realm's built-in
+   * admin-api-client is selected by its client_id.
    */
   async fillCreateForm(data: {
     name: string;
     expiresAt?: string;
     clientAppId?: string;
+    clientAppClientId?: string;
   }): Promise<void> {
     await expect(this.nameInput).toBeVisible();
     await this.fillField(this.nameInput, data.name);
@@ -298,6 +305,10 @@ export class ApiKeysPage extends BasePage {
 
     if (data.clientAppId) {
       await this.selectClientApp(data.clientAppId);
+    } else {
+      await this.selectClientAppByClientId(
+        data.clientAppClientId ?? "admin-api-client",
+      );
     }
 
     if (data.expiresAt) {
@@ -307,9 +318,26 @@ export class ApiKeysPage extends BasePage {
     }
   }
 
-  async selectClientApp(clientAppId: string): Promise<void> {
+  private async openClientAppSelector(): Promise<void> {
     await this.smartClick(this.clientAppSelectorTrigger);
     await expect(this.clientAppSelectorSearch).toBeVisible({ timeout: 5000 });
+  }
+
+  async selectClientAppByClientId(clientId: string): Promise<void> {
+    await this.openClientAppSelector();
+    await this.smartClick(
+      this.page
+        .locator(SELECTORS.apiKeyForm.clientAppSelectorItemAny)
+        .filter({ hasText: `(${clientId})` })
+        .first(),
+    );
+    this.logger?.testCode.log(
+      `Selected Client App for API Key by client_id: "${clientId}"`,
+    );
+  }
+
+  async selectClientApp(clientAppId: string): Promise<void> {
+    await this.openClientAppSelector();
     await this.smartClick(
       this.page.locator(
         SELECTORS.apiKeyForm.clientAppSelectorItem(clientAppId),

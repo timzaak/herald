@@ -16,8 +16,10 @@ pub struct CreateApiKeyRequest {
     #[schema(example = "2026-12-31T23:59:59Z")]
     pub expires_at: Option<String>,
 
-    /// Client App to bind this API key to. Defaults to the built-in admin-api-client.
-    pub client_app_id: Option<Uuid>,
+    /// Client App to bind this API key to. Required — every API key must be
+    /// explicitly bound; a key whose bound app is disabled fails auth.
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub client_app_id: Uuid,
 
     /// Optional role IDs to assign to this API key after creation (max 20).
     #[validate(length(max = 20))]
@@ -45,6 +47,10 @@ pub struct CreateApiKeyResponse {
 
     /// Client App display name
     pub client_app_name: Option<String>,
+
+    /// Whether the bound Client App is enabled — `false` means the key
+    /// cannot authenticate until a realm admin re-enables the app.
+    pub client_app_enabled: bool,
 
     /// Whether the API key is enabled
     pub enabled: bool,
@@ -79,6 +85,11 @@ pub struct ApiKeyListItem {
 
     /// Client App display name
     pub client_app_name: Option<String>,
+
+    /// Whether the bound Client App is enabled. `null` when the key has no
+    /// bound app; `false` means the key cannot authenticate (the app is the
+    /// kill switch) — surfaced as a UI warning.
+    pub client_app_enabled: Option<bool>,
 
     /// Whether the API key is enabled
     pub enabled: bool,

@@ -659,6 +659,16 @@ export function LoginPage() {
 
   return (
     <AuthPageWrapper whiteLabel={whiteLabel} realmName={publicConfig?.realmName}>
+      {/* Platform storefront only: the self-service signup guidance lives
+          solely on the admin realm's login page, above the login form so
+          visitors meet it before the existing-user form; tenant realms
+          (including custom domains resolving to them) never render it. A
+          white-labeled admin realm suppresses the block with the rest of the
+          Herald branding — its copy is platform-branded and must not leak
+          past the brand override. */}
+      {realmId === ADMIN_REALM_ID && !whiteLabel?.brandName?.trim() && (
+        <SignupCtaBlock realmContext={realmContext} />
+      )}
       <div className="w-full" data-testid="login-card">
         <h1 data-testid="login-title" className="text-xl font-semibold tracking-tight">
           {whiteLabel?.loginTitle ?? m['auth.login.login_to_account']()}
@@ -932,15 +942,6 @@ export function LoginPage() {
           )}
         </div>
       </div>
-      {/* Platform storefront only: the self-service signup guidance lives
-          solely on the admin realm's login page; tenant realms (including
-          custom domains resolving to them) never render it. A white-labeled
-          admin realm suppresses the block with the rest of the Herald
-          branding — its copy is platform-branded and must not leak past the
-          brand override. */}
-      {realmId === ADMIN_REALM_ID && !whiteLabel?.brandName?.trim() && (
-        <SignupCtaBlock realmContext={realmContext} />
-      )}
     </AuthPageWrapper>
   )
 }

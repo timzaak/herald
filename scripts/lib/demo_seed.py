@@ -109,6 +109,7 @@ def ensure_demo_seed_data(logger: "Logger | None" = None) -> bool:
         _ensure_current_legal_consent(ADMIN_REALM, ADMIN_EMAIL, logger)
         admin_opener = _login(ADMIN_REALM, ADMIN_EMAIL, ADMIN_PASSWORD)
         _ensure_points_realm(admin_opener, logger)
+        _ensure_points_realm_api_client_enabled(logger)
         _ensure_current_legal_consent(POINTS_REALM_ID, POINTS_REALM_ADMIN_EMAIL, logger)
 
         # Ensure credit buckets before points and distribution-rule seed data.
@@ -374,6 +375,21 @@ def _ensure_points_realm(opener: urllib.request.OpenerDirector, logger: "Logger 
         )
 
     _ensure_registration_enabled(logger)
+
+
+def _ensure_points_realm_api_client_enabled(logger: "Logger | None") -> None:
+    """Flip realm-001's built-in admin-api-client to the opted-in state.
+
+    The built-in API Key client seeds DISABLED (opt-in default, same policy as
+    herald-mcp), but the realm-001 support-paywall demos bind API keys to it
+    and authenticate with them — the demo env must present the post-opt-in
+    state. Idempotent: enabling never touches anything else.
+    """
+    _sql_exec(
+        "UPDATE client_app SET enabled = true "
+        f"WHERE realm_id = '{POINTS_REALM_ID}' AND client_id = 'admin-api-client';"
+    )
+    _info(logger, "realm-001 built-in admin-api-client enabled for API key demos")
 
 
 def _ensure_registration_enabled(logger: "Logger | None") -> None:

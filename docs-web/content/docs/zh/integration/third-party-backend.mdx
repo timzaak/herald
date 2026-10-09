@@ -21,7 +21,7 @@ Herald 不会设置任何 Cookie。OAuth 回调之后，你的后端把 token �
 
 1. 创建一个 realm（租户），记下 `realm_id`
 2. 在 realm 下创建一个 client app（代表你的服务），记下 `client_id`
-3. 为这个 realm 生成一个 API Key，保存密钥值——只显示一次，丢了得重新生成。生成时选择对应的 Client App；不选择时默认绑定 `admin-api-client`
+3. 为这个 realm 生成一个 API Key，保存密钥值——只显示一次，丢了得重新生成。生成时**必须**选择绑定的 Client App；需要 realm 级范围时选择内置的 `admin-api-client`（该内置客户端默认停用，先在 Client App 列表启用它）
 4. 定义权限点。权限格式是 `resource:action`，比如 `product:read`、`device:manage`
 5. 创建角色，把权限点分配给角色
 6. 创建一个管理员用户，把角色分配给这个用户
@@ -828,7 +828,7 @@ let apps = herald_client.list_client_apps("my-realm").await?;
 let app = herald_client.get_client_app("my-realm", "my-mobile-app").await?;
 ```
 
-建议给后端使用绑定该 Client App 的 API Key；只有需要跨 Client App 管理时才用 `admin-api-client` Key。
+建议给后端使用绑定该 Client App 的 API Key；只有需要跨 Client App 管理时才用 `admin-api-client` Key（新 realm 的该内置客户端默认停用，先启用再发 Key）。
 
 ## 5. 积分系统
 

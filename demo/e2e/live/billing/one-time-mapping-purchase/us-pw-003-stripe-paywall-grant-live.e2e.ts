@@ -195,7 +195,8 @@ async function resolveClientAppId(
   request: import('@playwright/test').APIRequestContext,
   clientId: string,
 ): Promise<string> {
-  const resp = await request.get(`${BASE_URL}/api/client/${REALM_ID}`)
+  // Session-scoped admin route: the bearer token pins the realm, no path segment.
+  const resp = await request.get(`${BASE_URL}/api/client?page=0&pageSize=100`)
   expect(resp.ok(), `list client apps failed: ${resp.status()}`).toBeTruthy()
   const body = await resp.json()
   const raw: unknown = Array.isArray(body)

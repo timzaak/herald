@@ -83,9 +83,16 @@ function createApiKeyColumns(config: ApiKeyColumnConfig): ColumnDef<ApiKeyListIt
       id: 'clientApp',
       header: m['api_keys.table_client_app'](),
       cell: ({ row }) => (
-        <span data-testid="api-key-client-app">
-          {row.original.clientAppName ?? row.original.clientAppId ?? '-'}
-        </span>
+        <div className="space-y-1" data-testid="api-key-client-app">
+          <span>{row.original.clientAppName ?? row.original.clientAppId ?? '-'}</span>
+          {row.original.clientAppEnabled === false && (
+            <div>
+              <Badge variant="destructive" data-testid="api-key-client-app-disabled-warning">
+                {m['api_keys.client_app_disabled_warning']()}
+              </Badge>
+            </div>
+          )}
+        </div>
       ),
     },
     {

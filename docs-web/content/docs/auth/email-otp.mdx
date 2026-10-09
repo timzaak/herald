@@ -55,14 +55,14 @@ The `clientId` in both calls is the Client App the login belongs to. It determin
 
 ## Realm configuration
 
-Realm Admins turn email-code on under *Settings → Security*, in the *Email code* tab next to TOTP and Passkey. The permission model is the same as the rest of Settings: reading requires `settings.view`, saving requires `settings.manage`.
+Realm Admins turn email-code on under *Settings → Email*, in the *Email-OTP* section of the email settings card. The permission model is the same as the rest of Settings: reading requires `settings.view`, saving requires `settings.manage`.
 
 | Setting | Meaning |
 |---------|---------|
 | `enabled` | Whether the email-code entry shows up on the login page for this Realm. Off → the entry is hidden and the send/verify endpoints reject with 400 |
 | `autoRegister` | What happens when someone enters an email that has no account. On → the first successful code verify creates the account and logs them in (subject to the consent gate below). Off → send returns a 409 `email_not_registered` so the frontend can guide the user to register explicitly |
 
-Email delivery requires the Realm to have an email provider configured under *Settings → Email*. If no provider is configured, the code cannot be sent; turning email-code on without email configured leaves the entry visible but the send failing.
+Email delivery requires the Realm to have an email provider configured under *Settings → Email*. Enabling email-code (`enabled: true`) requires that provider to be configured: the console disables the switches until it is (with a tooltip explaining why), and the API rejects the enable call with a 400 `Cannot enable Email OTP login without email configuration`. Disabling, or pre-setting `autoRegister` while `enabled` stays off, is not restricted. If the provider is removed after email-code is enabled, the entry stays visible but sends can no longer deliver a code.
 
 ### The consent gate (auto-register)
 

@@ -421,9 +421,13 @@ pub async fn get_api_key_stats(
     row.0
 }
 
-/// Creates the built-in API Key Client App (client_id='admin-api-client', enabled=true)
-/// for the test realm and returns its UUID. Idempotent: if the row already exists (e.g.
-/// created by realm init), returns the existing UUID instead of failing.
+/// Creates the built-in API Key Client App (client_id='admin-api-client',
+/// ENABLED) for the test realm and returns its UUID. Idempotent: if the row
+/// already exists (created by realm init), returns the existing UUID — and
+/// re-enables it, because the production seed default is DISABLED (opt-in,
+/// same policy as herald-mcp) while these scenarios assert the
+/// post-admin-opt-in state. The disabled default itself is pinned by the
+/// client-app scenarios' fresh-realm seed test.
 ///
 /// The built-in API Key Client App is seeded only at realm creation and has no
 /// auto-recreation path, so tests that rely on it must ensure it exists first.
@@ -446,7 +450,8 @@ pub async fn seed_realm_api_key_client(ctx: &TestContext) -> uuid::Uuid {
         return id;
     }
 
-    // Row already exists (created by realm init); fetch its id.
+    // Row already exists (created by realm init, seeded disabled); fetch its
+    // id and flip it to the enabled state these scenarios assume.
     let (existing_id,): (uuid::Uuid,) =
         sqlx::query_as("SELECT id FROM client_app WHERE realm_id = $1 AND client_id = $2")
             .bind(&ctx._realm_id)
@@ -454,6 +459,11 @@ pub async fn seed_realm_api_key_client(ctx: &TestContext) -> uuid::Uuid {
             .fetch_one(&ctx._app_state.pool)
             .await
             .expect("Failed to find existing realm API Key Client App");
+    sqlx::query("UPDATE client_app SET enabled = true WHERE id = $1")
+        .bind(existing_id)
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("Failed to enable realm API Key Client App");
 
     existing_id
 }

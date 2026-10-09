@@ -79,6 +79,7 @@ describe('RegisterForm', () => {
 
   async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByTestId('register-email-input'), 'user@example.com')
+    await user.type(screen.getByTestId('register-nickname-input'), 'Test User')
     await user.type(screen.getByTestId('register-password-input'), 'Password123!')
     await user.type(screen.getByTestId('register-confirm-password-input'), 'Password123!')
   }
@@ -93,6 +94,22 @@ describe('RegisterForm', () => {
       expect(screen.getByTestId('register-consent-error')).toHaveTextContent(
         /Please read and agree/i
       )
+    })
+    expect(mockOnSuccess).not.toHaveBeenCalled()
+  })
+
+  // 昵称是注册的必填项：为空时提交必须被前端校验拦下，不能发出注册请求。
+  it('GIVEN nickname is empty WHEN submitting THEN blocks submit with a required error', async () => {
+    const { user } = await renderForm()
+    await user.type(screen.getByTestId('register-email-input'), 'user@example.com')
+    await user.type(screen.getByTestId('register-password-input'), 'Password123!')
+    await user.type(screen.getByTestId('register-confirm-password-input'), 'Password123!')
+    await user.click(screen.getByTestId('register-consent-checkbox'))
+
+    await user.click(screen.getByTestId('register-submit-button'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Please enter a nickname/i)).toBeInTheDocument()
     })
     expect(mockOnSuccess).not.toHaveBeenCalled()
   })

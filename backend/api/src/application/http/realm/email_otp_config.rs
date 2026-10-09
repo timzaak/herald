@@ -19,7 +19,7 @@ use validator::Validate;
 use crate::application::http::server::api_entities::{ApiError, ApiResult};
 use crate::application::http::state::AppState;
 use herald_api_base::application::http::auth::util::{
-    ClientIp, EmailOtpSettings, user_agent_from_headers,
+    ClientIp, EmailOtpSettings, is_email_configured, user_agent_from_headers,
 };
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_core::domain::audit::{
@@ -104,6 +104,18 @@ pub async fn handle_update_realm_email_otp_config(
         .await?;
 
     let service = state.service.realm_config_service();
+
+    // Guard: Email-OTP login cannot be enabled without email delivery
+    // configured — codes are email-delivered, so enabling the login method
+    // without a channel would dead-end users at "send code" (mirrors
+    // `validate_email_verification_prerequisite` on the registration side).
+    // Only the master switch is gated: disabling, or pre-setting
+    // `auto_register` while `enabled` stays false, remains allowed.
+    if req.enabled && !is_email_configured(&state, &realm_id).await? {
+        return Err(ApiError::bad_request(
+            "Cannot enable Email OTP login without email configuration".to_string(),
+        ));
+    }
 
     // Persist as a single JSON object. `auto_register` only takes
     // effect when `enabled` is true; we still store the flag regardless so an

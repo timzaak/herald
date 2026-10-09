@@ -102,11 +102,17 @@ where
     /// Each item must reference the *current effective* version for its type;
     /// a stale `version_id` is rejected as `LegalError::StaleVersion` (→
     /// `CoreError::Conflict`, HTTP 409) so the caller re-reads the effective
-    /// version before retrying. Consent rows are upserted (idempotent on
-    /// repeat of the same version), and one `agreement.consent` audit event
-    /// is written per item. Audit-write failures are logged and do not roll
-    /// back the consent write (audit is best-effort, matching the login
-    /// handler pattern).
+    /// version before retrying. Every item is validated BEFORE any consent
+    /// row is written — a stale item rejects the whole call, because a
+    /// partially-persisted batch would leave consent rows without their audit
+    /// event (the event is written once, after the batch completes). Consent
+    /// rows are upserted (idempotent on repeat of the same version), and ONE
+    /// `agreement.consent` audit event is written per call: one user action
+    /// (a login/registration consent acceptance) is one compliance event,
+    /// with every accepted agreement listed in `details.agreements` so the
+    /// per-type version evidence survives the merge. Audit-write failures are
+    /// logged and do not roll back the consent write (audit is best-effort,
+    /// matching the login handler pattern).
     pub async fn record_consent(
         &self,
         user_id: Uuid,
@@ -115,53 +121,63 @@ where
         source: ConsentSource,
         ctx: AuditContext,
     ) -> Result<(), CoreError> {
-        for (agreement_type, version_id) in items {
-            let agreement_type_str = agreement_type.as_ref().to_string();
+        for (agreement_type, version_id) in &items {
             let current = self
                 .legal_repo
                 .current_effective(realm_id, agreement_type.clone())
                 .await?
                 .ok_or(LegalError::VersionNotFound)?;
-            if current.id != version_id {
+            if current.id != *version_id {
                 return Err(LegalError::StaleVersion.into());
             }
+        }
 
+        let mut audited_agreements = Vec::with_capacity(items.len());
+        for (agreement_type, version_id) in items {
+            let agreement_type_str = agreement_type.as_ref().to_string();
             self.user_consent_repo
                 .upsert_consent(user_id, realm_id, agreement_type, version_id)
                 .await?;
 
-            let details = serde_json::json!({
+            audited_agreements.push(serde_json::json!({
                 "agreement_type": agreement_type_str,
                 "version_id": version_id,
-                "source": source.as_ref(),
-            });
-            if let Err(audit_err) = self
-                .audit_repo
-                .create(NewAuditEvent {
-                    realm_id: realm_id.to_string(),
-                    category: AuditCategory::Compliance,
-                    action: AuditAction::AgreementConsent,
-                    actor_id: ctx.actor_id.clone(),
-                    actor_type: ctx.actor_type,
-                    actor_name: ctx.actor_name.clone(),
-                    target_type: AuditTargetType::User,
-                    target_id: user_id.to_string(),
-                    target_name: ctx.actor_name.clone(),
-                    result: AuditResult::Success,
-                    details: Some(details),
-                    ip_address: ctx.ip_address.clone(),
-                    user_agent: ctx.user_agent.clone(),
-                    trace_id: ctx.trace_id.clone(),
-                })
-                .await
-            {
-                tracing::warn!(
-                    error = %audit_err,
-                    %user_id,
-                    agreement_type = %agreement_type_str,
-                    "Failed to record agreement consent audit event"
-                );
-            }
+            }));
+        }
+
+        if audited_agreements.is_empty() {
+            return Ok(());
+        }
+
+        let details = serde_json::json!({
+            "source": source.as_ref(),
+            "agreements": audited_agreements,
+        });
+        if let Err(audit_err) = self
+            .audit_repo
+            .create(NewAuditEvent {
+                realm_id: realm_id.to_string(),
+                category: AuditCategory::Compliance,
+                action: AuditAction::AgreementConsent,
+                actor_id: ctx.actor_id.clone(),
+                actor_type: ctx.actor_type,
+                actor_name: ctx.actor_name.clone(),
+                target_type: AuditTargetType::User,
+                target_id: user_id.to_string(),
+                target_name: ctx.actor_name.clone(),
+                result: AuditResult::Success,
+                details: Some(details),
+                ip_address: ctx.ip_address.clone(),
+                user_agent: ctx.user_agent.clone(),
+                trace_id: ctx.trace_id.clone(),
+            })
+            .await
+        {
+            tracing::warn!(
+                error = %audit_err,
+                %user_id,
+                "Failed to record agreement consent audit event"
+            );
         }
         Ok(())
     }
@@ -997,6 +1013,52 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, CoreError::Conflict(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn record_consent_stale_item_rejects_batch_before_any_write() {
+        // The audit event is written once per call, after the whole batch. If
+        // a stale item could abort mid-loop, earlier items would be persisted
+        // as consent rows without their compliance evidence — so validation
+        // must reject the batch before any consent row is written.
+        let tos_current = Uuid::now_v7();
+        let privacy_current = Uuid::now_v7();
+        let mut legal = MockLegalRepo::default();
+        legal.effective.insert(
+            ("r".to_string(), "terms_of_service".to_string()),
+            version(AgreementType::TermsOfService, tos_current),
+        );
+        legal.effective.insert(
+            ("r".to_string(), "privacy_policy".to_string()),
+            version(AgreementType::PrivacyPolicy, privacy_current),
+        );
+        let consent = MockConsentRepo::default();
+        let audit = MockAuditRepo::default();
+        let svc = make_service(legal, consent.clone(), audit.clone());
+
+        let stale_privacy = Uuid::now_v7();
+        let err = svc
+            .record_consent(
+                Uuid::now_v7(),
+                "r",
+                vec![
+                    (AgreementType::TermsOfService, tos_current),
+                    (AgreementType::PrivacyPolicy, stale_privacy),
+                ],
+                ConsentSource::Register,
+                actor(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Conflict(_)), "got {err:?}");
+        assert!(
+            consent.consents.lock().unwrap().is_empty(),
+            "valid item must not be persisted when a later item is stale"
+        );
+        assert!(
+            audit.events.lock().unwrap().is_empty(),
+            "no audit event may be skipped for partially-persisted batches"
+        );
     }
 
     #[tokio::test]

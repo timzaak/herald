@@ -28,21 +28,31 @@ export function SignupCtaBlock({ realmContext }: SignupCtaBlockProps) {
     return null
   }
 
+  // Always-dark instrument panel so the storefront's one festive moment uses
+  // the gold-foil vocabulary the paper page cannot: gold highlight text, a
+  // gold hairline button, and the LED glint — all sanctioned on dark panels
+  // only (DESIGN.md §1 金箔法则). The button stays outlined so the login
+  // submit below remains the view's single solid primary.
   return (
     <div
       data-testid="signup-cta-block"
-      className="mt-6 w-full rounded-lg border bg-card p-5 shadow-sm"
+      className="mb-6 w-full rounded-lg bg-instrument p-5 shadow-led"
     >
       <div className="flex items-center gap-2">
-        <Rocket className="size-4 text-primary" aria-hidden="true" />
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+        <Rocket className="size-4 text-gold" aria-hidden="true" />
+        <h2 className="text-sm font-semibold tracking-tight text-gold">
           {m['auth.login.signup_cta_title']()}
         </h2>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+      <p className="mt-2 text-sm leading-relaxed text-instrument-muted">
         {m['auth.login.signup_cta_description']()}
       </p>
-      <Button asChild className="mt-4 h-11 w-full" data-testid="signup-cta-link">
+      <Button
+        asChild
+        variant="outline"
+        className="mt-4 h-11 w-full border-gold/60 bg-transparent text-gold hover:bg-gold/10 hover:text-gold"
+        data-testid="signup-cta-link"
+      >
         <Link to={realmPath(realmContext, '/auth/signup')}>
           {m['auth.login.signup_cta_link']()}
         </Link>

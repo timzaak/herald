@@ -401,7 +401,10 @@ impl ClientRepository for PostgresClientRepository {
             password_reset_return_url: sea_orm::Set(None),
             browser_refresh_absolute_ttl_seconds: sea_orm::Set(2_592_000),
             is_first_party: sea_orm::Set(false),
-            enabled: sea_orm::Set(true),
+            // AI agent access is opt-in: a fresh realm seeds the MCP client
+            // disabled and the realm admin enables it from the client-app
+            // list before any agent can connect.
+            enabled: sea_orm::Set(false),
             icon_url: sea_orm::Set(None),
             // A PKCE-only public client has no secret to leak; the authorize
             // and token paths never consult one.

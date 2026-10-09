@@ -113,6 +113,7 @@ pub async fn create_api_key(
         realm_id: saved.realm_id,
         client_app_id: saved.client_app_id,
         client_app_name: Some(client_app.name),
+        client_app_enabled: client_app.enabled,
         enabled: saved.enabled,
         expires_at: saved.expires_at.map(|dt| dt.to_rfc3339()),
         created_at: saved.created_at.to_rfc3339(),

@@ -215,8 +215,10 @@ async fn test_scenario_api_keys_view_cannot_create(ctx: &mut TestContext) {
         create_admin_session_with_user(ctx, "apikeys-view-nocreate@test.com", 1800).await;
     grant_single_permission(ctx, &user_id, "api_keys", "view").await;
 
-    // When: attempting to create an API key
-    let body = r#"{"name": "should-not-succeed"}"#;
+    // When: attempting to create an API key (body must be schema-valid so the
+    // rejection observed is the permission denial, not request validation)
+    let body =
+        r#"{"name": "should-not-succeed", "clientAppId": "00000000-0000-0000-0000-000000000000"}"#;
     let req = Request::builder()
         .method("POST")
         .uri("/api/api-keys".to_string())

@@ -65,30 +65,19 @@ uv run scripts/demo-start.py
 
 ## 体验在线演示
 
-打开 [auth.fornetcode.com](https://auth.fornetcode.com)，使用以下账号登录：
-
-```text
-邮箱：admin@fornetcode.com
-密码：Herald@2026Admin
-```
-
-无需本地运行 Herald，即可先体验管理后台。
+打开 [auth.fornetcode.com](https://auth.fornetcode.com)，在登录页点击「开通自己的 Realm」即可创建你自己的 Realm。你将成为该租户的管理员，拥有完全隔离的环境——无需共享账号，也不会碰到他人的数据。
 
 ## AI Agent 专用入口
 
-Herald 的文档以 MDX 编写，位于 [`docs-web/content/docs/`](docs-web/content/docs/)（英文）和 [`docs-web/content/docs/zh/`](docs-web/content/docs/zh/)（中文），发布于 https://www.fornetcode.com。AI agent 请优先使用下列结构化来源，而非抓取渲染后的 HTML：
-
-- **完整文档索引（LLM）：** https://www.fornetcode.com/llms.txt
-- **完整文档全文（LLM）：** https://www.fornetcode.com/llms-full.txt
-- **单页 Markdown：** 在任意文档 URL 后加 `.md`，例如 https://www.fornetcode.com/zh/docs/auth/passkey.md
+- **LLM 文档：** [llms.txt](https://www.fornetcode.com/llms.txt)（索引）· [llms-full.txt](https://www.fornetcode.com/llms-full.txt)（全文）· 任意文档 URL 加 `.md` 获取 Markdown
 - **API 参考（OpenAPI）：** [`docs-web/openapi.json`](docs-web/openapi.json)
-- **MCP 服务：** 用 OAuth 接入——把 agent 指向租户地址，在浏览器登录一次即可：
+- **MCP 服务：** OAuth 浏览器登录，无需 API Key：
 
   ```bash
   claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
   ```
 
-  无需 API Key、client id 或 secret。Herald 拉起浏览器完成登录后，agent 即获得九个只读工具。用 `get_my_profile` 做连通性自检。接入配置与工具说明见 [MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/integration/mcp)。
+  接入配置与工具说明：[MCP 集成（AI Agent 接入）](https://www.fornetcode.com/zh/docs/integration/mcp)
 
 ## 联系我们
 

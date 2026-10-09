@@ -17,7 +17,10 @@ export const createApiKeySchema = z.object({
     .string()
     .min(1, { error: () => m['api_keys.name_required']() })
     .max(100, { error: () => m['api_keys.name_max_length']() }),
-  clientAppId: z.string().uuid().optional(),
+  // Required: every key is explicitly bound to a client app — the bound app
+  // is the auth gate (a disabled app kills the key), so a default binding
+  // would hide which gate applies.
+  clientAppId: z.string().uuid({ error: () => m['api_keys.client_app_required']() }),
   expiresAt: z
     .string()
     .optional()

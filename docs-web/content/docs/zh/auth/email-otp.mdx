@@ -55,14 +55,14 @@ flowchart LR
 
 ## Realm 配置
 
-Realm 管理员在 *Settings → Security* 下、TOTP 和 Passkey 旁边的 *Email code* 标签页里开启邮箱验证码。权限模型和 Settings 其余部分一致：读取需要 `settings.view`，保存需要 `settings.manage`。
+Realm 管理员在 *Settings → Email* 下、邮件设置卡片内的 *Email-OTP* 区块里开启邮箱验证码。权限模型和 Settings 其余部分一致：读取需要 `settings.view`，保存需要 `settings.manage`。
 
 | 设置项 | 含义 |
 |---------|---------|
 | `enabled` | 是否在该 Realm 的登录页显示邮箱验证码入口。关闭 → 入口隐藏，send/verify 端点返回 400 拒绝 |
 | `autoRegister` | 当有人输入一个没有账号的邮箱时怎么处理。开启 → 第一次验证码验证成功就创建账号并登录（受下面的同意门控约束）。关闭 → send 返回 409 `email_not_registered`，前端可以引导用户显式注册 |
 
-发邮件依赖 Realm 在 *Settings → Email* 下配置了邮件服务商。如果没配置，验证码无法发送；此时开启邮箱验证码会让入口可见但 send 一直失败。
+发邮件依赖 Realm 在 *Settings → Email* 下配置了邮件服务商。开启邮箱验证码（`enabled: true`）要求该服务商已配置：配置前控制台的两个开关处于禁用状态（悬停会提示原因），直接调用 API 启用则返回 400 `Cannot enable Email OTP login without email configuration`。禁用、或在 `enabled` 保持关闭时预设 `autoRegister`，不受此限制。若开启后邮件服务商配置被移除，入口仍然可见但验证码无法送出。
 
 ### 同意门控（自动注册）
 

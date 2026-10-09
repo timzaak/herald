@@ -58,8 +58,13 @@ const client = createHeraldClient({
   },
 })
 
-// Register
-await client.register({ email: 'user@example.com', password: '••••••••' })
+// Register (nickname is persisted as the user's profile row; the first-party
+// UI treats it as required, the API keeps it optional)
+await client.register({
+  email: 'user@example.com',
+  nickname: 'Ada Lovelace',
+  password: '••••••••',
+})
 
 // Email verification / password reset: the backend sends an email with a link
 // that 302-redirects to your pre-registered Client App page. The SDK only

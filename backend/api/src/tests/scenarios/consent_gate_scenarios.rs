@@ -721,8 +721,8 @@ async fn test_register_records_consent_register_source(ctx: &mut TestContext) {
     .expect("audit query must succeed");
 
     assert_eq!(
-        audit_count, 2,
-        "registration must emit one agreement.consent audit event per type with source=register"
+        audit_count, 1,
+        "registration must emit one agreement.consent audit event covering all consented types with source=register"
     );
 }
 

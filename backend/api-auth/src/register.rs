@@ -12,7 +12,7 @@ pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::security_constants::{REGISTER_EMAIL_RATE_LIMIT, REGISTER_IP_RATE_LIMIT};
-use herald_core::domain::user::ports::UserService;
+use herald_core::domain::user::ports::{UserRepository, UserService};
 use herald_core::domain::user::value_objects::RegisterRequest as DomainRegisterRequest;
 use herald_core::third::email::{EmailService, EmailTemplateKind};
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,12 @@ pub struct RegisterRequest {
     #[validate(email)]
     pub email: String,
     #[validate(length(min = 1, max = 36))]
-    pub username: Option<String>, // Optional username
+    pub username: Option<String>,
+    /// Registration nickname, persisted as the user's profile row. Optional at
+    /// the API level so programmatic callers (SDK, email-OTP/LDAP/social
+    /// auto-register flows) are unaffected; the first-party UI requires it.
+    #[validate(length(min = 1, max = 50))]
+    pub nickname: Option<String>,
     #[validate(length(min = 8, max = 100))]
     pub password: String,
     pub turnstile_token: Option<String>, // Optional: required only if Turnstile is enabled for realm
@@ -151,6 +156,35 @@ pub async fn register(
                 _ => ApiError::internal("Failed to create user".to_string()),
             }
         })?;
+
+    // Persist the registration nickname as the user's profile row. The
+    // account table has no nickname column — `profile` is the store GET
+    // /api/user/profile reads — so skipping this write would silently drop
+    // the nickname the UI requires (the legacy `username` field is ignored
+    // the same way).
+    if let Some(nickname) = payload.nickname.clone() {
+        let now = chrono::Utc::now();
+        let profile = herald_core::domain::user::entities::Profile {
+            id: user.id,
+            realm_id: realm_id.clone(),
+            nickname: Some(nickname),
+            created_at: now,
+            updated_at: now,
+        };
+        state
+            .user_repository
+            .create_profile(profile)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    realm_id = %realm_id,
+                    user_id = %user.id,
+                    error = %e,
+                    "Failed to persist registration nickname"
+                );
+                ApiError::internal("Failed to create user".to_string())
+            })?;
+    }
 
     // Default repository behavior creates users in pending status.
     // If this realm does not require email verification, activate immediately.

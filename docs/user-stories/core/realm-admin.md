@@ -841,13 +841,13 @@ Then API Key 创建成功
 And API Key 列表显示该 Key 绑定到 "mobile-app"
 ```
 
-**场景 2：未选择 Client App 时使用默认范围**
+**场景 2：未选择 Client App 时拒绝创建**
 ```gherkin
 Given 我是 realm-1 的管理员
 When 我在创建 API Key 表单中未选择 Client App
 And 我提交表单
-Then API Key 创建成功
-And 该 API Key 使用默认的 "admin-api-client" 范围
+Then 表单提示必须选择 Client App
+And API Key 不会被创建
 ```
 
 **场景 3：普通 Client App API Key 不能访问其他应用资源**
@@ -861,10 +861,20 @@ And 不返回 "web-app" 的资源数据
 
 **场景 4：admin-api-client API Key 保持 Realm 级访问**
 ```gherkin
-Given API Key "admin-api-key" 使用默认的 "admin-api-client" 范围
+Given API Key "admin-api-key" 显式绑定到内置 "admin-api-client"
+And 管理员已在 Client App 列表启用该内置客户端（新 Realm 种子默认停用）
 And realm-1 中存在多个 Client App
 When "admin-api-key" 访问任意 Client App 的订阅或积分资源
 Then 系统按该 API Key 的角色权限正常处理请求
+```
+
+**场景 5：绑定的 Client App 被禁用时列表提示**
+```gherkin
+Given API Key "mobile-key" 绑定到 Client App "mobile-app"
+And "mobile-app" 已被管理员禁用
+When 我打开 API Key 列表
+Then "mobile-key" 所在行显示所属客户端已禁用的醒目提示
+And 提示说明该 Key 当前无法认证
 ```
 
 **场景 5：禁用 Client App 后其 API Key 不可用**

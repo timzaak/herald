@@ -89,8 +89,10 @@ pub async fn obtain_mcp_tokens(
 ) -> McpTokenSet {
     // The schema-test template realm predates migration 0011's seed loop
     // (test-db migrates before the template realm exists), so the built-in
-    // MCP client must be ensured before this chain can authorize.
-    crate::tests::helpers::oauth_pkce_helpers::ensure_mcp_client_seeded(ctx).await;
+    // MCP client must be ensured before this chain can authorize — and it
+    // seeds DISABLED by default, so the admin opt-in enable is part of the
+    // precondition for every browser-authorized MCP chain.
+    crate::tests::helpers::oauth_pkce_helpers::ensure_mcp_client_enabled(ctx).await;
     let resource = mcp_canonical_resource(ctx, realm_id);
     let redirect_uri = MCP_TEST_REDIRECT_URI;
     let code_verifier = generate_code_verifier();

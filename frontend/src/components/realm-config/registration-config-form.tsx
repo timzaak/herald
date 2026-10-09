@@ -89,18 +89,15 @@ export function RegistrationConfigForm({
                   description={m['realm_config.registration_email_verify_description']()}
                   checked={emailConfigured ? field.state.value : false}
                   disabled={disabled || !emailConfigured}
+                  switchTooltip={
+                    !emailConfigured
+                      ? m['realm_config.registration_email_not_configured']()
+                      : undefined
+                  }
                   errorTestId="reg-require-email-error"
                 />
               )}
             />
-            {!emailConfigured && (
-              <span
-                className="text-sm text-muted-foreground"
-                data-testid="email-config-required-hint"
-              >
-                {m['realm_config.registration_email_not_configured']()}
-              </span>
-            )}
 
             <div className="flex justify-end">
               <Button

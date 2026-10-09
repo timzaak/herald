@@ -1,5 +1,6 @@
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 
 interface ConfigSwitchFieldProps {
@@ -24,6 +25,11 @@ interface ConfigSwitchFieldProps {
   disabled?: boolean
   errorTestId?: string
   checked?: boolean
+  /**
+   * Reason the switch cannot be enabled, shown as a tooltip on the switch
+   * (e.g. a missing prerequisite such as email configuration).
+   */
+  switchTooltip?: string
 }
 
 /**
@@ -39,7 +45,18 @@ export function ConfigSwitchField({
   disabled,
   errorTestId,
   checked,
+  switchTooltip,
 }: ConfigSwitchFieldProps) {
+  const switchElement = (
+    <Switch
+      id={id}
+      checked={checked ?? field.state.value}
+      onCheckedChange={field.handleChange}
+      disabled={disabled}
+      data-testid={`${id}-switch`}
+    />
+  )
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -47,13 +64,25 @@ export function ConfigSwitchField({
           <Label htmlFor={id}>{label}</Label>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <Switch
-          id={id}
-          checked={checked ?? field.state.value}
-          onCheckedChange={field.handleChange}
-          disabled={disabled}
-          data-testid={`${id}-switch`}
-        />
+        {switchTooltip ? (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* span wrapper so the disabled Switch still receives hover/focus events for the tooltip */}
+                <span
+                  tabIndex={0}
+                  data-testid={`${id}-switch-tooltip-trigger`}
+                  className="inline-flex"
+                >
+                  {switchElement}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent data-testid={`${id}-switch-tooltip`}>{switchTooltip}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          switchElement
+        )}
       </div>
       {/* Form validation error display */}
       {(field.state.meta.isTouched || form?.state.isSubmitted) &&

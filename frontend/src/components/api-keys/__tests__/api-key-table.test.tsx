@@ -38,6 +38,37 @@ describe('ApiKeyTable roles column', () => {
     expect(screen.getByTestId('api-key-client-app')).toHaveTextContent('Mobile App')
   })
 
+  // WHY: a key whose bound app is disabled cannot authenticate (the app is
+  // the kill switch). Without the warning the admin sees a healthy-looking
+  // key and hunts for the cause in the wrong place.
+  it('warns when the bound Client App is disabled', () => {
+    const key = makeKey({
+      id: 'k-client-app-disabled',
+      name: 'Dead Gate Key',
+      clientAppId: '018f6f3a-7f25-7c00-9a2f-000000000002',
+      clientAppName: 'Mobile App',
+      clientAppEnabled: false,
+    })
+
+    render(<ApiKeyTable data={[key]} />)
+
+    expect(screen.getByTestId('api-key-client-app-disabled-warning')).toBeInTheDocument()
+  })
+
+  it('does not warn when the bound Client App is enabled', () => {
+    const key = makeKey({
+      id: 'k-client-app-enabled',
+      name: 'Live Gate Key',
+      clientAppId: '018f6f3a-7f25-7c00-9a2f-000000000003',
+      clientAppName: 'Mobile App',
+      clientAppEnabled: true,
+    })
+
+    render(<ApiKeyTable data={[key]} />)
+
+    expect(screen.queryByTestId('api-key-client-app-disabled-warning')).not.toBeInTheDocument()
+  })
+
   describe('shows all badges when 2 or fewer roles', () => {
     const cases = [
       {

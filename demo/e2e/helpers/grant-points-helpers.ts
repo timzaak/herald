@@ -337,7 +337,7 @@ export async function createTestApiKeyWithPermission(
     clientId = boundClientAppId
   } else {
     const clientAppResponse = await requestContext.post(
-      `${backendUrl}/api/client/${realmId}`,
+      `${backendUrl}/api/client`,
       {
         data: {
           clientId: clientAppName,
@@ -359,16 +359,15 @@ export async function createTestApiKeyWithPermission(
     clientId = clientAppBody.id ?? clientAppName
   }
 
-  // 2. Create API Key bound to the new Client App
-  const apiKeyResponse = await requestContext.post(
-    `${backendUrl}/api/api-keys/${realmId}`,
-    {
-      data: {
-        name: apiKeyName,
-        clientAppId: clientId,
-      },
+  // 2. Create API Key bound to the new Client App. All admin-plane routes
+  // (/api/client, /api/api-keys, ...) are session-scoped: the realm is pinned
+  // by the admin-console bearer token, never by a path segment.
+  const apiKeyResponse = await requestContext.post(`${backendUrl}/api/api-keys`, {
+    data: {
+      name: apiKeyName,
+      clientAppId: clientId,
     },
-  )
+  })
 
   if (!apiKeyResponse.ok()) {
     const text = await apiKeyResponse.text()
@@ -399,11 +398,11 @@ export async function createTestApiKeyWithPermission(
 /**
  * Create a custom role with the given permission and assign it to the API key.
  *
- * Steps:
- * 1. Find the permission ID via GET /api/permission/{realmId}/define
- * 2. Create a custom role via POST /api/roles/{realmId}/define
- * 3. Assign the permission to the role via POST /api/roles/{realmId}/define/{roleId}/permissions
- * 4. Assign the role to the API key via PUT /api/api-keys/{realmId}/{apiKeyId}/roles
+ * Steps (all session-scoped admin routes — realm comes from the token):
+ * 1. Find the permission ID via GET /api/permission/define
+ * 2. Create a custom role via POST /api/roles/define
+ * 3. Assign the permission to the role via POST /api/roles/define/{roleId}/permissions
+ * 4. Assign the role to the API key via PUT /api/api-keys/{apiKeyId}/roles
  */
 async function assignPermissionRoleToApiKey(
   request: APIRequestContext,

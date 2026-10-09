@@ -20,6 +20,7 @@
 **场景 1：零配置接入并完成浏览器授权**
 ```gherkin
 Given 我是一个 Herald 用户
+And 租户管理员已在 Client App 列表开启内置 MCP 客户端（默认停用，agent 接入需显式开启）
 And 我按官方接入文档在 agent 客户端中填入 Herald MCP 服务地址（无需预先创建任何凭证）
 And 我使用全新客户端配置，没有手工补填客户端身份信息
 When agent 客户端发起连接

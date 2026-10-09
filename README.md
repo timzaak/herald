@@ -65,30 +65,19 @@ Stuck on setup, or evaluating Herald for your product? Email [zsy.evan@gmail.com
 
 ## Try the Live Demo
 
-Open [auth.fornetcode.com](https://auth.fornetcode.com) and sign in with:
-
-```text
-Email:    admin@fornetcode.com
-Password: Herald@2026Admin
-```
-
-The demo lets you explore the admin experience before running Herald locally.
+Open [auth.fornetcode.com](https://auth.fornetcode.com) and click **Create Your Realm** on the sign-in page to spin up your own realm. You become its admin, with a fully isolated tenant to explore — no shared account, no one else's data.
 
 ## For AI Agents
 
-Herald's documentation is authored as MDX under [`docs-web/content/docs/`](docs-web/content/docs/) (English) and [`docs-web/content/docs/zh/`](docs-web/content/docs/zh/) (Chinese), and published at https://www.fornetcode.com. Prefer these structured sources over scraping rendered HTML:
-
-- **Full doc index (for LLMs):** https://www.fornetcode.com/llms.txt
-- **Full doc text (for LLMs):** https://www.fornetcode.com/llms-full.txt
-- **Single page as Markdown:** append `.md` to any doc URL, e.g. https://www.fornetcode.com/en/docs/auth/passkey.md
+- **Docs for LLMs:** [llms.txt](https://www.fornetcode.com/llms.txt) (index) · [llms-full.txt](https://www.fornetcode.com/llms-full.txt) (full text) · append `.md` to any docs URL for Markdown
 - **API reference (OpenAPI):** [`docs-web/openapi.json`](docs-web/openapi.json)
-- **MCP server:** connect your agent with OAuth — point it at your realm's tenant URL and sign in once in the browser:
+- **MCP server:** OAuth browser sign-in — no API key, no secret:
 
   ```bash
   claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
   ```
 
-  No API key, no client id, no secret. Herald opens your browser for sign-in, then the agent gets nine read-only tools. Self-check with `get_my_profile`. Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp).
+  Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp)
 
 ## Talk to Us
 

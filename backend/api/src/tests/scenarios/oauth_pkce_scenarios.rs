@@ -1998,7 +1998,7 @@ async fn test_scenario_mcp_registration_pass_through_contract(ctx: &mut SchemaTe
 #[tokio::test]
 async fn test_scenario_mcp_authorize_contract(ctx: &mut SchemaTestContext) {
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
     let canonical = mcp_canonical_resource(ctx, &realm_id);
 
     let code_challenge = compute_code_challenge(&generate_code_verifier());
@@ -2294,7 +2294,7 @@ async fn test_scenario_mcp_authorize_contract(ctx: &mut SchemaTestContext) {
 #[tokio::test]
 async fn test_scenario_mcp_token_exchange_contract(ctx: &mut SchemaTestContext) {
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
     let canonical = mcp_canonical_resource(ctx, &realm_id);
 
     let email = "mcp-token-user@test.com";
@@ -2535,7 +2535,7 @@ async fn test_scenario_mcp_v2_password_login_preserves_resource_and_scope(
     ctx: &mut SchemaTestContext,
 ) {
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
 
     let email = "mcp-v2-password@test.com";
     let password = "password123";
@@ -2588,7 +2588,7 @@ async fn test_scenario_mcp_v2_totp_login_preserves_resource_and_scope(ctx: &mut 
         std::env::set_var("TOTP_SECRET_KEY", "test_key_32_bytes_long_1234567890");
     }
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
     setup_realm_totp_config(ctx, true, false).await;
 
     let email = "mcp-v2-totp@test.com";
@@ -2668,7 +2668,7 @@ async fn test_scenario_mcp_v2_totp_login_preserves_resource_and_scope(ctx: &mut 
 async fn test_scenario_mcp_v2_ldap_login_preserves_resource_and_scope(ctx: &mut SchemaTestContext) {
     enable_ldap(ctx).await;
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
 
     let email = format!("mcp-v2-ldap-{}@test.com", uuid::Uuid::now_v7());
     let user_id = create_test_user(ctx, &email, "password123").await;
@@ -2752,7 +2752,7 @@ async fn test_scenario_mcp_v2_passkey_login_preserves_resource_and_scope(
         std::env::set_var("RP_ORIGIN", RP_ORIGIN);
     }
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
     setup_realm_passkey_config(ctx, &realm_id, true).await;
 
     let email = "mcp-v2-passkey@test.com";
@@ -2880,7 +2880,7 @@ async fn test_scenario_mcp_v2_google_one_tap_preserves_resource_and_scope(
     .expect("failed to seed enabled Google provider config");
 
     let realm_id = ctx._realm_id.clone();
-    ensure_mcp_client_seeded(ctx).await;
+    ensure_mcp_client_enabled(ctx).await;
 
     // Pre-create the account with the Google token's email (consent recorded
     // by the shared helper) so find_or_create matches by email.

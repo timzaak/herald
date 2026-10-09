@@ -17,12 +17,15 @@ interface ClientAppOption {
   id: string
   name: string
   clientId: string
+  /** Present when the caller surfaces the app's enabled state; disabled
+   * apps are marked so keys are not unknowingly bound to a dead gate. */
+  enabled?: boolean
 }
 
 interface ClientAppSelectorProps {
   clientApps: ClientAppOption[]
-  value?: string
-  onChange: (value: string | undefined) => void
+  value: string | undefined
+  onChange: (value: string) => void
   disabled?: boolean
 }
 
@@ -47,7 +50,7 @@ export function ClientAppSelector({
           data-testid="client-app-selector-trigger"
         >
           <span className={cn('truncate', !selected && 'text-muted-foreground')}>
-            {selected ? `${selected.name} (${selected.clientId})` : m['shared.default_client']()}
+            {selected ? `${selected.name} (${selected.clientId})` : m['shared.select_client_app']()}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -61,17 +64,6 @@ export function ClientAppSelector({
           <CommandList>
             <CommandEmpty>{m['shared.no_client_apps_found']()}</CommandEmpty>
             <CommandGroup>
-              <CommandItem
-                value="__default__"
-                onSelect={() => {
-                  onChange(undefined)
-                  setOpen(false)
-                }}
-                data-testid="client-app-selector-default"
-              >
-                <Check className={cn('mr-2 h-4 w-4', !value ? 'opacity-100' : 'opacity-0')} />
-                {m['shared.default_client']()}
-              </CommandItem>
               {clientApps.map((app) => (
                 <CommandItem
                   key={app.id}
@@ -85,9 +77,19 @@ export function ClientAppSelector({
                   <Check
                     className={cn('mr-2 h-4 w-4', value === app.id ? 'opacity-100' : 'opacity-0')}
                   />
-                  <span className="truncate">
+                  <span
+                    className={cn('truncate', app.enabled === false && 'text-muted-foreground')}
+                  >
                     {app.name} ({app.clientId})
                   </span>
+                  {app.enabled === false && (
+                    <span
+                      className="ml-2 shrink-0 text-xs text-muted-foreground"
+                      data-testid={`client-app-selector-disabled-${app.id}`}
+                    >
+                      {m['client_apps.status_disabled_label']()}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>

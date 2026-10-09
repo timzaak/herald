@@ -73,8 +73,8 @@ test.describe('[Regular User] Profile Management Comprehensive Demo Tests', () =
         // 验证邮箱字段（使用 data-testid 避免严格模式冲突）
         await expect(page.locator('[data-testid="email-display"]')).toBeVisible()
 
-        // 验证昵称字段（使用 data-testid 避免严格模式冲突）
-        await expect(page.locator('[data-testid="nickname-display"]')).toBeVisible()
+        // 验证昵称字段（昵称已改为可编辑表单，断言编辑输入框）
+        await expect(page.locator('[data-testid="nickname-input"]')).toBeVisible()
 
         // 验证状态字段（使用 data-testid 避免严格模式冲突）
         await expect(page.locator('[data-testid="status-display"]')).toBeVisible()
@@ -112,20 +112,26 @@ test.describe('[Regular User] Profile Management Comprehensive Demo Tests', () =
 
   // ============================================================================
   // User Story 6: Update Personal Nickname [US-RU-006]
-  // Status: 待前端实现后启用 — Profile 编辑页面 UI 未实现
+  // 昵称编辑已实现（NicknameEditForm，PUT /api/user/profile）。
+  // 口径（US-RU-006 场景 2，方向 A）：昵称为必填——注册时必填意味着它是身份
+  // 展示属性，编辑时同样不允许清空。
   // ============================================================================
-  // Note: Nickname update tests are skipped due to unimplemented frontend UI
-  // TODO: Uncomment these tests when frontend profile UI is implemented
-  /*
   test.describe('User Story 6: Update Personal Nickname [US-RU-006]', () => {
     test('Scenario 2.4: 正常修改昵称成功', async ({ usersPage, demoLogger, testStartTime }) => {
       const newNickname = `Updated Nickname ${testStartTime}`
 
       await test.step('When: 修改昵称', async () => {
-        await usersPage.page.goto('/realm1/profile')
-        await usersPage.page.getByTestId('nickname-input').clear()
-        await usersPage.page.getByTestId('nickname-input').fill(newNickname)
-        await usersPage.page.getByTestId('save-profile-button').click()
+        const page = usersPage.page
+        await page.goto('/admin/user/profile')
+        await page.getByTestId('nickname-input').fill(newNickname)
+
+        const responsePromise = page.waitForResponse(
+          resp => resp.url().includes('/api/user/profile') && resp.request().method() === 'PUT',
+          { timeout: 10000 }
+        )
+        await page.getByTestId('nickname-save-button').click()
+        const response = await responsePromise
+        expect(response.ok(), 'nickname PUT must succeed').toBeTruthy()
       })
 
       await test.step('Then: 昵称更新成功', async () => {
@@ -137,46 +143,48 @@ test.describe('[Regular User] Profile Management Comprehensive Demo Tests', () =
       })
     })
 
-    test('Scenario 2.5: 昵称为可选字段', async ({ usersPage, demoLogger }) => {
+    test('Scenario 2.5: 昵称为必填字段', async ({ usersPage, demoLogger }) => {
       await test.step('When: 清空昵称并保存', async () => {
-        await usersPage.page.goto('/realm1/profile')
-        await usersPage.page.getByTestId('nickname-input').clear()
-        await usersPage.page.getByTestId('save-profile-button').click()
+        const page = usersPage.page
+        await page.goto('/admin/user/profile')
+        await page.getByTestId('nickname-input').fill('')
+        await page.getByTestId('nickname-save-button').click()
       })
 
-      await test.step('Then: 更新成功，昵称为空', async () => {
+      await test.step('Then: 提示必填且保存被拒绝', async () => {
         const page = usersPage.page
 
-        // 验证昵称已清空（验证实际业务结果）
+        // 前端校验拦截：提示"请输入昵称"，请求不发出
+        await expect(page.getByText('Please enter a nickname')).toBeVisible()
+
+        // 刷新后昵称仍为已保存值（未被清空）
         await page.reload()
-        await expect(page.getByTestId('nickname-input')).toHaveValue('')
+        await expect(page.getByTestId('nickname-input')).not.toHaveValue('')
       })
     })
 
-    test('Scenario 2.6: 昵称长度限制测试（边界场景）', async ({ usersPage, demoLogger, testStartTime }) => {
+    test('Scenario 2.6: 昵称长度限制测试（边界场景）', async ({ usersPage, demoLogger }) => {
       const longNickname = 'a'.repeat(51) // 超过 50 个字符
 
       await test.step('When: 输入超过 50 个字符的昵称', async () => {
-        await usersPage.page.goto('/realm1/profile')
-        await usersPage.page.getByTestId('nickname-input').clear()
-        await usersPage.page.getByTestId('nickname-input').fill(longNickname)
-        await usersPage.page.getByTestId('save-profile-button').click()
+        const page = usersPage.page
+        await page.goto('/admin/user/profile')
+        await page.getByTestId('nickname-input').fill(longNickname)
+        await page.getByTestId('nickname-save-button').click()
       })
 
       await test.step('Then: 系统提示昵称过长', async () => {
         const page = usersPage.page
 
-        // 验证错误提示
-        await expect(page.getByTestId('error-message')).toBeVisible()
-        await expect(page.getByTestId('error-message')).toContainText('昵称不能超过 50 个字符')
+        // 验证错误提示（TextField 的 role="alert" 校验文案）
+        await expect(page.getByText('Nickname must be less than 50 characters')).toBeVisible()
 
         // 验证昵称未更新
         await page.reload()
-        expect(await page.getByTestId('nickname-input').inputValue()).not.toBe(longNickname)
+        await expect(page.getByTestId('nickname-input')).not.toHaveValue(longNickname)
       })
     })
   })
-  */
 
   // ============================================================================
   // User Story 4: Change Personal Password [US-RU-004]

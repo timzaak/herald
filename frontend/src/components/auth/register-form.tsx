@@ -16,15 +16,15 @@ import { TextField } from '@/components/shared/form-fields/text-field'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys, turnstileStatusQueryOptions } from '@/data/query-options'
 import { m } from '@/paraglide/messages'
+import { nicknameFieldSchema } from '@/lib/schemas/nickname'
 
 const PASSWORD_MIN_LENGTH = 8
-const NICKNAME_MAX_LENGTH = 50
 
 type RegisterFormData = {
   email: string
   password: string
   confirmPassword: string
-  nickname?: string
+  nickname: string
   turnstileToken?: string
   consent: boolean
 }
@@ -34,7 +34,7 @@ const registerSchema = z
     email: z.string().email(m['auth.email_invalid']()),
     password: z.string().min(PASSWORD_MIN_LENGTH, m['auth.password_min_length']()),
     confirmPassword: z.string().min(1, m['auth.confirm_password_required']()),
-    nickname: z.string().max(NICKNAME_MAX_LENGTH, m['auth.nickname_max_length']()).optional(),
+    nickname: nicknameFieldSchema,
     turnstileToken: z.string().optional(),
     consent: z.boolean(),
   })
@@ -64,7 +64,7 @@ export function RegisterForm({ realmId, onSuccess }: RegisterFormProps) {
       return herald.register({
         email: data.email,
         password: data.password,
-        ...(data.nickname ? { username: data.nickname } : {}),
+        nickname: data.nickname,
         ...(data.turnstileToken ? { turnstileToken: data.turnstileToken } : {}),
       })
     },
@@ -79,7 +79,7 @@ export function RegisterForm({ realmId, onSuccess }: RegisterFormProps) {
       email: '',
       password: '',
       confirmPassword: '',
-      nickname: undefined,
+      nickname: '',
       turnstileToken: undefined,
       consent: false,
     },

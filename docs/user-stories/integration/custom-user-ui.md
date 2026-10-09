@@ -26,7 +26,7 @@
 **场景 1：集成方前端直接提交注册**
 ```gherkin
 Given 集成方前端所属 Client App 已启用、配置允许 origin 与预登记验证结果页，且 Realm 已开启注册
-When 集成方前端以该 Client App 上下文跨域提交注册（邮箱/用户名/密码 + 人机验证）
+When 集成方前端以该 Client App 上下文跨域提交注册（邮箱/昵称/密码 + 人机验证）
 Then Herald 创建用户（按 Realm 配置决定是否需邮箱验证）
 And 注册成功后不自动登录，用户需另行登录
 ```

@@ -932,18 +932,21 @@ async fn seed_scoped_client_app(ctx: &TestContext, client_id: &str, name: &str) 
 }
 
 // =============================================================================
-// Scenario 12: Creating an API Key uses the realm's built-in API Key Client App
+// Scenario 12: Creating an API Key requires an explicit Client App binding
 // =============================================================================
 
-// User Story: docs/user-stories/core/realm-admin.md - US-RA-006
-// Covers: US-RA-006, US-TP-012, US-TP-013, US-TP-014
+// User Story: docs/user-stories/core/realm-admin.md - US-RA-006 / US-RA-018
+// Covers: US-RA-006, US-RA-018, US-TP-012, US-TP-013, US-TP-014
 //
-// Given: Realm has built-in API Key Client App (client_id='admin-api-client', enabled=true)
-// When: POST /api/api-keys to create new API Key
-// Then: 201 Created, DB row client_api_keys.client_app_id points to built-in Client App UUID
+// Given: Realm has built-in API Key Client App (client_id='admin-api-client')
+// When: POST /api/api-keys without clientAppId
+// Then: Request rejected (422), no API Key row created — there is no default
+//       binding; the app gate (bound app disabled ⇒ key cannot authenticate)
+//       only stays meaningful when every key names its app explicitly.
+// And:  POST with the built-in app's id → 201, DB row points to it.
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_create_api_key_uses_realm_api_key_client(ctx: &mut TestContext) {
+async fn test_create_api_key_requires_explicit_client_app(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
 
     // Given: admin user with api_keys.manage
@@ -954,24 +957,64 @@ async fn test_create_api_key_uses_realm_api_key_client(ctx: &mut TestContext) {
     // Given: realm has built-in API Key Client App
     let builtin_client_app_id = seed_realm_api_key_client(ctx).await;
 
-    // When: creating an API Key via POST endpoint
+    let count_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM client_api_keys WHERE realm_id = $1")
+            .bind(&ctx._realm_id)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .expect("Failed to count API keys");
+
+    // When: creating an API Key without a clientAppId
     let req = Request::builder()
         .method("POST")
         .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
-            json!({ "name": "lifecycle-test-key" }).to_string(),
+            json!({ "name": "must-not-be-created" }).to_string(),
         ))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
 
-    // Then: 201 Created
+    // Then: rejected by request validation — the field is required
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "POST without clientAppId must be rejected as a validation error"
+    );
+
+    let count_after_reject: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM client_api_keys WHERE realm_id = $1")
+            .bind(&ctx._realm_id)
+            .fetch_one(&ctx._app_state.pool)
+            .await
+            .expect("Failed to count API keys after rejected create");
+    assert_eq!(
+        count_before, count_after_reject,
+        "No API key may be created without an explicit Client App binding"
+    );
+
+    // And: binding the built-in app explicitly still works
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/api-keys".to_string())
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "name": "lifecycle-test-key",
+                "clientAppId": builtin_client_app_id
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(
         resp.status(),
         StatusCode::CREATED,
-        "POST create API key should return 201 Created"
+        "POST with the built-in app's clientAppId should return 201 Created"
     );
 
     let resp_json: serde_json::Value = response_json(resp).await;
@@ -988,7 +1031,7 @@ async fn test_create_api_key_uses_realm_api_key_client(ctx: &mut TestContext) {
     assert_eq!(
         db_client_app_id,
         Some(builtin_client_app_id),
-        "client_api_keys.client_app_id must point to the realm's built-in API Key Client App"
+        "client_api_keys.client_app_id must point to the explicitly bound Client App"
     );
 }
 
@@ -1001,7 +1044,7 @@ async fn test_create_api_key_returns_plaintext_when_role_binding_fails(ctx: &mut
     let (token, admin_id) =
         create_admin_session_with_user(ctx, "apikey-create-role-failure@test.com", 1800).await;
     grant_realm_admin_role(ctx, &admin_id).await;
-    seed_realm_api_key_client(ctx).await;
+    let builtin_client_app_id = seed_realm_api_key_client(ctx).await;
     let missing_role_id = uuid::Uuid::now_v7();
 
     let req = Request::builder()
@@ -1012,6 +1055,7 @@ async fn test_create_api_key_returns_plaintext_when_role_binding_fails(ctx: &mut
         .body(Body::from(
             json!({
                 "name": "partial-role-binding-key",
+                "clientAppId": builtin_client_app_id,
                 "roleIds": [missing_role_id]
             })
             .to_string(),
@@ -1116,32 +1160,25 @@ async fn test_create_api_key_accepts_client_app_scope(ctx: &mut TestContext) {
 }
 
 // =============================================================================
-// Scenario 13: Creating an API Key fails when realm's built-in Client App missing
+// Scenario 13: Creating an API Key fails when the clientAppId does not resolve
 // =============================================================================
 
-// User Story: docs/user-stories/core/realm-admin.md - US-RA-006
+// User Story: docs/user-stories/core/realm-admin.md - US-RA-006 / US-RA-018
 // Covers: US-RA-006, US-TP-012
 //
-// Given: Realm's built-in Client App does not exist
+// Given: clientAppId that no Client App in this realm owns (nonexistent id,
+//        or an app belonging to another realm)
 // When: POST /api/api-keys to create new API Key
-// Then: Error response (400), no new API Key created
+// Then: 400 Bad Request, no new API Key created
 #[test_context(TestContext)]
 #[tokio::test]
-async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut TestContext) {
+async fn test_create_api_key_fails_when_client_app_not_in_realm(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
 
     // Given: admin user with api_keys.manage
     let (token, admin_id) =
         create_admin_session_with_user(ctx, "apikey-lifecycle-noclient@test.com", 1800).await;
     grant_realm_admin_role(ctx, &admin_id).await;
-
-    // Given: realm does NOT have the built-in API Key Client App.
-    // Realm init now auto-creates it, so we must explicitly remove it.
-    sqlx::query("DELETE FROM client_app WHERE realm_id = $1 AND client_id = 'admin-api-client'")
-        .bind(&ctx._realm_id)
-        .execute(&ctx._app_state.pool)
-        .await
-        .expect("Failed to delete auto-created admin-api-client");
 
     // Count existing API keys before attempt
     let count_before: i64 =
@@ -1151,25 +1188,37 @@ async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut T
             .await
             .expect("Failed to count API keys");
 
-    // When: attempting to create an API Key
+    // When: attempting to create an API Key bound to an app this realm
+    // does not own (realm filter makes a foreign app's id equally dead)
     let req = Request::builder()
         .method("POST")
         .uri("/api/api-keys".to_string())
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
-            json!({ "name": "should-not-be-created" }).to_string(),
+            json!({
+                "name": "should-not-be-created",
+                "clientAppId": uuid::Uuid::now_v7()
+            })
+            .to_string(),
         ))
         .unwrap();
 
     let resp = app.clone().oneshot(req).await.unwrap();
 
-    // Then: error response (400 Bad Request based on create.rs returning bad_request)
-    assert!(
-        resp.status() == StatusCode::BAD_REQUEST
-            || resp.status() == StatusCode::INTERNAL_SERVER_ERROR,
-        "POST create API key should fail with 400 or 500 when built-in Client App is missing, got {}",
+    // Then: 400 Bad Request from the resolver
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "POST create API key should fail with 400 when clientAppId does not resolve in this realm, got {}",
         resp.status()
+    );
+    let body: serde_json::Value = response_json(resp).await;
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Client App not found")),
+        "rejection must say the Client App was not found, got {body}"
     );
 
     // Then: no new API Key was created
@@ -1182,7 +1231,7 @@ async fn test_create_api_key_fails_when_realm_api_key_client_missing(ctx: &mut T
 
     assert_eq!(
         count_before, count_after,
-        "No new API key should be created when built-in Client App is missing"
+        "No new API key should be created when the Client App does not resolve"
     );
 }
 

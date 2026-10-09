@@ -28,6 +28,7 @@ import { RoleSelector } from '@/components/shared/role-selector'
 import { ClientAppSelector } from '@/components/shared/client-app-selector'
 import { m } from '@/paraglide/messages'
 import { getErrorMessage } from '@/lib/error-utils'
+import { getFieldErrorMessage } from '@/lib/form-utils'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 
 type MutationResult = CreateApiKeyResponse | ApiKeyListItem
@@ -114,6 +115,7 @@ export function ApiKeyFormPage({ mode, realmId, apiKey }: ApiKeyFormPageProps) {
     defaultValues: isCreate
       ? ({
           name: '',
+          clientAppId: '',
           expiresAt: '',
         } as CreateApiKeyFormData)
       : ({
@@ -176,17 +178,27 @@ export function ApiKeyFormPage({ mode, realmId, apiKey }: ApiKeyFormPageProps) {
               name="clientAppId"
               children={(field) => (
                 <div className="space-y-2">
-                  <Label>{m['api_keys.form_client_app_label']()}</Label>
+                  <Label>{m['api_keys.form_client_app_label']()} *</Label>
                   <ClientAppSelector
                     clientApps={(clientAppsData?.items ?? []).map((app) => ({
                       id: app.id,
                       name: app.name,
                       clientId: app.clientId,
+                      enabled: app.enabled,
                     }))}
                     value={field.state.value}
                     onChange={field.handleChange}
                     disabled={isSubmitting}
                   />
+                  {(field.state.meta.isTouched || form.state.isSubmitted) &&
+                    field.state.meta.errors.length > 0 && (
+                      <p
+                        className="text-sm text-destructive"
+                        data-testid="api-key-client-app-error"
+                      >
+                        {getFieldErrorMessage(field.state.meta)}
+                      </p>
+                    )}
                 </div>
               )}
             />

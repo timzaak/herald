@@ -24,6 +24,8 @@ https://<origin>/mcp/<realmId>
 
 客户端只需要租户地址，不需要其他任何输入。客户端会通过 RFC 9728 / RFC 8414 发现与受控的 RFC 7591 注册端点，自动取得本租户预置的公共 MCP 客户端（`herald-mcp`）。
 
+> **先开启租户的 MCP 接入**：内置的 Herald MCP 客户端默认停用。租户管理员需先在管理后台 Client App 列表中启用它，agent 才能完成注册与授权（见第 7 节的租户开关）。
+
 **Claude Code**——已在 Claude Code 2.1.269 上完成端到端验证：仅凭 URL 即可完成注册、浏览器授权、工具发现与工具调用。
 
 ```bash

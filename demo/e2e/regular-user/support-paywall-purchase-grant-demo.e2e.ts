@@ -996,7 +996,8 @@ async function resolveClientAppId(
   realmId: string,
   clientId: string,
 ): Promise<string> {
-  const resp = await apiContext.get(`${purchaseBaseUrl()}/api/client/${realmId}`)
+  // Session-scoped admin route: the bearer token pins the realm, no path segment.
+  const resp = await apiContext.get(`${purchaseBaseUrl()}/api/client?page=0&pageSize=100`)
   if (!resp.ok()) {
     throw new Error(`could not list client apps in ${realmId}: ${resp.status()}`)
   }

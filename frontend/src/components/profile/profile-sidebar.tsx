@@ -85,7 +85,7 @@ export function ProfileSidebar() {
   return (
     <aside
       data-testid="profile-sidebar"
-      className="flex w-full flex-col border-b border-border md:w-64 md:border-b-0 md:border-r md:px-6 md:py-8"
+      className="flex w-full flex-col border-b border-sidebar-border bg-sidebar md:w-64 md:border-b-0 md:border-r md:px-6 md:py-8"
     >
       {/* <md: title row doubling as the mobile toolbar (admin entry + language);
           ≥md: plain block title, toolbar items live in the bottom block below. */}

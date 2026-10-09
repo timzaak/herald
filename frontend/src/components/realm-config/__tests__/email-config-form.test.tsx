@@ -268,7 +268,7 @@ describe('EmailConfigForm', () => {
       mockOnSaveOtp.mockClear()
     })
 
-    it('GIVEN email not configured WHEN rendering THEN should disable OTP switches and show hint', () => {
+    it('GIVEN email not configured WHEN hovering the disabled OTP switches THEN should explain the reason in a tooltip', async () => {
       renderWithProviders(
         <EmailConfigForm
           {...propsWithOtp}
@@ -280,10 +280,17 @@ describe('EmailConfigForm', () => {
       expect(screen.getByTestId('email-otp-enabled-switch')).toBeDisabled()
       expect(screen.getByTestId('email-otp-auto-register-switch')).toBeDisabled()
       expect(screen.getByTestId('email-otp-save-button')).toBeDisabled()
-      expect(screen.getByTestId('email-otp-email-required-hint')).toBeInTheDocument()
+
+      await userEvent.hover(screen.getByTestId('email-otp-enabled-switch-tooltip-trigger'))
+      expect(await screen.findByTestId('email-otp-enabled-switch-tooltip')).toHaveTextContent(
+        'Email configuration is required before enabling Email Code login'
+      )
+      expect(
+        screen.getByTestId('email-otp-auto-register-switch-tooltip-trigger')
+      ).toBeInTheDocument()
     })
 
-    it('GIVEN email configured WHEN rendering THEN should enable OTP switches and hide hint', () => {
+    it('GIVEN email configured WHEN rendering THEN should enable OTP switches and show no tooltip', () => {
       renderWithProviders(
         <EmailConfigForm {...propsWithOtp} emailStatus={{ configured: true, missingFields: [] }} />
       )
@@ -291,7 +298,9 @@ describe('EmailConfigForm', () => {
       expect(screen.getByTestId('email-otp-enabled-switch')).not.toBeDisabled()
       expect(screen.getByTestId('email-otp-auto-register-switch')).not.toBeDisabled()
       expect(screen.getByTestId('email-otp-save-button')).not.toBeDisabled()
-      expect(screen.queryByTestId('email-otp-email-required-hint')).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('email-otp-enabled-switch-tooltip-trigger')
+      ).not.toBeInTheDocument()
     })
 
     it('GIVEN no onSaveEmailOtp provided WHEN rendering THEN should not render the OTP section', () => {
