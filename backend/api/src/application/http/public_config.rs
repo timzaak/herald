@@ -14,6 +14,7 @@ use crate::application::http::realm_config::public_helper::{
 pub use crate::application::http::server::api_entities::ErrorResponse;
 use crate::application::http::server::api_entities::{ApiError, ApiResult};
 use crate::application::http::state::AppState;
+use herald_api_base::application::http::auth::util::is_email_configured;
 use herald_core::domain::custom_domain::CustomDomainMappingRepository;
 use herald_core::domain::realm::{RealmService, RealmSummary};
 
@@ -79,6 +80,8 @@ pub struct PublicConfigResponse {
     pub registration: RegistrationConfig,
     pub oauth_providers: Vec<OAuthProviderInfo>,
     pub white_label: PublicWhiteLabelConfig,
+    /// Whether the realm has a usable email channel (Resend/SMTP complete).
+    pub email_channel_configured: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -138,6 +141,7 @@ async fn query_public_white_label_config(
 /// - Registration settings (whether registration is allowed and if email verification is required)
 /// - List of enabled OAuth providers
 /// - Published white-label settings
+/// - Whether the realm has a usable email channel
 ///
 /// This endpoint does not require authentication.
 #[utoipa::path(
@@ -273,6 +277,7 @@ async fn load_public_config(
     let require_email_verification =
         query_bool_config(&state.pool, realm_id, "require_email_verification", false).await?;
     let white_label = query_public_white_label_config(&state.pool, realm_id).await?;
+    let email_channel_configured = is_email_configured(state, realm_id).await?;
 
     let configs = state
         .service
@@ -317,5 +322,6 @@ async fn load_public_config(
         },
         oauth_providers,
         white_label,
+        email_channel_configured,
     })
 }

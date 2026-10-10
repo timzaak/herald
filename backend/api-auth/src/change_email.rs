@@ -11,10 +11,10 @@ use validator::Validate;
 use crate::reauth::consume_reauth;
 use herald_api_base::application::http::auth::identity_middleware::authenticate_bearer;
 use herald_api_base::application::http::auth::util::{
-    ClientIp, epoch_seconds, normalize_email, rate_limit_hit,
+    ClientIp, epoch_seconds, is_email_configured, normalize_email, rate_limit_hit,
 };
 use herald_api_base::application::http::common::auth_utils::require_token_scope;
-use herald_api_base::application::http::common::public_helper::realm_public_url_parts;
+use herald_api_base::application::http::common::public_helper::realm_public_url;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
@@ -42,8 +42,10 @@ pub struct ChangeEmailResponse {
 
 /// Request to change the email address for the authenticated user
 ///
-/// Initiates an email change process by sending a verification code to the new email address.
-/// The user must click the confirmation link in the email to complete the change.
+/// Sends a confirmation link to the new email address. The link points to the
+/// first-party frontend confirm page, which the user must open in their
+/// logged-in browser so the frontend can call the confirm endpoint with the
+/// current session. Returns 400 when the realm has no usable email channel.
 #[utoipa::path(
   post,
   path = "/api/auth/{realmId}/change_email/request",
@@ -57,7 +59,7 @@ pub struct ChangeEmailResponse {
     (status = 200, description = "Change email request accepted.", body = ChangeEmailResponse),
     (status = 400, description = "Bad request", body = ErrorResponse),
     (status = 401, description = "Unauthorized", body = ErrorResponse),
-    (status = 409, description = "Email already in use", body = ErrorResponse),
+    (status = 409, description = "Reauth ticket already consumed or bound to a different operation", body = ErrorResponse),
     (status = 429, description = "Too many requests", body = ErrorResponse),
     (status = 500, description = "Internal server error", body = ErrorResponse)
   )
@@ -77,19 +79,11 @@ pub async fn request(
         ));
     }
 
-    // Require a fresh re-authentication ticket for this high-assurance operation.
-    consume_reauth(
-        &state,
-        &identity,
-        &context,
-        &payload.reauth_token,
-        TargetOperation::ChangeEmail,
-    )
-    .await?;
-
     let new_email = normalize_email(&payload.new_email);
 
-    // Apply rate limiting: 1 request per minute per IP and email
+    // Apply rate limiting: 1 request per minute per IP and email. Runs ahead of
+    // every cheaper early exit below so realms without a mail channel cannot
+    // bypass the limiter by spamming the 400 rejection path.
     rate_limit_hit(
         &state,
         format!("rl:change_email:req:ip:{ip}"),
@@ -102,6 +96,27 @@ pub async fn request(
         format!("rl:change_email:req:email:{new_email}"),
         CHANGE_EMAIL_REQUEST_EMAIL_RATE_LIMIT.0,
         CHANGE_EMAIL_REQUEST_EMAIL_RATE_LIMIT.1,
+    )
+    .await?;
+
+    // Email change is a dead end without a mail channel: the confirmation mail
+    // would never arrive, and the send would be silently skipped into a fake
+    // success. Reject before the single-use reauth ticket is consumed (same
+    // precedence as the change_password byte-length gate) and before any code
+    // is issued.
+    if !is_email_configured(&state, &realm_id).await? {
+        return Err(ApiError::bad_request(
+            "Email is not configured for this realm".to_string(),
+        ));
+    }
+
+    // Require a fresh re-authentication ticket for this high-assurance operation.
+    consume_reauth(
+        &state,
+        &identity,
+        &context,
+        &payload.reauth_token,
+        TargetOperation::ChangeEmail,
     )
     .await?;
 
@@ -166,8 +181,15 @@ async fn send_confirmation_email(
     new_email: &str,
     code: &str,
 ) -> Result<(), ApiError> {
-    let (public_base, _) = realm_public_url_parts(state, realm_id).await?;
-    let link = format!("{public_base}/api/auth/{realm_id}/change_email/confirm/{code}");
+    // The mailed link must land on the frontend confirm page: the confirm
+    // endpoint accepts a Bearer credential only, so a backend API link opened
+    // from a mail client can never succeed.
+    let link = realm_public_url(
+        state,
+        realm_id,
+        &format!("user/change-email/confirm?code={code}"),
+    )
+    .await?;
     EmailService::send_templated_email(
         &state.pool,
         realm_id,
@@ -186,7 +208,9 @@ async fn send_confirmation_email(
 
 /// Confirm email change with verification code
 ///
-/// Completes the email change process using the verification code sent to the new email address.
+/// Completes the email change using the code that arrived via the frontend
+/// confirm-page link in the confirmation email; the frontend calls this
+/// endpoint with the user's current session, which must be the code owner.
 #[utoipa::path(
   get,
   path = "/api/auth/{realmId}/change_email/confirm/{changeCode}",
@@ -230,21 +254,53 @@ pub async fn confirm(
 
     // Use the current authenticated session as the source of truth so a stolen
     // confirmation code cannot be replayed across users or sessions.
-    confirm_email_change_internal(&state, &realm_id, &identity.user_id(), &code).await?;
+    if let Some(previous_email) =
+        confirm_email_change_internal(&state, &realm_id, &identity.user_id(), &code).await?
+    {
+        notify_previous_email(&state, &realm_id, &previous_email).await;
+    }
 
     Ok(ApiResult::ok(ChangeEmailResponse {
         message: "ok".to_string(),
     }))
 }
 
+/// Best-effort notification to the displaced mailbox after a committed email
+/// change: a send failure is logged and swallowed — the change itself must not
+/// be rolled back or reported as failed.
+async fn notify_previous_email(state: &AppState, realm_id: &str, old_email: &str) {
+    let link = match realm_public_url(state, realm_id, "auth/login").await {
+        Ok(link) => link,
+        Err(e) => {
+            tracing::error!("Failed to build login URL for email-change notification: {e}");
+            return;
+        }
+    };
+    if let Err(e) = EmailService::send_templated_email(
+        &state.pool,
+        realm_id,
+        old_email,
+        EmailTemplateKind::EmailChanged,
+        &link,
+        None,
+    )
+    .await
+    {
+        tracing::error!("Failed to send email-change notification: {e}");
+    }
+}
+
 /// Internal function to handle email change confirmation with transaction management
 /// This function contains the business logic that should ideally be in a service layer
+///
+/// Returns the displaced email address when a notification is warranted
+/// (`None` when the new address equals the old one — nothing actually changed).
 async fn confirm_email_change_internal(
     state: &AppState,
     current_realm_id: &str,
     current_user_id: &str,
     code: &str,
-) -> Result<(), ApiError> {
+) -> Result<Option<String>, ApiError> {
     let parsed = ChangeEmailCode::parse(code)?;
 
     let user_id = uuid::Uuid::parse_str(parsed.user_id)
@@ -283,6 +339,22 @@ async fn confirm_email_change_internal(
     let new_email =
         new_email.ok_or_else(|| ApiError::bad_request("change code not found".to_string()))?;
 
+    // Capture the displaced address before the UPDATE so the post-commit
+    // notification can reach the previous mailbox. FOR UPDATE serializes
+    // concurrent confirms on the account row: without it, read-committed
+    // snapshots can race (two codes for different addresses confirming at
+    // once) and the second notify would target an already-displaced mailbox.
+    let old_email: String =
+        sqlx::query_scalar("SELECT email FROM account WHERE realm_id = $1 AND id = $2 FOR UPDATE")
+            .bind(current_realm_id)
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to load previous email: {}", e);
+                ApiError::internal("Failed to change email")
+            })?;
+
     // Update user email
     let update_result = sqlx::query(
         "UPDATE account SET email = $1, updated_at = NOW() WHERE realm_id = $2 AND id = $3",
@@ -311,7 +383,11 @@ async fn confirm_email_change_internal(
                 tracing::error!("Failed to commit transaction: {}", e);
                 ApiError::internal("Failed to commit transaction")
             })?;
-            Ok(())
+            // The stored address may predate normalization (e.g. a bootstrap
+            // admin seeded from a mixed-case env var), so compare through the
+            // same normalize the new address went through — a case-only change
+            // is a no-op for the mailbox and must not raise a notification.
+            Ok((normalize_email(&old_email) != new_email).then_some(old_email))
         }
         Err(e) => {
             // Handle unique constraint violation (email already exists)

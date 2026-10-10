@@ -96,6 +96,38 @@ pub async fn insert_smtp_email_config_direct(pool: &PgPool, realm_id: &str) {
     }
 }
 
+/// Insert a complete SMTP email config whose relay is guaranteed unreachable
+/// (loopback discard port), so a real provider is built and the send fails
+/// fast and offline with a refused connection — for tests asserting the
+/// honest send-failure path without touching the network.
+pub async fn insert_unreachable_smtp_email_config_direct(pool: &PgPool, realm_id: &str) {
+    let smtp_keys: &[(&str, &str, bool)] = &[
+        ("provider", "smtp", false),
+        ("from_address", "noreply@example.com", false),
+        ("smtp_host", "127.0.0.1", false),
+        ("smtp_port", "9", false),
+        ("smtp_username", "notify@company.com", false),
+        ("smtp_password", "smtp-auth-code", true),
+        ("smtp_encryption", "starttls", false),
+    ];
+
+    for (key, value, is_secret) in smtp_keys {
+        sqlx::query(
+            "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, is_secret, enabled, metadata, created_at, updated_at)
+             VALUES ($1, 'email', $2, $3, $4, true, NULL, NOW(), NOW())
+             ON CONFLICT (realm_id, config_type, config_key)
+             DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = NOW()",
+        )
+        .bind(realm_id)
+        .bind(*key)
+        .bind(*value)
+        .bind(*is_secret)
+        .execute(pool)
+        .await
+        .expect("Failed to insert unreachable SMTP config row");
+    }
+}
+
 /// Delete all email configuration rows for a realm via direct SQL.
 pub async fn delete_email_config_direct(pool: &PgPool, realm_id: &str) {
     sqlx::query("DELETE FROM realm_config WHERE realm_id = $1 AND config_type = 'email'")

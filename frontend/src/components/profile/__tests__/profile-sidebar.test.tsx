@@ -15,10 +15,14 @@ let featureData = {
     invoicesVisible: false,
   },
 }
+// Default to an unconfigured realm so existing entry-visibility assertions
+// stay about the feature flags; the change-email tests override it.
+let publicConfigData = { emailChannelConfigured: false }
 let permissions: string[] = []
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: featureData }),
+  useQuery: (options: { queryKey: unknown[] }) =>
+    options.queryKey[0] === 'public-config' ? { data: publicConfigData } : { data: featureData },
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -43,6 +47,9 @@ vi.mock('@/data/query-options', () => ({
   userFeatureAvailabilityQueryOptions: {
     queryKey: ['user-feature-availability'],
   },
+  publicConfigQueryOptions: (realmId: string) => ({
+    queryKey: ['public-config', realmId],
+  }),
 }))
 
 describe('ProfileSidebar', () => {
@@ -159,5 +166,36 @@ describe('ProfileSidebar', () => {
     expect(screen.queryByTestId('profile-menu-points')).not.toBeInTheDocument()
     // The subscription area stays reachable in a subscription-only realm.
     expect(screen.getByTestId('profile-menu-subscription')).toBeInTheDocument()
+  })
+
+  it('shows the change-email entry only when the realm has a usable email channel', () => {
+    // emailChannelConfigured is the entry's visibility source: without a mail
+    // channel the confirmation mail could never be sent, so the user must not
+    // be led into a flow that dead-ends after reauth.
+    publicConfigData = { emailChannelConfigured: true }
+
+    render(
+      <LocaleProvider>
+        <ProfileSidebar />
+      </LocaleProvider>
+    )
+
+    const entry = screen.getByTestId('profile-menu-changeemail')
+    // /user/** targets collapse to the session-scoped form (no realm prefix),
+    // matching how the Subscription entry renders.
+    expect(entry).toHaveAttribute('href', '/user/change-email')
+    expect(entry).toHaveTextContent('Change Email')
+  })
+
+  it('hides the change-email entry when the realm has no email channel', () => {
+    publicConfigData = { emailChannelConfigured: false }
+
+    render(
+      <LocaleProvider>
+        <ProfileSidebar />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByTestId('profile-menu-changeemail')).not.toBeInTheDocument()
   })
 })

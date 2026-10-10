@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { usePermissions, useRealmId } from '@/stores/auth-store'
 import { logoutFlow } from '@/lib/auth-utils'
 import { hasAdminPermission } from '@/lib/constants/auth-constants'
-import { userFeatureAvailabilityQueryOptions } from '@/data/query-options'
+import { userFeatureAvailabilityQueryOptions, publicConfigQueryOptions } from '@/data/query-options'
 import { m } from '@/paraglide/messages'
 import { LanguageSwitcher } from '@/components/shared/language-switcher'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
@@ -25,12 +25,18 @@ export function ProfileSidebar() {
   const canAccessAdminConsole = hasAdminPermission(permissions)
   const { data: features } = useQuery(userFeatureAvailabilityQueryOptions)
   const userFeatures = features?.user
+  // Public config carries emailChannelConfigured: without a usable email
+  // channel the confirmation mail could never be sent, so the change-email
+  // entry must not appear (same capability-visibility rule as the feature
+  // flags above).
+  const { data: publicConfig } = useQuery(publicConfigQueryOptions(realmId))
 
   /** Maps profile menu item name to its translated display label. */
   const getProfileNavLabel = useCallback((name: string): string => {
     const map: Record<string, () => string> = {
       Profile: m['nav_profile.profile'],
       Security: m['nav_profile.security'],
+      ChangeEmail: m['nav_profile.change_email'],
       Subscription: m['nav_profile.subscription'],
       Points: m['nav_profile.points'],
       PurchaseRecords: m['nav_profile.purchase_records'],
@@ -49,6 +55,11 @@ export function ProfileSidebar() {
       {
         name: 'Security',
         path: realmPath({ ...realmContext, realmId }, '/user/security'),
+      },
+      {
+        name: 'ChangeEmail',
+        path: realmPath({ ...realmContext, realmId }, '/user/change-email'),
+        visible: publicConfig?.emailChannelConfigured === true,
       },
       {
         name: 'Subscription',
@@ -73,7 +84,7 @@ export function ProfileSidebar() {
         visible: userFeatures?.invoicesVisible === true,
       },
     ],
-    [realmContext, realmId, userFeatures]
+    [realmContext, realmId, userFeatures, publicConfig]
   )
 
   const isActive = (path: string) => location.pathname === path

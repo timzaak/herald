@@ -26,6 +26,9 @@ pub enum EmailTemplateKind {
     VerifyEmail,
     ResetPassword,
     ChangeEmail,
+    /// Best-effort notification to the previous address after a successful
+    /// email change. Action-URL family: brand_name + action_url.
+    EmailChanged,
     /// Login verification code (email-OTP login). The only kind whose
     /// template variable is `{{code}}` instead of `{{action_url}}`.
     LoginOtp,
@@ -37,6 +40,7 @@ impl EmailTemplateKind {
             Self::VerifyEmail => "verify_email",
             Self::ResetPassword => "reset_password",
             Self::ChangeEmail => "change_email",
+            Self::EmailChanged => "email_changed",
             Self::LoginOtp => "login_otp",
         }
     }
@@ -667,6 +671,10 @@ fn default_email_template(kind: EmailTemplateKind) -> StoredEmailTemplate {
             "Confirm your email change for {{brand_name}}",
             "Confirm email change",
         ),
+        EmailTemplateKind::EmailChanged => action_url_default(
+            "Your {{brand_name}} account email has been changed",
+            "Sign in",
+        ),
     }
 }
 
@@ -821,6 +829,7 @@ mod template_tests {
             EmailTemplateKind::VerifyEmail,
             EmailTemplateKind::ResetPassword,
             EmailTemplateKind::ChangeEmail,
+            EmailTemplateKind::EmailChanged,
         ] {
             let template = default_email_template(kind);
             assert!(template.subject.contains("{{brand_name}}"));

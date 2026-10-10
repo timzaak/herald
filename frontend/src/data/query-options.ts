@@ -64,6 +64,7 @@ import {
   getConsentStatus,
   recordConsent,
   deleteAccount,
+  changeEmailConfirm,
   listUserSessions,
   adminListAgreements,
   adminPublishCustom,
@@ -276,6 +277,32 @@ export const publicConfigQueryOptions = (realmId: string) =>
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     gcTime: GC_TIME_10_MIN,
+  })
+
+// ==================== Change Email Confirm ====================
+
+/**
+ * One-shot confirm of an email change, fired by the confirm page the mailed
+ * link lands on. The underlying GET commits the change, so the cached result
+ * is frozen: no retry, no refetch — a second attempt after success is a 400
+ * (the code is consumed), and React Query's dedupe also keeps StrictMode's
+ * double-mount from confirming twice in dev.
+ */
+export const changeEmailConfirmQueryOptions = (realmId: string, code: string) =>
+  queryOptions({
+    queryKey: ['change-email-confirm', realmId, code] as const,
+    queryFn: async () => {
+      const response = await changeEmailConfirm({
+        path: { realmId, changeCode: code },
+      })
+      if (response.error) throw response.error
+      return response.data
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
 // ==================== Realms ====================

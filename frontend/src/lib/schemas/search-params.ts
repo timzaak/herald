@@ -52,6 +52,10 @@ export const resetPasswordSearchSchema = z.object({
   code: z.string().min(1),
 })
 
+export const changeEmailConfirmSearchSchema = z.object({
+  code: z.string().min(1),
+})
+
 /**
  * Search params for the purchase-points page. The payment provider redirects
  * back here with `attemptId` (so the page can resume polling) and `status`
@@ -69,6 +73,7 @@ export const purchasePointsSearchSchema = z.object({
 })
 
 export type ResetPasswordSearchParams = z.infer<typeof resetPasswordSearchSchema>
+export type ChangeEmailConfirmSearchParams = z.infer<typeof changeEmailConfirmSearchSchema>
 export type PaginationParams = z.infer<typeof paginationSchema>
 export type LoginSearchParams = z.infer<typeof loginSearchSchema>
 export type UsersSearchParams = z.infer<typeof usersSearchSchema>

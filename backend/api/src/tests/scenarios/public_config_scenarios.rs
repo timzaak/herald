@@ -18,6 +18,9 @@
 // =============================================================================
 
 use crate::application::http::public_config::PublicConfigResponse;
+use crate::tests::helpers::email_config_helpers::{
+    delete_email_config_direct, insert_resend_email_config_direct,
+};
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
     body::Body,
@@ -551,4 +554,34 @@ async fn public_config_white_label_remains_unauthenticated(ctx: &mut TestContext
         response_json.white_label.logo_url.as_deref(),
         Some("https://cdn.example.com/public-logo.svg")
     );
+}
+
+/// emailChannelConfigured 是前端"修改邮箱"入口的可见性来源：必须如实反映
+/// realm 是否具备可用邮件通道——未配置时 false，插入完整 Resend 配置后 true。
+/// 与 registration.requireEmailVerification 的未配置门控口径对称：能力不存在
+/// 时入口不应出现，而不是让用户走进一条必然死等的流程。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_public_config_email_channel_flag(ctx: &mut TestContext) {
+    let realm_id = ctx._realm_id.clone();
+
+    delete_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+    let (status, response_value, response_json) = get_public_config(ctx, &realm_id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response_value["emailChannelConfigured"],
+        json!(false),
+        "unconfigured realm must report emailChannelConfigured=false on the wire"
+    );
+    assert!(!response_json.email_channel_configured);
+
+    insert_resend_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+    let (status, response_value, response_json) = get_public_config(ctx, &realm_id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response_value["emailChannelConfigured"],
+        json!(true),
+        "a complete Resend config must flip emailChannelConfigured to true"
+    );
+    assert!(response_json.email_channel_configured);
 }

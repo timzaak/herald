@@ -64,6 +64,13 @@ export type CreateUserFormData = z.infer<typeof createUserSchema>
 export type UpdateUserFormData = z.infer<typeof updateUserSchema>
 export type ChangePasswordFormData = z.infer<typeof changePasswordSchema>
 
+export const changeEmailSchema = z.object({
+  newEmail: emailSchema,
+  currentPass: z.string().min(1, { error: () => m['auth.current_password_required']() }),
+})
+
+export type ChangeEmailFormData = z.infer<typeof changeEmailSchema>
+
 // Permission schemas
 export const permissionNameSchema = z
   .string()
