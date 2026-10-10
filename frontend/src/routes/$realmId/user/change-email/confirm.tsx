@@ -2,16 +2,34 @@ import { useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { changeEmailConfirmQueryOptions, queryKeys } from '@/data/query-options'
-import { changeEmailConfirmSearchSchema } from '@/lib/schemas/search-params'
-import { getErrorMessage } from '@/lib/error-utils'
+import { changeEmailSearchSchema } from '@/lib/schemas/search-params'
+import { resolveApiError } from '@/lib/error-utils'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
+import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/shared'
 import { m } from '@/paraglide/messages'
 
 export const Route = createFileRoute('/$realmId/user/change-email/confirm')({
   component: ChangeEmailConfirmPage,
-  validateSearch: (search) => changeEmailConfirmSearchSchema.parse(search),
+  validateSearch: (search) => changeEmailSearchSchema.parse(search),
 })
+
+function confirmFailureMessage(status: number | undefined): string {
+  switch (status) {
+    case 400:
+      return m['profile.change_email_confirm_error_invalid']()
+    case 401:
+      return m['profile.change_email_confirm_error_relogin']()
+    case 403:
+      return m['profile.change_email_confirm_error_mismatch']()
+    case 409:
+      return m['profile.change_email_confirm_error_conflict']()
+    case 429:
+      return m['profile.change_email_confirm_error_rate_limited']()
+    default:
+      return m['error.server_error']()
+  }
+}
 
 export function ChangeEmailConfirmPage() {
   // Shared by both route trees (realm-prefixed and session-scoped), so the
@@ -19,15 +37,22 @@ export function ChangeEmailConfirmPage() {
   // page does instead of tree-specific hooks.
   const realmContext = resolvedRealmFromPath(window.location.pathname)
   const { realmId } = realmContext
-  const { code } = changeEmailConfirmSearchSchema.parse(
+  const search = changeEmailSearchSchema.parse(
     Object.fromEntries(new URLSearchParams(window.location.search))
   )
+  // A code dropped by the login redirect (or an empty ?code=) renders the
+  // invalid-link state: the schema keeps `code` optional so validateSearch
+  // does not throw the route into its error boundary.
+  const code = search.code && search.code.length > 0 ? search.code : undefined
 
   // The query commits the email change exactly once (see the options def for
-  // why it must never retry or refetch).
-  const { isPending, isError, isSuccess, error } = useQuery(
-    changeEmailConfirmQueryOptions(realmId, code)
-  )
+  // why it must never retry or refetch); the manual 429 retry below is the
+  // only safe re-fire (the code was not consumed on a rate-limited attempt).
+  const { isPending, isError, isSuccess, error, refetch } = useQuery({
+    ...changeEmailConfirmQueryOptions(realmId, code ?? ''),
+    enabled: code !== undefined,
+  })
+  const errorStatus = isError ? resolveApiError(error).status : undefined
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -38,30 +63,48 @@ export function ChangeEmailConfirmPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader title={m['profile.change_email_confirm_title']()} />
+      <PageHeader
+        title={m['profile.change_email_confirm_title']()}
+        headingTestId="change-email-confirm-title"
+      />
       <section className="max-w-lg space-y-4" data-testid="change-email-confirm-card">
-        {isPending && (
-          <p className="text-sm text-muted-foreground" data-testid="change-email-confirm-pending">
+        {!code && (
+          <div
+            className="p-3 bg-destructive/10 border border-destructive/20 rounded text-destructive text-sm"
+            data-testid="change-email-confirm-error"
+          >
+            {m['profile.change_email_confirm_error_invalid']()}
+          </div>
+        )}
+        {code && isPending && (
+          <p className="text-sm text-muted-foreground" data-testid="change-email-confirm-loading">
             {m['profile.change_email_confirming']()}
           </p>
         )}
-        {isError && (
+        {code && isError && (
           <div className="space-y-2">
             <div
               className="p-3 bg-destructive/10 border border-destructive/20 rounded text-destructive text-sm"
               data-testid="change-email-confirm-error"
             >
-              {getErrorMessage(error)}
+              {confirmFailureMessage(errorStatus)}
             </div>
-            <p
-              className="text-sm text-muted-foreground"
-              data-testid="change-email-confirm-error-hint"
-            >
-              {m['profile.change_email_confirm_error_hint']()}
-            </p>
+            {errorStatus === 429 && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="change-email-confirm-retry-button"
+                  onClick={() => void refetch()}
+                >
+                  {m['common.retry']()}
+                </Button>
+              </div>
+            )}
           </div>
         )}
-        {isSuccess && (
+        {code && isSuccess && (
           <p className="text-sm text-muted-foreground" data-testid="change-email-confirm-success">
             {m['profile.change_email_confirm_success']()}
           </p>

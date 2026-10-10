@@ -51,7 +51,6 @@ import { Route as RealmIdLegalRouteRouteImport } from './routes/$realmId/legal/r
 import { Route as RealmIdAuthRouteRouteImport } from './routes/$realmId/auth/route'
 import { Route as UserSecurityIndexRouteImport } from './routes/user/security/index'
 import { Route as UserInvoicesIndexRouteImport } from './routes/user/invoices/index'
-import { Route as UserChangeEmailIndexRouteImport } from './routes/user/change-email/index'
 import { Route as ManageClientAppsIndexRouteImport } from './routes/manage/client-apps/index'
 import { Route as ManageAuditIndexRouteImport } from './routes/manage/audit/index'
 import { Route as ManageApiKeysIndexRouteImport } from './routes/manage/api-keys/index'
@@ -104,7 +103,6 @@ import { Route as ManageBillingEntitlementMappingsIndexRouteImport } from './rou
 import { Route as ManageBillingCreditBucketsIndexRouteImport } from './routes/manage/billing/credit-buckets/index'
 import { Route as RealmIdUserSecurityIndexRouteImport } from './routes/$realmId/user/security/index'
 import { Route as RealmIdUserInvoicesIndexRouteImport } from './routes/$realmId/user/invoices/index'
-import { Route as RealmIdUserChangeEmailIndexRouteImport } from './routes/$realmId/user/change-email/index'
 import { Route as RealmIdManageClientAppsIndexRouteImport } from './routes/$realmId/manage/client-apps/index'
 import { Route as RealmIdManageAuditIndexRouteImport } from './routes/$realmId/manage/audit/index'
 import { Route as RealmIdManageApiKeysIndexRouteImport } from './routes/$realmId/manage/api-keys/index'
@@ -362,11 +360,6 @@ const UserInvoicesIndexRoute = UserInvoicesIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => UserInvoicesRoute,
-} as any)
-const UserChangeEmailIndexRoute = UserChangeEmailIndexRouteImport.update({
-  id: '/change-email/',
-  path: '/change-email/',
-  getParentRoute: () => UserRouteRoute,
 } as any)
 const ManageClientAppsIndexRoute = ManageClientAppsIndexRouteImport.update({
   id: '/',
@@ -648,12 +641,6 @@ const RealmIdUserInvoicesIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => RealmIdUserInvoicesRoute,
-  } as any)
-const RealmIdUserChangeEmailIndexRoute =
-  RealmIdUserChangeEmailIndexRouteImport.update({
-    id: '/change-email/',
-    path: '/change-email/',
-    getParentRoute: () => RealmIdUserRouteRoute,
   } as any)
 const RealmIdManageClientAppsIndexRoute =
   RealmIdManageClientAppsIndexRouteImport.update({
@@ -1010,7 +997,6 @@ export interface FileRoutesByFullPath {
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
-  '/user/change-email/': typeof UserChangeEmailIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
@@ -1042,7 +1028,6 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/api-keys/': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
-  '/$realmId/user/change-email/': typeof RealmIdUserChangeEmailIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets/': typeof ManageBillingCreditBucketsIndexRoute
@@ -1137,7 +1122,6 @@ export interface FileRoutesByTo {
   '/manage/api-keys': typeof ManageApiKeysIndexRoute
   '/manage/audit': typeof ManageAuditIndexRoute
   '/manage/client-apps': typeof ManageClientAppsIndexRoute
-  '/user/change-email': typeof UserChangeEmailIndexRoute
   '/user/invoices': typeof UserInvoicesIndexRoute
   '/user/security': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
@@ -1165,7 +1149,6 @@ export interface FileRoutesByTo {
   '/$realmId/manage/api-keys': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps': typeof RealmIdManageClientAppsIndexRoute
-  '/$realmId/user/change-email': typeof RealmIdUserChangeEmailIndexRoute
   '/$realmId/user/invoices': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/security': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets': typeof ManageBillingCreditBucketsIndexRoute
@@ -1277,7 +1260,6 @@ export interface FileRoutesById {
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
-  '/user/change-email/': typeof UserChangeEmailIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
@@ -1309,7 +1291,6 @@ export interface FileRoutesById {
   '/$realmId/manage/api-keys/': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
-  '/$realmId/user/change-email/': typeof RealmIdUserChangeEmailIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets/': typeof ManageBillingCreditBucketsIndexRoute
@@ -1422,7 +1403,6 @@ export interface FileRouteTypes {
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
-    | '/user/change-email/'
     | '/user/invoices/'
     | '/user/security/'
     | '/$realmId/manage/api-keys/new'
@@ -1454,7 +1434,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/api-keys/'
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
-    | '/$realmId/user/change-email/'
     | '/$realmId/user/invoices/'
     | '/$realmId/user/security/'
     | '/manage/billing/credit-buckets/'
@@ -1549,7 +1528,6 @@ export interface FileRouteTypes {
     | '/manage/api-keys'
     | '/manage/audit'
     | '/manage/client-apps'
-    | '/user/change-email'
     | '/user/invoices'
     | '/user/security'
     | '/$realmId/manage/api-keys/new'
@@ -1577,7 +1555,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/api-keys'
     | '/$realmId/manage/audit'
     | '/$realmId/manage/client-apps'
-    | '/$realmId/user/change-email'
     | '/$realmId/user/invoices'
     | '/$realmId/user/security'
     | '/manage/billing/credit-buckets'
@@ -1688,7 +1665,6 @@ export interface FileRouteTypes {
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
-    | '/user/change-email/'
     | '/user/invoices/'
     | '/user/security/'
     | '/$realmId/manage/api-keys/new'
@@ -1720,7 +1696,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/api-keys/'
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
-    | '/$realmId/user/change-email/'
     | '/$realmId/user/invoices/'
     | '/$realmId/user/security/'
     | '/manage/billing/credit-buckets/'
@@ -2051,13 +2026,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/invoices/'
       preLoaderRoute: typeof UserInvoicesIndexRouteImport
       parentRoute: typeof UserInvoicesRoute
-    }
-    '/user/change-email/': {
-      id: '/user/change-email/'
-      path: '/change-email'
-      fullPath: '/user/change-email/'
-      preLoaderRoute: typeof UserChangeEmailIndexRouteImport
-      parentRoute: typeof UserRouteRoute
     }
     '/manage/client-apps/': {
       id: '/manage/client-apps/'
@@ -2422,13 +2390,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/$realmId/user/invoices/'
       preLoaderRoute: typeof RealmIdUserInvoicesIndexRouteImport
       parentRoute: typeof RealmIdUserInvoicesRoute
-    }
-    '/$realmId/user/change-email/': {
-      id: '/$realmId/user/change-email/'
-      path: '/change-email'
-      fullPath: '/$realmId/user/change-email/'
-      preLoaderRoute: typeof RealmIdUserChangeEmailIndexRouteImport
-      parentRoute: typeof RealmIdUserRouteRoute
     }
     '/$realmId/manage/client-apps/': {
       id: '/$realmId/manage/client-apps/'
@@ -3013,7 +2974,6 @@ interface RealmIdUserRouteRouteChildren {
   RealmIdUserSecurityRoute: typeof RealmIdUserSecurityRouteWithChildren
   RealmIdUserSubscriptionHistoryRoute: typeof RealmIdUserSubscriptionHistoryRoute
   RealmIdUserChangeEmailConfirmRoute: typeof RealmIdUserChangeEmailConfirmRoute
-  RealmIdUserChangeEmailIndexRoute: typeof RealmIdUserChangeEmailIndexRoute
 }
 
 const RealmIdUserRouteRouteChildren: RealmIdUserRouteRouteChildren = {
@@ -3024,7 +2984,6 @@ const RealmIdUserRouteRouteChildren: RealmIdUserRouteRouteChildren = {
   RealmIdUserSecurityRoute: RealmIdUserSecurityRouteWithChildren,
   RealmIdUserSubscriptionHistoryRoute: RealmIdUserSubscriptionHistoryRoute,
   RealmIdUserChangeEmailConfirmRoute: RealmIdUserChangeEmailConfirmRoute,
-  RealmIdUserChangeEmailIndexRoute: RealmIdUserChangeEmailIndexRoute,
 }
 
 const RealmIdUserRouteRouteWithChildren =
@@ -3332,7 +3291,6 @@ interface UserRouteRouteChildren {
   UserSecurityRoute: typeof UserSecurityRouteWithChildren
   UserSubscriptionHistoryRoute: typeof UserSubscriptionHistoryRoute
   UserChangeEmailConfirmRoute: typeof UserChangeEmailConfirmRoute
-  UserChangeEmailIndexRoute: typeof UserChangeEmailIndexRoute
 }
 
 const UserRouteRouteChildren: UserRouteRouteChildren = {
@@ -3343,7 +3301,6 @@ const UserRouteRouteChildren: UserRouteRouteChildren = {
   UserSecurityRoute: UserSecurityRouteWithChildren,
   UserSubscriptionHistoryRoute: UserSubscriptionHistoryRoute,
   UserChangeEmailConfirmRoute: UserChangeEmailConfirmRoute,
-  UserChangeEmailIndexRoute: UserChangeEmailIndexRoute,
 }
 
 const UserRouteRouteWithChildren = UserRouteRoute._addFileChildren(

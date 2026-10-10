@@ -27,7 +27,6 @@ import { Route as RealUserPointsRoute } from '../$realmId/user/points'
 import { Route as RealPurchasePointsRoute } from '../$realmId/user/purchase-points'
 import { Route as RealUserSubscriptionHistoryRoute } from '../$realmId/user/subscription-history'
 import { Route as RealUserInvoicesRoute } from '../$realmId/user/invoices'
-import { Route as RealChangeEmailIndexRoute } from '../$realmId/user/change-email/index'
 import { Route as RealChangeEmailConfirmRoute } from '../$realmId/user/change-email/confirm'
 import { Route as RealMySubscriptionsRoute } from '../$realmId/subscription/my-subscriptions'
 
@@ -55,7 +54,6 @@ import { Route as MirrorUserPointsRoute } from '../user/points'
 import { Route as MirrorPurchasePointsRoute } from '../user/purchase-points'
 import { Route as MirrorUserSubscriptionHistoryRoute } from '../user/subscription-history'
 import { Route as MirrorUserInvoicesRoute } from '../user/invoices'
-import { Route as MirrorChangeEmailIndexRoute } from '../user/change-email/index'
 import { Route as MirrorChangeEmailConfirmRoute } from '../user/change-email/confirm'
 import { Route as MirrorMySubscriptionsRoute } from '../subscription/my-subscriptions'
 
@@ -145,11 +143,6 @@ const MIRROR_PAIRS = [
     mirror: MirrorUserSubscriptionHistoryRoute,
   },
   { path: 'user/invoices', real: RealUserInvoicesRoute, mirror: MirrorUserInvoicesRoute },
-  {
-    path: 'user/change-email',
-    real: RealChangeEmailIndexRoute,
-    mirror: MirrorChangeEmailIndexRoute,
-  },
   {
     path: 'user/change-email/confirm',
     real: RealChangeEmailConfirmRoute,

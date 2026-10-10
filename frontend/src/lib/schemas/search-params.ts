@@ -52,8 +52,11 @@ export const resetPasswordSearchSchema = z.object({
   code: z.string().min(1),
 })
 
-export const changeEmailConfirmSearchSchema = z.object({
-  code: z.string().min(1),
+// `code` stays optional: the confirm page renders an invalid-link state when
+// it is missing (e.g. dropped by the login redirect) instead of letting
+// validateSearch throw the route into its error boundary.
+export const changeEmailSearchSchema = z.object({
+  code: z.string().optional(),
 })
 
 /**
@@ -73,7 +76,7 @@ export const purchasePointsSearchSchema = z.object({
 })
 
 export type ResetPasswordSearchParams = z.infer<typeof resetPasswordSearchSchema>
-export type ChangeEmailConfirmSearchParams = z.infer<typeof changeEmailConfirmSearchSchema>
+export type ChangeEmailSearchParams = z.infer<typeof changeEmailSearchSchema>
 export type PaginationParams = z.infer<typeof paginationSchema>
 export type LoginSearchParams = z.infer<typeof loginSearchSchema>
 export type UsersSearchParams = z.infer<typeof usersSearchSchema>
