@@ -6,6 +6,8 @@
 
 import { Page, expect, request, type APIRequestContext, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
+import { LoginPage } from '../pages/login-page'
+import type { UnifiedLogger } from './unified-logger'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
@@ -68,6 +70,28 @@ export async function createBearerApiContext(accessToken: string): Promise<APIRe
       Authorization: `Bearer ${accessToken}`,
     },
   })
+}
+
+/**
+ * Log in as a realm's admin via the login UI and return an APIRequestContext
+ * authenticated with the post-login Bearer token (the same token the frontend
+ * itself uses for admin API calls such as PUT config/email-otp).
+ */
+export async function createAdminApiContext(
+  page: Page,
+  demoLogger: UnifiedLogger,
+  realmId: string
+): Promise<APIRequestContext> {
+  const credentials = REALM_ADMINS[realmId]
+  if (!credentials) {
+    throw new Error(`[Auth] No admin credentials registered for realm "${realmId}"`)
+  }
+
+  demoLogger.testCode.log(`[Auth] Logging in as admin of realm "${realmId}"...`)
+  const loginPage = new LoginPage(page, demoLogger)
+  await loginPage.loginAsAdmin(credentials.email, credentials.password, realmId)
+
+  return createBearerApiContext(loginPage.getAccessToken())
 }
 
 // ============================================================================

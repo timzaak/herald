@@ -38,13 +38,12 @@
  * These helpers do NOT edit seed data or SQL.
  *
  * @see ../pages/login-page.ts (`LoginPage.getAccessToken` — Bearer for the API)
- * @see ./auth.ts (`createBearerApiContext`, `REALM_ADMINS`, `clearSessionData`)
+ * @see ./auth.ts (`createAdminApiContext`, `clearSessionData`)
  */
 
 import { Page, expect, type APIRequestContext } from '@playwright/test'
 import type { UnifiedLogger } from './unified-logger'
-import { clearSessionData, createBearerApiContext, REALM_ADMINS } from './auth'
-import { LoginPage } from '../pages/login-page'
+import { clearSessionData, createAdminApiContext } from './auth'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
@@ -123,28 +122,6 @@ async function pollEmailConfigured(
 }
 
 /**
- * Log in as the realm admin via the login UI and return an APIRequestContext
- * authenticated with the post-login Bearer token (the same token the frontend
- * itself uses for admin API calls such as PUT config/email-otp).
- */
-async function createAdminApiContext(
-  page: Page,
-  demoLogger: UnifiedLogger,
-  realmId: string
-): Promise<APIRequestContext> {
-  const credentials = REALM_ADMINS[realmId]
-  if (!credentials) {
-    throw new Error(`[EmailOtp Setup] No admin credentials registered for realm "${realmId}"`)
-  }
-
-  demoLogger.testCode.log(`[EmailOtp Setup] Logging in as admin of realm "${realmId}"...`)
-  const loginPage = new LoginPage(page, demoLogger)
-  await loginPage.loginAsAdmin(credentials.email, credentials.password, realmId)
-
-  return createBearerApiContext(loginPage.getAccessToken())
-}
-
-/**
  * Restore the "email channel not configured" state for the realm.
  *
  * Idempotent: when the status endpoint already reports `configured: false`
@@ -152,7 +129,7 @@ async function createAdminApiContext(
  * `config_type='email'` key is deleted (404 = already gone) and the status is
  * polled back to `configured: false`.
  */
-async function ensureEmailChannelNotConfigured(
+export async function ensureEmailChannelNotConfigured(
   api: APIRequestContext,
   demoLogger: UnifiedLogger,
   realmId: string
@@ -208,7 +185,7 @@ async function ensureEmailChannelNotConfigured(
  * fake; it only needs to be non-empty because the helper deletes these rows
  * again before the demo's send step (see ensureEmailChannelNotConfigured).
  */
-async function ensureEmailChannelConfigured(
+export async function ensureEmailChannelConfigured(
   api: APIRequestContext,
   demoLogger: UnifiedLogger,
   realmId: string

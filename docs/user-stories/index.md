@@ -83,6 +83,7 @@
 | US-RU-013 | 查看当前生效的用户协议与隐私政策 | Regular User | P1 | [core/legal-consent-account-deletion](core/legal-consent-account-deletion.md#故事-13查看当前生效的用户协议与隐私政策-us-ru-013) |
 | US-RU-014 | 自助注销账户（软删除） | Regular User | P0 | [core/legal-consent-account-deletion](core/legal-consent-account-deletion.md#故事-14自助注销账户软删除-us-ru-014) |
 | US-RU-015 | 登录时确认同意用户协议与隐私政策 | Regular User | P0 | [core/legal-consent-account-deletion](core/legal-consent-account-deletion.md#故事-15登录时确认同意用户协议与隐私政策-us-ru-015) |
+| US-RU-016 | 修改邮箱（自助更换登录邮箱） | Regular User | P1 | [core/regular-user](core/regular-user.md#故事-16修改邮箱自助更换登录邮箱-us-ru-016) |
 | US-WO-001 | WeChat OAuth Provider 配置 | Realm Admin | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-1wechat-oauth-provider-配置-us-wo-001) |
 | US-WO-002 | WeChat Mini Program Provider 配置 | Realm Admin | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-2wechat-mini-program-provider-配置-us-wo-002) |
 | US-WO-003 | 微信网站应用登录 | Regular User | P1 | [auth/wechat-oauth](auth/wechat-oauth.md#故事-3微信网站应用登录-us-wo-003) |
