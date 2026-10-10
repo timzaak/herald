@@ -60,6 +60,7 @@ pub use register::__path_register;
 pub use reset_password::__path_confirm as __path_reset_password_confirm;
 pub use reset_password::__path_request as __path_reset_password_request;
 pub use signup::__path_get_signup_status;
+pub use signup::__path_send_email_code;
 pub use signup::__path_signup;
 pub use status::__path_status;
 pub use turnstile_status::__path_get_turnstile_status;
@@ -101,6 +102,7 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::logout::logout,
         crate::status::status,
         crate::signup::signup,
+        crate::signup::send_email_code,
         crate::signup::get_signup_status,
         crate::turnstile_status::get_turnstile_status,
         crate::verify_email::trigger,
@@ -152,6 +154,8 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::signup::SignupRequest,
         crate::signup::SignupResponse,
         crate::signup::SignupStatusResponse,
+        crate::signup::SignupEmailCodeRequest,
+        crate::signup::SignupEmailCodeResponse,
         crate::turnstile_status::TurnstileStatusRequest,
         crate::turnstile_status::TurnstileStatusResponse,
         crate::verify_email::VerifyEmailTriggerRequest,
@@ -199,6 +203,7 @@ pub fn auth_router() -> Router<AppState> {
         .route("/register", post(register::register))
         .route("/signup", post(signup::signup))
         .route("/signup/status", get(signup::get_signup_status))
+        .route("/signup/email_code", post(signup::send_email_code))
         .route("/login", post(login::login))
         .route("/login/ldap", post(ldap_login::ldap_login))
         .route("/login/email-otp/send", post(email_otp::send))

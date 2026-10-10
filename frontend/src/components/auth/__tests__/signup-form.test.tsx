@@ -26,6 +26,19 @@ vi.mock('@marsidev/react-turnstile', () => ({
 
 import { completeSignup } from '@/lib/auth-utils'
 
+// The signup POST's success body, shared by the default handler and the
+// request-capturing overrides below (one copy so a response-shape change
+// cannot leave the fixtures diverging).
+const SIGNUP_OK_BODY = {
+  accessToken: 'at-new',
+  refreshToken: 'rt-new',
+  expiresIn: 900,
+  refreshExpiresIn: 2592000,
+  tokenType: 'Bearer',
+  realmId: 'new-realm-123',
+  realmName: 'New Realm',
+}
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -49,17 +62,12 @@ describe('SignupForm', () => {
       http.get('/api/auth/:realmId/turnstile/status', () =>
         HttpResponse.json({ enabled: false, siteKey: null })
       ),
-      http.post('/api/auth/:realmId/signup', async () =>
-        HttpResponse.json({
-          accessToken: 'at-new',
-          refreshToken: 'rt-new',
-          expiresIn: 900,
-          refreshExpiresIn: 2592000,
-          tokenType: 'Bearer',
-          realmId: 'new-realm-123',
-          realmName: 'New Realm',
-        })
-      )
+      // Signup status: default enabled with email verification OFF, so the
+      // verification-code step stays hidden unless a test overrides it.
+      http.get('/api/auth/:realmId/signup/status', () =>
+        HttpResponse.json({ enabled: true, emailVerificationRequired: false })
+      ),
+      http.post('/api/auth/:realmId/signup', () => HttpResponse.json(SIGNUP_OK_BODY))
     )
   })
 
@@ -82,15 +90,7 @@ describe('SignupForm', () => {
     server.use(
       http.post('/api/auth/:realmId/signup', async ({ request }) => {
         observedBody = (await request.json()) as Record<string, unknown>
-        return HttpResponse.json({
-          accessToken: 'at-new',
-          refreshToken: 'rt-new',
-          expiresIn: 900,
-          refreshExpiresIn: 2592000,
-          tokenType: 'Bearer',
-          realmId: 'new-realm-123',
-          realmName: 'New Realm',
-        })
+        return HttpResponse.json(SIGNUP_OK_BODY)
       })
     )
 
@@ -176,5 +176,101 @@ describe('SignupForm', () => {
     await waitFor(() => {
       expect(screen.getByTestId('turnstile-mock')).toBeInTheDocument()
     })
+  })
+
+  it('GIVEN email verification is not required WHEN submitting THEN renders no code UI and the body carries no code', async () => {
+    let observedBody: Record<string, unknown> | undefined
+    server.use(
+      http.post('/api/auth/:realmId/signup', async ({ request }) => {
+        observedBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(SIGNUP_OK_BODY)
+      })
+    )
+
+    const { user } = await renderForm()
+    await fillRequiredFields(user)
+    await user.click(screen.getByTestId('signup-submit-button'))
+
+    // Once the flow completed, the status query had long resolved false —
+    // so the absence of the code UI here is the flag's doing, not loading.
+    await waitFor(() => {
+      expect(mockOnSuccess).toHaveBeenCalled()
+    })
+    expect(screen.queryByTestId('signup-email-code-input')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('signup-send-email-code-button')).not.toBeInTheDocument()
+    // The optional code field is normalized to null, matching realmSlug and
+    // turnstileToken (backend Option treats null as absent).
+    expect(observedBody?.emailVerificationCode).toBeNull()
+  })
+
+  it('GIVEN email verification is required WHEN the code is missing THEN blocks submit, and sends it once filled', async () => {
+    let signupCalls = 0
+    let observedBody: Record<string, unknown> | undefined
+    server.use(
+      http.get('/api/auth/:realmId/signup/status', () =>
+        HttpResponse.json({ enabled: true, emailVerificationRequired: true })
+      ),
+      http.post('/api/auth/:realmId/signup', async ({ request }) => {
+        signupCalls += 1
+        observedBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(SIGNUP_OK_BODY)
+      })
+    )
+
+    const { user } = await renderForm()
+    // The verification step appears once the status resolves.
+    expect(await screen.findByTestId('signup-email-code-input')).toBeInTheDocument()
+    expect(screen.getByTestId('signup-send-email-code-button')).toBeInTheDocument()
+
+    await fillRequiredFields(user)
+    await user.click(screen.getByTestId('signup-submit-button'))
+
+    // Schema-level required-when-flag: the validation error surfaces and the
+    // signup POST never fires without the code.
+    expect(await screen.findByText(/6-digit code/i)).toBeInTheDocument()
+    expect(signupCalls).toBe(0)
+
+    await user.type(screen.getByTestId('signup-email-code-input'), '123456')
+    await user.click(screen.getByTestId('signup-submit-button'))
+
+    await waitFor(() => {
+      expect(observedBody).toMatchObject({
+        email: 'admin@example.com',
+        emailVerificationCode: '123456',
+      })
+    })
+  })
+
+  it('GIVEN email verification is required WHEN the code send succeeds THEN enters the resend countdown', async () => {
+    let observedCodeBody: Record<string, unknown> | undefined
+    server.use(
+      http.get('/api/auth/:realmId/signup/status', () =>
+        HttpResponse.json({ enabled: true, emailVerificationRequired: true })
+      ),
+      http.post('/api/auth/:realmId/signup/email_code', async ({ request }) => {
+        observedCodeBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ message: 'ok' })
+      })
+    )
+
+    const { user } = await renderForm()
+    const sendButton = await screen.findByTestId('signup-send-email-code-button')
+
+    // The send button targets the typed mailbox: disabled until the email
+    // passes basic validation, then a click posts the address.
+    expect(sendButton).toBeDisabled()
+    await fillRequiredFields(user)
+    expect(sendButton).toBeEnabled()
+    await user.click(sendButton)
+
+    await waitFor(() => {
+      expect(observedCodeBody).toEqual({ email: 'admin@example.com' })
+    })
+    // Countdown is active after the successful send: the button is disabled
+    // and shows the remaining seconds instead of the send label.
+    await waitFor(() => {
+      expect(sendButton).toBeDisabled()
+    })
+    expect(sendButton).toHaveTextContent(/Resend in \d+s/)
   })
 })

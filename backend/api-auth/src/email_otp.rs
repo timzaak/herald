@@ -945,7 +945,7 @@ pub async fn status(
 // helpers
 // ---------------------------------------------------------------------------
 
-fn generate_otp_code() -> String {
+pub(crate) fn generate_otp_code() -> String {
     // 6-digit zero-padded code derived from the random tail of a UUIDv7 (the
     // 74 bits of UUIDv7 randomness are more than enough to sample a 6-digit
     // space). This avoids adding a new RNG dependency to the crate while still

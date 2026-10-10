@@ -22,15 +22,33 @@ const realmSlugSchema = z
     error: () => m['auth.signup.realm_slug_reserved'](),
   })
 
+export const signupEmailSchema = z.string().email({ error: () => m['auth.email_invalid']() })
+
 // Self-service realm signup form schema. `turnstileToken` is required only when
 // the admin realm's admin-web-console Client App has Turnstile enabled (DEC-008);
 // the form passes it through as optional and the widget gates its own rendering.
-export const signupSchema = z.object({
-  realmName: realmNameSchema,
-  realmSlug: realmSlugSchema.or(z.literal('')),
-  email: z.string().email({ error: () => m['auth.email_invalid']() }),
-  password: z.string().min(8, { error: () => m['auth.password_min_length']() }),
-  turnstileToken: z.string().optional(),
-})
+// `emailVerificationCode` is required only when the admin realm's registration
+// config turns on signup email verification (signup status
+// `emailVerificationRequired`), mirroring the backend's conditional check.
+export function createSignupSchema(emailVerificationRequired: boolean) {
+  const baseSchema = z.object({
+    realmName: realmNameSchema,
+    realmSlug: realmSlugSchema.or(z.literal('')),
+    email: signupEmailSchema,
+    password: z.string().min(8, { error: () => m['auth.password_min_length']() }),
+    turnstileToken: z.string().optional(),
+    emailVerificationCode: z.string().optional(),
+  })
+  if (!emailVerificationRequired) return baseSchema
+  return baseSchema.superRefine((data, ctx) => {
+    if (!/^\d{6}$/.test(data.emailVerificationCode ?? '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: m['auth.signup.email_code_invalid'](),
+        path: ['emailVerificationCode'],
+      })
+    }
+  })
+}
 
-export type SignupFormValues = z.infer<typeof signupSchema>
+export type SignupFormValues = z.infer<ReturnType<typeof createSignupSchema>>

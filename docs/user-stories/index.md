@@ -42,6 +42,7 @@
 | US-SR-002 | 开通后立即管理新 Realm | 新 realm-admin | P0 | [core/realm-create](core/realm-create.md#故事-2开通后立即管理新-realm-us-sr-002) |
 | US-SR-003 | Admin Realm 管理员查看自助开通的 Realm | Admin Realm | P1 | [core/realm-create](core/realm-create.md#故事-3admin-realm-管理员查看自助开通的-realm-us-sr-003) |
 | US-SR-004 | 平台自助开通开关控制 | Admin Realm | P0 | [core/realm-create](core/realm-create.md#故事-4平台自助开通开关控制-us-sr-004) |
+| US-SR-005 | 自助开通邮箱验证 | Admin Realm | P0 | [core/realm-create](core/realm-create.md#故事-5自助开通邮箱验证-us-sr-005) |
 | US-OG-001 | 访客在平台门面登录页看到自助开通强指引 | SaaS 自助注册访客 | P0 | [core/realm-onboarding-guidance](core/realm-onboarding-guidance.md#故事-1访客在平台门面登录页看到自助开通强指引-us-og-001) |
 | US-OG-002 | 新 realm 管理员首登获得价值引导 | 新 realm-admin | P0 | [core/realm-onboarding-guidance](core/realm-onboarding-guidance.md#故事-2新-realm-管理员首登获得价值引导-us-og-002) |
 | US-OG-003 | 既有 realm 管理员首次进入控制台获得同等引导 | Realm Admin | P1 | [core/realm-onboarding-guidance](core/realm-onboarding-guidance.md#故事-3既有-realm-管理员首次进入控制台获得同等引导-us-og-003) |

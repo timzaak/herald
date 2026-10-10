@@ -29,9 +29,12 @@ pub enum EmailTemplateKind {
     /// Best-effort notification to the previous address after a successful
     /// email change. Action-URL family: brand_name + action_url.
     EmailChanged,
-    /// Login verification code (email-OTP login). The only kind whose
-    /// template variable is `{{code}}` instead of `{{action_url}}`.
+    /// Login verification code (email-OTP login). `{{code}}` variable
+    /// family (no `{{action_url}}`).
     LoginOtp,
+    /// Self-service realm-signup verification code. Same `{{code}}`
+    /// variable family as the OTP login mail.
+    SignupVerify,
 }
 
 impl EmailTemplateKind {
@@ -42,14 +45,16 @@ impl EmailTemplateKind {
             Self::ChangeEmail => "change_email",
             Self::EmailChanged => "email_changed",
             Self::LoginOtp => "login_otp",
+            Self::SignupVerify => "signup_verify",
         }
     }
 
-    /// Whether `{{code}}` is a legal variable for this kind. Only the OTP
-    /// login email carries a code; an action-URL template referencing
-    /// `{{code}}` must fail validation instead of silently rendering empty.
+    /// Whether `{{code}}` is a legal variable for this kind. Only the
+    /// code-carrying kinds (OTP login, realm-signup verification) may use it;
+    /// an action-URL template referencing `{{code}}` must fail validation
+    /// instead of silently rendering empty.
     fn allows_code(self) -> bool {
-        matches!(self, Self::LoginOtp)
+        matches!(self, Self::LoginOtp | Self::SignupVerify)
     }
 }
 
@@ -406,6 +411,29 @@ impl EmailService {
         .await
     }
 
+    /// Send the self-service realm-signup verification code through the
+    /// template system: carries `{{code}}` like the OTP login mail; the
+    /// default template is English, matching the rest of the template family
+    /// (per-locale stored templates resolve via `signup_verify:{locale}`).
+    pub async fn send_signup_verify_email(
+        pool: &PgPool,
+        realm_id: &str,
+        to: &str,
+        code: &str,
+        locale: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Self::send_rendered_email(
+            pool,
+            realm_id,
+            to,
+            EmailTemplateKind::SignupVerify,
+            "",
+            locale,
+            Some(code),
+        )
+        .await
+    }
+
     /// Render a template of `kind` (action-URL or code variable) and dispatch
     /// it — the pipeline every templated sender shares.
     async fn send_rendered_email(
@@ -659,6 +687,11 @@ fn default_email_template(kind: EmailTemplateKind) -> StoredEmailTemplate {
             text: "{{brand_name}}\n\nYour login verification code: {{code}}".to_string(),
             html: "<p>{{brand_name}}</p><p>Your login verification code: <strong>{{code}}</strong></p>".to_string(),
         },
+        EmailTemplateKind::SignupVerify => StoredEmailTemplate {
+            subject: "{{brand_name}} realm signup verification code".to_string(),
+            text: "{{brand_name}}\n\nYour realm signup verification code: {{code}}".to_string(),
+            html: "<p>{{brand_name}}</p><p>Your realm signup verification code: <strong>{{code}}</strong></p>".to_string(),
+        },
         EmailTemplateKind::VerifyEmail => action_url_default(
             "Verify your email for {{brand_name}}",
             "Verify email",
@@ -863,6 +896,37 @@ mod template_tests {
             &escape_html("654321"),
         );
         assert!(rendered.contains("654321"));
+    }
+
+    #[test]
+    fn signup_verify_default_template_is_english_and_code_variable_only() {
+        // The realm-signup verification mail rides the same code-variable
+        // family as the OTP login mail: default English, brand + code
+        // variables, never an action URL (there is no link to follow — the
+        // code is typed back into the signup form). If it regressed to the
+        // action-URL family, {{code}} validation would fail or the code
+        // would render empty and the whole signup gate would silently break.
+        let template = default_email_template(EmailTemplateKind::SignupVerify);
+        assert!(template.subject.contains("{{brand_name}}"));
+        assert!(template.text.contains("{{code}}"));
+        assert!(template.html.contains("{{code}}"));
+        assert!(!template.text.contains("{{action_url}}"));
+        validate_template_variables(&template.subject, EmailTemplateKind::SignupVerify).unwrap();
+        validate_template_variables(&template.text, EmailTemplateKind::SignupVerify).unwrap();
+        validate_template_variables(&template.html, EmailTemplateKind::SignupVerify).unwrap();
+        let rendered = render_template(
+            &template.html,
+            &escape_html("Acme"),
+            "",
+            &escape_html("765432"),
+        );
+        assert!(rendered.contains("765432"));
+        // Code-variable legality is per-kind: SignupVerify may use {{code}},
+        // the action-URL kinds still must not.
+        assert!(
+            validate_template_variables("{{code}}", EmailTemplateKind::SignupVerify).is_ok(),
+            "signup_verify templates may use the code variable"
+        );
     }
 
     #[tokio::test]

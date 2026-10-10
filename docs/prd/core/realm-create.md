@@ -16,6 +16,7 @@
 | US-SR-002 | 开通后立即管理新 Realm | P0 | `docs/user-stories/core/realm-create.md` |
 | US-SR-003 | Admin Realm 管理员查看自助开通的 Realm | P1 | `docs/user-stories/core/realm-create.md` |
 | US-SR-004 | 平台自助开通开关控制 | P0 | `docs/user-stories/core/realm-create.md` |
+| US-SR-005 | 自助开通邮箱验证 | P0 | `docs/user-stories/core/realm-create.md` |
 
 ---
 
@@ -30,13 +31,14 @@
 - 自助开通的 realm 在 Admin Realm 的 Realm 列表中与手动创建的 realm **一致呈现**
 - **平台自助开通开关**（Admin Realm 管理员开启 / 关闭；默认值属运营决策，见 Q-realm-create-003）
 - **基础防滥用**：同一 IP 每 24 小时最多自助注册 2 个 realm（DEC-realm-create-007）；Cloudflare Turnstile 人机验证，按绑定 Client App 的 Turnstile 配置强制（DEC-realm-create-008）
+- **条件性邮箱验证（前置）**：当 admin realm 的注册邮箱验证要求开启且平台邮件服务可用时，访客须先以一次性验证码证明邮箱所有权，验证通过后才开通 realm；任一条件不满足时不强制（fail-open，见 DEC-realm-create-015）
 
 ### 2.2 不包含功能 (Out of Scope)
 
 - 注册环节的套餐选择、计费或支付（付费由既有 billing 系统后续承载，见 DEC-realm-create-002；不引入免费层配额或试用期）
 - 平台级“单账号拥有多个 realm”能力（本 PRD 限定一次注册对应一个新 realm，见 DEC-realm-create-004）
 - Realm 删除（沿用既有约束：不支持 realm 删除）
-- 是否在 IP 限额 / Turnstile 之外**额外**强制“邮箱验证后才允许访问新 realm”（增强防滥用；不做门禁，沿用创建即 Normal，见 DEC-realm-create-006）
+- 开通**后**的账户级邮箱验证门禁（管理员账号仍为创建即 Normal；邮箱验证以开通**前**置验证码形式实施，见 DEC-realm-create-006 / DEC-realm-create-015）
 - 自助开通后新 realm 内部的业务配置（由该 realm 的 realm-admin 在 realm-settings 中完成）
 
 ### 2.3 依赖项
@@ -80,7 +82,14 @@
 
 - **IP 注册限额**：同一 IP 每 24 小时最多自助注册开通 2 个 realm；超出后注册被拒绝并提示限额（DEC-realm-create-007）。IP 识别方式、计数窗口实现与失败计数行为下沉技术设计。
 - **人机验证（Turnstile）**：自助注册页面启用 Cloudflare Turnstile，按绑定自助注册页面的 Client App 的 Turnstile 配置强制——配置为启用时必须通过人机验证，未启用时不强制（DEC-realm-create-008）。Turnstile 配置归属 Client App 级（见 `docs/prd/integration/client-app.md` §4.1 D-PROTECT-01），非 realm 级独立开关。
-- **管理员账号验证行为**：新 realm 管理员账号沿用既有“创建即 Normal（已验证）”行为（DEC-realm-create-006）；是否额外强制“邮箱验证后才允许访问新 realm”属增强防滥用，不在本 PRD 强制范围。
+- **管理员账号验证行为**：新 realm 管理员账号沿用既有“创建即 Normal（已验证）”行为（DEC-realm-create-006）；邮箱验证以**开通前置验证码**形式实施（见下），不引入账户级后置门禁。
+
+**邮箱前置验证（条件性，US-SR-005）**
+
+- 当 admin realm 的注册邮箱验证要求（`registration` 配置）开启且其邮件服务已配置时，自助开通要求访客先完成邮箱验证；验证发生在人机验证与 IP 限额通过之后、realm 开通之前，验证通过后仍为“创建即 Normal + 立即会话”，不引入额外登录步骤（DEC-realm-create-015）。
+- 验证码为一次性 6 位数字码，有有效期，可重复发送且重发即作废旧码；验证码与提交邮箱绑定，缺失、错误、过期或跨邮箱均以同一错误提示拒绝（不泄露差异）。
+- 验证码发送受独立限流约束（每 IP 与每邮箱各 1 次 / 120 秒）；发送入口受平台开关 fail-closed 约束；平台未配置邮件服务时降级为不强制（fail-open，避免入口锁死）。
+- 开关复用 admin realm 的注册邮箱验证配置键，与“用户注册进 admin realm”的验证要求同键联动，不设独立键（DEC-realm-create-015）。
 
 ### 4.2 关键状态与异常
 
@@ -90,6 +99,9 @@
 - **初始化失败**：沿用既有约束（见 `docs/prd/core/realm.md` §4.1）——若初始化任一步骤失败，开通失败并返回错误，已创建的部分数据可能残留（realm 不支持删除）。
 - **数据隔离**：新 realm 与其他 realm 严格隔离；注册者访问其他 realm 资源时被拒绝。
 - **防滥用触发**：同一 IP 24 小时内已开通 2 个 realm 时，再次注册被拒绝并提示限额（DEC-realm-create-007）；绑定 Client App 的 Turnstile 为启用时，未通过人机验证的注册被拒绝（DEC-realm-create-008）。
+- **邮箱验证被拒**：admin realm 开启注册邮箱验证后，未携带、或携带无效（错误 / 过期 / 属于其他邮箱）验证码的开通请求被拒绝并提示验证码无效，不创建任何 realm；提示不区分具体无效原因（US-SR-005）。
+- **验证码重发与限流**：重发使旧验证码立即失效；验证码请求超出每 IP / 每邮箱频率（1 次 / 120 秒）时被拒绝并提示稍后再试。
+- **邮件服务未配置降级**：开启验证要求但平台未配置邮件服务时，自助开通不强制邮箱验证（fail-open），行为回到无条件验证模式（US-SR-005 场景 5）。
 - **防滥用实现细节**：IP 识别方式（如可信代理头处理）、计数窗口实现、失败计数与限额计数器归属（仅计成功开通 or 计所有尝试）下沉技术设计；新 realm 管理员账号沿用“创建即 Normal（已验证）”行为（DEC-realm-create-006）。
 
 ---
@@ -102,6 +114,8 @@
 - Admin Realm 管理员关闭平台开关后访客无法完成自助注册；重新开启后可正常注册（US-SR-004）。
 - 同一 IP 24 小时内第 3 次自助注册被拒绝并提示限额；前 2 次正常开通（DEC-realm-create-007）。
 - 当绑定自助注册页面的 Client App 的 Turnstile 已启用时，未通过人机验证的注册被拒绝；未启用时不强制（DEC-realm-create-008）。
+- 当 admin realm 开启注册邮箱验证且邮件服务可用时：访客必须填写有效验证码才能开通；缺码、错码、过期码、他人邮箱的码均被拒绝且不创建 realm；重发后旧码失效；验证码请求频率受限（US-SR-005 / DEC-realm-create-015）。
+- 当邮件服务未配置时，即使验证要求开启，自助开通也自动降级为无需验证码，入口不被锁死（US-SR-005 场景 5）。
 - 校验失败（邮箱、密码强度、名称缺失）与标识冲突（占用、保留词）时显示明确提示，且不创建任何 realm。
 - 开通失败时按既有约束返回错误（部分数据可能残留，realm 不支持删除）。
 
@@ -113,7 +127,7 @@
 
 **API / 集成边界:**
 
-- **接口能力范围**：自助开通注册接口供未登录访客调用，完成注册信息校验与 realm 开通；平台开关的查询与更新接口供 Admin Realm 管理员操作；另有公开只读状态端点 `GET /api/auth/{realmId}/signup/status`（`{realmId}` 必须为 admin realm，其余 realm 返回 404，即实际地址为 `/api/auth/admin/signup/status`），未登录访客可查询自助开通开关是否开放，供注册页判断入口可用性，仅返回布尔值。新 realm 的初始化沿用既有 realm 创建能力，不在本 PRD 中重复定义接口契约。
+- **接口能力范围**：自助开通注册接口供未登录访客调用，完成注册信息校验与 realm 开通；平台开关的查询与更新接口供 Admin Realm 管理员操作；另有公开只读状态端点 `GET /api/auth/{realmId}/signup/status`（`{realmId}` 必须为 admin realm，其余 realm 返回 404，即实际地址为 `/api/auth/admin/signup/status`），未登录访客可查询自助开通开关是否开放，供注册页判断入口可用性，返回开关布尔值与是否需要邮箱验证的布尔值（`emailVerificationRequired`，随 admin realm 注册邮箱验证配置与邮件服务可用性变化）。验证码发送端点 `POST /api/auth/{realmId}/signup/email_code`（admin realm 独有，随平台开关 fail-closed）向提交邮箱发送一次性验证码；开通请求在验证要求开启时必填携带该验证码。新 realm 的初始化沿用既有 realm 创建能力，不在本 PRD 中重复定义接口契约。
 - 注册信息（含密码）的传输与存储遵循既有安全要求。
 - 详细接口契约、校验规则与错误模型应在技术设计文档中维护。
 
@@ -121,6 +135,7 @@
 
 - **页面入口**：admin realm 托管的公共注册开通页面，未登录访客通过平台对外入口访问；非 admin realm 不承载此入口。
 - **注册表单交互**：填写 realm 名称（必填）、访客邮箱（必填）、访客密码（必填）、realm 标识（可选，留空由系统生成）；提交前进行前端校验；当绑定自助注册页面的 Client App 的 Turnstile 为启用时，表单内嵌 Cloudflare Turnstile 人机验证组件，未通过验证不可提交（DEC-realm-create-008）。
+- **条件性邮箱验证步骤**：当状态端点报告需要邮箱验证时，注册表单在邮箱输入后呈现“发送验证码”入口（带发送频率倒计时）与验证码输入框，未填写验证码不可提交；不需要验证时表单与基础流程完全一致（DEC-realm-create-015）。
 - **限额提示**：同一 IP 24 小时内达到 2 个开通上限后，再次提交注册被拒绝并显示明确的限额提示（DEC-realm-create-007）。
 - **成功反馈**：开通成功后自动将注册者带入新 realm 的管理控制台首页，无需额外登录步骤。
 - **失败反馈**：校验失败与标识冲突时显示明确错误提示，并保留已填信息以便修正。
@@ -138,7 +153,7 @@
 - **DEC-realm-create-003 · 初始化复用**（repository-fact + agent）：复用既有 realm 初始化机制（RBAC 默认角色/权限/策略、`admin-web-console`、`admin-api-client`、`registration.enabled=false`、Normal 状态管理员），不新建并行开通路径。理由：`docs/prd/core/realm.md` §3.2/§4.1 已定义稳定初始化规则；最小改动。落点：§2.1、§4.1。重开条件：初始化规则在正式 PRD 中变更。
 - **DEC-realm-create-004 · 单次注册范围**（agent）：一次注册对应一个新 realm，注册者即该 realm 的 realm-admin；平台级"一个账号拥有多个 realm"不在本 PRD 范围。理由：最简可审阅模型；多 realm 归属需要平台账号层，超出本轮"注册即开通"意图。落点：§2.2、§4.1。重开条件：用户要求支持单账号多 realm 或跨 realm 所有者。
 - **DEC-realm-create-005 · 用户故事新建**（agent）：新建独立用户故事（actor：SaaS 自助注册访客），不复用 `US-AR-001`（手动内部开通，actor 为 Admin Realm 管理员，入口与流程不同）。理由：两者 actor、入口、前置权限与验收目标不同，不合并冲突模式。落点：§1。重开条件：用户确认两者应合并为同一旅程。
-- **DEC-realm-create-006 · 邮箱验证行为**（repository-fact + agent）：新 realm 管理员账号沿用既有 realm-create 行为——创建即 Normal（已验证），注册后可立即进入新 realm；是否强制"邮箱验证后才允许访问"作为防滥用细节，不做门禁。理由：与既有 `docs/prd/core/realm.md` §3.2 行为一致；防滥用阈值与策略为技术设计细节。落点：§4.1、§4.2。重开条件：用户要求邮箱前置验证。
+- **DEC-realm-create-006 · 邮箱验证行为**（repository-fact + agent）：新 realm 管理员账号沿用既有 realm-create 行为——创建即 Normal（已验证），注册后可立即进入新 realm，不引入**账户级**后置验证门禁。理由：与既有 `docs/prd/core/realm.md` §3.2 行为一致。落点：§4.1、§4.2。**重开记录**（2026-10-10）：原“不做邮箱验证门禁”的重开条件（用户要求邮箱前置验证）已触发——邮箱验证以开通**前置验证码**形式落地，由 DEC-realm-create-015 承载；账户侧“创建即 Normal”不变。
 - **DEC-realm-create-007 · IP 注册限额**（user）：同一 IP 每 24 小时最多自助注册开通 2 个 realm，超出后注册被拒绝并提示限额。理由：用户明确要求（安全防滥用）；防止刷号抢占 realm 标识。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户调整限额阈值或窗口。
 - **DEC-realm-create-008 · Turnstile 人机验证**（user + repository-fact）：自助注册页面启用 Cloudflare Turnstile 人机验证，条件是 admin realm 侧绑定的 Client App 的 Turnstile 已开启（未开启时不强制）。理由：用户明确要求"有 cloudflare 验证码如果 admin realm 开启了的话"；仓库事实——Turnstile 配置归属 Client App 级（`docs/prd/integration/client-app.md` §4.1 D-PROTECT-01），非 realm 级独立开关。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户要求 Turnstile 与 Client App 解耦、作为独立 realm 级开关。
 - **DEC-realm-create-009 · 平台开关必备**（user）：自助开通整体为一个平台开关（Admin Realm 管理员可开启/关闭），关闭后访客无法自助注册；该开关从 P1 提升为本 PRD 必备能力。理由：用户明确要求"这个功能要是一个开关"。落点：§1、§4.1、§5。重开条件：用户要求移除开关或调整其层级。
@@ -147,6 +162,7 @@
 - **DEC-realm-create-012 · 会话目标 realm**（repository-fact + agent，实现层）：signup 成功后签发**新 realm** 的 `admin-web-console` first-party token（`create_first_party_token_family`），而非 admin realm 的 token；响应携带 `realmId`/`realmName` 供前端切换路由上下文。理由：US-SR-002 要求"立即进入新 realm 管理控制台"；create_realm 已在新 realm 创建 first-party admin-web-console 与 Normal 管理员，签发无传播延迟。落点：§5、设计层。重开条件：用户要求签发 admin realm token 或要求额外登录步骤。
 - **DEC-realm-create-013 · 开关存储**（agent，实现层）：平台开关存于 admin realm 的 `realm_config`（新增 `ConfigType::PlatformSignup`，`config_key="enabled"`，`config_value="true"/"false"`），不新建表；读取缺失按 `false`（fail-closed）。理由：`realm_config` 是 realm 级配置唯一存储；admin realm 是平台级配置自然归属。落点：§4.1、设计层。重开条件：用户要求独立平台配置表或独立开关服务。
 - **DEC-realm-create-014 · 冲突状态码**（repository-fact + agent，实现层）：realmSlug 已占用时 signup 返回 400（沿用既有 realm 仓库 `CoreError::BadRequest` 与 admin `create_realm` 的 400 约定），而非设计稿理想化的 409。理由：signup 复用同一 `create_realm` 仓库路径；仅为 signup 单独改 409 会分裂两个调用方。落点：设计层。重开条件：用户要求 realmSlug 冲突统一为 409（届时需同时改仓库返回并同步 admin/ext 路径）。
+- **DEC-realm-create-015 · 自助开通前置邮箱验证**（user，2026-10-10）：当 admin realm 的注册邮箱验证要求开启且其邮件服务已配置时，自助开通在 realm 创建前要求访客以一次性 6 位验证码证明邮箱所有权（前置验证）；任一条件不满足则不强制（fail-open，入口不被锁死）。验证要求复用 admin realm 的 `registration` / `require_email_verification` 配置键（与“注册进 admin realm”的验证要求同键联动，不设独立键）；验证码 30 分钟有效、单次消费、重发 newest-wins、与提交邮箱绑定，无效情形统一同一错误提示；验证码发送端点独立限流（1 次 / 120 秒，每 IP 与每邮箱）且无人机验证（与既有 verify_email 触发端点同姿态）；验证消费时序在人机验证与 IP 限额之后、开通之前（失败不烧码）。理由：用户明确要求“是否验证跟随主 admin realm 的账号注册验证配置”；采用前置而非照搬注册的后置验证，避免新 realm 无邮件通道的跨 realm 混搭与未验证悬空 realm。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户要求独立开关键、调整码形态 / TTL / 限流取值，或改回后置验证模型。
 
 **问题记录**（原账本 Resolved / Deferred Questions）：
 

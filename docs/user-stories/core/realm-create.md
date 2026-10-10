@@ -149,6 +149,74 @@ Then 注册页面可用，访客可完成注册并开通 realm
 
 ---
 
+### 故事 5：自助开通邮箱验证 [US-SR-005]
+
+**优先级**: P0
+
+**【用户故事】**
+**作为**：Admin Realm 管理员（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）
+**我希望**：当我为 admin realm 开启了"注册需邮箱验证"时，自助开通 realm 的访客也必须先验证邮箱所有权才能开通
+**从而**：防止任何人使用不属于自己的邮箱开通 realm、抢占 realm 标识与平台资源
+
+**【验收标准】**
+
+> 验证要求复用 admin realm 的注册邮箱验证配置：开启且平台邮件服务可用时才强制（详细规则见 PRD `docs/prd/core/realm-create.md` §4.1）。
+
+**场景 1：开启邮箱验证后需先验证邮箱**
+```gherkin
+Given Admin Realm 已开启注册邮箱验证
+And 平台自助开通已开启
+When 我作为未登录访客在公开注册页面填写信息
+Then 注册页面在提交前要求我先完成邮箱验证
+And 我请求发送验证码后，在我的邮箱收到验证码
+And 我填写正确的验证码并提交
+Then 系统为我开通新的 realm
+And 我直接进入新 realm 的管理控制台
+```
+
+**场景 2：验证码缺失或无效时开通被拒绝**
+```gherkin
+Given Admin Realm 已开启注册邮箱验证
+When 我未填写验证码，或填写了错误、过期、或属于其他邮箱的验证码提交注册
+Then 注册被拒绝并提示验证码无效
+And 提示不区分具体是哪一种无效情形
+And 系统不创建任何 realm
+```
+
+**场景 3：重新发送验证码后旧码失效**
+```gherkin
+Given Admin Realm 已开启注册邮箱验证
+And 我已请求过一次验证码
+When 我重新请求发送验证码
+Then 我收到新的验证码
+And 旧验证码立即失效
+```
+
+**场景 4：验证码请求过于频繁被限制**
+```gherkin
+Given Admin Realm 已开启注册邮箱验证
+When 我在短时间内重复请求发送验证码，超出允许频率
+Then 请求被拒绝并提示稍后再试
+```
+
+**场景 5：邮件服务未配置时自动降级**
+```gherkin
+Given Admin Realm 已开启注册邮箱验证
+And 平台尚未配置可用的邮件服务
+When 我作为未登录访客访问公开注册页面
+Then 注册页面不出现邮箱验证步骤
+And 我可一次提交直接开通 realm
+```
+
+**场景 6：关闭注册邮箱验证后回到一次提交开通**
+```gherkin
+Given Admin Realm 关闭了注册邮箱验证
+When 我作为未登录访客填写注册信息并提交
+Then 注册页面不出现邮箱验证步骤，行为与故事 1 一致
+```
+
+---
+
 ## 与既有故事的关系
 
 - **不复用 `US-AR-001`（创建 Realm）**：`US-AR-001` 的 actor 是已登录的 Admin Realm 管理员，入口是管理后台“Create Realm”对话框，前置权限为 `realm.manage`；本组故事的 actor 是未登录访客，入口是公开注册页面，无需平台权限。两者 actor、入口与前置条件不同，故新建独立故事（见 DEC-realm-create-005）。

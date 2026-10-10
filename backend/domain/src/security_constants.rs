@@ -47,6 +47,14 @@ pub const CHANGE_EMAIL_CONFIRM_IP_RATE_LIMIT: (i64, usize) = (5, 60);
 /// incremented after validation + human verification pass, before
 /// `create_realm`, and is not rolled back on provisioning failure.
 pub const SIGNUP_IP_RATE_LIMIT: (i64, usize) = (2, 86_400);
+/// Pre-signup mailbox-verification code issuance limits (per IP / per
+/// mailbox). (1, 120) matches CHANGE_EMAIL_REQUEST_*: every allowed request
+/// costs one outbound mail to an unverified address on a fully
+/// unauthenticated endpoint that deliberately skips Turnstile (rate limiting
+/// is the only anti-bombing defense), so the budget is one code per mailbox
+/// every two minutes — resend is newest-wins, no burst.
+pub const SIGNUP_CODE_REQUEST_IP_RATE_LIMIT: (i64, usize) = (1, 120);
+pub const SIGNUP_CODE_REQUEST_EMAIL_RATE_LIMIT: (i64, usize) = (1, 120);
 
 pub const TOTP_VERIFY_USER_RATE_LIMIT: (i64, usize) = (5, 60);
 pub const TOTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
@@ -164,6 +172,17 @@ mod tests {
     #[test]
     fn signup_ip_quota_is_two_realms_per_24h() {
         assert_eq!(SIGNUP_IP_RATE_LIMIT, (2, 86_400));
+    }
+
+    // WHY: the signup email-code issuance budget (1 per 120s per IP and per
+    // mailbox) bounds outbound mail to unverified addresses on the
+    // unauthenticated code sender — the only defense there since that
+    // endpoint deliberately skips Turnstile. Silently loosening it would
+    // reopen a mail-bombing vector with no failing test.
+    #[test]
+    fn signup_code_request_limits_are_one_per_two_minutes() {
+        assert_eq!(SIGNUP_CODE_REQUEST_IP_RATE_LIMIT, (1, 120));
+        assert_eq!(SIGNUP_CODE_REQUEST_EMAIL_RATE_LIMIT, (1, 120));
     }
 
     // WHY: the id_token TTL and the key retention window are protocol-facing
