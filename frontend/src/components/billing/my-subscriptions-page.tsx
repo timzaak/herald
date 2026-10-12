@@ -301,7 +301,7 @@ export function MySubscriptionsPage({ realmId }: MySubscriptionsPageProps) {
 
                 <Button asChild variant="outline" size="sm" className="w-full">
                   <Link
-                    to="/$realmId/subscription/$subscriptionId/history"
+                    to="/$realmId/user/my-subscriptions/$subscriptionId/history"
                     params={{ realmId, subscriptionId: subscription.id }}
                   >
                     {m['billing.my_subscriptions_view_history']()}

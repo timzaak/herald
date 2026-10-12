@@ -75,12 +75,6 @@ export function ProfileIndex() {
               server nickname re-mounts the form when a refetch brings a new
               value, so a stale tab cannot save its outdated nickname back. */}
           <NicknameEditForm key={profile.nickname ?? ''} initialNickname={profile.nickname ?? ''} />
-          <div className="space-y-1">
-            <Label>{m['profile.status_label']()}</Label>
-            <p className="text-sm text-muted-foreground" data-testid="status-display">
-              {profile.status === 1 ? m['profile.status_normal']() : m['profile.status_other']()}
-            </p>
-          </div>
         </div>
       </section>
 

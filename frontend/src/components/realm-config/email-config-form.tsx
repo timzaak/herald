@@ -212,7 +212,23 @@ export function EmailConfigForm({
                 dataTestId="email-resend-api-key-input"
                 placeholder="re_xxxxxxxx"
                 disabled={disabled}
-                helpText={m['realm_config.email_api_key_help']()}
+                helpText={
+                  <>
+                    {m['realm_config.email_api_key_help']()}{' '}
+                    <span data-testid="email-resend-quota-hint">
+                      {m['realm_config.email_resend_quota_hint']()}{' '}
+                      <a
+                        href="https://resend.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2 hover:text-foreground"
+                        data-testid="email-resend-official-link"
+                      >
+                        {m['realm_config.email_resend_quota_link']()}
+                      </a>
+                    </span>
+                  </>
+                }
               />
             )}
 

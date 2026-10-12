@@ -688,9 +688,9 @@ fn default_email_template(kind: EmailTemplateKind) -> StoredEmailTemplate {
             html: "<p>{{brand_name}}</p><p>Your login verification code: <strong>{{code}}</strong></p>".to_string(),
         },
         EmailTemplateKind::SignupVerify => StoredEmailTemplate {
-            subject: "{{brand_name}} realm signup verification code".to_string(),
-            text: "{{brand_name}}\n\nYour realm signup verification code: {{code}}".to_string(),
-            html: "<p>{{brand_name}}</p><p>Your realm signup verification code: <strong>{{code}}</strong></p>".to_string(),
+            subject: "{{brand_name}} signup verification code".to_string(),
+            text: "{{brand_name}}\n\nYour signup verification code: {{code}}".to_string(),
+            html: "<p>{{brand_name}}</p><p>Your signup verification code: <strong>{{code}}</strong></p>".to_string(),
         },
         EmailTemplateKind::VerifyEmail => action_url_default(
             "Verify your email for {{brand_name}}",

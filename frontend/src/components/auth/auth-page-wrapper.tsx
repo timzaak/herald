@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { PublicWhiteLabelConfig } from '@/lib/api-generated/types.gen'
 import { resolveBrandName } from '@/lib/white-label-brand'
+import { BRAND_NAME, BRAND_WEBSITE_URL } from '@/lib/constants'
+import { m } from '@/paraglide/messages'
 
 interface AuthPageWrapperProps {
   children: React.ReactNode
@@ -204,14 +206,26 @@ export function AuthPageWrapper({ children, realmName, whiteLabel }: AuthPageWra
           <div aria-hidden="true" className="mt-4 h-[2.5px] w-8 rounded-full bg-gold" />
         </div>
         {children}
-        {footerText ? (
-          <div
-            data-testid="auth-brand-footer"
-            className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground"
-          >
-            {footerText}
-          </div>
-        ) : null}
+        <div
+          data-testid={footerText ? 'auth-brand-footer' : 'auth-powered-by'}
+          className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground"
+        >
+          {/* Default footer content when the realm has not configured its own
+              footer text — the white-label fallback rule (unconfigured field →
+              default Herald presentation). Opens in a new tab so a user
+              mid-login never navigates away from the page where they are
+              typing credentials. */}
+          {footerText || (
+            <a
+              href={BRAND_WEBSITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline-offset-4 hover:text-foreground hover:underline"
+            >
+              {m['auth.powered_by']({ name: BRAND_NAME })}
+            </a>
+          )}
+        </div>
       </div>
     </div>
   )

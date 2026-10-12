@@ -145,6 +145,15 @@ def ensure_demo_seed_data(logger: "Logger | None" = None) -> bool:
         # handled by `_ensure_realm001_subscription_data` above.
         _ensure_payment_provider_config(logger)
 
+        # Ensure the admin realm's Resend email channel from demo/.env.demo.
+        # realm-001 is deliberately left unconfigured — the email-otp and
+        # change-email demo series depend on its unconfigured seed channel.
+        _ensure_admin_realm_email_config(logger)
+
+        # Ensure the admin realm brands as "Herald" (white_label settings) so
+        # platform-facing emails never fall back to the raw realm name "Admin".
+        _ensure_admin_realm_brand_name(logger)
+
         # Ensure subscription history demo data for the admin realm. This seeds
         # the `user1@demo.com` account plus its subscription/subscription_history
         # rows, which the regular-user invoice-fallback / credit-note-user /
@@ -1370,6 +1379,97 @@ def _ensure_payment_provider_config(logger: "Logger | None") -> None:
     """
     _sql_exec(sql)
     _info(logger, "[OK] Payment provider config demo data ready")
+
+
+def _ensure_admin_realm_email_config(logger: "Logger | None") -> None:
+    """Ensure the admin realm's Resend email channel (realm_config).
+
+    Seeds the three `config_type='email'` rows (provider / from_address /
+    resend_api_key — exactly what `EmailService::is_email_configured` requires
+    for the Resend provider) from demo/.env.demo, so the admin realm starts
+    with a working mail channel after demo-start.
+
+    When RESEND_API_KEY is absent, NOTHING is seeded: an unconfigured channel
+    makes `EmailService::send_email` silently skip, whereas a placeholder key
+    would flip `configured` to true and turn every send into a real failed
+    Resend call (401/500).
+    """
+    env = _load_demo_env()
+    resend_api_key = (env.get("RESEND_API_KEY") or "").strip()
+    if not resend_api_key:
+        _info(
+            logger,
+            "RESEND_API_KEY not set in demo/.env.demo; "
+            "admin realm email channel left unconfigured",
+        )
+        return
+
+    # Default sender is Resend's shared test address: without a verified
+    # domain it only delivers to the Resend account owner's own mailbox.
+    from_address = _sql_escape(
+        (env.get("RESEND_FROM_ADDRESS") or "").strip() or "onboarding@resend.dev"
+    )
+    api_key = _sql_escape(resend_api_key)
+    _info(logger, "Ensuring admin realm Resend email channel...")
+    sql = f"""
+    INSERT INTO realm_config (
+        realm_id, config_type, config_key, config_value, is_secret, enabled, metadata
+    ) VALUES
+        ('{ADMIN_REALM}', 'email', 'provider', 'resend', false, true, '{{}}'::jsonb),
+        ('{ADMIN_REALM}', 'email', 'from_address', '{from_address}', false, true, '{{}}'::jsonb),
+        ('{ADMIN_REALM}', 'email', 'resend_api_key', '{api_key}', true, true, '{{}}'::jsonb)
+    ON CONFLICT (realm_id, config_type, config_key) DO UPDATE
+        SET config_value = EXCLUDED.config_value,
+            is_secret = EXCLUDED.is_secret,
+            enabled = true,
+            metadata = EXCLUDED.metadata,
+            updated_at = now();
+    """
+    _sql_exec(sql)
+    _info(logger, "[OK] Admin realm Resend email channel ready")
+
+
+def _ensure_admin_realm_brand_name(logger: "Logger | None") -> None:
+    """Ensure the admin realm's white-label brand name (realm_config).
+
+    Seeds the `config_type='white_label'`, `config_key='settings'` row — the
+    exact row `resolve_realm_brand` reads for every platform-facing email
+    subject (signup verification code, etc.) — so a freshly seeded environment
+    brands as "Herald" instead of falling back to the raw realm name ("Admin").
+    Full null-padded shape matches what the white-label publish endpoint
+    writes; ON CONFLICT DO UPDATE keeps the demo brand deterministic across
+    re-seeds (same "ensure" semantics as the email channel seed above).
+    """
+    brand_json = json.dumps(
+        {
+            "brandName": "Herald",
+            "logoUrl": None,
+            "faviconUrl": None,
+            "accentColor": None,
+            "background": None,
+            "footerText": None,
+            "loginTitle": None,
+            "loginSubtitle": None,
+            "registerTitle": None,
+            "registerSubtitle": None,
+        },
+        separators=(",", ":"),
+    )
+    _info(logger, "Ensuring admin realm brand name (Herald)...")
+    sql = f"""
+    INSERT INTO realm_config (
+        realm_id, config_type, config_key, config_value, is_secret, enabled, metadata
+    ) VALUES
+        ('{ADMIN_REALM}', 'white_label', 'settings', '{brand_json}', false, true, '{{}}'::jsonb)
+    ON CONFLICT (realm_id, config_type, config_key) DO UPDATE
+        SET config_value = EXCLUDED.config_value,
+            is_secret = EXCLUDED.is_secret,
+            enabled = true,
+            metadata = EXCLUDED.metadata,
+            updated_at = now();
+    """
+    _sql_exec(sql)
+    _info(logger, "[OK] Admin realm brand name ready")
 
 
 def _ensure_admin_realm_audit_events(logger: "Logger | None") -> None:

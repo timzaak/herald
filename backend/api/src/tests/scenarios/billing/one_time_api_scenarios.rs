@@ -928,4 +928,79 @@ mod tests {
             );
         }
     }
+
+    /// User Story: US-PA-001 (docs/user-stories/billing/payment-attempt.md)
+    /// Covers: locale threading — the app locale sent on the create-attempt
+    /// request must reach the provider's checkout-session call (here: Stripe's
+    /// `locale` form field, mapped `zh-CN` -> `zh`), so the hosted checkout
+    /// page follows the language the user picked in the app instead of their
+    /// browser language. The client-level mapping/fail-open matrix is covered
+    /// by infra-stripe unit tests; this test pins the handler -> service ->
+    /// client plumbing.
+    #[test_context(TestContext)]
+    #[tokio::test]
+    async fn test_create_payment_attempt_locale_reaches_stripe_checkout(ctx: &mut TestContext) {
+        let realm_id = ctx._realm_id.clone();
+        let token = setup_billing_admin_session(ctx, "wallet-locale@test.com").await;
+        let mapping_id =
+            create_one_time_mapping(ctx, &realm_id, "wallet-locale-pkg", 100, true, true).await;
+
+        let stripe = MockServer::start().await;
+        setup_stripe_config(ctx, &realm_id, "sk_test_wallet", "whsec_wallet").await;
+        insert_realm_base_url(ctx, &realm_id, "stripe", &stripe.uri()).await;
+        Mock::given(method("POST"))
+            .and(path("/v1/checkout/sessions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "cs_wallet_locale",
+                "url": "https://checkout.stripe.com/c/test",
+                "customer": null,
+                "status": "open",
+                "payment_intent": null,
+                "subscription": null,
+                "metadata": {}
+            })))
+            .expect(1)
+            .mount(&stripe)
+            .await;
+        let app = ctx.create_unified_test_router();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bill/purchase/payment-attempts".to_string())
+                    .header(header::AUTHORIZATION, format!("Bearer {}", token))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "targetType": "entitlement_mapping",
+                            "targetId": mapping_id.to_string(),
+                            "paymentProvider": "stripe",
+                            "locale": "zh-CN"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        assert_eq!(status, StatusCode::CREATED, "response: {body_json}");
+
+        let requests = stripe
+            .received_requests()
+            .await
+            .expect("request recording should be enabled");
+        assert_eq!(requests.len(), 1);
+        let form = String::from_utf8(requests[0].body.clone()).unwrap();
+        assert!(
+            form.split('&').any(|pair| pair == "locale=zh"),
+            "app locale zh-CN must reach Stripe as locale=zh, got form: {form}"
+        );
+    }
 }

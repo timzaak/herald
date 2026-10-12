@@ -37,10 +37,11 @@ export function isCustomDomainPath(pathname: string): boolean {
 
 export function getLegacyRealmId(pathname: string): string {
   const first = firstPathSegment(pathname)
-  if (!first) return 'admin'
-  // Session-scoped roots (/manage, /user, /subscription) carry no realm in the
-  // URL — their realm comes from the session store.
-  if (SESSION_SCOPED_ROOT_SEGMENTS.has(first)) {
+  // The bare root and the session-scoped roots (/manage, /user, /subscription)
+  // carry no realm in the URL — both resolve to the persisted last-visited
+  // realm (written by initializeAuth on every realm page entry and kept across
+  // logout), falling back to the default 'admin' realm on a fresh browser.
+  if (!first || SESSION_SCOPED_ROOT_SEGMENTS.has(first)) {
     return useAuthStore.getState().realmId || 'admin'
   }
   // Public realm-scoped roots (/auth, /legal, /device) are prefix-less on the

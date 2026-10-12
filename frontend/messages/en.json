@@ -118,7 +118,8 @@
     "points": "Points",
     "subscription": "Subscription",
     "invoices": "Invoices",
-    "purchase_records": "Purchase Records"
+    "purchase_records": "Purchase Records",
+    "admin_console": "Admin Console"
   },
   "user_menu": {
     "profile": "Profile",
@@ -126,6 +127,7 @@
     "logout": "Logout"
   },
   "auth": {
+    "powered_by": "Powered by {name}",
     "login": {
       "title": "Login",
       "username_or_email": "Username or Email",
@@ -458,9 +460,6 @@
     "nickname_label": "Nickname",
     "nickname_not_set": "Not set",
     "nickname_updated_success": "Nickname updated",
-    "status_label": "Status",
-    "status_normal": "Normal",
-    "status_other": "Other",
     "subscription_status_title": "Subscription Status",
     "no_subscriptions_message": "You don't have any client apps with subscriptions.",
     "security_page_title": "Security Settings",
@@ -1194,6 +1193,8 @@
     "email_from_address_label": "From Address",
     "email_api_key_label": "API Key",
     "email_api_key_help": "Enter a new API key to replace the existing one",
+    "email_resend_quota_hint": "Resend's free plan includes 100 emails/day and 3,000 emails/month with 1 custom domain.",
+    "email_resend_quota_link": "Go to the Resend website",
     "email_smtp_host_label": "SMTP Host",
     "email_smtp_port_label": "Port",
     "email_smtp_encryption_label": "Encryption",

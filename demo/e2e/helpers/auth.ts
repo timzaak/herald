@@ -7,6 +7,7 @@
 import { Page, expect, request, type APIRequestContext, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { LoginPage } from '../pages/login-page'
+import { dismissOnboardingWelcomeDialogIfPresent } from './onboarding-dismiss'
 import type { UnifiedLogger } from './unified-logger'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
@@ -97,29 +98,6 @@ export async function createAdminApiContext(
 // ============================================================================
 // Login Functions
 // ============================================================================
-
-/**
- * 关闭首登引导欢迎弹窗（如果它已打开）。
- *
- * 每个全新浏览器上下文（Playwright 每个测试独立 context）都没有本地完成
- * 标记，管理员首次进入管理控制台时会渲染首登引导欢迎弹窗（设计行为，
- * US-OG-003）。该弹窗是模态的：打开期间 aria-hidden 遮蔽控制台内容并拦截
- * 点击，任何基于 role 的定位或控制台 UI 操作都会失败。登录助手默认按用户
- * 故事语义立即关闭它（引导可随时关闭、不阻塞控制台）；引导类 demo 用
- * dismissOnboarding: false 保留弹窗做断言。
- */
-export async function dismissOnboardingWelcomeDialogIfPresent(page: Page): Promise<void> {
-  const dialog = page.locator(SELECTORS.onboarding.welcomeDialog)
-  try {
-    await dialog.waitFor({ state: 'visible', timeout: 5000 })
-  } catch {
-    // 本上下文无引导（已有完成标记或存储不可用）：无事可做
-    return
-  }
-  await page.locator(SELECTORS.onboarding.welcomeDismissButton).click()
-  await expect(dialog).toBeHidden()
-  console.log('[Auth] 已关闭首登引导欢迎弹窗')
-}
 
 function isAdminConsoleUrl(url: string): boolean {
   try {

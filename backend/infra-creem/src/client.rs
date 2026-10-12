@@ -7,6 +7,20 @@ use herald_domain::common::entities::app_errors::CoreError;
 use herald_domain::telemetry::external_http::timed_external_http_span;
 use std::time::Duration;
 
+/// Map an app locale tag to Creem's checkout language value, sent as the
+/// `X-Creem-Language` request header (observed in the wild; not part of the
+/// documented request body). Only locales we know a value for are forwarded;
+/// everything else returns `None` so the header is omitted and Creem keeps its
+/// automatic customer-language localization (fail-open — an unknown app locale
+/// must never break checkout, and an unmapped value must never reach a header).
+fn creem_checkout_language(app_locale: Option<&str>) -> Option<&'static str> {
+    match app_locale? {
+        "en" => Some("en"),
+        "zh-CN" | "zh" => Some("zh"),
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub struct CreemClient {
     pub(crate) http: reqwest::Client,
@@ -95,13 +109,12 @@ impl CreemClient {
         let timing = timed_external_http_span(&self.base_url, "POST");
         let _span_enter = timing.span().enter();
 
-        let response = self
-            .http
-            .post(&url)
-            .header("x-api-key", &self.api_key)
-            .json(request)
-            .send()
-            .await?;
+        let mut request_builder = self.http.post(&url).header("x-api-key", &self.api_key);
+        if let Some(language) = creem_checkout_language(request.locale.as_deref()) {
+            request_builder = request_builder.header("X-Creem-Language", language);
+        }
+
+        let response = request_builder.json(request).send().await?;
 
         if !response.status().is_success() {
             let status = response.status();

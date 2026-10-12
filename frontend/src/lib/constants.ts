@@ -22,6 +22,14 @@ export const GITHUB_REPO_URL = 'https://github.com/timzaak/herald'
 export const BRAND_NAME = 'Herald'
 
 /**
+ * Official website linked from the default "Powered by Herald" footer on auth
+ * flow pages. Rendered only when a realm has not configured its own footer
+ * text, mirroring the white-label fallback rule (unconfigured field → default
+ * Herald presentation).
+ */
+export const BRAND_WEBSITE_URL = 'https://www.fornetcode.com'
+
+/**
  * Reserved client id of the per-realm built-in MCP client. The server rejects
  * generic field updates and deletion for it, so the UI must never mount the
  * generic edit form for this client.

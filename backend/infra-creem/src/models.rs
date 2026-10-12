@@ -9,6 +9,13 @@ pub struct CreateCheckoutRequest {
     pub customer: CreemCheckoutCustomer,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<std::collections::HashMap<String, String>>,
+    /// App locale tag (e.g. `en`, `zh-CN`); never part of the JSON body — the
+    /// client maps it to the undocumented-but-observed `X-Creem-Language`
+    /// request header so the hosted checkout page follows the app language.
+    /// Creem localizes automatically by customer language when absent.
+    /// Unrecognized values are dropped (fail-open).
+    #[serde(skip)]
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

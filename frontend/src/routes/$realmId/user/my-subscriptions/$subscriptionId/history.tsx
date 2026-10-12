@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { m } from '@/paraglide/messages'
 import { formatDateTimeShort } from '@/lib/date-utils'
 
-export const Route = createFileRoute('/$realmId/subscription/$subscriptionId/history')({
+export const Route = createFileRoute('/$realmId/user/my-subscriptions/$subscriptionId/history')({
   component: SubscriptionDetailHistoryRoute,
 })
 

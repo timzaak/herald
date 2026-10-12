@@ -168,8 +168,8 @@ async function navigateViaRouter(page: Page, path: string): Promise<boolean> {
  * Helper function to navigate to subscription detail history page
  */
 export async function navigateToSubscriptionDetailHistory(page: Page, realmId: string, subscriptionId: string): Promise<void> {
-  await page.goto(`/${realmId}/subscription/${subscriptionId}/history`)
-  await expect(page.getByTestId(SELECTORS.subscriptionDetailHistory.page)).toBeVisible()
+  await page.goto(`/${realmId}/user/my-subscriptions/${subscriptionId}/history`)
+  await expect(page.locator(SELECTORS.subscriptionDetailHistory.page)).toBeVisible()
 }
 
 /**

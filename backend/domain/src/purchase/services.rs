@@ -63,6 +63,13 @@ pub struct PreparePaymentAttemptInput {
     /// (DEC-wechat-support-009). Obtained out-of-band via the WeChat OAuth
     /// login flow.
     pub openid: Option<String>,
+    /// App locale tag chosen by the user in the frontend (e.g. `en`,
+    /// `zh-CN`). Forwarded to hosted checkout pages so the provider's page
+    /// language follows the app language instead of the buyer's browser
+    /// language. Provider clients map it to their own locale parameters and
+    /// drop unrecognized values (fail-open to the provider default); ignored
+    /// by wechat and the payment_intent flow, which render no hosted page.
+    pub locale: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

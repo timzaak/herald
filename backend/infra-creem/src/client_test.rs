@@ -49,6 +49,7 @@ async fn test_unit_create_checkout_session_success() {
             email: Some("test@example.com".to_string()),
         },
         metadata: None,
+        locale: None,
     };
 
     // Act
@@ -63,6 +64,69 @@ async fn test_unit_create_checkout_session_success() {
         "https://checkout.test.creem.io/abc123"
     );
     assert_eq!(session.status, "pending");
+}
+
+/// The hosted checkout page must follow the app locale the user picked, not
+/// Creem's automatic customer-language detection: the request locale is sent
+/// as the `X-Creem-Language` header (never as a body field — the body schema
+/// has no language parameter), mapped to Creem's tag (`zh-CN` -> `zh`).
+/// Locales without a known equivalent and absent locales send no header so
+/// checkout never breaks on an unmapped app locale (fail-open).
+#[tokio::test]
+async fn test_unit_create_checkout_session_language_header() {
+    let mock_server = MockServer::start().await;
+    let client = create_test_client(&mock_server);
+
+    Mock::given(method("POST"))
+        .and(path("/v1/checkouts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chk_lang",
+            "checkout_url": "https://checkout.test.creem.io/lang",
+            "status": "pending"
+        })))
+        .expect(3)
+        .mount(&mock_server)
+        .await;
+
+    let base_request = || CreateCheckoutRequest {
+        product_id: "prod_starter_monthly".to_string(),
+        success_url: Some("https://example.com/success".to_string()),
+        customer: crate::models::CreemCheckoutCustomer {
+            email: Some("test@example.com".to_string()),
+        },
+        metadata: None,
+        locale: None,
+    };
+
+    for app_locale in [Some("zh-CN"), Some("klingon"), None] {
+        let mut request = base_request();
+        request.locale = app_locale.map(|l| l.to_string());
+        client
+            .create_checkout_session(&request)
+            .await
+            .expect("checkout creation must not depend on the locale value");
+    }
+
+    let requests = mock_server
+        .received_requests()
+        .await
+        .expect("request recording should be enabled");
+    assert_eq!(requests.len(), 3);
+    for (request, expected) in requests.iter().zip([Some("zh"), None, None]) {
+        assert_eq!(
+            request
+                .headers
+                .get("x-creem-language")
+                .and_then(|v| v.to_str().ok()),
+            expected,
+            "app locale must map to the X-Creem-Language header or omit it entirely"
+        );
+        let body = String::from_utf8(request.body.clone()).unwrap();
+        assert!(
+            !body.contains("locale") && !body.contains("language"),
+            "language must stay out of the JSON body, got: {body}"
+        );
+    }
 }
 
 /// Test API authentication failure (401)
@@ -95,6 +159,7 @@ async fn test_unit_create_checkout_session_unauthorized() {
             email: Some("test@example.com".to_string()),
         },
         metadata: None,
+        locale: None,
     };
 
     // Act
@@ -135,6 +200,7 @@ async fn test_unit_create_checkout_session_invalid_json() {
             email: Some("test@example.com".to_string()),
         },
         metadata: None,
+        locale: None,
     };
 
     // Act

@@ -75,9 +75,6 @@ test.describe('[Regular User] Profile Management Comprehensive Demo Tests', () =
 
         // 验证昵称字段（昵称已改为可编辑表单，断言编辑输入框）
         await expect(page.locator('[data-testid="nickname-input"]')).toBeVisible()
-
-        // 验证状态字段（使用 data-testid 避免严格模式冲突）
-        await expect(page.locator('[data-testid="status-display"]')).toBeVisible()
       })
     })
 
@@ -92,20 +89,6 @@ test.describe('[Regular User] Profile Management Comprehensive Demo Tests', () =
 
         // Email 是纯文本显示，不是输入框（使用 data-testid 避免严格模式冲突）
         await expect(page.locator('[data-testid="email-display"]')).toBeVisible()
-      })
-    })
-
-    test('Scenario 2.3: 账号状态为只读字段', async ({ usersPage, demoLogger }) => {
-      await test.step('Given: 在个人资料页面', async () => {
-        await usersPage.page.goto('/admin/user/profile')
-        await expect(usersPage.page.getByText('Profile Information')).toBeVisible()
-      })
-
-      await test.step('Then: 状态字段为只读', async () => {
-        const page = usersPage.page
-
-        // 状态是纯文本显示（使用 data-testid 避免严格模式冲突）
-        await expect(page.locator('[data-testid="status-display"]')).toBeVisible()
       })
     })
   })

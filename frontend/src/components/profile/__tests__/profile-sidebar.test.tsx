@@ -59,7 +59,12 @@ describe('ProfileSidebar', () => {
       </LocaleProvider>
     )
 
-    expect(screen.getByTestId('profile-admin-console-link')).toHaveAttribute('href', '/manage')
+    const entry = screen.getByTestId('profile-admin-console-link')
+    expect(entry).toHaveAttribute('href', '/manage')
+    // The entry leads to the whole /manage console, so its label must say
+    // "Admin Console" — not "Dashboard", which names the console's landing
+    // page and misreads here as user-facing analytics.
+    expect(entry).toHaveTextContent('Admin Console')
   })
 
   it('does not expose the admin dashboard entry without an admin permission', () => {
@@ -118,7 +123,7 @@ describe('ProfileSidebar', () => {
 
     const entry = screen.getByTestId('profile-menu-subscription')
     expect(entry).toBeInTheDocument()
-    expect(entry).toHaveAttribute('href', '/subscription/my-subscriptions')
+    expect(entry).toHaveAttribute('href', '/user/my-subscriptions')
     expect(entry).toHaveTextContent('Subscription')
   })
 

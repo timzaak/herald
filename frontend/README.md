@@ -25,6 +25,9 @@ React（Vite）+ TanStack Router（文件式路由）+ TanStack Query + paraglid
 - 会话作用域根段（`manage`/`user`/`subscription`）不得被 root loader 当作 realm root
   处理，否则会把已认证管理员重定向回 `/manage` 形成自重定向循环
   （见 `isSessionScopedPath`）。
+- 裸根 `/`（不带任何前缀）的 realm 取自持久化的「上次访问 realm」：`useAuthStore`
+  的 `realmId` 由 `initializeAuth` 在进入 realm 页面时写入（匿名浏览也会记录），
+  登出后由 `logoutFlow` 保留；无记忆时回退 `admin`（见 `getLegacyRealmId`）。
 
 ## 其他入口
 

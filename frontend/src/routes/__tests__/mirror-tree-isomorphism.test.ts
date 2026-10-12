@@ -28,7 +28,7 @@ import { Route as RealPurchasePointsRoute } from '../$realmId/user/purchase-poin
 import { Route as RealUserSubscriptionHistoryRoute } from '../$realmId/user/subscription-history'
 import { Route as RealUserInvoicesRoute } from '../$realmId/user/invoices'
 import { Route as RealChangeEmailConfirmRoute } from '../$realmId/user/change-email/confirm'
-import { Route as RealMySubscriptionsRoute } from '../$realmId/subscription/my-subscriptions'
+import { Route as RealMySubscriptionsRoute } from '../$realmId/user/my-subscriptions'
 
 import { Route as MirrorUsersRoute } from '../manage/users'
 import { Route as MirrorRealmsRoute } from '../manage/realms'
@@ -55,7 +55,7 @@ import { Route as MirrorPurchasePointsRoute } from '../user/purchase-points'
 import { Route as MirrorUserSubscriptionHistoryRoute } from '../user/subscription-history'
 import { Route as MirrorUserInvoicesRoute } from '../user/invoices'
 import { Route as MirrorChangeEmailConfirmRoute } from '../user/change-email/confirm'
-import { Route as MirrorMySubscriptionsRoute } from '../subscription/my-subscriptions'
+import { Route as MirrorMySubscriptionsRoute } from '../user/my-subscriptions'
 
 /**
  * Guard-scheme isomorphism between the `$realmId/**` real tree and the
@@ -149,7 +149,7 @@ const MIRROR_PAIRS = [
     mirror: MirrorChangeEmailConfirmRoute,
   },
   {
-    path: 'subscription/my-subscriptions',
+    path: 'user/my-subscriptions',
     real: RealMySubscriptionsRoute,
     mirror: MirrorMySubscriptionsRoute,
   },

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   LayoutDashboard,
@@ -25,6 +25,12 @@ import { realmQueryOptions, featureAvailabilityQueryOptions } from '@/data/query
 import { filterByPermission } from '@/lib/utils/filter-by-permission'
 import { m } from '@/paraglide/messages'
 import { LanguageSwitcher } from '@/components/shared/language-switcher'
+import { SidebarMenuLabel } from '@/components/shared/sidebar-menu-label'
+import {
+  SIDEBAR_ITEM_ACTIVE_CLASS,
+  SIDEBAR_ITEM_ICON_CLASS,
+  sidebarItemClassName,
+} from '@/components/shared/sidebar-item-styles'
 import type { LucideIcon } from 'lucide-react'
 import { useLocation } from '@tanstack/react-router'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
@@ -37,54 +43,6 @@ interface MenuItem {
   permission: string | string[] | null
   visible?: boolean
   children?: MenuItem[]
-}
-
-/**
- * Menu label that reveals the full text in a floating tooltip — but only when
- * the label is actually clipped by the sidebar width. Mouse-only on purpose:
- * keyboard users already get the full text from the link/div content, so we
- * avoid adding redundant focusable tooltip triggers (no extra tab stops).
- *
- * The tooltip is `position: fixed` so it escapes the nav's overflow clipping.
- */
-function SidebarMenuLabel({ label, className }: { label: string; className?: string }) {
-  const textRef = useRef<HTMLSpanElement>(null)
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
-
-  const show = () => {
-    const el = textRef.current
-    // Only show when the text is genuinely truncated (scrollWidth > clientWidth).
-    if (!el || el.scrollWidth <= el.clientWidth) return
-    const rect = el.getBoundingClientRect()
-    setCoords({ top: rect.top + rect.height / 2, left: rect.right + 8 })
-  }
-
-  return (
-    <>
-      <span
-        ref={textRef}
-        className={className}
-        onMouseEnter={show}
-        onMouseLeave={() => setCoords(null)}
-      >
-        {label}
-      </span>
-      {coords && (
-        <div
-          role="tooltip"
-          style={{
-            position: 'fixed',
-            top: coords.top,
-            left: coords.left,
-            transform: 'translateY(-50%)',
-          }}
-          className="pointer-events-none z-50 max-w-[240px] rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-md animate-in fade-in-0 zoom-in-95"
-        >
-          {label}
-        </div>
-      )}
-    </>
-  )
 }
 
 export function Sidebar() {
@@ -328,15 +286,12 @@ export function Sidebar() {
         {!hasChildren && item.path ? (
           <Link
             to={item.path}
-            className={`group relative flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/70 transition-all duration-150 hover:bg-sidebar-accent hover:text-sidebar-foreground ${paddingLeft}`}
-            activeProps={{
-              className:
-                'bg-sidebar-accent text-sidebar-foreground font-semibold before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-sidebar-primary',
-            }}
+            className={sidebarItemClassName(false, paddingLeft)}
+            activeProps={{ className: SIDEBAR_ITEM_ACTIVE_CLASS }}
             activeOptions={{ exact: true }}
             data-testid={`sidebar-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
           >
-            <Icon className="size-[18px] shrink-0 opacity-60 group-hover:opacity-100 group-[.font-semibold]:opacity-100 transition-opacity" />
+            <Icon className={SIDEBAR_ITEM_ICON_CLASS} />
             <SidebarMenuLabel label={label} className="truncate" />
           </Link>
         ) : (
@@ -346,7 +301,7 @@ export function Sidebar() {
             data-testid={`sidebar-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
             aria-expanded={hasChildren ? isOpen : undefined}
           >
-            <Icon className="size-[18px] shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
+            <Icon className={SIDEBAR_ITEM_ICON_CLASS} />
             <SidebarMenuLabel label={label} className="flex-1 truncate" />
             {hasChildren && (
               <ChevronDown

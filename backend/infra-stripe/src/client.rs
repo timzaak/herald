@@ -10,6 +10,18 @@ use std::time::Duration;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Map an app locale tag to Stripe's checkout `locale` value. Only locales we
+/// know a Stripe equivalent for are forwarded; everything else returns `None`
+/// so the parameter is omitted and Stripe auto-detects from the buyer's
+/// browser (Stripe has no `zh-CN` — simplified Chinese is plain `zh`).
+fn stripe_checkout_locale(app_locale: Option<&str>) -> Option<&'static str> {
+    match app_locale? {
+        "en" => Some("en"),
+        "zh-CN" | "zh" => Some("zh"),
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub struct StripeClient {
     pub(crate) http: reqwest::Client,
@@ -167,6 +179,10 @@ impl StripeClient {
 
         if let Some(customer_email) = &request.customer_email {
             form_fields.push(("customer_email".to_string(), customer_email.clone()));
+        }
+
+        if let Some(locale) = stripe_checkout_locale(request.locale.as_deref()) {
+            form_fields.push(("locale".to_string(), locale.to_string()));
         }
 
         // Line items[0] — reference the REAL Stripe Price when available
@@ -918,6 +934,7 @@ mod tests {
                 price_id: None, // price-less fallback -> price_data
                 realm_id: "realm-1".to_string(),
                 webhook_url: None,
+                locale: None,
                 metadata: Some(std::collections::HashMap::from([(
                     "source".to_string(),
                     "web".to_string(),
@@ -1002,6 +1019,83 @@ mod tests {
             form.get("subscription_data[trial_period_days]"),
             Some(&"14".to_string())
         );
+        // No app locale on the request -> no locale field: Stripe must keep
+        // its browser-locale auto-detection (fail-open).
+        assert!(
+            !form.contains_key("locale"),
+            "locale must be omitted when the request carries none"
+        );
+    }
+
+    /// The hosted checkout page must follow the app locale the user picked,
+    /// not their browser language: the request locale is mapped to Stripe's
+    /// own tag (`zh-CN` -> `zh`; Stripe has no `zh-CN`). Locales without a
+    /// known Stripe equivalent are dropped so checkout never breaks on an
+    /// unmapped app locale (fail-open to browser auto-detection).
+    #[tokio::test]
+    async fn test_create_checkout_session_locale_mapping() {
+        let mock_server = MockServer::start().await;
+        let client =
+            StripeClient::with_base_url("sk_test_123".to_string(), mock_server.uri(), 30).unwrap();
+
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "cs_test_locale",
+                "url": "https://checkout.stripe.com/test",
+                "customer": null,
+                "status": "open",
+                "payment_intent": null,
+                "subscription": null,
+                "metadata": {}
+            })))
+            .expect(3)
+            .mount(&mock_server)
+            .await;
+
+        let base_request = || CreateCheckoutRequest {
+            client_app_id: uuid::Uuid::now_v7(),
+            mapping_id: uuid::Uuid::now_v7(),
+            user_id: None,
+            customer_email: None,
+            success_url: "https://example.com/success".to_string(),
+            cancel_url: "https://example.com/cancel".to_string(),
+            billing_period: "monthly".to_string(),
+            trial_days: None,
+            price_amount: 1999,
+            currency: "usd".to_string(),
+            plan_name: "Pro Plan".to_string(),
+            price_id: None,
+            realm_id: "realm-1".to_string(),
+            webhook_url: None,
+            metadata: None,
+            mode: None,
+            locale: None,
+        };
+
+        for app_locale in [Some("zh-CN"), Some("en"), Some("klingon")] {
+            let mut request = base_request();
+            request.locale = app_locale.map(|l| l.to_string());
+            client
+                .create_checkout_session(&request)
+                .await
+                .expect("checkout session should be created");
+        }
+
+        let requests = mock_server
+            .received_requests()
+            .await
+            .expect("request recording should be enabled");
+        assert_eq!(requests.len(), 3);
+        for (request, expected) in requests.iter().zip([Some("zh"), Some("en"), None]) {
+            let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&request.body)
+                .into_owned()
+                .collect();
+            assert_eq!(
+                form.get("locale").map(|s| s.as_str()),
+                expected,
+                "app locale must map to Stripe's locale or be omitted entirely"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1177,6 +1271,7 @@ mod tests {
                 price_id: None, // price-less fallback -> price_data
                 realm_id: "realm-2".to_string(),
                 webhook_url: None,
+                locale: None,
                 metadata: Some(std::collections::HashMap::from([(
                     "source".to_string(),
                     "one-time".to_string(),
@@ -1313,6 +1408,7 @@ mod tests {
                 price_id: None, // price-less fallback -> price_data
                 realm_id: "realm-3".to_string(),
                 webhook_url: None,
+                locale: None,
                 metadata: None,
                 mode: None, // subscription mode (default)
             })
@@ -1423,6 +1519,7 @@ mod tests {
             price_id: Some("price_real_abc".to_string()), // real Price reference
             realm_id: "realm-x".to_string(),
             webhook_url: None,
+            locale: None,
             metadata: None,
             mode: None, // subscription mode
         };
@@ -1511,6 +1608,7 @@ mod tests {
             price_id: None, // price-less fallback -> price_data
             realm_id: "realm-x".to_string(),
             webhook_url: None,
+            locale: None,
             metadata: None,
             mode: None, // subscription mode
         };

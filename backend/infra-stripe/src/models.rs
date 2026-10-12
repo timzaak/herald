@@ -75,6 +75,12 @@ pub struct CreateCheckoutRequest {
     /// Checkout mode: "subscription" (default) or "payment" (one-time)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// App locale tag (e.g. `en`, `zh-CN`) mapped to Stripe's `locale`
+    /// checkout parameter so the hosted page follows the app language.
+    /// Mapped by the client; unrecognized values are dropped (Stripe then
+    /// auto-detects from the buyer's browser).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
 }
 
 /// Request to create a Stripe payment intent.

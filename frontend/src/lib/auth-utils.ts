@@ -541,6 +541,11 @@ export async function logoutFlow(realmId: string): Promise<void> {
 
     clearAuthStorage()
 
+    // Logout wipes tokens and user state, but the last-visited realm memory
+    // survives: re-persist it so a later bare-origin visit lands back on this
+    // realm's login page instead of the hardcoded admin default.
+    store.setAuthStatus(false, realmId)
+
     // Navigate to login page - use window.location for simple redirect
     // since we need to reload the page to properly clear in-memory state.
     const realmContext = resolvedRealmFromPath(window.location.pathname)

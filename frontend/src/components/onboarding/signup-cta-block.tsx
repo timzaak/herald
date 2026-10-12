@@ -28,31 +28,31 @@ export function SignupCtaBlock({ realmContext }: SignupCtaBlockProps) {
     return null
   }
 
-  // Always-dark instrument panel so the storefront's one festive moment uses
-  // the gold-foil vocabulary the paper page cannot: gold highlight text, a
-  // gold hairline button, and the LED glint — all sanctioned on dark panels
-  // only (DESIGN.md §1 金箔法则). The button stays outlined so the login
-  // submit below remains the view's single solid primary.
+  // Paper-side inset panel (paper-deep inset + rule hairline, DESIGN.md §2.1
+  // 次级底/内嵌面): the storefront moment stays subordinate to the login form —
+  // on auth vendors' login pages the signup entry is a quiet secondary action,
+  // never an auto-opening dialog interrupting the admin who came to sign in.
+  // Gold stays foil: only the Rocket icon carries kinpaku-deep, the sole
+  // readable gold for decorative detail on paper (§2.2); gold text, gold
+  // borders and LED glow belong to dark instrument panels only (§1 金箔法则,
+  // §2.6 scopes those panels to the sidebar and code/key surfaces). The
+  // standard outline button keeps the login submit below the view's single
+  // solid primary (§1.2 一个赢家).
   return (
     <div
       data-testid="signup-cta-block"
-      className="mb-6 w-full rounded-lg bg-instrument p-5 shadow-led"
+      className="mb-6 w-full rounded-lg border border-border bg-secondary p-5"
     >
       <div className="flex items-center gap-2">
-        <Rocket className="size-4 text-gold" aria-hidden="true" />
-        <h2 className="text-sm font-semibold tracking-tight text-gold">
+        <Rocket className="size-4 text-gold-deep" aria-hidden="true" />
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">
           {m['auth.login.signup_cta_title']()}
         </h2>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-instrument-muted">
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {m['auth.login.signup_cta_description']()}
       </p>
-      <Button
-        asChild
-        variant="outline"
-        className="mt-4 h-11 w-full border-gold/60 bg-transparent text-gold hover:bg-gold/10 hover:text-gold"
-        data-testid="signup-cta-link"
-      >
+      <Button asChild variant="outline" className="mt-4 h-11 w-full" data-testid="signup-cta-link">
         <Link to={realmPath(realmContext, '/auth/signup')}>
           {m['auth.login.signup_cta_link']()}
         </Link>

@@ -19,6 +19,7 @@ import {
   applyTokenSet,
   HERALD_REFRESH_TOKEN_STORAGE_KEY,
 } from '@/lib/herald-client'
+import { getLegacyRealmId } from '@/lib/realm-routing'
 import { AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
 import { TOKEN_FIXTURE } from '@/test/fixtures/browser-token'
 
@@ -124,6 +125,32 @@ describe('logout() / reset() / clearAuthStorage() purge the store state', () => 
     const snapshot = readPersistedSnapshot()
     expect(snapshot.refreshClientId).toBeUndefined()
     expect(snapshot.pkceState).toBeUndefined()
+  })
+})
+
+describe('logout keeps the last-visited realm memory (bare-origin landing contract)', () => {
+  it('the logoutFlow persistence sequence leaves only the realm behind — no tokens, user, or PKCE residue — and the bare root resolves back to it', () => {
+    seedSession()
+
+    // logoutFlow's finally block, in order (auth-utils.ts): SDK token clear,
+    // store reset, persisted-storage wipe, then the realm-memory re-persist.
+    getActiveHeraldClient()?.tokens.clear()
+    useAuthStore.getState().reset()
+    clearAuthStorage()
+    useAuthStore.getState().setAuthStatus(false, TEST_REALM)
+
+    // The memory — and only the memory — survives the logout.
+    const snapshot = readPersistedSnapshot()
+    expect(snapshot.realmId).toBe(TEST_REALM)
+    expect(snapshot.isAuthenticated).toBe(false)
+    expect(snapshot.refreshClientId).toBeNull()
+    expect(snapshot.pkceState).toBeNull()
+    expect(snapshot.user).toBeNull()
+    expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBeNull()
+
+    // So a later bare-origin visit lands back on the logged-out realm's
+    // login page instead of the hardcoded admin default.
+    expect(getLegacyRealmId('/')).toBe(TEST_REALM)
   })
 })
 

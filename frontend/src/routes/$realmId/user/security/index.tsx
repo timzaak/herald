@@ -46,6 +46,11 @@ export function ProfileSecurity() {
   const passkeyEnabled = userFeatureAvailability?.user.passkeyEnabled ?? false
   const totpEnabled = userFeatureAvailability?.user.totpEnabled ?? false
   const totpForceEnabled = userFeatureAvailability?.user.totpForceEnabled ?? false
+  // The password tab is the only always-present one; with TOTP and Passkey both
+  // disabled it would sit alone above the "Change Password" heading — a tab
+  // that switches nothing. Hide the whole tab bar then and show the form
+  // directly.
+  const hasFeatureTabs = totpEnabled || passkeyEnabled
 
   // TOTP force-mode guidance (totp PRD §5.2): when the realm forces TOTP and
   // this user has none configured, surface a prompt pointing at the setup
@@ -119,29 +124,31 @@ export function ProfileSecurity() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex w-full md:inline-flex md:w-auto">
-          <TabsTrigger
-            value="password"
-            className="flex-1 md:flex-initial"
-            data-testid="password-tab"
-          >
-            {m['profile.password_tab']()}
-          </TabsTrigger>
-          {totpEnabled && (
-            <TabsTrigger value="totp" className="flex-1 md:flex-initial" data-testid="totp-tab">
-              {m['profile.totp_tab']()}
-            </TabsTrigger>
-          )}
-          {passkeyEnabled && (
+        {hasFeatureTabs && (
+          <TabsList className="flex w-full md:inline-flex md:w-auto">
             <TabsTrigger
-              value="passkey"
+              value="password"
               className="flex-1 md:flex-initial"
-              data-testid="passkey-tab"
+              data-testid="password-tab"
             >
-              {m['profile.passkey_tab']()}
+              {m['profile.password_tab']()}
             </TabsTrigger>
-          )}
-        </TabsList>
+            {totpEnabled && (
+              <TabsTrigger value="totp" className="flex-1 md:flex-initial" data-testid="totp-tab">
+                {m['profile.totp_tab']()}
+              </TabsTrigger>
+            )}
+            {passkeyEnabled && (
+              <TabsTrigger
+                value="passkey"
+                className="flex-1 md:flex-initial"
+                data-testid="passkey-tab"
+              >
+                {m['profile.passkey_tab']()}
+              </TabsTrigger>
+            )}
+          </TabsList>
+        )}
         <TabsContent value="password" data-testid="password-section-title">
           <ChangePasswordForm />
         </TabsContent>

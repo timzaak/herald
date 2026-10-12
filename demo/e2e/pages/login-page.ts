@@ -9,6 +9,7 @@
 import { Page, Locator, expect, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
+import { dismissOnboardingWelcomeDialogIfPresent } from '../helpers/onboarding-dismiss'
 import type { UnifiedLogger } from '../helpers/unified-logger'
 
 /**
@@ -380,6 +381,13 @@ export class LoginPage extends BasePage {
     console.log(`[LoginPage] auth-storage persisted (length=${authStorage.length})`)
 
     await expect(this.page).toHaveURL(/\/manage(?:\/|\?|$)/)
+
+    // Same contract as helpers/auth.ts loginAsAdmin: every fresh browser
+    // context lacks the onboarding completion marker, so the modal welcome
+    // dialog mounts on the console and intercepts every click until dismissed.
+    // Guidance demos that must keep the dialog use the auth helpers with
+    // dismissOnboarding: false instead of this page object.
+    await dismissOnboardingWelcomeDialogIfPresent(this.page)
 
     return userId
   }

@@ -229,7 +229,7 @@ describe('AuthPageWrapper', () => {
   })
 
   describe('footer', () => {
-    it('GIVEN footerText present WHEN rendering THEN renders the footer', async () => {
+    it('GIVEN footerText present WHEN rendering THEN renders the footer and suppresses the default Powered by link', async () => {
       const screen = render(
         <AuthPageWrapper whiteLabel={{ footerText: 'Example Inc.' }}>
           <div>child</div>
@@ -238,15 +238,37 @@ describe('AuthPageWrapper', () => {
       const footer = screen.getByTestId('auth-brand-footer')
       expect(footer).toBeInTheDocument()
       expect(footer).toHaveTextContent('Example Inc.')
+      // The tenant's own footer replaces the vendor default — the white-label
+      // promise is that a configured realm presents its brand, not ours.
+      expect(screen.queryByTestId('auth-powered-by')).not.toBeInTheDocument()
     })
 
-    it('GIVEN no footerText WHEN rendering THEN does not render the footer', async () => {
+    it('GIVEN no footerText WHEN rendering THEN shows the default Powered by link, not the tenant footer slot', async () => {
       const screen = render(
         <AuthPageWrapper whiteLabel={{}}>
           <div>child</div>
         </AuthPageWrapper>
       )
+      const poweredBy = screen.getByTestId('auth-powered-by')
+      expect(poweredBy).toBeInTheDocument()
+      expect(poweredBy).toHaveTextContent('Powered by Herald')
       expect(screen.queryByTestId('auth-brand-footer')).not.toBeInTheDocument()
+    })
+
+    it('GIVEN the default Powered by link WHEN rendering THEN opens the official site in a new tab with noopener', async () => {
+      // Users reach this footer mid-login, typing credentials into the page;
+      // the link must never navigate this tab away, and `noopener` keeps the
+      // opened site from controlling it back via window.opener.
+      const screen = render(
+        <AuthPageWrapper whiteLabel={{}}>
+          <div>child</div>
+        </AuthPageWrapper>
+      )
+      const link = screen.getByTestId('auth-powered-by').querySelector('a')
+      expect(link).not.toBeNull()
+      expect(link).toHaveAttribute('href', 'https://www.fornetcode.com')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     })
   })
 

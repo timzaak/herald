@@ -194,6 +194,7 @@ where
         let flow = input.flow;
         let payment_scene = input.payment_scene.clone();
         let openid = input.openid.clone();
+        let locale = input.locale.clone();
         let prepared = self.prepare_payment_attempt(input).await?;
         let attempt_expires_at = prepared.attempt.expires_at;
         let (provider_reference, context) = self
@@ -209,6 +210,7 @@ where
                 user_email.as_deref(),
                 payment_scene.as_deref(),
                 openid.as_deref(),
+                locale.as_deref(),
                 attempt_expires_at,
             )
             .await?;
@@ -514,6 +516,7 @@ where
         user_email: Option<&str>,
         payment_scene: Option<&str>,
         openid: Option<&str>,
+        locale: Option<&str>,
         attempt_expires_at: chrono::DateTime<chrono::Utc>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
         validate_flow_combination(payment_provider, target.billing_type.clone(), flow)?;
@@ -527,6 +530,7 @@ where
                     target,
                     attempt_id,
                     user_email,
+                    locale,
                 )
                 .await
             }
@@ -540,6 +544,7 @@ where
                     attempt_id,
                     flow,
                     user_email,
+                    locale,
                 )
                 .await
             }
@@ -568,6 +573,7 @@ where
         target: &PurchaseTargetSnapshot,
         attempt_id: Uuid,
         user_email: Option<&str>,
+        locale: Option<&str>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
         let product_id = target.provider_external_product_id.clone().ok_or_else(|| {
             CoreError::Conflict("Creem product mapping missing external_product_id".into())
@@ -595,6 +601,7 @@ where
                     ),
                 },
                 metadata: Some(metadata),
+                locale: locale.map(|l| l.to_string()),
             })
             .await
             .map_err(|e| {
@@ -625,6 +632,7 @@ where
         attempt_id: Uuid,
         flow: PaymentFlow,
         user_email: Option<&str>,
+        locale: Option<&str>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
         let client = self.get_stripe_client_for_realm(realm_id).await?;
 
@@ -708,6 +716,7 @@ where
                         )),
                         metadata: Some(metadata),
                         mode,
+                        locale: locale.map(|l| l.to_string()),
                     })
                     .await
                     .map_err(|e| {

@@ -14,7 +14,7 @@ import { Route as SubscriptionsRoute } from '../manage/billing/subscriptions'
 import { Route as EntitlementMappingsRoute } from '../manage/billing/entitlement-mappings'
 import { Route as CreditBucketsRoute } from '../manage/billing/credit-buckets'
 import { Route as ManageSubscriptionHistoryRoute } from '../manage/subscription-history'
-import { Route as MySubscriptionsRoute } from '../subscription/my-subscriptions'
+import { Route as MySubscriptionsRoute } from '../user/my-subscriptions'
 import { Route as UserInvoicesRoute } from '../user/invoices'
 import { Route as UserPointsRoute } from '../user/points'
 import { Route as PurchasePointsRoute } from '../user/purchase-points'
@@ -114,7 +114,7 @@ const FEATURE_GATED_ROUTES = [
     beforeLoad: beforeLoadOf(ManageSubscriptionHistoryRoute),
   },
   {
-    name: '/$realmId/subscription/my-subscriptions',
+    name: '/$realmId/user/my-subscriptions',
     clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
     beforeLoad: beforeLoadOf(MySubscriptionsRoute),
   },

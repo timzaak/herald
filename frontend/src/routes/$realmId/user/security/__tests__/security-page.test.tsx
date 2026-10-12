@@ -138,4 +138,18 @@ describe('ProfileSecurity', () => {
 
     expect(screen.queryByTestId('totp-status-card')).not.toBeInTheDocument()
   })
+
+  it('GIVEN totp and passkey both disabled THEN hides the tab bar so the lone password tab cannot duplicate the change-password heading', async () => {
+    renderSecurityPage({ totpEnabled: false, passkeyEnabled: false })
+
+    // The form stays directly reachable without a tab bar.
+    expect(await screen.findByTestId('change-password-form')).toBeInTheDocument()
+    expect(screen.queryByTestId('tabs-list')).not.toBeInTheDocument()
+  })
+
+  it('GIVEN at least one feature tab THEN renders the tab bar so password stays switchable', async () => {
+    renderSecurityPage({ totpEnabled: true, passkeyEnabled: false })
+
+    expect(await screen.findByTestId('tabs-list')).toBeInTheDocument()
+  })
 })

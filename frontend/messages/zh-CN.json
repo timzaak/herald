@@ -118,7 +118,8 @@
     "points": "积分",
     "subscription": "订阅",
     "invoices": "发票",
-    "purchase_records": "购买记录"
+    "purchase_records": "购买记录",
+    "admin_console": "管理控制台"
   },
   "user_menu": {
     "profile": "个人资料",
@@ -126,6 +127,7 @@
     "logout": "退出登录"
   },
   "auth": {
+    "powered_by": "由 {name} 提供支持",
     "login": {
       "title": "登录",
       "username_or_email": "用户名或邮箱",
@@ -458,9 +460,6 @@
     "nickname_label": "昵称",
     "nickname_not_set": "未设置",
     "nickname_updated_success": "昵称已更新",
-    "status_label": "状态",
-    "status_normal": "正常",
-    "status_other": "其他",
     "subscription_status_title": "订阅状态",
     "no_subscriptions_message": "您没有任何包含订阅的客户端应用。",
     "security_page_title": "安全设置",
@@ -1194,6 +1193,8 @@
     "email_from_address_label": "发件地址",
     "email_api_key_label": "API 密钥",
     "email_api_key_help": "输入新的 API 密钥以替换现有密钥",
+    "email_resend_quota_hint": "Resend 免费套餐每天可发送 100 封邮件，每月 3,000 封，支持绑定 1 个自定义域名。",
+    "email_resend_quota_link": "前往 Resend 官网",
     "email_smtp_host_label": "SMTP 主机",
     "email_smtp_port_label": "端口",
     "email_smtp_encryption_label": "加密方式",

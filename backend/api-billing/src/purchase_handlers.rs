@@ -54,6 +54,11 @@ pub struct CreatePaymentAttemptRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(custom(function = "validate_payment_flow"))]
     pub flow: Option<String>,
+    /// App locale tag (e.g. `en`, `zh-CN`) used to localize the provider's
+    /// hosted checkout page. Unrecognized values are dropped by the provider
+    /// clients (fail-open to the provider default language).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -349,6 +354,7 @@ pub async fn create_payment_attempt(
             flow,
             payment_scene: input.payment_scene,
             openid: input.openid,
+            locale: input.locale,
         })
         .await
         .map_err(|e| map_purchase_error_to_api_error(e, "Create payment attempt"))?;

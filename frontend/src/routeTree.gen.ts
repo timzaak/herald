@@ -23,8 +23,8 @@ import { Route as UserSecurityRouteImport } from './routes/user/security'
 import { Route as UserPurchasePointsRouteImport } from './routes/user/purchase-points'
 import { Route as UserProfileRouteImport } from './routes/user/profile'
 import { Route as UserPointsRouteImport } from './routes/user/points'
+import { Route as UserMySubscriptionsRouteImport } from './routes/user/my-subscriptions'
 import { Route as UserInvoicesRouteImport } from './routes/user/invoices'
-import { Route as SubscriptionMySubscriptionsRouteImport } from './routes/subscription/my-subscriptions'
 import { Route as ManageUsersRouteImport } from './routes/manage/users'
 import { Route as ManageSubscriptionHistoryRouteImport } from './routes/manage/subscription-history'
 import { Route as ManageSubscriptionRouteImport } from './routes/manage/subscription'
@@ -50,6 +50,7 @@ import { Route as RealmIdManageRouteRouteImport } from './routes/$realmId/manage
 import { Route as RealmIdLegalRouteRouteImport } from './routes/$realmId/legal/route'
 import { Route as RealmIdAuthRouteRouteImport } from './routes/$realmId/auth/route'
 import { Route as UserSecurityIndexRouteImport } from './routes/user/security/index'
+import { Route as UserMySubscriptionsIndexRouteImport } from './routes/user/my-subscriptions/index'
 import { Route as UserInvoicesIndexRouteImport } from './routes/user/invoices/index'
 import { Route as ManageClientAppsIndexRouteImport } from './routes/manage/client-apps/index'
 import { Route as ManageAuditIndexRouteImport } from './routes/manage/audit/index'
@@ -76,8 +77,8 @@ import { Route as RealmIdUserSecurityRouteImport } from './routes/$realmId/user/
 import { Route as RealmIdUserPurchasePointsRouteImport } from './routes/$realmId/user/purchase-points'
 import { Route as RealmIdUserProfileRouteImport } from './routes/$realmId/user/profile'
 import { Route as RealmIdUserPointsRouteImport } from './routes/$realmId/user/points'
+import { Route as RealmIdUserMySubscriptionsRouteImport } from './routes/$realmId/user/my-subscriptions'
 import { Route as RealmIdUserInvoicesRouteImport } from './routes/$realmId/user/invoices'
-import { Route as RealmIdSubscriptionMySubscriptionsRouteImport } from './routes/$realmId/subscription/my-subscriptions'
 import { Route as RealmIdManageUsersRouteImport } from './routes/$realmId/manage/users'
 import { Route as RealmIdManageSubscriptionHistoryRouteImport } from './routes/$realmId/manage/subscription-history'
 import { Route as RealmIdManageSubscriptionRouteImport } from './routes/$realmId/manage/subscription'
@@ -102,6 +103,7 @@ import { Route as ManageBillingInvoicesIndexRouteImport } from './routes/manage/
 import { Route as ManageBillingEntitlementMappingsIndexRouteImport } from './routes/manage/billing/entitlement-mappings/index'
 import { Route as ManageBillingCreditBucketsIndexRouteImport } from './routes/manage/billing/credit-buckets/index'
 import { Route as RealmIdUserSecurityIndexRouteImport } from './routes/$realmId/user/security/index'
+import { Route as RealmIdUserMySubscriptionsIndexRouteImport } from './routes/$realmId/user/my-subscriptions/index'
 import { Route as RealmIdUserInvoicesIndexRouteImport } from './routes/$realmId/user/invoices/index'
 import { Route as RealmIdManageClientAppsIndexRouteImport } from './routes/$realmId/manage/client-apps/index'
 import { Route as RealmIdManageAuditIndexRouteImport } from './routes/$realmId/manage/audit/index'
@@ -119,7 +121,6 @@ import { Route as ManageApiKeysApiKeyIdEditRouteImport } from './routes/manage/a
 import { Route as RealmIdUserSecurityTotpSetupRouteImport } from './routes/$realmId/user/security/totp-setup'
 import { Route as RealmIdUserInvoicesNewRouteImport } from './routes/$realmId/user/invoices/new'
 import { Route as RealmIdUserChangeEmailConfirmRouteImport } from './routes/$realmId/user/change-email/confirm'
-import { Route as RealmIdSubscriptionSubscriptionIdHistoryRouteImport } from './routes/$realmId/subscription/$subscriptionId/history'
 import { Route as RealmIdManagePointsWalletsRouteImport } from './routes/$realmId/manage/points/wallets'
 import { Route as RealmIdManagePointsRegistrationRulesRouteImport } from './routes/$realmId/manage/points/registration-rules'
 import { Route as RealmIdManagePointsDefaultConfigRouteImport } from './routes/$realmId/manage/points/default-config'
@@ -137,6 +138,7 @@ import { Route as RealmIdManageBillingInvoicesIndexRouteImport } from './routes/
 import { Route as RealmIdManageBillingEntitlementMappingsIndexRouteImport } from './routes/$realmId/manage/billing/entitlement-mappings/index'
 import { Route as RealmIdManageBillingCreditBucketsIndexRouteImport } from './routes/$realmId/manage/billing/credit-buckets/index'
 import { Route as ManageBillingInvoicesInvoiceIdEditRouteImport } from './routes/manage/billing/invoices/$invoiceId.edit'
+import { Route as RealmIdUserMySubscriptionsSubscriptionIdHistoryRouteImport } from './routes/$realmId/user/my-subscriptions/$subscriptionId/history'
 import { Route as RealmIdManageClientAppsClientAppIdEditRouteImport } from './routes/$realmId/manage/client-apps/$clientAppId.edit'
 import { Route as RealmIdManageBillingPaymentProvidersWechatRouteImport } from './routes/$realmId/manage/billing/payment-providers/wechat'
 import { Route as RealmIdManageBillingPaymentProvidersStripeRouteImport } from './routes/$realmId/manage/billing/payment-providers/stripe'
@@ -219,17 +221,16 @@ const UserPointsRoute = UserPointsRouteImport.update({
   path: '/points',
   getParentRoute: () => UserRouteRoute,
 } as any)
+const UserMySubscriptionsRoute = UserMySubscriptionsRouteImport.update({
+  id: '/my-subscriptions',
+  path: '/my-subscriptions',
+  getParentRoute: () => UserRouteRoute,
+} as any)
 const UserInvoicesRoute = UserInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
   getParentRoute: () => UserRouteRoute,
 } as any)
-const SubscriptionMySubscriptionsRoute =
-  SubscriptionMySubscriptionsRouteImport.update({
-    id: '/subscription/my-subscriptions',
-    path: '/subscription/my-subscriptions',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ManageUsersRoute = ManageUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -356,6 +357,12 @@ const UserSecurityIndexRoute = UserSecurityIndexRouteImport.update({
   path: '/',
   getParentRoute: () => UserSecurityRoute,
 } as any)
+const UserMySubscriptionsIndexRoute =
+  UserMySubscriptionsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => UserMySubscriptionsRoute,
+  } as any)
 const UserInvoicesIndexRoute = UserInvoicesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -494,17 +501,17 @@ const RealmIdUserPointsRoute = RealmIdUserPointsRouteImport.update({
   path: '/points',
   getParentRoute: () => RealmIdUserRouteRoute,
 } as any)
+const RealmIdUserMySubscriptionsRoute =
+  RealmIdUserMySubscriptionsRouteImport.update({
+    id: '/my-subscriptions',
+    path: '/my-subscriptions',
+    getParentRoute: () => RealmIdUserRouteRoute,
+  } as any)
 const RealmIdUserInvoicesRoute = RealmIdUserInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
   getParentRoute: () => RealmIdUserRouteRoute,
 } as any)
-const RealmIdSubscriptionMySubscriptionsRoute =
-  RealmIdSubscriptionMySubscriptionsRouteImport.update({
-    id: '/subscription/my-subscriptions',
-    path: '/subscription/my-subscriptions',
-    getParentRoute: () => RealmIdRouteRoute,
-  } as any)
 const RealmIdManageUsersRoute = RealmIdManageUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -636,6 +643,12 @@ const RealmIdUserSecurityIndexRoute =
     path: '/',
     getParentRoute: () => RealmIdUserSecurityRoute,
   } as any)
+const RealmIdUserMySubscriptionsIndexRoute =
+  RealmIdUserMySubscriptionsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => RealmIdUserMySubscriptionsRoute,
+  } as any)
 const RealmIdUserInvoicesIndexRoute =
   RealmIdUserInvoicesIndexRouteImport.update({
     id: '/',
@@ -735,12 +748,6 @@ const RealmIdUserChangeEmailConfirmRoute =
     id: '/change-email/confirm',
     path: '/change-email/confirm',
     getParentRoute: () => RealmIdUserRouteRoute,
-  } as any)
-const RealmIdSubscriptionSubscriptionIdHistoryRoute =
-  RealmIdSubscriptionSubscriptionIdHistoryRouteImport.update({
-    id: '/subscription/$subscriptionId/history',
-    path: '/subscription/$subscriptionId/history',
-    getParentRoute: () => RealmIdRouteRoute,
   } as any)
 const RealmIdManagePointsWalletsRoute =
   RealmIdManagePointsWalletsRouteImport.update({
@@ -843,6 +850,12 @@ const ManageBillingInvoicesInvoiceIdEditRoute =
     path: '/$invoiceId/edit',
     getParentRoute: () => ManageBillingInvoicesRoute,
   } as any)
+const RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute =
+  RealmIdUserMySubscriptionsSubscriptionIdHistoryRouteImport.update({
+    id: '/$subscriptionId/history',
+    path: '/$subscriptionId/history',
+    getParentRoute: () => RealmIdUserMySubscriptionsRoute,
+  } as any)
 const RealmIdManageClientAppsClientAppIdEditRoute =
   RealmIdManageClientAppsClientAppIdEditRouteImport.update({
     id: '/$clientAppId/edit',
@@ -942,8 +955,8 @@ export interface FileRoutesByFullPath {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
-  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/invoices': typeof UserInvoicesRouteWithChildren
+  '/user/my-subscriptions': typeof UserMySubscriptionsRouteWithChildren
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
   '/user/purchase-points': typeof UserPurchasePointsRoute
@@ -970,8 +983,8 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/subscription': typeof RealmIdManageSubscriptionRoute
   '/$realmId/manage/subscription-history': typeof RealmIdManageSubscriptionHistoryRoute
   '/$realmId/manage/users': typeof RealmIdManageUsersRoute
-  '/$realmId/subscription/my-subscriptions': typeof RealmIdSubscriptionMySubscriptionsRoute
   '/$realmId/user/invoices': typeof RealmIdUserInvoicesRouteWithChildren
+  '/$realmId/user/my-subscriptions': typeof RealmIdUserMySubscriptionsRouteWithChildren
   '/$realmId/user/points': typeof RealmIdUserPointsRoute
   '/$realmId/user/profile': typeof RealmIdUserProfileRoute
   '/$realmId/user/purchase-points': typeof RealmIdUserPurchasePointsRoute
@@ -998,6 +1011,7 @@ export interface FileRoutesByFullPath {
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
+  '/user/my-subscriptions/': typeof UserMySubscriptionsIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
   '/$realmId/manage/api-keys/reveal': typeof RealmIdManageApiKeysRevealRoute
@@ -1011,7 +1025,6 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
-  '/$realmId/subscription/$subscriptionId/history': typeof RealmIdSubscriptionSubscriptionIdHistoryRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1029,6 +1042,7 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
+  '/$realmId/user/my-subscriptions/': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets/': typeof ManageBillingCreditBucketsIndexRoute
   '/manage/billing/entitlement-mappings/': typeof ManageBillingEntitlementMappingsIndexRoute
@@ -1044,6 +1058,7 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets/': typeof RealmIdManageBillingCreditBucketsIndexRoute
   '/$realmId/manage/billing/entitlement-mappings/': typeof RealmIdManageBillingEntitlementMappingsIndexRoute
@@ -1077,7 +1092,6 @@ export interface FileRoutesByTo {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
-  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
   '/user/purchase-points': typeof UserPurchasePointsRoute
@@ -1101,7 +1115,6 @@ export interface FileRoutesByTo {
   '/$realmId/manage/subscription': typeof RealmIdManageSubscriptionRoute
   '/$realmId/manage/subscription-history': typeof RealmIdManageSubscriptionHistoryRoute
   '/$realmId/manage/users': typeof RealmIdManageUsersRoute
-  '/$realmId/subscription/my-subscriptions': typeof RealmIdSubscriptionMySubscriptionsRoute
   '/$realmId/user/points': typeof RealmIdUserPointsRoute
   '/$realmId/user/profile': typeof RealmIdUserProfileRoute
   '/$realmId/user/purchase-points': typeof RealmIdUserPurchasePointsRoute
@@ -1123,6 +1136,7 @@ export interface FileRoutesByTo {
   '/manage/audit': typeof ManageAuditIndexRoute
   '/manage/client-apps': typeof ManageClientAppsIndexRoute
   '/user/invoices': typeof UserInvoicesIndexRoute
+  '/user/my-subscriptions': typeof UserMySubscriptionsIndexRoute
   '/user/security': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
   '/$realmId/manage/api-keys/reveal': typeof RealmIdManageApiKeysRevealRoute
@@ -1132,7 +1146,6 @@ export interface FileRoutesByTo {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
-  '/$realmId/subscription/$subscriptionId/history': typeof RealmIdSubscriptionSubscriptionIdHistoryRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1150,6 +1163,7 @@ export interface FileRoutesByTo {
   '/$realmId/manage/audit': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps': typeof RealmIdManageClientAppsIndexRoute
   '/$realmId/user/invoices': typeof RealmIdUserInvoicesIndexRoute
+  '/$realmId/user/my-subscriptions': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets': typeof ManageBillingCreditBucketsIndexRoute
   '/manage/billing/entitlement-mappings': typeof ManageBillingEntitlementMappingsIndexRoute
@@ -1165,6 +1179,7 @@ export interface FileRoutesByTo {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets': typeof RealmIdManageBillingCreditBucketsIndexRoute
   '/$realmId/manage/billing/entitlement-mappings': typeof RealmIdManageBillingEntitlementMappingsIndexRoute
@@ -1205,8 +1220,8 @@ export interface FileRoutesById {
   '/manage/subscription': typeof ManageSubscriptionRoute
   '/manage/subscription-history': typeof ManageSubscriptionHistoryRoute
   '/manage/users': typeof ManageUsersRoute
-  '/subscription/my-subscriptions': typeof SubscriptionMySubscriptionsRoute
   '/user/invoices': typeof UserInvoicesRouteWithChildren
+  '/user/my-subscriptions': typeof UserMySubscriptionsRouteWithChildren
   '/user/points': typeof UserPointsRoute
   '/user/profile': typeof UserProfileRoute
   '/user/purchase-points': typeof UserPurchasePointsRoute
@@ -1233,8 +1248,8 @@ export interface FileRoutesById {
   '/$realmId/manage/subscription': typeof RealmIdManageSubscriptionRoute
   '/$realmId/manage/subscription-history': typeof RealmIdManageSubscriptionHistoryRoute
   '/$realmId/manage/users': typeof RealmIdManageUsersRoute
-  '/$realmId/subscription/my-subscriptions': typeof RealmIdSubscriptionMySubscriptionsRoute
   '/$realmId/user/invoices': typeof RealmIdUserInvoicesRouteWithChildren
+  '/$realmId/user/my-subscriptions': typeof RealmIdUserMySubscriptionsRouteWithChildren
   '/$realmId/user/points': typeof RealmIdUserPointsRoute
   '/$realmId/user/profile': typeof RealmIdUserProfileRoute
   '/$realmId/user/purchase-points': typeof RealmIdUserPurchasePointsRoute
@@ -1261,6 +1276,7 @@ export interface FileRoutesById {
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
+  '/user/my-subscriptions/': typeof UserMySubscriptionsIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
   '/$realmId/manage/api-keys/new': typeof RealmIdManageApiKeysNewRoute
   '/$realmId/manage/api-keys/reveal': typeof RealmIdManageApiKeysRevealRoute
@@ -1274,7 +1290,6 @@ export interface FileRoutesById {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
-  '/$realmId/subscription/$subscriptionId/history': typeof RealmIdSubscriptionSubscriptionIdHistoryRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1292,6 +1307,7 @@ export interface FileRoutesById {
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
+  '/$realmId/user/my-subscriptions/': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
   '/manage/billing/credit-buckets/': typeof ManageBillingCreditBucketsIndexRoute
   '/manage/billing/entitlement-mappings/': typeof ManageBillingEntitlementMappingsIndexRoute
@@ -1307,6 +1323,7 @@ export interface FileRoutesById {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets/': typeof RealmIdManageBillingCreditBucketsIndexRoute
   '/$realmId/manage/billing/entitlement-mappings/': typeof RealmIdManageBillingEntitlementMappingsIndexRoute
@@ -1348,8 +1365,8 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
-    | '/subscription/my-subscriptions'
     | '/user/invoices'
+    | '/user/my-subscriptions'
     | '/user/points'
     | '/user/profile'
     | '/user/purchase-points'
@@ -1376,8 +1393,8 @@ export interface FileRouteTypes {
     | '/$realmId/manage/subscription'
     | '/$realmId/manage/subscription-history'
     | '/$realmId/manage/users'
-    | '/$realmId/subscription/my-subscriptions'
     | '/$realmId/user/invoices'
+    | '/$realmId/user/my-subscriptions'
     | '/$realmId/user/points'
     | '/$realmId/user/profile'
     | '/$realmId/user/purchase-points'
@@ -1404,6 +1421,7 @@ export interface FileRouteTypes {
     | '/manage/audit/'
     | '/manage/client-apps/'
     | '/user/invoices/'
+    | '/user/my-subscriptions/'
     | '/user/security/'
     | '/$realmId/manage/api-keys/new'
     | '/$realmId/manage/api-keys/reveal'
@@ -1417,7 +1435,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
-    | '/$realmId/subscription/$subscriptionId/history'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1435,6 +1452,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
     | '/$realmId/user/invoices/'
+    | '/$realmId/user/my-subscriptions/'
     | '/$realmId/user/security/'
     | '/manage/billing/credit-buckets/'
     | '/manage/billing/entitlement-mappings/'
@@ -1450,6 +1468,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets/'
     | '/$realmId/manage/billing/entitlement-mappings/'
@@ -1483,7 +1502,6 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
-    | '/subscription/my-subscriptions'
     | '/user/points'
     | '/user/profile'
     | '/user/purchase-points'
@@ -1507,7 +1525,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/subscription'
     | '/$realmId/manage/subscription-history'
     | '/$realmId/manage/users'
-    | '/$realmId/subscription/my-subscriptions'
     | '/$realmId/user/points'
     | '/$realmId/user/profile'
     | '/$realmId/user/purchase-points'
@@ -1529,6 +1546,7 @@ export interface FileRouteTypes {
     | '/manage/audit'
     | '/manage/client-apps'
     | '/user/invoices'
+    | '/user/my-subscriptions'
     | '/user/security'
     | '/$realmId/manage/api-keys/new'
     | '/$realmId/manage/api-keys/reveal'
@@ -1538,7 +1556,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
-    | '/$realmId/subscription/$subscriptionId/history'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1556,6 +1573,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/audit'
     | '/$realmId/manage/client-apps'
     | '/$realmId/user/invoices'
+    | '/$realmId/user/my-subscriptions'
     | '/$realmId/user/security'
     | '/manage/billing/credit-buckets'
     | '/manage/billing/entitlement-mappings'
@@ -1571,6 +1589,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets'
     | '/$realmId/manage/billing/entitlement-mappings'
@@ -1610,8 +1629,8 @@ export interface FileRouteTypes {
     | '/manage/subscription'
     | '/manage/subscription-history'
     | '/manage/users'
-    | '/subscription/my-subscriptions'
     | '/user/invoices'
+    | '/user/my-subscriptions'
     | '/user/points'
     | '/user/profile'
     | '/user/purchase-points'
@@ -1638,8 +1657,8 @@ export interface FileRouteTypes {
     | '/$realmId/manage/subscription'
     | '/$realmId/manage/subscription-history'
     | '/$realmId/manage/users'
-    | '/$realmId/subscription/my-subscriptions'
     | '/$realmId/user/invoices'
+    | '/$realmId/user/my-subscriptions'
     | '/$realmId/user/points'
     | '/$realmId/user/profile'
     | '/$realmId/user/purchase-points'
@@ -1666,6 +1685,7 @@ export interface FileRouteTypes {
     | '/manage/audit/'
     | '/manage/client-apps/'
     | '/user/invoices/'
+    | '/user/my-subscriptions/'
     | '/user/security/'
     | '/$realmId/manage/api-keys/new'
     | '/$realmId/manage/api-keys/reveal'
@@ -1679,7 +1699,6 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
-    | '/$realmId/subscription/$subscriptionId/history'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1697,6 +1716,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
     | '/$realmId/user/invoices/'
+    | '/$realmId/user/my-subscriptions/'
     | '/$realmId/user/security/'
     | '/manage/billing/credit-buckets/'
     | '/manage/billing/entitlement-mappings/'
@@ -1712,6 +1732,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets/'
     | '/$realmId/manage/billing/entitlement-mappings/'
@@ -1728,7 +1749,6 @@ export interface RootRouteChildren {
   ManageRouteRoute: typeof ManageRouteRouteWithChildren
   UserRouteRoute: typeof UserRouteRouteWithChildren
   DeviceRoute: typeof DeviceRouteWithChildren
-  SubscriptionMySubscriptionsRoute: typeof SubscriptionMySubscriptionsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1831,19 +1851,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UserPointsRouteImport
       parentRoute: typeof UserRouteRoute
     }
+    '/user/my-subscriptions': {
+      id: '/user/my-subscriptions'
+      path: '/my-subscriptions'
+      fullPath: '/user/my-subscriptions'
+      preLoaderRoute: typeof UserMySubscriptionsRouteImport
+      parentRoute: typeof UserRouteRoute
+    }
     '/user/invoices': {
       id: '/user/invoices'
       path: '/invoices'
       fullPath: '/user/invoices'
       preLoaderRoute: typeof UserInvoicesRouteImport
       parentRoute: typeof UserRouteRoute
-    }
-    '/subscription/my-subscriptions': {
-      id: '/subscription/my-subscriptions'
-      path: '/subscription/my-subscriptions'
-      fullPath: '/subscription/my-subscriptions'
-      preLoaderRoute: typeof SubscriptionMySubscriptionsRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/manage/users': {
       id: '/manage/users'
@@ -2019,6 +2039,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/security/'
       preLoaderRoute: typeof UserSecurityIndexRouteImport
       parentRoute: typeof UserSecurityRoute
+    }
+    '/user/my-subscriptions/': {
+      id: '/user/my-subscriptions/'
+      path: '/'
+      fullPath: '/user/my-subscriptions/'
+      preLoaderRoute: typeof UserMySubscriptionsIndexRouteImport
+      parentRoute: typeof UserMySubscriptionsRoute
     }
     '/user/invoices/': {
       id: '/user/invoices/'
@@ -2202,19 +2229,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdUserPointsRouteImport
       parentRoute: typeof RealmIdUserRouteRoute
     }
+    '/$realmId/user/my-subscriptions': {
+      id: '/$realmId/user/my-subscriptions'
+      path: '/my-subscriptions'
+      fullPath: '/$realmId/user/my-subscriptions'
+      preLoaderRoute: typeof RealmIdUserMySubscriptionsRouteImport
+      parentRoute: typeof RealmIdUserRouteRoute
+    }
     '/$realmId/user/invoices': {
       id: '/$realmId/user/invoices'
       path: '/invoices'
       fullPath: '/$realmId/user/invoices'
       preLoaderRoute: typeof RealmIdUserInvoicesRouteImport
       parentRoute: typeof RealmIdUserRouteRoute
-    }
-    '/$realmId/subscription/my-subscriptions': {
-      id: '/$realmId/subscription/my-subscriptions'
-      path: '/subscription/my-subscriptions'
-      fullPath: '/$realmId/subscription/my-subscriptions'
-      preLoaderRoute: typeof RealmIdSubscriptionMySubscriptionsRouteImport
-      parentRoute: typeof RealmIdRouteRoute
     }
     '/$realmId/manage/users': {
       id: '/$realmId/manage/users'
@@ -2384,6 +2411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdUserSecurityIndexRouteImport
       parentRoute: typeof RealmIdUserSecurityRoute
     }
+    '/$realmId/user/my-subscriptions/': {
+      id: '/$realmId/user/my-subscriptions/'
+      path: '/'
+      fullPath: '/$realmId/user/my-subscriptions/'
+      preLoaderRoute: typeof RealmIdUserMySubscriptionsIndexRouteImport
+      parentRoute: typeof RealmIdUserMySubscriptionsRoute
+    }
     '/$realmId/user/invoices/': {
       id: '/$realmId/user/invoices/'
       path: '/'
@@ -2503,13 +2537,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdUserChangeEmailConfirmRouteImport
       parentRoute: typeof RealmIdUserRouteRoute
     }
-    '/$realmId/subscription/$subscriptionId/history': {
-      id: '/$realmId/subscription/$subscriptionId/history'
-      path: '/subscription/$subscriptionId/history'
-      fullPath: '/$realmId/subscription/$subscriptionId/history'
-      preLoaderRoute: typeof RealmIdSubscriptionSubscriptionIdHistoryRouteImport
-      parentRoute: typeof RealmIdRouteRoute
-    }
     '/$realmId/manage/points/wallets': {
       id: '/$realmId/manage/points/wallets'
       path: '/wallets'
@@ -2628,6 +2655,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/manage/billing/invoices/$invoiceId/edit'
       preLoaderRoute: typeof ManageBillingInvoicesInvoiceIdEditRouteImport
       parentRoute: typeof ManageBillingInvoicesRoute
+    }
+    '/$realmId/user/my-subscriptions/$subscriptionId/history': {
+      id: '/$realmId/user/my-subscriptions/$subscriptionId/history'
+      path: '/$subscriptionId/history'
+      fullPath: '/$realmId/user/my-subscriptions/$subscriptionId/history'
+      preLoaderRoute: typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRouteImport
+      parentRoute: typeof RealmIdUserMySubscriptionsRoute
     }
     '/$realmId/manage/client-apps/$clientAppId/edit': {
       id: '/$realmId/manage/client-apps/$clientAppId/edit'
@@ -2953,6 +2987,23 @@ const RealmIdUserInvoicesRouteChildren: RealmIdUserInvoicesRouteChildren = {
 const RealmIdUserInvoicesRouteWithChildren =
   RealmIdUserInvoicesRoute._addFileChildren(RealmIdUserInvoicesRouteChildren)
 
+interface RealmIdUserMySubscriptionsRouteChildren {
+  RealmIdUserMySubscriptionsIndexRoute: typeof RealmIdUserMySubscriptionsIndexRoute
+  RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute: typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
+}
+
+const RealmIdUserMySubscriptionsRouteChildren: RealmIdUserMySubscriptionsRouteChildren =
+  {
+    RealmIdUserMySubscriptionsIndexRoute: RealmIdUserMySubscriptionsIndexRoute,
+    RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute:
+      RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute,
+  }
+
+const RealmIdUserMySubscriptionsRouteWithChildren =
+  RealmIdUserMySubscriptionsRoute._addFileChildren(
+    RealmIdUserMySubscriptionsRouteChildren,
+  )
+
 interface RealmIdUserSecurityRouteChildren {
   RealmIdUserSecurityTotpSetupRoute: typeof RealmIdUserSecurityTotpSetupRoute
   RealmIdUserSecurityIndexRoute: typeof RealmIdUserSecurityIndexRoute
@@ -2968,6 +3019,7 @@ const RealmIdUserSecurityRouteWithChildren =
 
 interface RealmIdUserRouteRouteChildren {
   RealmIdUserInvoicesRoute: typeof RealmIdUserInvoicesRouteWithChildren
+  RealmIdUserMySubscriptionsRoute: typeof RealmIdUserMySubscriptionsRouteWithChildren
   RealmIdUserPointsRoute: typeof RealmIdUserPointsRoute
   RealmIdUserProfileRoute: typeof RealmIdUserProfileRoute
   RealmIdUserPurchasePointsRoute: typeof RealmIdUserPurchasePointsRoute
@@ -2978,6 +3030,7 @@ interface RealmIdUserRouteRouteChildren {
 
 const RealmIdUserRouteRouteChildren: RealmIdUserRouteRouteChildren = {
   RealmIdUserInvoicesRoute: RealmIdUserInvoicesRouteWithChildren,
+  RealmIdUserMySubscriptionsRoute: RealmIdUserMySubscriptionsRouteWithChildren,
   RealmIdUserPointsRoute: RealmIdUserPointsRoute,
   RealmIdUserProfileRoute: RealmIdUserProfileRoute,
   RealmIdUserPurchasePointsRoute: RealmIdUserPurchasePointsRoute,
@@ -3009,8 +3062,6 @@ interface RealmIdRouteRouteChildren {
   RealmIdManageRouteRoute: typeof RealmIdManageRouteRouteWithChildren
   RealmIdUserRouteRoute: typeof RealmIdUserRouteRouteWithChildren
   RealmIdDeviceRoute: typeof RealmIdDeviceRouteWithChildren
-  RealmIdSubscriptionMySubscriptionsRoute: typeof RealmIdSubscriptionMySubscriptionsRoute
-  RealmIdSubscriptionSubscriptionIdHistoryRoute: typeof RealmIdSubscriptionSubscriptionIdHistoryRoute
 }
 
 const RealmIdRouteRouteChildren: RealmIdRouteRouteChildren = {
@@ -3019,10 +3070,6 @@ const RealmIdRouteRouteChildren: RealmIdRouteRouteChildren = {
   RealmIdManageRouteRoute: RealmIdManageRouteRouteWithChildren,
   RealmIdUserRouteRoute: RealmIdUserRouteRouteWithChildren,
   RealmIdDeviceRoute: RealmIdDeviceRouteWithChildren,
-  RealmIdSubscriptionMySubscriptionsRoute:
-    RealmIdSubscriptionMySubscriptionsRoute,
-  RealmIdSubscriptionSubscriptionIdHistoryRoute:
-    RealmIdSubscriptionSubscriptionIdHistoryRoute,
 }
 
 const RealmIdRouteRouteWithChildren = RealmIdRouteRoute._addFileChildren(
@@ -3269,6 +3316,17 @@ const UserInvoicesRouteWithChildren = UserInvoicesRoute._addFileChildren(
   UserInvoicesRouteChildren,
 )
 
+interface UserMySubscriptionsRouteChildren {
+  UserMySubscriptionsIndexRoute: typeof UserMySubscriptionsIndexRoute
+}
+
+const UserMySubscriptionsRouteChildren: UserMySubscriptionsRouteChildren = {
+  UserMySubscriptionsIndexRoute: UserMySubscriptionsIndexRoute,
+}
+
+const UserMySubscriptionsRouteWithChildren =
+  UserMySubscriptionsRoute._addFileChildren(UserMySubscriptionsRouteChildren)
+
 interface UserSecurityRouteChildren {
   UserSecurityTotpSetupRoute: typeof UserSecurityTotpSetupRoute
   UserSecurityIndexRoute: typeof UserSecurityIndexRoute
@@ -3285,6 +3343,7 @@ const UserSecurityRouteWithChildren = UserSecurityRoute._addFileChildren(
 
 interface UserRouteRouteChildren {
   UserInvoicesRoute: typeof UserInvoicesRouteWithChildren
+  UserMySubscriptionsRoute: typeof UserMySubscriptionsRouteWithChildren
   UserPointsRoute: typeof UserPointsRoute
   UserProfileRoute: typeof UserProfileRoute
   UserPurchasePointsRoute: typeof UserPurchasePointsRoute
@@ -3295,6 +3354,7 @@ interface UserRouteRouteChildren {
 
 const UserRouteRouteChildren: UserRouteRouteChildren = {
   UserInvoicesRoute: UserInvoicesRouteWithChildren,
+  UserMySubscriptionsRoute: UserMySubscriptionsRouteWithChildren,
   UserPointsRoute: UserPointsRoute,
   UserProfileRoute: UserProfileRoute,
   UserPurchasePointsRoute: UserPurchasePointsRoute,
@@ -3328,7 +3388,6 @@ const rootRouteChildren: RootRouteChildren = {
   ManageRouteRoute: ManageRouteRouteWithChildren,
   UserRouteRoute: UserRouteRouteWithChildren,
   DeviceRoute: DeviceRouteWithChildren,
-  SubscriptionMySubscriptionsRoute: SubscriptionMySubscriptionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

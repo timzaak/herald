@@ -86,6 +86,40 @@ describe('EmailConfigForm', () => {
     expect(screen.queryByTestId('email-resend-api-key-input')).not.toBeInTheDocument()
   })
 
+  // WHY: the hint exists to state Resend's free-tier limits, so the copy must
+  // carry the actual numbers; and the official-site link is external — it must
+  // open in a new tab with noopener so the admin console tab is never navigated
+  // away and the Resend page gets no window handle back.
+  it('GIVEN provider is resend WHEN rendering THEN should show the free-quota hint with a safe official-site link', () => {
+    renderWithProviders(<EmailConfigForm {...defaultProps} />)
+
+    const hint = screen.getByTestId('email-resend-quota-hint')
+    expect(hint).toHaveTextContent('100 emails/day')
+    expect(hint).toHaveTextContent('3,000 emails/month')
+
+    const link = screen.getByTestId('email-resend-official-link')
+    expect(link).toHaveAttribute('href', 'https://resend.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('GIVEN provider is smtp WHEN rendering THEN should hide the resend free-quota hint', () => {
+    const initialConfig: EmailConfigFormValues = {
+      provider: 'smtp',
+      fromAddress: 'noreply@example.com',
+      smtpHost: 'smtp.example.com',
+      smtpPort: '465',
+      smtpUsername: 'user@example.com',
+      smtpPassword: 'password123',
+      smtpEncryption: 'ssl',
+    }
+
+    renderWithProviders(<EmailConfigForm {...defaultProps} initialConfig={initialConfig} />)
+
+    expect(screen.queryByTestId('email-resend-quota-hint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('email-resend-official-link')).not.toBeInTheDocument()
+  })
+
   it('GIVEN provider is resend WHEN switching to smtp THEN should show smtp fields and hide resend fields', async () => {
     renderWithProviders(<EmailConfigForm {...defaultProps} />)
 
