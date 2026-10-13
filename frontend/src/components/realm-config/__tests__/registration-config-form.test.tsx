@@ -92,6 +92,12 @@ describe('RegistrationConfigForm', () => {
     await waitFor(() => {
       expect(saveButton).toBeDisabled()
     })
+
+    // 等待保存走完、按钮恢复：禁用是暂态的，且避免 setIsSubmitting(false)
+    // 在 jsdom 销毁后触发 unhandled rejection
+    await waitFor(() => {
+      expect(saveButton).toBeEnabled()
+    })
   })
 
   // 互补分支：enabled:false + requireEmail:true 已由上面的
