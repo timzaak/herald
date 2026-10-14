@@ -218,6 +218,7 @@ And 系统记录 500 的未回收负债
 
 ## 相关文档
 
+- **PRD**: `docs/prd/billing/points.md` — 积分系统 PRD
 - **PRD**: `docs/prd/billing/stripe-payment.md` — Stripe 支付集成 PRD
 - **PRD**: `docs/prd/billing/subscription.md` — 订阅计费 PRD
 - **用户故事**: `billing/payment-attempt.md` — 支付尝试用户故事

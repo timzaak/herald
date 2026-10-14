@@ -31,7 +31,7 @@
 - 创建 API Key 表单增加可选角色选择器（创建成功后自动绑定）
 - 创建 API Key 表单增加 Client App 选择器；**必选**——创建请求必须显式指定 `clientAppId`，省略时拒绝（历史遗留的 NULL Client App 绑定 key 在认证语义上视为 Realm 级作用域，仅兼容存量数据，新建不可产生 NULL 绑定）
 - API Key 列表展示绑定的 Client App 名称；绑定的 Client App 被禁用时列表行内显示醒目告警（该 Key 无法认证）
-- 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`，**默认 `enabled=false`**，需租户管理员显式开启）
+- 每个 Realm 拥有一个内置 API Key Client App（`client_id = 'admin-api-client'`）；其播种与默认启停遵循 realm 初始化的内置客户端基线（唯一权威定义：`docs/prd/core/realm.md` §4.1）
 - API Key 认证路径受关联 Client App 的 `enabled` 状态影响（Client App 禁用时其下所有 API Key 均不可用）
 - ext API 对非 `admin-api-client` 的 API Key 执行 Client App 作用域隔离
 - API Key 更新（名称、启用状态、过期时间）、删除、密钥轮换（轮换生成新密钥，旧密钥失效，新明文仅返回一次）。旧密钥失效的精确语义：轮换在数据库换绑前后各执行一次缓存驱逐，正常情况下旧密钥立即失效；缓存驱逐为 best-effort——驱逐失败（如缓存短暂不可用）时轮换仍成功返回（新明文仅返回一次，不能因驱逐失败而 500 弃单），旧密钥最长残留一个 300s 的缓存 TTL 窗口后自然失效
@@ -60,7 +60,7 @@
 - 角色变更后权限缓存立即失效
 - API Key 必须绑定到本 Realm 下存在的 Client App（`clientAppId` 必填，指向本 Realm 不存在的 App 时 400 拒绝）
 - 绑定 `admin-api-client` 的 API Key 保持 Realm 级 ext API 访问范围
-- 绑定普通 Client App 的 API Key 只能访问该 Client App 的订阅、套餐分配、积分消费和权限检查上下文；该绑定同样收窄 ext API 的 Client App 列表可见性——绑定普通 Client App 的 Key 即便持有 `clients:view`，`GET /api/ext/realms/{realmId}/client-apps` 也只返回其绑定的 App（未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表）
+- 绑定普通 Client App 的 API Key 只能访问该 Client App 的订阅、套餐分配、积分消费和权限检查上下文；该绑定同样收窄 ext API 的 Client App 列表可见性——绑定普通 Client App 的 Key 即便持有 `clients.view`，`GET /api/ext/realms/{realmId}/client-apps` 也只返回其绑定的 App（未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表）
 - 禁用单个 API Key 只更新该 Key 自身的 `enabled` 状态，不影响内置 Client App
 - 角色替换采用 last-write-wins 语义（与用户角色分配一致）
 - 并发策略不使用乐观锁，前端通过 invalidate 缓存保证 UI 最终一致

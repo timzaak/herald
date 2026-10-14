@@ -152,20 +152,12 @@
 3. 所有层级规则仅在**同一 resource 内**生效。`users.manage` 不会授予 `clients.view`。
 4. 不使用 `admin` action，不引入特殊 `resource:action` 组合。
 
-**已废弃权限**（不再初始化和使用）:
-
-| 权限项 | 原用途 | 替代方案 |
-|--------|--------|---------|
-| `realm.admin` | 宽泛的管理端权限 | 各模块具体的 `resource.view` / `resource.manage` |
-| `realm.create` | Realm 创建 | `realm.manage`（仅限创建 Realm，不含编辑其他 Realm 元数据；Realm 删除当前不支持） |
-| `realm.admin:{realm_id}` 特殊策略 | 判断是否能进入管理端 | 具体权限检查 + `Identity::has_access_to_realm` |
-
 **防提权约束（授予方权限自持）**:
 
 1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在端点所需的管理权限（角色策略路径为 `policies.manage`；用户的角色分配为 `roles.manage`；用户直接权限分配为 `policies.manage`，见 §4.2 API 架构说明）之外，必须自身持有被授予的 `resource.action` 权限
 2. 修改既有用户的角色集合必须持有 `roles.manage`；创建用户时仅附带普通 `user` 角色可由 `users.manage` 完成，其他角色仍要求角色管理权限与授予方自持检查
 3. 该规则防止仅持部分管理权限的 delegated-admin 通过授权操作自我提权（例如把高权限内置角色或自身不具备的权限授予自己）；权限不满足时返回权限不足错误
-4. 唯一例外：向内置组织档位（org-owner / org-admin / org-member）挂载策略词表时豁免授予方自持——应用自定义资源在扁平层无人自持过，不豁免则组织角色词表无法配置；豁免仍保留 `policies.manage` 管理门、realm 作用域与通配符拒绝，且仅限这三个内置档位（见 `docs/prd/auth/org-authorization.md` §4.1 组织角色）
+4. 唯一例外：向内置组织档位挂载策略词表时豁免授予方自持——规则定义与理由见 `docs/prd/auth/org-authorization.md` §4.1（组织角色，该处为唯一权威定义点）
 
 **Realm 操作权限**:
 
@@ -187,26 +179,21 @@
 
 **API 架构说明**:
 
-权限管理 API 统一为下列端点。管理端点路径不含 `{realmId}` 段，realm 由 admin 会话 token 钉定（跨 realm 资源返回 404）。早期与 `PermissionData`（PoliceWrap/RoleWrap）格式并存的过渡期旧 API（`/api/permission/{realmId}/permissions` 及其 `/delete`、按 client_id 查询等端点）已在上线前整体移除，仅保留以下能力：
+权限管理 API 管理端点路径不含 `{realmId}` 段，realm 由 admin 会话 token 钉定（跨 realm 资源返回 404）。按能力面组织如下；具体端点路径与请求/响应契约不在本 PRD 承载，见接口文档（`docs-web/openapi.json`）：
 
-| 路径前缀 | 说明 |
-|----------|------|
-| `/api/permission/define` | 权限定义（permission_definitions）的 CRUD |
-| `/api/roles/define` | 角色定义（role_definitions）的 CRUD 及角色权限关联 |
-| `/api/permission/roles/{roleId}/policies` | 角色策略关联（GET/POST/DELETE）：查询需 `policies.view`；添加需 `policies.manage` 且授予方自持被授予的 `resource.action`；删除需 `policies.manage`（移除不受自持约束，与 §4.1 防提权规则 1 只约束添加一致） |
-| `/api/permission/users/{userId}/roles` | 用户的角色分配（GET/POST/DELETE）：查询需 `users.view`；分配需 `roles.manage` 且授予方自持对应策略权限；移除需 `roles.manage` |
-| `POST /api/permission/check` | 管理端批量权限检查（路径无 realm 段，realm 取自登录身份）：**任一**规则命中即 `allowed=true`。仅限自省（RFC 7662 式）：调用者须为已认证用户身份（API Key 被 403；CustomUserUi 凭证需持 `ProfileRead` scope，与 `GET /api/user/permissions` 同规则），且被探测 token 必须属于调用者本人——不可探测他人令牌；被探测 token 的主体与 ext 内省同规则复查（Client App 禁用/删除后的存活令牌回答 allowed=false，不回显 userId） |
-| `POST /api/ext/permission/check` | SDK/ext 批量权限检查（API Key 认证）：**全部**规则命中才 `allowed=true`（与 admin 侧 check 的任一命中语义相反，混用易误判） |
+| 能力面 | 权限门与语义 |
+|--------|--------------|
+| 权限定义（permission_definitions）的 CRUD | 读取 `permissions.view`，写入 `permissions.manage` |
+| 角色定义（role_definitions）的 CRUD 及角色权限关联 | 读取 `roles.view`，写入 `roles.manage` |
+| 角色策略关联（查询 / 添加 / 移除） | 查询 `policies.view`；添加 `policies.manage` 且授予方自持被授予的 `resource.action`；移除 `policies.manage`（移除不受自持约束，与 §4.1 防提权规则 1 只约束添加一致） |
+| 用户的角色分配（查询 / 分配 / 移除） | 查询 `users.view`；分配 `roles.manage` 且授予方自持对应策略权限；移除 `roles.manage` |
+| 管理端批量权限检查 | **任一**规则命中即 `allowed=true`。仅限自省（RFC 7662 式）：调用者须为已认证用户身份（API Key 被 403；CustomUserUi 凭证需持 `ProfileRead` scope，与用户中心的自身权限查询同规则），且被探测 token 必须属于调用者本人——不可探测他人令牌；被探测 token 的主体与 ext 内省同规则复查（Client App 禁用/删除后的存活令牌回答 allowed=false，不回显 userId） |
+| SDK/ext 批量权限检查（API Key 认证） | **全部**规则命中才 `allowed=true`（与管理端检查的任一命中语义相反，混用易误判） |
 
 **Principal 角色与权限管理**:
 
-- **API Key 角色分配**: API Key 可作为 Principal 分配角色。通过 `GET/PUT /api/api-keys/{apiKeyId}/roles` 管理 API Key 的角色列表（路径无 realm 段，realm 由 admin 会话钉定；查询需要 `api_keys.view`，更新需要 `roles.manage`）。内置角色不可分配给 API Key。更新时同样受 §4.1 授予方自持约束：分配的自定义角色所含权限须为调用者完整持有（防借 API Key 提权）。
-- **用户直接权限管理**: 支持绕过角色，直接为用户分配权限。通过以下端点管理（路径无 realm 段，realm 由 admin 会话钉定）：
-  - `GET /api/users/{userId}/permissions` — 查询用户直接权限（需要 `users.view`）
-  - `POST /api/users/{userId}/permissions` — 分配直接权限（需要 `policies.manage`）
-  - `DELETE /api/users/{userId}/permissions` — 移除直接权限（需要 `policies.manage`）
-  - `GET /api/users/{userId}/effective-permissions` — 查询用户有效权限（含角色继承 + 直接分配），每条权限标注来源（角色名或 "direct"）
-  - 安全约束：不可创建 `All` 或通配符权限策略
+- **API Key 角色分配**: API Key 可作为 Principal 分配角色，经 API Key 的角色列表管理能力操作（路径无 realm 段，realm 由 admin 会话钉定；查询需要 `api_keys.view`，更新需要 `roles.manage`）。内置角色不可分配给 API Key。更新时同样受 §4.1 授予方自持约束：分配的自定义角色所含权限须为调用者完整持有（防借 API Key 提权）。
+- **用户直接权限管理**: 支持绕过角色，直接为用户分配权限（查询需要 `users.view`，分配/移除需要 `policies.manage`；路径无 realm 段，realm 由 admin 会话钉定）；另提供用户有效权限查询（含角色继承 + 直接分配，每条权限标注来源——角色名或 "direct"）。安全约束：不可创建 `All` 或通配符权限策略。
 
 ---
 

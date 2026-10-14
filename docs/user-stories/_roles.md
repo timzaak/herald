@@ -83,6 +83,8 @@ Herald 系统（System Actor，非角色）
 | points.view | 查看积分、积分规则 |
 | points.manage | 积分管理、Provider 映射管理 |
 | audit.view | 查看审计日志列表和详情 |
+| orgs.view | 查看组织与成员（组织授权能力面读门禁，见 `docs/prd/auth/org-authorization.md`） |
+| orgs.manage | 组织与成员管理（组织授权能力面写门禁，可授予绑定 Client App 的 API Key，见 `docs/prd/auth/org-authorization.md`） |
 
 **边界约束**：
 - ❌ 不能访问其他 Realm 内部资源（用户、角色、配置、客户端应用）
@@ -123,6 +125,8 @@ Herald 系统（System Actor，非角色）
 | points.view | 查看积分、积分规则 |
 | points.manage | 积分管理、Provider 映射管理 |
 | audit.view | 查看审计日志列表和详情 |
+| orgs.view | 查看组织与成员（组织授权能力面读门禁，见 `docs/prd/auth/org-authorization.md`） |
+| orgs.manage | 组织与成员管理（组织授权能力面写门禁，可授予绑定 Client App 的 API Key，见 `docs/prd/auth/org-authorization.md`） |
 
 > **与 Admin Realm 管理员的差异**：Realm Admin 缺少 `realm.view` 和 `realm.manage` 权限（这些仅在 admin realm 中存在），其余权限相同。
 
@@ -210,7 +214,8 @@ Herald 系统（System Actor，非角色）
 | Billing User | Regular User | 持有订阅/账单的用户（billing/subscription.md） |
 | SaaS 自助注册访客 | （未认证访客） | 自助开通流程中的注册者（core/realm-create.md、core/realm-onboarding-guidance.md） |
 | 新 realm-admin | Realm Admin | 刚自助开通 Realm 的首任管理员（core/realm-create.md、core/realm-onboarding-guidance.md） |
-| 第三方应用开发者 | Third-Party App | 集成 Herald 的开发者视角（auth/openid-connect.md、auth/google-one-tap.md） |
+| 应用终端用户 | Regular User | 应用内经应用界面间接触发 Herald 能力的最终用户（auth/org-authorization.md） |
+| 第三方应用开发者 | Third-Party App | 集成 Herald 的开发者视角（auth/openid-connect.md、auth/google-one-tap.md、integration/mcp-server.md） |
 
 ---
 

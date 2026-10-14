@@ -51,7 +51,7 @@
  * Persona (FE-A01 P1 boundary): realm-001 admin (`admin@realm-001.com` via
  *   `loginAsAdmin({ realmId: 'realm-001' })`). The rewritten purchase page
  *   resolves `clientAppId` via `clientAppsQueryOptions` → `GET /api/client/
- *   {realmId}`, which requires `clients:view`; the default end-user role lacks
+ *   {realmId}`, which requires `clients.view`; the default end-user role lacks
  *   it. The realm admin holds it. No backend permission patch.
  *
  * Verified load-bearing facts (at authoring):
@@ -141,7 +141,7 @@ test.describe('[Live][Billing Multiple-Price] US-EM-009 / US-EM-008 multi-price 
       throw new Error('beforeAll did not populate real Stripe price ids')
     }
 
-    await test.step('Given the realm-001 admin is logged in (clients:view boundary)', async () => {
+    await test.step('Given the realm-001 admin is logged in (clients.view boundary)', async () => {
       await verifyTestEnvironment(page, {
         requiredRealms: [REALM_ID],
         requiredUsers: ['admin@realm-001.com'],
@@ -240,7 +240,7 @@ test.describe('[Live][Billing Multiple-Price] US-EM-009 / US-EM-008 multi-price 
       expect(batchResp.ok(), `batch save failed: ${await batchResp.text().catch(() => '')}`).toBeTruthy()
     })
 
-    await test.step('And a client app exists for the realm (clients:view path)', async () => {
+    await test.step('And a client app exists for the realm (clients.view path)', async () => {
       const listResp = await page.request.get(`${BASE_URL}/api/client/${REALM_ID}`)
       expect(listResp.ok(), `client list failed: ${await listResp.text().catch(() => '')}`).toBeTruthy()
       const body = await listResp.json()

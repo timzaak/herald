@@ -125,14 +125,14 @@ fn realm_to_list_item(realm: Realm) -> RealmListItem {
 
 /// Create a new realm
 ///
-/// Creates a new realm in the system. Only principals with `realm:manage` permission
+/// Creates a new realm in the system. Only principals with `realm.manage` permission
 /// in the admin realm may invoke this endpoint.
 ///
 /// # Authentication
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `realm:manage` permission in the `admin` realm.
+/// The caller must have `realm.manage` permission in the `admin` realm.
 #[utoipa::path(
     post,
     path = "/api/ext/realms",
@@ -154,7 +154,7 @@ pub async fn create_realm(
     headers: HeaderMap,
     Json(req): Json<CreateRealmExtRequest>,
 ) -> Response {
-    // 1. Authorization: requires realm:manage in the admin realm
+    // 1. Authorization: requires realm.manage in the admin realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, "admin", "realm", "manage").await
     {
@@ -219,7 +219,7 @@ pub async fn create_realm(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `realm:view` permission in their own realm.
+/// The caller must have `realm.view` permission in their own realm.
 #[utoipa::path(
     get,
     path = "/api/ext/realms",
@@ -238,7 +238,7 @@ pub async fn list_realms(
 ) -> Response {
     let identity_realm = identity.realm_id();
 
-    // 1. Authorization: requires realm:view in the caller's realm
+    // 1. Authorization: requires realm.view in the caller's realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &identity_realm, "realm", "view").await
     {
@@ -287,7 +287,7 @@ pub async fn list_realms(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `realm:view` permission in the target realm.
+/// The caller must have `realm.view` permission in the target realm.
 /// Every principal may only view its own realm (no super-admin).
 #[utoipa::path(
     get,
@@ -312,7 +312,7 @@ pub async fn get_realm(
 ) -> Response {
     let identity_realm = identity.realm_id();
 
-    // 1. Authorization: requires realm:view in the identity's own realm (where bindings exist)
+    // 1. Authorization: requires realm.view in the identity's own realm (where bindings exist)
     if let Err(resp) =
         require_principal_permission(&state, &identity, &identity_realm, "realm", "view").await
     {

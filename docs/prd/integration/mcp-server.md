@@ -87,7 +87,7 @@
 - **租户边界**：所有工具仅能访问授权用户所属租户的数据；查询目标不在所属租户时表现为资源不存在，不返回任何数据
 - **校验顺序**：鉴权（含 audience 匹配）、权限/scope、取数三道校验按序执行——先鉴权、再权限、后取数
 - **积分余额口径**：管理面积分余额工具返回指定用户在 Realm 范围内的余额；self 面返回授权用户本人的余额
-- **内置 MCP 客户端**：每个 realm 预置一个，PKCE-only 公共客户端，**默认停用**——agent 接入为 opt-in，租户管理员须在 Client App 列表显式开启（DEC-mcp-server-008）；回调仅允许已登记的 loopback 地址；支持 IPv4/IPv6 loopback IP 与客户端兼容所需的 localhost，允许动态端口，但回调协议、主机及路径仍须匹配登记值，不允许任意路径或非 loopback 地址。loopback 回调可使用 HTTP，其余授权通信使用 HTTPS；属系统内置、不可删除；禁用即吊销名下全部 MCP 凭证并拒绝新授权，构成本 realm 关闭 MCP 接入的开关；重新启用不恢复既有授权，agent 须重新完成浏览器授权
+- **内置 MCP 客户端**：每个 realm 预置一个，PKCE-only 公共客户端，**默认停用**——agent 接入为 opt-in，租户管理员须在 Client App 列表显式开启（DEC-mcp-server-008；播种与默认启停的内置客户端基线以 `docs/prd/core/realm.md` §4.1 为唯一权威定义）；回调仅允许已登记的 loopback 地址；支持 IPv4/IPv6 loopback IP 与客户端兼容所需的 localhost，允许动态端口，但回调协议、主机及路径仍须匹配登记值，不允许任意路径或非 loopback 地址。loopback 回调可使用 HTTP，其余授权通信使用 HTTPS；属系统内置、不可删除；禁用即吊销名下全部 MCP 凭证并拒绝新授权，构成本 realm 关闭 MCP 接入的开关；重新启用不恢复既有授权，agent 须重新完成浏览器授权
 - **MCP 专用限流**：每个授权用户的 MCP 请求量受独立的限流约束，超限明确拒绝；限流与具体工具的业务权限检查互相独立
 - **时间筛选格式**：积分交易与审计工具统一接受 RFC 3339 时间戳，或按 UTC 零点解释的 `YYYY-MM-DD`
 - **数据最小化**：工具返回字段以回答业务问题所需为限，不透出多余字段，降低查询结果被 agent 带出至第三方模型的数据面
@@ -137,7 +137,7 @@
 
 **前端 / 交互边界:**
 
-- 管理台 Client App 列表：内置 MCP 公共客户端随列表可见，带「系统内置」标识，不允许删除（与既有内置应用保护一致）；禁用沿用既有 Client App 操作交互
+- 管理台 Client App 列表：内置 MCP 公共客户端随列表可见，带「系统内置」标识，不允许删除（与既有内置应用保护一致）；停用交互为直接切换启停开关、**无确认对话框**——开关旁呈现行内提示（停用会关闭已有与新增授权；重新启用后旧授权不可恢复，agent 需重新授权），内置 MCP 客户端的编辑页为受保护形态（仅呈现说明与启停语义，不挂载通用编辑表单）
 - 浏览器授权体验：由 MCP 客户端在授权挑战后拉起浏览器完成，复用 Herald 既有登录页与登录同意闸门，无新增页面或授权确认页
 - 本功能面向开发者的可见面为接入文档与连通性自检说明（官方文档站 + README）；agent 客户端内的工具交互由 agent 客户端自身呈现，Herald 不控制其 UI
 
@@ -150,7 +150,7 @@
 - **DEC-mcp-server-003 · mcp.auth-oauth**（user）：`/mcp` 认证采用 Herald 自身 OAuth 签发的用户凭证（resource server 模式：未认证请求返回授权挑战与 RFC 9728 受保护资源元数据发现、RFC 8707 resource/audience 端到端绑定、凭证维持不透明形态本地验证、支持标准刷新授权类型）；Client API Key 路径完全移除（破坏性变更，接入方/测试/文档同步迁移，不留双轨）。取代 DEC-mcp-server-002（MCP 复用 Client API Key、OAuth 列为演进路径——其重开条件「用户要求浏览器授权 UX」被触发）。理由：用户要求浏览器授权 UX；竞品调研（GitHub 官方远程 MCP、Logto、WorkOS、Auth0）表明 per-user OAuth 是远程 MCP server 的行业默认模式。落点：§2.1、§2.2、§4.1、§4.2、§5、§6。重开条件：MCP 客户端生态对本路线兼容性实测失败且不可修复。
 - **DEC-mcp-server-004 · mcp.tool-surface**（user）：工具面 = 管理面 5 只读工具（查用户/积分余额/流水/审计/配置状态）保留，权限映射为用户主体 RBAC；新增 self 面只读工具（我的资料/积分/流水/订阅，userId 从身份推导、不接受参数指定）；整体只读，写操作不在当前范围。取代 DEC-mcp-server-001（首发只读工具集——其「只读 + 每工具一权限 + 写操作走逐工具安全评审」原则被本决策继承；管理面查询能力经验证有保留价值）。理由：用户裁决增加 self 面（承接「用户经 MCP 看到自己内容」的需求方向与竞品 per-user 模式）。落点：§2.1、§2.2、§4.1、§5。重开条件：写操作准入评审时（沿用逐工具安全评审）。
 - **DEC-mcp-server-007 · mcp.client-bootstrap**（user）：AS 元数据声明 `registration_endpoint`，实现受控 pass-through DCR——注册端点经校验（per-IP 限流 + 规范 RFC 7591 请求 + redirect_uris 全为 loopback /callback 模板形状）后返回预置 `herald-mcp` 公共客户端（PKCE-only、无 secret、无注册状态）；开放式 DCR 与 RFC 7592 客户端管理不做。取代 DEC-mcp-server-005（预置客户端、不做 DCR——其重开条件「客户端生态必须 DCR 才能接入」于 2026-10-06 实测触发：Claude Code 拒连无 registration_endpoint 的 AS，VS Code/Cursor 同为 DCR 优先）。理由：用户裁决「受控 pass-through DCR」；Figma 先例证明该形态可兼顾零配置与滥用面控制，pass-through 无状态使滥用面与预置现状等价。落点：§2.1、§2.2、§4.1、§5、§6。重开条件：pass-through 形态被主流客户端拒绝或注册端点被证实可滥用。
-- **DEC-mcp-server-008 · mcp.default-disabled**（user）：内置 MCP 客户端默认停用，agent 接入 opt-in——新 realm seed `enabled=false`，租户管理员在 Client App 列表显式开启后方可注册与授权（2026-10-09 裁决：产品未上线，不加迁移文件，仅改新 realm 代码默认，存量 herald-mcp 行不动）。修正原「预置即默认可连」的零配置面向；「无需创建凭证、无需手工补填客户端身份」的连接体验不变（由 DEC-007 继承）。落点：§2.1、§4.1、§5。重开条件：用户再次裁决恢复默认启用。
+- **DEC-mcp-server-008 · mcp.default-disabled**（user）：内置 MCP 客户端默认停用，agent 接入 opt-in——新 realm seed `enabled=false`，租户管理员在 Client App 列表显式开启后方可注册与授权（2026-10-09 裁决：产品未上线，不加迁移文件，仅改新 realm 代码默认，存量 herald-mcp 行不动）。修正原「预置即默认可连」的零配置面向；「无需创建凭证、无需手工补填客户端身份」的连接体验不变（由 DEC-007 继承）。落点：§2.1、§4.1、§5（播种与默认启停的基线定义以 `docs/prd/core/realm.md` §4.1 为唯一权威）。重开条件：用户再次裁决恢复默认启用。
 
 ---
 

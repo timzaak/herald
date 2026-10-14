@@ -54,7 +54,7 @@
 - API Key 只有一种身份语义，代表第三方服务端机器凭据；API Key 自身作为 Principal 参与授权，不按 Key 类型拆分
 - 使用统一 Principal + RBAC 模型，API Key 不携带 runtime/management scope，能力由 Principal 的角色和 role policy 决定
 - Realm 隔离：用户和 Client App 操作仅限 API Key 所属 Realm
-- Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm:manage` 权限，普通 Realm 的 API Key 不可创建 Realm（RBAC 初始化仅对 admin realm 注册 `realm:manage` 权限）
+- Realm 创建特权：创建 Realm 需 API Key Principal 在 admin realm 具备 `realm.manage` 权限，普通 Realm 的 API Key 不可创建 Realm（RBAC 初始化仅对 admin realm 注册 `realm.manage` 权限）
 - 严格的目标资源等值边界：用户、Client App 等带目标 Realm 的操作要求 Principal 所属 Realm 与目标 Realm 严格相等；唯一的平台视图例外是 Admin Realm Principal 持 `realm.view` 调用 Realm 列表时返回全平台列表，普通 Realm Principal 只返回自身 Realm；Admin Realm `realm.view` 只对 Realm 列表提供平台视图，不授权跨 Realm 修改用户或 Client App
 - Principal 绑定：API Key 以自身唯一标识作为 Principal ID，复用现有角色绑定机制
 - Client App 绑定的列表可见性收窄：绑定普通 Client App 的 Key 调用 ext API 的 Client App 列表（`clients.view`）时只返回其绑定的 App；未绑定或绑定内置 `admin-api-client` 的 Key 返回全量列表（详见 [API Key Roles PRD](/docs/prd/integration/api-key-roles.md) §4.1）
@@ -78,7 +78,7 @@
 ### 4.2 关键状态与异常
 
 - 跨 Realm 操作被拒绝时返回权限不足错误（对所有 Realm 一致生效，admin realm 的 Principal 无豁免，见 4.1 严格的 Realm 等值边界）
-- Realm 创建时需校验 API Key Principal 属于 admin realm 且具备 `realm:manage` 权限
+- Realm 创建时需校验 API Key Principal 属于 admin realm 且具备 `realm.manage` 权限
 
 ---
 
@@ -88,7 +88,7 @@
 - SDK 新增方法与现有方法风格一致（方法命名、错误处理、参数模式）
 - 所有新增 ext 端点遵循 Realm 隔离原则：目标用户与 Client App 操作只能作用于 API Key 所属 Realm；Realm 列表按 4.1 的平台视图例外过滤
 - 所有新增资源管理端点要求 API Key Principal 具备对应权限
-- Realm 创建需额外校验 API Key Principal 属于 admin realm 且具备 `realm:manage`
+- Realm 创建需额外校验 API Key Principal 属于 admin realm 且具备 `realm.manage`
 
 ---
 
@@ -100,8 +100,8 @@
 - 所有新增端点使用现有 API Key 认证机制
 - 分页参数：用户列表 `page`（1-based，默认 1）、`page_size`（默认 20，最大 100）；Realm 列表与 Client App 列表：当前无分页，返回全量数据
 - 接口能力边界：
-  - Realm：创建（返回 Realm ID 和基本信息）、列表、详情（需对应权限；创建还需 admin realm `realm:manage` 权限）
-  - User：创建（返回用户 ID 和状态）、列表、详情（限本 Realm，无跨 Realm 例外）。权限点与管理端分属两个调用面：创建检查 `users:create`，列表/详情检查 `users:view`（见 `docs/prd/core/users.md` §4.1；`users.manage` 经 action 层级同样覆盖两者，但仅为 API Key 角色授予 `users:create` 是最小授权）
+  - Realm：创建（返回 Realm ID 和基本信息）、列表、详情（需对应权限；创建还需 admin realm `realm.manage` 权限）
+  - User：创建（返回用户 ID 和状态）、列表、详情（限本 Realm，无跨 Realm 例外）。权限点与管理端分属两个调用面：创建检查 `users.create`，列表/详情检查 `users.view`（见 `docs/prd/core/users.md` §4.1；`users.manage` 经 action 层级同样覆盖两者，但仅为 API Key 角色授予 `users.create` 是最小授权）
   - Client App：创建（返回 Client ID 和 Secret，client_secret 仅创建时返回）、列表（返回字段：id、client_id、name、enabled、created_at）、详情（返回字段：id、client_id、client_secret（仅创建时返回）、name、description、redirect_uris、enabled、created_at）（需对应权限，限本 Realm，无跨 Realm 例外）
   - 积分交易查询单笔（`get_transaction_ext`）：ext 端点，已注册到 OpenAPI 文档；另有按 external ref 查单笔交易的 ext 端点，能力定义归 points PRD（见 `docs/prd/billing/points.md` §4.1 查询与展示），不在此重复
 

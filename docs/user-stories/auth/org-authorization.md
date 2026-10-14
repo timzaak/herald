@@ -142,7 +142,7 @@ Then 操作被拒绝
 
 ---
 
-### 故事 5：workspace 管理员协作（提升成员为管理员）[US-OA-005]
+### 故事 5：workspace 管理员协作（提升成员为管理员） [US-OA-005]
 
 **优先级**: P1
 
@@ -220,3 +220,9 @@ Given 某用户刚被移出某个组织
 When 应用后端查询该用户的组织列表
 Then 该组织不再出现在列表中
 ```
+
+---
+
+## 相关文档
+
+- **PRD**: [docs/prd/auth/org-authorization.md](/docs/prd/auth/org-authorization.md) — 组织授权 PRD

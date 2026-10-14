@@ -91,14 +91,14 @@ pub struct UserListResponse {
 
 /// Create a new user in a realm
 ///
-/// Creates a user in the specified realm. Only principals with `users:create` permission
+/// Creates a user in the specified realm. Only principals with `users.create` permission
 /// in the target realm may invoke this endpoint.
 ///
 /// # Authentication
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `users:create` permission in the target realm.
+/// The caller must have `users.create` permission in the target realm.
 #[utoipa::path(
     post,
     path = "/api/ext/realms/{realmId}/users",
@@ -125,7 +125,7 @@ pub async fn create_user(
     headers: HeaderMap,
     Json(req): Json<CreateUserExtRequest>,
 ) -> Response {
-    // 1. Authorization: requires users:create in the target realm
+    // 1. Authorization: requires users.create in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "users", "create").await
     {
@@ -164,9 +164,9 @@ pub async fn create_user(
     };
 
     // 5. Call domain service. The pre-authorized entry skips the domain
-    // users.manage re-check: this ext face is gated by users:create at the
+    // users.manage re-check: this ext face is gated by users.create at the
     // handler (its own permission tier), so the admin-face requirement must
-    // not double-gate API keys provisioned with only users:create.
+    // not double-gate API keys provisioned with only users.create.
     let ctx = AuditContext::admin(&identity, ip, user_agent_from_headers(&headers));
     match state
         .admin_user_service
@@ -201,7 +201,7 @@ pub async fn create_user(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `users:view` permission in the target realm.
+/// The caller must have `users.view` permission in the target realm.
 #[utoipa::path(
     get,
     path = "/api/ext/realms/{realmId}/users",
@@ -225,7 +225,7 @@ pub async fn list_users(
     Path(realm_id): Path<String>,
     Query(query): Query<ListUsersExtQuery>,
 ) -> Response {
-    // 1. Authorization: requires users:view in the target realm
+    // 1. Authorization: requires users.view in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "users", "view").await
     {
@@ -287,7 +287,7 @@ pub async fn list_users(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `users:view` permission in the target realm.
+/// The caller must have `users.view` permission in the target realm.
 #[utoipa::path(
     get,
     path = "/api/ext/realms/{realmId}/users/{userId}",
@@ -311,7 +311,7 @@ pub async fn get_user(
     Extension(identity): Extension<Identity>,
     Path((realm_id, user_id)): Path<(String, String)>,
 ) -> Response {
-    // 1. Authorization: requires users:view in the target realm
+    // 1. Authorization: requires users.view in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "users", "view").await
     {

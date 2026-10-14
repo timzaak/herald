@@ -80,14 +80,14 @@ pub struct ClientAppListResponse {
 
 /// Create a new client app in a realm
 ///
-/// Creates a client app in the specified realm. Only principals with `clients:manage` permission
+/// Creates a client app in the specified realm. Only principals with `clients.manage` permission
 /// in the target realm may invoke this endpoint.
 ///
 /// # Authentication
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `clients:manage` permission in the target realm.
+/// The caller must have `clients.manage` permission in the target realm.
 #[utoipa::path(
     post,
     path = "/api/ext/realms/{realmId}/client-apps",
@@ -111,7 +111,7 @@ pub async fn create_client_app(
     Path(realm_id): Path<String>,
     Json(req): Json<CreateClientAppExtRequest>,
 ) -> Response {
-    // 1. Authorization: requires clients:manage in the target realm
+    // 1. Authorization: requires clients.manage in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "clients", "manage").await
     {
@@ -189,7 +189,7 @@ pub async fn create_client_app(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `clients:view` permission in the target realm.
+/// The caller must have `clients.view` permission in the target realm.
 #[utoipa::path(
     get,
     path = "/api/ext/realms/{realmId}/client-apps",
@@ -210,7 +210,7 @@ pub async fn list_client_apps(
     Extension(identity): Extension<Identity>,
     Path(realm_id): Path<String>,
 ) -> Response {
-    // 1. Authorization: requires clients:view in the target realm
+    // 1. Authorization: requires clients.view in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "clients", "view").await
     {
@@ -273,7 +273,7 @@ pub async fn list_client_apps(
 /// Requires valid API Key via X-API-Key header
 ///
 /// # Authorization
-/// The caller must have `clients:view` permission in the target realm.
+/// The caller must have `clients.view` permission in the target realm.
 #[utoipa::path(
     get,
     path = "/api/ext/realms/{realmId}/client-apps/{clientAppId}",
@@ -297,7 +297,7 @@ pub async fn get_client_app(
     Extension(identity): Extension<Identity>,
     Path((realm_id, client_app_id)): Path<(String, String)>,
 ) -> Response {
-    // 1. Authorization: requires clients:view in the target realm
+    // 1. Authorization: requires clients.view in the target realm
     if let Err(resp) =
         require_principal_permission(&state, &identity, &realm_id, "clients", "view").await
     {

@@ -4,8 +4,9 @@
  * The Location header from oauthAuthorize is a **relative URL**.
  * Callers must prepend `baseUrl` before using it with `page.goto()`.
  *
- * seedOAuthClientApp uses `request` (APIRequestContext) which inherits
- * the browser context's auth cookies. Call AFTER the page is authenticated.
+ * seedOAuthClientApp takes a Bearer-authenticated `request`
+ * (APIRequestContext built by createBearerApiContext). Call AFTER the page
+ * is authenticated so an access token is available.
  */
 
 import { type APIRequestContext, type Page, type Response, type Route, expect } from '@playwright/test'

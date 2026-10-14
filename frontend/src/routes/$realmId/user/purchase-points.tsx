@@ -20,6 +20,7 @@ import { PaymentAttemptStatus } from '@/components/purchase/payment-attempt-stat
 import { usePurchaseFlowActions, usePaymentAttempt } from '@/stores/purchase-flow-store'
 import { usePurchaseFlowStore } from '@/stores/purchase-flow-store'
 import { useAuthStore } from '@/stores/auth-store'
+import { useLocale } from '@/components/shared/locale-provider'
 import { initializeAuth } from '@/lib/auth-utils'
 import { USER_ACCOUNT_CENTER_CLIENT_ID } from '@/lib/constants/auth-constants'
 import { PAYMENT_PROVIDERS } from '@/lib/billing-constants'
@@ -107,6 +108,10 @@ export function PurchasePointsPage({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.user)
+  // App UI language (locale-provider state, not navigator.language) — sent on
+  // the create-attempt request so the provider's hosted checkout page follows
+  // the app language; unknown tags fail open server-side.
+  const { locale: appLocale } = useLocale()
 
   // Purchase flow state. Selection is now price-level: the clicked card's
   // mappingId is the checkout target directly. The provider is
@@ -282,6 +287,7 @@ export function PurchasePointsPage({
           targetType: 'entitlement_mapping',
           targetId: data.mappingId,
           paymentProvider: data.provider,
+          locale: appLocale,
           ...(data.provider === PAYMENT_PROVIDERS.WECHAT && wechatSceneDecision.scene === 'jsapi'
             ? { paymentScene: 'jsapi', openid: wechatSceneDecision.openid }
             : {}),

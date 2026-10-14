@@ -101,10 +101,11 @@
 **Realm 创建初始化规则**
 
 - 创建 realm 时必须指定管理员用户的 email 和 password
-- 自动级联创建默认 web-console client app（client_id 固定为 `admin-web-console`）
-- 自动创建 API Key 客户端应用（client_id 固定为 `admin-api-client`），用于 API Key 认证
-- 自动创建个人中心客户端应用（client_id 固定为 `user-account-center`，供终端用户访问个人中心）
-- 三个内置客户端应用（`admin-web-console`、`admin-api-client`、`user-account-center`）统一设置浏览器 refresh 绝对上限 30 天
+- 自动级联创建四个内置客户端应用，统一设置浏览器 refresh 绝对上限 30 天。本清单是内置客户端全集与其默认启停的**唯一权威定义点**（`client-app`、`api-key-roles`、`mcp-server` 等 PRD 对此仅作指针引用）：
+  - `admin-web-console`——管理控制台，默认启用
+  - `admin-api-client`——API Key 认证宿主，**默认停用**（`enabled=false`，opt-in；租户管理员显式开启后其名下 Key 方可认证，见 `docs/prd/integration/api-key-roles.md`）
+  - `user-account-center`——终端用户个人中心，默认启用
+  - `herald-mcp`——内置 MCP 公共客户端（PKCE-only），**默认停用**（agent 接入 opt-in，见 `docs/prd/integration/mcp-server.md`）
 - 自动初始化注册配置（`registration.enabled: false`）
 - 自动创建管理员用户并分配 `realm-admin` 角色
 - 管理员用户状态自动设为 Normal（已验证），可立即登录
@@ -124,7 +125,7 @@
 
 ## 5. 验收目标
 
-- Admin Realm 管理员能够成功创建新 Realm，创建后新 Realm 自动包含默认角色、权限、策略、客户端应用（admin-web-console、admin-api-client 和 user-account-center）和管理员用户（状态为已验证）
+- Admin Realm 管理员能够成功创建新 Realm，创建后新 Realm 自动包含默认角色、权限、策略、四个内置客户端应用（见 §4.1 内置客户端基线）和管理员用户（状态为已验证）
 - 创建的 Realm 管理员能够登录并访问自己 Realm 的管理功能
 - Realm Admin 只能访问自己 Realm 的资源，访问其他 Realm 资源时被拒绝
 - Realm 列表支持分页、排序和搜索，正确显示所有 Realm 信息
@@ -139,7 +140,7 @@
 
 **API / 集成边界:**
 
-- 第三方 API-Key 通道：Realm 创建与列表查询同时经第三方 API Key 面（`/api/ext/realms`）开放，权限语义与管理通道一致（创建需 admin realm 的 `realm:manage`，列表查询需 `realm.view`）；经该通道创建时不接受调用方指定 Realm ID，由服务端生成
+- 第三方 API-Key 通道：Realm 创建与列表查询同时经第三方 API Key 面（`/api/ext/realms`）开放，权限语义与管理通道一致（创建需 admin realm 的 `realm.manage`，列表查询需 `realm.view`）；经该通道创建时不接受调用方指定 Realm ID，由服务端生成
 - API Key 扩展面提供 `GET /api/ext/realms/{realmId}`，需要 `realm.view`，仅能读取 Key 所属 Realm；不提供跨 Realm 超管豁免
 - 敏感操作（如创建 Realm 时传入管理员密码）需遵循安全传输和存储要求
 - 详细接口契约、验证规则和错误模型应在技术设计文档中维护

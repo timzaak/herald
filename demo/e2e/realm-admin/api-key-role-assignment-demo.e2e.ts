@@ -1,14 +1,18 @@
 /**
  * API Key Role Assignment Demo Test
  *
- * User Story: US-RA-017 — API Key Role Assignment Lifecycle
+ * User Story: US-RA-016 — API Key Role Management (covers scenarios 1/2/3)
  * - Create API Key without roles, verify em-dash badge
- * - Verify API Key defaults to the admin-api-client Client App scope
- * - Create role with realm:view permission, assign to API Key
+ * - Explicitly select the admin-api-client Client App in the create form
+ * - Create role with realm.view permission, assign to API Key via Roles dialog
  * - Verify role badge updates in table
  * - Verify ext API access granted with role permission
  * - Remove role, verify badge reverts to em-dash
  * - Verify ext API returns 403 after role removal
+ *
+ * NOT-COVERED: US-RA-017 (bind roles at API Key creation) — no demo asserts
+ * role selection in the create form; roles are only assigned post-creation
+ * via the Roles dialog here.
  *
  * @see ../../../docs/user-stories/core/realm-admin.md
  */
@@ -153,9 +157,9 @@ test.describe("[Realm Admin] API Key Role Assignment Demo", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Step 5: Create test role with realm:view, then assign it to the API Key
+    // Step 5: Create test role with realm.view, then assign it to the API Key
     // -----------------------------------------------------------------------
-    await test.step("When: Create test role with realm:view and assign to API Key", async () => {
+    await test.step("When: Create test role with realm.view and assign to API Key", async () => {
       // Close roles dialog to navigate away
       await apiKeyPage.closeRolesDialog();
 

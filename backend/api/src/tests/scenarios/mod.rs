@@ -86,12 +86,6 @@ pub mod api_key_roles_scenarios;
 // MCP server end-to-end scenarios (rmcp client transport against /mcp)
 pub mod mcp_scenarios;
 
-// Billing & Points permission enforcement scenarios
-pub mod billing_points_permission_scenarios;
-
-// Billing statistics (payment stats + points consumption stats) scenarios
-pub mod billing_statistics_scenarios;
-
 // Points system scenarios
 pub mod points;
 

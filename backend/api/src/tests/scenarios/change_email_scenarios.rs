@@ -6,9 +6,18 @@ use crate::tests::helpers::test_setup_helpers::*;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use axum::response::Response;
 use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
+
+// User Story: US-RU-016（docs/user-stories/core/regular-user.md）
+//
+// Covers:
+// - 场景 2：重复发起以最新确认链接为准（newest-wins）
+// - 场景 3：确认链接无效或过期（TTL 拒绝；"已被更新链接取代"半边由场景 2 覆盖）
+// - 场景 4：新邮箱与同 Realm 既有邮箱冲突（409）
+// 场景 7（无邮件通道拒绝发起）与 confirm 的 same-user 校验见上方既有场景。
 
 async fn change_email_code_count(pool: &sqlx::PgPool, realm_id: &str) -> i64 {
     sqlx::query_scalar(
@@ -18,6 +27,14 @@ async fn change_email_code_count(pool: &sqlx::PgPool, realm_id: &str) -> i64 {
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+async fn account_email(pool: &sqlx::PgPool, user_id: uuid::Uuid) -> String {
+    sqlx::query_scalar("SELECT email FROM account WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 #[test_context(TestContext)]
@@ -41,22 +58,9 @@ async fn test_scenario_change_email_request_rejected_without_email_config(ctx: &
 
     // Step 2: Request email change (requires a fresh reauth ticket)
     let reauth_token = obtain_reauth_token(ctx, &token, "change_email", password).await;
-    let request_payload = json!({
-        "newEmail": "newemail@cas.com",
-        "reauthToken": reauth_token
-    });
 
-    let build_request = || {
-        Request::builder()
-            .method("POST")
-            .uri(format!("/api/auth/{}/change_email/request", realm_id))
-            .header("content-type", "application/json")
-            .header("authorization", format!("Bearer {}", token))
-            .body(Body::from(request_payload.to_string()))
-            .unwrap()
-    };
-
-    let request_resp = app.clone().oneshot(build_request()).await.unwrap();
+    let request_resp =
+        post_change_email_request(&app, &realm_id, &token, "newemail@cas.com", &reauth_token).await;
     assert_eq!(
         request_resp.status(),
         StatusCode::BAD_REQUEST,
@@ -84,7 +88,8 @@ async fn test_scenario_change_email_request_rejected_without_email_config(ctx: &
     // 快速、离线、确定性地失败 → 如实 500（wire 上 internal 错误统一脱敏为
     // "Internal server error"，具体原因只在日志），且码已先行落库。
     insert_unreachable_smtp_email_config_direct(&ctx._app_state.pool, &realm_id).await;
-    let probe_resp = app.clone().oneshot(build_request()).await.unwrap();
+    let probe_resp =
+        post_change_email_request(&app, &realm_id, &token, "newemail@cas.com", &reauth_token).await;
     assert_eq!(
         probe_resp.status(),
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -131,32 +136,22 @@ async fn test_scenario_change_email_confirm_requires_same_authenticated_user(
     // 送达语义。
     insert_unreachable_smtp_email_config_direct(&ctx._app_state.pool, &realm_id).await;
     let reauth_token = obtain_reauth_token(ctx, &token_a, "change_email", "password123").await;
-    let request_req = Request::builder()
-        .method("POST")
-        .uri(format!("/api/auth/{}/change_email/request", realm_id))
-        .header("content-type", "application/json")
-        .header("authorization", format!("Bearer {}", token_a))
-        .body(Body::from(
-            json!({ "newEmail": "owner-new@cas.com", "reauthToken": reauth_token }).to_string(),
-        ))
-        .unwrap();
-    let request_resp = app.clone().oneshot(request_req).await.unwrap();
+    let request_resp = post_change_email_request(
+        &app,
+        &realm_id,
+        &token_a,
+        "owner-new@cas.com",
+        &reauth_token,
+    )
+    .await;
     assert_eq!(
         request_resp.status(),
         StatusCode::INTERNAL_SERVER_ERROR,
         "the unreachable relay makes the send fail after the code is persisted"
     );
 
-    let change_code: String = sqlx::query_scalar(
-        "SELECT verification_code FROM email_verification_code
-         WHERE realm_id = $1 AND email = $2 AND type = 'change_email'
-         ORDER BY id DESC LIMIT 1",
-    )
-    .bind(&realm_id)
-    .bind("owner-new@cas.com")
-    .fetch_one(&ctx._app_state.pool)
-    .await
-    .unwrap();
+    let change_code =
+        latest_change_email_code(&ctx._app_state.pool, &realm_id, "owner-new@cas.com").await;
     assert!(
         change_code.contains(&user_a_id.to_string()),
         "the persisted code must embed the requesting user (got: {change_code})"
@@ -164,36 +159,271 @@ async fn test_scenario_change_email_confirm_requires_same_authenticated_user(
 
     delete_email_config_direct(&ctx._app_state.pool, &realm_id).await;
 
-    let attacker_confirm_req = Request::builder()
-        .method("GET")
-        .uri(format!(
-            "/api/auth/{}/change_email/confirm/{}",
-            realm_id, change_code
-        ))
-        .header("authorization", format!("Bearer {}", token_b))
-        .body(Body::empty())
-        .unwrap();
-
-    let attacker_confirm_resp = app.clone().oneshot(attacker_confirm_req).await.unwrap();
+    let attacker_confirm_resp =
+        get_change_email_confirm(&app, &realm_id, &token_b, &change_code).await;
     assert_eq!(attacker_confirm_resp.status(), StatusCode::FORBIDDEN);
 
-    let owner_confirm_req = Request::builder()
+    let owner_confirm_resp =
+        get_change_email_confirm(&app, &realm_id, &token_a, &change_code).await;
+    assert_eq!(owner_confirm_resp.status(), StatusCode::OK);
+
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_a_id).await,
+        "owner-new@cas.com"
+    );
+}
+
+async fn post_change_email_request(
+    app: &axum::Router,
+    realm_id: &str,
+    token: &str,
+    new_email: &str,
+    reauth_token: &str,
+) -> Response {
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/change_email/request", realm_id))
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::from(
+            json!({ "newEmail": new_email, "reauthToken": reauth_token }).to_string(),
+        ))
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap()
+}
+
+async fn get_change_email_confirm(
+    app: &axum::Router,
+    realm_id: &str,
+    token: &str,
+    code: &str,
+) -> Response {
+    let req = Request::builder()
         .method("GET")
         .uri(format!(
             "/api/auth/{}/change_email/confirm/{}",
-            realm_id, change_code
+            realm_id, code
         ))
-        .header("authorization", format!("Bearer {}", token_a))
+        .header("authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
+    app.clone().oneshot(req).await.unwrap()
+}
 
-    let owner_confirm_resp = app.clone().oneshot(owner_confirm_req).await.unwrap();
-    assert_eq!(owner_confirm_resp.status(), StatusCode::OK);
+/// Read the latest change_email code row for (realm, new_email) straight from
+/// the persisted row — exactly what the emailed confirmation link carries.
+async fn latest_change_email_code(pool: &sqlx::PgPool, realm_id: &str, email: &str) -> String {
+    sqlx::query_scalar(
+        "SELECT verification_code FROM email_verification_code
+         WHERE realm_id = $1 AND email = $2 AND type = 'change_email'
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(realm_id)
+    .bind(email)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
 
-    let updated_email: String = sqlx::query_scalar("SELECT email FROM account WHERE id = $1")
-        .bind(user_a_id)
-        .fetch_one(&ctx._app_state.pool)
-        .await
-        .unwrap();
-    assert_eq!(updated_email, "owner-new@cas.com");
+/// Issue a change-email request through the failing relay: a fresh reauth
+/// ticket, a request that must reach the send step (500, code persisted),
+/// then the latest persisted code for (realm, new_email). Every user in this
+/// file is created with the fixture password "password123".
+async fn issue_code_via_failing_send(
+    ctx: &TestContext,
+    app: &axum::Router,
+    realm_id: &str,
+    token: &str,
+    new_email: &str,
+) -> String {
+    let reauth_token = obtain_reauth_token(ctx, token, "change_email", "password123").await;
+    let resp = post_change_email_request(app, realm_id, token, new_email, &reauth_token).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "the unreachable relay makes the send fail after the code is persisted"
+    );
+    latest_change_email_code(&ctx._app_state.pool, realm_id, new_email).await
+}
+
+// =============================================================================
+// US-RU-016 场景 2 —— 重复发起以最新确认链接为准（newest-wins）
+// =============================================================================
+//
+// 重发同一新邮箱的变更请求后，此前未使用的旧确认链接必须失效。WHY：旧链接
+// 若在完整 TTL 内继续可用，任何提前读到旧确认邮件的人（错发、转发、回收
+// 邮箱复用）都能完成一次不属于最新请求的邮箱接管；"重发即作废"把可用窗口
+// 收敛到最新一封邮件。实现侧是 request 的 delete-then-insert
+// （api-auth/src/change_email.rs request_email_change_internal）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_us_ru_016_scenario_2_resend_invalidates_previous_change_code(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+    let realm_id = ctx._realm_id.clone();
+
+    let (user_id, _pw_token) =
+        create_user_and_login(ctx, "newest-owner@cas.com", "password123").await;
+    let token = crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, user_id).await;
+
+    // 不可达 SMTP（127.0.0.1:9）：request 走到发送步骤即 500，但码已先行
+    // 落库——码的签发/作废语义不依赖邮件真的发出去（与上方场景同一手法）。
+    insert_unreachable_smtp_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    let new_email = "newest-new@cas.com";
+
+    let first_code = issue_code_via_failing_send(ctx, &app, &realm_id, &token, new_email).await;
+    let second_code = issue_code_via_failing_send(ctx, &app, &realm_id, &token, new_email).await;
+    assert_eq!(
+        change_email_code_count(&ctx._app_state.pool, &realm_id).await,
+        1,
+        "resend must delete the previous code row (newest-wins)"
+    );
+    assert_ne!(
+        first_code, second_code,
+        "the surviving row must be the newly issued code"
+    );
+
+    delete_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    let old_link_resp = get_change_email_confirm(&app, &realm_id, &token, &first_code).await;
+    assert_eq!(
+        old_link_resp.status(),
+        StatusCode::BAD_REQUEST,
+        "the previous confirmation link must be dead after a resend"
+    );
+    let body: serde_json::Value = crate::tests::response_json(old_link_resp).await;
+    assert_eq!(body["message"], "change code not found");
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_id).await,
+        "newest-owner@cas.com",
+        "a dead link must not touch the account email"
+    );
+
+    let latest_link_resp = get_change_email_confirm(&app, &realm_id, &token, &second_code).await;
+    assert_eq!(
+        latest_link_resp.status(),
+        StatusCode::OK,
+        "the newest confirmation link must complete the change"
+    );
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_id).await,
+        new_email
+    );
+}
+
+// =============================================================================
+// US-RU-016 场景 3 —— 确认链接过期（TTL 1800s）拒绝
+// =============================================================================
+//
+// 场景 3 的"已被更新链接取代"半边由场景 2 的旧码 400 覆盖；本场景钉住
+// "已过有效期"半边： mailed link 不得永久有效。把码行 created_at 回拨到
+// TTL（EMAIL_VERIFICATION_CODE_TTL_SECONDS=1800）之外后提交正确码 → 400
+// "change code not found"，邮箱保持不变，且行不被删除（TTL 拒绝不是消费，
+// 行仍在——区别于消费路径的 DELETE）。时间回拨直接 UPDATE 自有 fixture
+// 行（确定性）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_us_ru_016_scenario_3_expired_change_code_rejected(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+    let realm_id = ctx._realm_id.clone();
+
+    let (user_id, _pw_token) = create_user_and_login(ctx, "ttl-owner@cas.com", "password123").await;
+    let token = crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, user_id).await;
+
+    insert_unreachable_smtp_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    let new_email = "ttl-new@cas.com";
+    let code = issue_code_via_failing_send(ctx, &app, &realm_id, &token, new_email).await;
+
+    delete_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    // 1801s = EMAIL_VERIFICATION_CODE_TTL_SECONDS (1800) + 1: the row falls
+    // outside the confirm lookup's created_at cutoff.
+    sqlx::query(
+        "UPDATE email_verification_code SET created_at = NOW() - INTERVAL '1801 seconds'
+         WHERE realm_id = $1 AND email = $2 AND type = 'change_email'",
+    )
+    .bind(&realm_id)
+    .bind(new_email)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to age the change-email code row");
+
+    let confirm_resp = get_change_email_confirm(&app, &realm_id, &token, &code).await;
+    assert_eq!(
+        confirm_resp.status(),
+        StatusCode::BAD_REQUEST,
+        "an expired confirmation link must not complete the change"
+    );
+    let body: serde_json::Value = crate::tests::response_json(confirm_resp).await;
+    assert_eq!(body["message"], "change code not found");
+
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_id).await,
+        "ttl-owner@cas.com"
+    );
+
+    assert_eq!(
+        change_email_code_count(&ctx._app_state.pool, &realm_id).await,
+        1,
+        "TTL rejection must not consume (delete) the code row"
+    );
+}
+
+// =============================================================================
+// US-RU-016 场景 4 —— 新邮箱与同 Realm 既有邮箱冲突（409）
+// =============================================================================
+//
+// 同 Realm 已有其他账户占用目标邮箱时，确认步骤必须以 409 拒绝且两个账户
+// 的邮箱都保持不变。WHY：confirm 的 UPDATE account 撞上
+// account(realm_id, email) 唯一索引（23505）——放任其穿透会让同 Realm 出现
+// 两个同邮箱账户，登录身份解析从此二义。码行不被消费（仍在库中），冲突
+// 拒绝不销毁重试能力。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_us_ru_016_scenario_4_confirm_conflict_email_in_use_returns_409(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+    let realm_id = ctx._realm_id.clone();
+
+    let (user_b_id, _pw_token_b) =
+        create_user_and_login(ctx, "conflict-taken@cas.com", "password123").await;
+    let (user_a_id, _pw_token_a) =
+        create_user_and_login(ctx, "conflict-owner@cas.com", "password123").await;
+    let token_a =
+        crate::tests::helpers::auth_helpers::mint_first_party_session(ctx, user_a_id).await;
+
+    insert_unreachable_smtp_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    let new_email = "conflict-taken@cas.com";
+    let code = issue_code_via_failing_send(ctx, &app, &realm_id, &token_a, new_email).await;
+
+    delete_email_config_direct(&ctx._app_state.pool, &realm_id).await;
+
+    let confirm_resp = get_change_email_confirm(&app, &realm_id, &token_a, &code).await;
+    assert_eq!(
+        confirm_resp.status(),
+        StatusCode::CONFLICT,
+        "confirming onto a same-realm occupied mailbox must be a 409 conflict"
+    );
+    let body: serde_json::Value = crate::tests::response_json(confirm_resp).await;
+    assert_eq!(body["message"], "email already in use");
+
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_a_id).await,
+        "conflict-owner@cas.com",
+        "the requester keeps their mailbox"
+    );
+    assert_eq!(
+        account_email(&ctx._app_state.pool, user_b_id).await,
+        "conflict-taken@cas.com",
+        "the incumbent keeps their mailbox"
+    );
+
+    assert_eq!(
+        change_email_code_count(&ctx._app_state.pool, &realm_id).await,
+        1,
+        "a rejected confirm must not consume the code row"
+    );
 }

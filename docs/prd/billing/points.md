@@ -11,7 +11,10 @@
 
 | US-ID | 标题 | 优先级 | 来源 |
 |-------|------|--------|------|
-| US-AP-001～004 | 异步支付积分策略、提前发放、失败回收与未回收负债 | P0/P1 | `docs/user-stories/billing/async-payment-points.md` |
+| US-AP-001 | 配置异步支付积分发放策略 | P0 | `docs/user-stories/billing/async-payment-points.md` |
+| US-AP-002 | 积极策略下异步支付立即发放积分 | P0 | `docs/user-stories/billing/async-payment-points.md` |
+| US-AP-003 | 异步支付失败后回收积分 | P0 | `docs/user-stories/billing/async-payment-points.md` |
+| US-AP-004 | 回收时余额不足的处理 | P1 | `docs/user-stories/billing/async-payment-points.md` |
 | US-PO-001 | 配置 Entitlement 积分策略 | P0 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-002 | 查看所有用户积分账户 | P1 | `docs/user-stories/billing/points-admin.md` |
 | US-PO-003 | 查看用户积分交易历史 | P1 | `docs/user-stories/billing/points-admin.md` |

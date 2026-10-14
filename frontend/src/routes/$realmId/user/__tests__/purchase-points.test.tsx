@@ -27,6 +27,14 @@ vi.mock('@/stores/auth-store', () => ({
     selector({ user: { id: 'user-1' } }),
 }))
 
+// App locale: controlled per-test — the create-attempt request must carry the
+// app's UI language so the hosted checkout follows it (not the browser's
+// language), so the tests need to pin exactly which locale the page read.
+const { appLocale } = vi.hoisted(() => ({ appLocale: { current: 'en' as string } }))
+vi.mock('@/components/shared/locale-provider', () => ({
+  useLocale: () => ({ locale: appLocale.current, switchLocale: vi.fn() }),
+}))
+
 // Payment attempt API: capture the submitted target so we can assert mappingId.
 const { mockCreatePaymentAttempt } = vi.hoisted(() => ({
   mockCreatePaymentAttempt: vi.fn(),
@@ -113,6 +121,7 @@ function renderPage(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  appLocale.current = 'en'
   // Default: payment attempt creation resolves with an id.
   mockCreatePaymentAttempt.mockResolvedValue({
     data: { id: 'att-1', paymentContext: {}, expiresAt: '2026-01-01T00:00:00Z' },
@@ -279,6 +288,7 @@ describe('PurchasePointsPage', () => {
   })
 
   it('selects a card and submits the mappingId as the purchase target (single provider skips payment step)', async () => {
+    appLocale.current = 'zh-CN'
     const user = userEvent.setup()
     renderPage([
       makeOption({ mappingId: 'm-1', externalPriceId: 'price_m', billingPeriod: 'month' }),
@@ -297,11 +307,15 @@ describe('PurchasePointsPage', () => {
       expect(mockCreatePaymentAttempt).toHaveBeenCalledTimes(1)
     })
     const call = mockCreatePaymentAttempt.mock.calls[0][0] as {
-      body: { targetType: string; targetId: string; paymentProvider: string }
+      body: { targetType: string; targetId: string; paymentProvider: string; locale: string }
     }
     expect(call.body.targetType).toBe('entitlement_mapping')
     expect(call.body.targetId).toBe('m-1')
     expect(call.body.paymentProvider).toBe('stripe')
+    // The app's UI language must reach the create request so the hosted
+    // checkout follows it (server maps zh-CN → Stripe's zh); dropping this
+    // would leave the checkout on the buyer's browser language.
+    expect(call.body.locale).toBe('zh-CN')
   })
 
   describe('WeChat provider branch', () => {

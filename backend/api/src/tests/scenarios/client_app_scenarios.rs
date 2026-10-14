@@ -514,7 +514,7 @@ mod tests {
 
     // =========================================================================
     // V7: built-in MCP client app protection (mcp-server US-MCP-001 场景 3 /
-    // US-MCP-011 候选故事——管理台对内置 MCP 客户端只能查看与停用)
+    // US-MCP-011「查看与关闭本租户 MCP 接入」——管理台对内置 MCP 客户端只能查看与停用)
     // =========================================================================
     //
     // User Story: docs/user-stories/integration/mcp-server.md US-MCP-001

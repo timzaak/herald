@@ -5,6 +5,7 @@
  *
  * Scenario A (gating): when the realm has no email channel configured, the
  * profile page hides the "Change Email" entry and shows the reason instead.
+ * (US-RU-016 scenario 7)
  *
  * Scenario B (main path): with a fake-Resend channel configured, the user
  * reauthenticates with their password, submits a new address, and completes
@@ -16,6 +17,14 @@
  * pretending the mail went out. The flow reads the code from the database
  * via helpers/verification-code-db-helper.ts (exactly what the emailed link would
  * carry) and opens the confirmation page as the logged-in owner.
+ * (US-RU-016 scenario 1)
+ *
+ * NOT-COVERED here (asserted by the backend scenario tests in
+ * backend/api/src/tests/scenarios/change_email_scenarios.rs instead):
+ * US-RU-016 scenario 2 (resend invalidates the previous link — newest-wins),
+ * scenario 3 (expired/invalid confirmation link), scenario 4 (new email
+ * already in use in the same realm — 409), scenario 5 (reauth failure), and
+ * scenario 6 (restricted session cannot initiate).
  *
  * Backend endpoints:
  *   POST /api/auth/{realmId}/change_email/request   — reauth ticket + new email

@@ -34,7 +34,10 @@
 | US-IF-009 | 普通用户查看退款标注 | P1 | `docs/user-stories/billing/invoice-fallback.md` |
 | US-IF-010 | 管理员记录自研发票的线下退款 | P0 | `docs/user-stories/billing/invoice-fallback.md` |
 | US-IF-011 | 系统处理 Stripe Credit Note 作废 | P0 | `docs/user-stories/billing/invoice-fallback.md` |
-| US-PM-001～004 | 续费支付记录、Creem 续费发票、外部发票归属与补偿可观测性 | — | `docs/user-stories/billing/payment-invoice-mapping.md` |
+| US-PM-001 | 订阅续费记录每一次支付 | P0 | `docs/user-stories/billing/payment-invoice-mapping.md` |
+| US-PM-002 | Creem 订阅续费同步发票 | P0 | `docs/user-stories/billing/payment-invoice-mapping.md` |
+| US-PM-003 | 外部发票归属本地支付或订阅 | P1 | `docs/user-stories/billing/payment-invoice-mapping.md` |
+| US-PM-004 | 发票-支付映射的补偿与可观测性 | P2 | `docs/user-stories/billing/payment-invoice-mapping.md` |
 
 ---
 

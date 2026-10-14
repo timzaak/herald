@@ -8,6 +8,12 @@
 //   GET /api/bill/stats/payments      -> billing.view
 //   GET /api/points/stats/consumption -> points.view
 //
+// User Stories covered:
+// - US-BS-001: 查看支付统计总览（成功/失败笔数、成功率、按币种与渠道分组）
+// - US-BS-002: 查看积分消耗统计（总消耗、用户数、按账户分组、按日趋势）
+//
+// Reference: docs/user-stories/billing/billing-statistics.md
+//
 // =============================================================================
 
 use crate::tests::helpers::async_payment_helpers::create_test_user;

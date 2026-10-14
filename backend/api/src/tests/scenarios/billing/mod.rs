@@ -217,3 +217,14 @@ pub mod pay_model_fulfillment_scenarios;
 // User Story: docs/user-stories/billing/payment-attempt.md (US-PA-001),
 //             docs/user-stories/billing/entitlement-mapping.md (US-EM-008)
 pub mod multiple_currency_scenarios;
+
+// Billing statistics scenario tests (payment stats overview + points
+// consumption stats, permission-gated panel semantics).
+// User Story: US-BS-001 (支付统计总览), US-BS-002 (积分消耗统计)
+// Reference: docs/user-stories/billing/billing-statistics.md
+pub mod billing_statistics_scenarios;
+
+// Billing & Points permission enforcement scenario tests.
+// User Story: US-RA-009: Permission hierarchy -- billing.view/manage enforcement
+// Reference: docs/user-stories/core/realm-admin.md (US-RA-009)
+pub mod billing_points_permission_scenarios;
