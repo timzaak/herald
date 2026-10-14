@@ -22,8 +22,9 @@ Usage:
   python scripts/release.py --dry-run  # preflight + resolved version only
   python scripts/release.py --no-push  # commit + tag locally, do not push
 
-SDK publishes to npm/crates.io are separate manual workflows
-(publish-web-sdk.yml / publish-node-sdk.yml / publish-sdk.yml).
+SDK publishes to npm/crates.io run automatically: pushing the tag triggers
+the CD pipeline (cd.yml), which calls publish-web-sdk.yml / publish-node-sdk.yml
+/ publish-sdk.yml (also available manually via workflow_dispatch for re-runs).
 """
 
 import argparse
@@ -342,7 +343,8 @@ def main() -> int:
         commit_hash = commit_tag_and_push(version, push=not args.no_push)
         push_text = "pushed" if not args.no_push else "created locally"
         print(f"Release {version} {push_text}: commit {commit_hash}, tag {release_tag}")
-        print("Reminder: SDK publishes are manual workflows (publish-web-sdk / publish-node-sdk / publish-sdk).")
+        if not args.no_push:
+            print(f"Tag push triggers the CD pipeline (docker images, npm/crates.io SDK publishes, GitHub Release).")
         return 0
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -1,0 +1,35 @@
+name: Buildcache Cleanup
+
+# Weekly wipe of the herald-buildcache package pushed by the CD pipeline's
+# cache-to registry refs (vaultwarden-style): mode=max caches accumulate
+# stale layers over time, so the package is bounded by deleting all versions
+# on a fixed schedule. Never delete it per-release in cd.yml — that would
+# wipe the cache before the next build can reuse it.
+
+on:
+  schedule:
+    - cron: '0 1 * * FRI'
+  workflow_dispatch:
+
+concurrency:
+  group: buildcache-cleanup
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  buildcache-cleanup:
+    name: Delete herald-buildcache versions
+    permissions:
+      packages: write # To be able to delete package versions
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - name: Delete herald-buildcache versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: herald-buildcache
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: 'false'

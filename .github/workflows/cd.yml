@@ -54,8 +54,13 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
-          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+          # Registry-backed cache in a dedicated package, not type=gha: this
+          # pipeline only runs on tag refs, and GHA cache entries written on a
+          # tag are invisible to every other ref, so a gha cache can never hit
+          # across releases (and would blow the 10 GB repo-wide cap anyway).
+          # The buildcache package is wiped weekly by buildcache-cleanup.yml.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-buildcache:${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-buildcache:${{ env.PLATFORM_PAIR }},mode=max,compression=zstd
 
       - name: Export digest
         run: |
@@ -107,10 +112,13 @@ jobs:
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
+      # Untagged intermediate digests only — the build cache lives in the
+      # separate herald-buildcache package and is cleaned by
+      # buildcache-cleanup.yml, never here (deleting it per-release would
+      # defeat the cache).
       - name: Clean up GHCR intermediate versions
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          delete-tags: build-cache-*
           delete-untagged: true
           validate: true
 
