@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use herald_core::application::{ApplicationService, WebhookService};
 use herald_core::domain::legal::LegalService;
+use herald_core::domain::organization::services::OrganizationServiceImpl;
 use herald_core::domain::payment_attempt::PaymentAttemptService;
 use herald_core::domain::user::services::SelfDeleteService;
 use herald_core::domain::user::services::admin::{
@@ -12,6 +13,8 @@ use herald_core::domain::user::services::admin::{
 use herald_core::infrastructure::PostgresCustomDomainMappingRepository;
 use herald_core::infrastructure::audit::PostgresAuditEventRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
+use herald_core::infrastructure::authorization::PostgresRoleRepository;
+use herald_core::infrastructure::authorization::RedisCache;
 use herald_core::infrastructure::authorization::RedisPermissionChecker;
 use herald_core::infrastructure::authorization::policies::{
     PermissionBasedBillingPolicy, PermissionBasedPointsPolicy,
@@ -23,6 +26,9 @@ use herald_core::infrastructure::billing::{
 use herald_core::infrastructure::client_api_keys::{ApiKeyCache, ClientApiKeyRepository};
 use herald_core::infrastructure::legal::{
     PostgresLegalAgreementRepository, PostgresUserConsentRepository,
+};
+use herald_core::infrastructure::organization::{
+    PostgresOrgMembershipRepository, PostgresOrganizationRepository, RedisOrgAuthorizationChecker,
 };
 use herald_core::infrastructure::payment_attempt::PostgresPaymentAttemptRepository;
 use herald_core::infrastructure::points::PostgresPointsRepository;
@@ -56,6 +62,46 @@ type ProviderProductSyncServiceImpl = herald_core::domain::billing::ProviderProd
     PermissionBasedBillingPolicy,
     ConfiguredProviderProductApi,
 >;
+
+/// Concrete organization service instantiation for AppState (same
+/// direct-field pattern as `legal_service`).
+pub type AppOrganizationService = OrganizationServiceImpl<
+    PostgresOrganizationRepository,
+    PostgresOrgMembershipRepository,
+    PostgresRoleRepository,
+    RedisOrgAuthorizationChecker,
+    PostgresAuditEventRepository,
+    PostgresUserRepository,
+>;
+
+/// Shared assembly of the organization service — repositories, the checker
+/// with its dedicated Redis cache instance (independent keys/TTL from the
+/// flat permission cache), and the use-case service. Used by the production
+/// state assembly and the schema-scoped test contexts; only the connection
+/// handles differ between call sites.
+pub fn build_org_service(
+    db: DatabaseConnection,
+    pool: PgPool,
+    redis_manager: RedisConnectionManager,
+    audit_event_repository: Arc<PostgresAuditEventRepository>,
+    user_repository: Arc<PostgresUserRepository>,
+) -> anyhow::Result<Arc<AppOrganizationService>> {
+    let org_repository = Arc::new(PostgresOrganizationRepository::new(Arc::new(db.clone())));
+    let org_membership_repository =
+        Arc::new(PostgresOrgMembershipRepository::new(Arc::new(db.clone())));
+    let org_role_repository = Arc::new(PostgresRoleRepository::new(Arc::new(db)));
+    let org_cache = RedisCache::new(redis_manager)
+        .map_err(|e| anyhow::anyhow!("Failed to create org Redis cache: {e}"))?;
+    let org_checker = Arc::new(RedisOrgAuthorizationChecker::new(pool, Arc::new(org_cache)));
+    Ok(Arc::new(AppOrganizationService::new(
+        org_repository,
+        org_membership_repository,
+        org_role_repository,
+        org_checker,
+        audit_event_repository,
+        user_repository,
+    )))
+}
 
 /// AppState for API handlers
 /// Contains database connections and configuration for HTTP endpoints
@@ -310,4 +356,8 @@ pub struct AppState {
     /// on `herald-core`, which re-exports `herald-infra`.
     pub oidc_signing_key_store:
         std::sync::Arc<herald_core::infrastructure::oidc_signing_key::OidcSigningKeyStore>,
+
+    /// Organization lifecycle/member management service (ext orgs face).
+    /// Direct AppState field — same pattern as `legal_service`.
+    pub org_service: std::sync::Arc<AppOrganizationService>,
 }

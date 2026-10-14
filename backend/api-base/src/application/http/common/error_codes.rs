@@ -31,6 +31,16 @@ pub enum ErrorCode {
     PlatformPermissionRequired,
     ValidationError,
     ClientAppDisabled,
+    OrgNotFound,
+    OrgOwnerProtected,
+    OrgLastAdminProtected,
+    OrgRoleNotFound,
+    OrgMemberNotFound,
+    OrgAccountScopeMismatch,
+    OrgActorNotManager,
+    OrgActorSelfHoldRequired,
+    OrgOwnershipTransferDenied,
+    OrgClientAppKeyRequired,
 }
 
 impl ErrorCode {
@@ -65,6 +75,16 @@ impl ErrorCode {
             ErrorCode::PlatformPermissionRequired => "platform_permission_required",
             ErrorCode::ValidationError => "validation_error",
             ErrorCode::ClientAppDisabled => "client_app_disabled",
+            ErrorCode::OrgNotFound => "org_not_found",
+            ErrorCode::OrgOwnerProtected => "org_owner_protected",
+            ErrorCode::OrgLastAdminProtected => "org_last_admin_protected",
+            ErrorCode::OrgRoleNotFound => "org_role_not_found",
+            ErrorCode::OrgMemberNotFound => "org_member_not_found",
+            ErrorCode::OrgAccountScopeMismatch => "org_account_scope_mismatch",
+            ErrorCode::OrgActorNotManager => "org_actor_not_manager",
+            ErrorCode::OrgActorSelfHoldRequired => "org_actor_self_hold_required",
+            ErrorCode::OrgOwnershipTransferDenied => "org_ownership_transfer_denied",
+            ErrorCode::OrgClientAppKeyRequired => "org_client_app_key_required",
         }
     }
 
@@ -99,6 +119,16 @@ impl ErrorCode {
             ErrorCode::PlatformPermissionRequired => 30011,
             ErrorCode::ValidationError => 10006,
             ErrorCode::ClientAppDisabled => 30012,
+            ErrorCode::OrgNotFound => 30013,
+            ErrorCode::OrgOwnerProtected => 30014,
+            ErrorCode::OrgLastAdminProtected => 30015,
+            ErrorCode::OrgRoleNotFound => 30016,
+            ErrorCode::OrgMemberNotFound => 30017,
+            ErrorCode::OrgAccountScopeMismatch => 30018,
+            ErrorCode::OrgActorNotManager => 30019,
+            ErrorCode::OrgActorSelfHoldRequired => 30020,
+            ErrorCode::OrgOwnershipTransferDenied => 30021,
+            ErrorCode::OrgClientAppKeyRequired => 30022,
         }
     }
 }

@@ -11,6 +11,7 @@ use crate::application::http::oauth::device_functions::init_device_functions;
 use crate::application::http::rate_limit::init_rate_limit_function;
 use crate::application::http::state::AppState;
 use crate::tests::shared::SharedContainers;
+use herald_api_base::application::http::state::build_org_service;
 use herald_core::admin::user::init_admin_user;
 use herald_core::application::{ApplicationServiceBuilder, WebhookService};
 use herald_core::infrastructure::PostgresCustomDomainMappingRepository;
@@ -293,6 +294,19 @@ impl AsyncTestContext for SchemaTestContext {
                 fulfillment_service.clone(),
             ));
 
+        let org_service = build_org_service(
+            sea_conn.clone(),
+            pool_with_schema.clone(),
+            (*redis_manager).clone(),
+            Arc::new(
+                herald_core::infrastructure::audit::PostgresAuditEventRepository::new(
+                    sea_conn.clone(),
+                ),
+            ),
+            user_repository.clone(),
+        )
+        .expect("Failed to assemble organization service");
+
         let app_state = Arc::new(AppState {
             service: application_service,
             pool: pool_with_schema.clone(),
@@ -479,6 +493,7 @@ impl AsyncTestContext for SchemaTestContext {
                 )
                 .expect("test JWT secret must initialize the OIDC signing key store"),
             ),
+            org_service,
         });
 
         // 13. 初始化 Redis Functions（只运行一次）

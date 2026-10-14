@@ -113,6 +113,8 @@
 | points.view | points | view | 查看积分、积分规则 |
 | points.manage | points | manage | 积分管理、Provider 映射管理 |
 | audit.view | audit | view | 查看审计日志列表和详情 |
+| orgs.view | orgs | view | 查看组织与成员（组织授权能力面的读门禁，见 `docs/prd/auth/org-authorization.md`） |
+| orgs.manage | orgs | manage | 组织与成员管理（组织授权能力面的写门禁，可授予绑定 Client App 的 API Key，见 `docs/prd/auth/org-authorization.md`） |
 
 **Admin Realm 额外权限**:
 
@@ -163,6 +165,7 @@
 1. 为角色添加策略/权限（`add_policy_to_role`、`assign_permission_to_role`）与为用户分配直接权限时，调用者在端点所需的管理权限（角色策略路径为 `policies.manage`；用户的角色分配为 `roles.manage`；用户直接权限分配为 `policies.manage`，见 §4.2 API 架构说明）之外，必须自身持有被授予的 `resource.action` 权限
 2. 修改既有用户的角色集合必须持有 `roles.manage`；创建用户时仅附带普通 `user` 角色可由 `users.manage` 完成，其他角色仍要求角色管理权限与授予方自持检查
 3. 该规则防止仅持部分管理权限的 delegated-admin 通过授权操作自我提权（例如把高权限内置角色或自身不具备的权限授予自己）；权限不满足时返回权限不足错误
+4. 唯一例外：向内置组织档位（org-owner / org-admin / org-member）挂载策略词表时豁免授予方自持——应用自定义资源在扁平层无人自持过，不豁免则组织角色词表无法配置；豁免仍保留 `policies.manage` 管理门、realm 作用域与通配符拒绝，且仅限这三个内置档位（见 `docs/prd/auth/org-authorization.md` §4.1 组织角色）
 
 **Realm 操作权限**:
 

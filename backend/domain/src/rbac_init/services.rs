@@ -128,6 +128,10 @@ where
             ("billing.manage", "Manage billing plans"),
             ("points.view", "View points accounts and transactions"),
             ("points.manage", "Manage points accounts and transactions"),
+            // Organization face gate — new builtin permissions must keep the
+            // permissions list and the realm-admin policy list below in sync.
+            ("orgs.view", "View organizations"),
+            ("orgs.manage", "Manage organizations (grant to app keys)"),
         ];
         if is_admin_realm {
             realm_admin_permissions.insert(0, ("realm.view", "View realm information"));
@@ -207,6 +211,13 @@ where
             ("billing", "manage"),
             ("points", "view"),
             ("points", "manage"),
+            // Organization face gate: without these the realm admin cannot
+            // self-hold orgs.* and could never grant them to app keys
+            // (grantor self-hold on policy grants), leaving the ext orgs
+            // endpoints unreachable for every real deployment. Keep this list
+            // in sync with the builtin permissions above.
+            ("orgs", "view"),
+            ("orgs", "manage"),
         ];
         if is_admin_realm {
             realm_admin_policies.insert(0, ("realm", "view"));

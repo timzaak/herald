@@ -12,7 +12,7 @@
 | 用户生命周期与合规 | 注册/登录 → 资料维护 → 协议确认 → 账户注销 | [普通用户](core/regular-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
 | 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OpenID Connect](auth/openid-connect.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
-| 授权与应用接入 | RBAC 配置 → Client App/API Key → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
+| 授权与应用接入 | RBAC 配置 → Client App/API Key → 组织级成员托管 → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[组织授权](auth/org-authorization.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
 | 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md)、[计费统计](billing/billing-statistics.md) |
 | 积分与余额 | 策略配置 → 免费/付费发放 → 分账户持有和消费 → 查询历史 | [积分管理](billing/points-admin.md)、[免费积分](billing/points-free-user.md)、[积分包购买](billing/points-package-purchase.md)、[用户积分](billing/points-user.md)、[异步支付积分](billing/async-payment-points.md)、[积分账户](billing/credit-bucket.md)、[多钱包分发规则](billing/multi-wallet-grant-rules.md) |
 | 发票与退款凭证 | 支付归属 → 发票同步/开具 → 退款和 Credit Note | [发票与 Provider Fallback](billing/invoice.md)、[支付-发票归属](billing/payment-invoice-mapping.md)、[退款回收](billing/refund-clawback.md) |
@@ -132,6 +132,13 @@
 | US-LD-004 | 企业账号登录与其他登录及安全能力共存 | Regular User | P1 | [auth/support-ldap](auth/support-ldap.md#故事-4企业账号登录与其他登录及安全能力共存-us-ld-004) |
 | US-SD-001 | Discord OAuth Provider 配置 | Realm Admin | P1 | [auth/support-discord](auth/support-discord.md#故事-1discord-oauth-provider-配置-us-sd-001) |
 | US-SD-002 | 使用 Discord 账号登录 | Regular User | P1 | [auth/support-discord](auth/support-discord.md#故事-2使用-discord-账号登录-us-sd-002) |
+| US-OA-001 | 创建组织并关联应用侧 workspace | Third-Party App | P0 | [auth/org-authorization](auth/org-authorization.md#故事-1创建组织并关联应用侧-workspace-us-oa-001) |
+| US-OA-002 | 添加成员并赋予组织角色 | Third-Party App | P0 | [auth/org-authorization](auth/org-authorization.md#故事-2添加成员并赋予组织角色-us-oa-002) |
+| US-OA-003 | 查询用户在组织内的角色与能力判定 | Third-Party App | P0 | [auth/org-authorization](auth/org-authorization.md#故事-3查询用户在组织内的角色与能力判定-us-oa-003) |
+| US-OA-004 | 移除成员与变更角色 | Third-Party App | P0 | [auth/org-authorization](auth/org-authorization.md#故事-4移除成员与变更角色-us-oa-004) |
+| US-OA-005 | workspace 管理员协作（提升成员为管理员） | Regular User | P1 | [auth/org-authorization](auth/org-authorization.md#故事-5workspace-管理员协作提升成员为管理员-us-oa-005) |
+| US-OA-006 | 平台身份不穿透组织判定 | Third-Party App | P0 | [auth/org-authorization](auth/org-authorization.md#故事-6平台身份不穿透组织判定-us-oa-006) |
+| US-OA-007 | 我的组织列表 | Regular User | P2 | [auth/org-authorization](auth/org-authorization.md#故事-7我的组织列表-us-oa-007) |
 | US-BI-006 | 查看订阅列表 | Billing User | P0 | [billing/subscription](billing/subscription.md#故事-6查看订阅列表-us-bi-006) |
 | US-BI-007 | 第三方应用查询订阅状态（SDK 集成） | Billing User | P0 | [billing/subscription.md](billing/subscription.md#故事-7第三方应用查询订阅状态sdk-集成-us-bi-007) |
 | US-BI-008 | 查看订阅变更历史 | Billing User | P1 | [billing/subscription](billing/subscription.md#故事-8查看订阅变更历史-us-bi-008) |
@@ -355,6 +362,7 @@
 | Apple Native Login | [auth/support-mobile-apple-login.md](auth/support-mobile-apple-login.md) | [Apple native 登录 PRD](/docs/prd/auth/support-mobile-apple-login.md) |
 | Discord 登录 | [auth/support-discord.md](auth/support-discord.md) | [Discord 登录 PRD](/docs/prd/auth/support-discord.md) |
 | LDAP 企业目录登录 | [auth/support-ldap.md](auth/support-ldap.md) | [LDAP 企业目录登录 PRD](/docs/prd/auth/support-ldap.md) |
+| 组织授权 | [auth/org-authorization.md](auth/org-authorization.md) | [组织授权 PRD](/docs/prd/auth/org-authorization.md) |
 | Device Code | [auth/device-code.md](auth/device-code.md) | [Device Code PRD](/docs/prd/auth/device-code.md) |
 
 ### Billing 计费相关

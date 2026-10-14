@@ -24,6 +24,7 @@ pub mod dashboard;
 pub mod ldap;
 pub mod legal;
 pub mod oauth;
+pub mod organization;
 pub mod payment_attempt;
 pub mod points;
 pub mod purchase;

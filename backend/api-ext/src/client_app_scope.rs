@@ -8,6 +8,21 @@ use herald_core::entity::{client_app, credit_bucket_client_app};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
+/// Load the Client App row a key is bound to. Single load point for every
+/// bound-app scope decision in this crate; a DB failure maps to 500.
+pub async fn load_bound_client_app(
+    state: &AppState,
+    bound_client_app_id: Uuid,
+) -> Result<Option<client_app::Model>, Response> {
+    client_app::Entity::find_by_id(bound_client_app_id)
+        .one(state.db.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load API key bound Client App: {e}");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalError)
+        })
+}
+
 pub async fn ensure_client_app_scope(
     state: &AppState,
     identity: &Identity,

@@ -114,8 +114,12 @@ pub async fn delete_role(
         }
     };
 
+    // A role referenced by org_memberships is in use as an organization
+    // tier: the FK holds it (NO ACTION), and this check turns that into a
+    // structured conflict instead of a raw database error on delete.
     let role_in_use: Option<(bool,)> = sqlx::query_as(
-        "SELECT EXISTS(SELECT 1 FROM user_roles WHERE role_id = $1 AND realm_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM user_roles WHERE role_id = $1 AND realm_id = $2) \
+         OR EXISTS(SELECT 1 FROM org_memberships WHERE role_id = $1)",
     )
     .bind(id)
     .bind(&realm_id)

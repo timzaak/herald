@@ -342,6 +342,7 @@ pub mod principal;
 
 // Service implementations
 pub mod permission_service;
+pub mod policy_semantics;
 pub mod services;
 
 // Re-exports

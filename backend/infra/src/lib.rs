@@ -14,6 +14,7 @@ pub mod ldap;
 pub mod legal;
 pub mod oauth;
 pub mod oidc_signing_key;
+pub mod organization;
 pub mod payment_attempt;
 pub mod points;
 pub mod purchase;

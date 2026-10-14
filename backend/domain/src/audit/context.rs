@@ -63,4 +63,26 @@ impl AuditContext {
             trace_id: None,
         }
     }
+
+    /// Build a context for an ext-face operation initiated by an application
+    /// backend through a Client-App-bound API key. Unlike the admin/user
+    /// constructors there is no `Identity::User` behind the call, so the
+    /// actor is the application itself: `actor_id` is the bound Client App's
+    /// `client_id` and `actor_name` its display name. The API key id belongs
+    /// in the event's `details` (via `viaApiKeyId`), never in `actor_id`.
+    pub fn ext_client(
+        client_id: &str,
+        app_name: Option<String>,
+        ip: String,
+        user_agent: Option<String>,
+    ) -> Self {
+        Self {
+            actor_id: client_id.to_string(),
+            actor_type: Some(ActorType::Client),
+            actor_name: app_name,
+            ip_address: Some(ip),
+            user_agent,
+            trace_id: None,
+        }
+    }
 }

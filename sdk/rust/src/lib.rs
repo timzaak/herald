@@ -376,6 +376,145 @@ pub struct ClientAppItem {
     pub created_at: String,
 }
 
+/// Request body for creating an organization
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateOrgSdkRequest {
+    /// App-side identifier (workspace id etc.); unique per Client App.
+    /// Replaying an existing externalId returns it with `created = false`.
+    pub external_id: String,
+    pub name: Option<String>,
+    pub owner_id: String,
+}
+
+/// Organization detail (create response)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInfo {
+    pub id: String,
+    pub external_id: String,
+    pub name: Option<String>,
+    pub owner_id: String,
+    pub realm_id: String,
+    pub client_id: String,
+    pub created_at: String,
+    pub created: bool,
+}
+
+/// Tier reference (id + name) of an organization role
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRoleRef {
+    pub id: String,
+    pub name: String,
+}
+
+/// Request body for the member upsert (add or change tier)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertOrgMemberSdkRequest {
+    pub user_id: String,
+    /// Tier name within (realm, the organization's client_id): built-ins
+    /// `org-owner` / `org-admin` / `org-member` or an app-defined tier.
+    pub role: String,
+    /// When set, the change passes that user's in-org management and
+    /// self-hold authority instead of the application's full rights.
+    pub actor_user_id: Option<String>,
+}
+
+/// Membership view (upsert response)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberInfo {
+    pub org_id: String,
+    pub user_id: String,
+    pub role: OrgRoleRef,
+    pub is_owner: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// One rule of an organization permission check
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OrgCheckRule {
+    pub resource: String,
+    pub action: String,
+}
+
+/// Request body for the organization permission check
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgPermissionCheckSdkRequest {
+    pub user_id: String,
+    /// Every rule must hit for `allowed = true`.
+    pub rules: Vec<OrgCheckRule>,
+}
+
+/// Organization permission check result (denials are structured 200 bodies)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgPermissionCheckResult {
+    /// false = the user is not a member (distinct from a denied member)
+    pub member: bool,
+    pub allowed: bool,
+    pub role: Option<OrgRoleRef>,
+}
+
+/// Member row of an organization member list
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberListItem {
+    pub user_id: String,
+    pub email: String,
+    pub nickname: Option<String>,
+    pub role: OrgRoleRef,
+    pub is_owner: bool,
+    pub joined_at: String,
+}
+
+/// Paginated organization member list
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberPage {
+    pub items: Vec<OrgMemberListItem>,
+    pub page: u64,
+    pub page_size: u64,
+    pub total: i64,
+}
+
+/// Single-member tier query result
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMemberLookup {
+    pub member: bool,
+    pub user_id: String,
+    pub role: Option<OrgRoleRef>,
+    pub is_owner: Option<bool>,
+    pub joined_at: Option<String>,
+}
+
+/// Row of a user's organization list
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UserOrgListItem {
+    pub org_id: String,
+    pub external_id: String,
+    pub name: Option<String>,
+    pub role: OrgRoleRef,
+    pub is_owner: bool,
+    pub joined_at: String,
+}
+
+/// Paginated user-organization list
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UserOrgPage {
+    pub items: Vec<UserOrgListItem>,
+    pub page: u64,
+    pub page_size: u64,
+    pub total: i64,
+}
+
 // Wrapper types for list API responses (single-pass deserialization)
 #[derive(Debug, Deserialize)]
 struct RealmListResponse {
@@ -922,13 +1061,224 @@ impl Client {
         debug!(status = %status, "API Response for get_client_app: {:?}", resp);
         resp
     }
+
+    /// Create an organization (idempotent on `(clientApp, externalId)`)
+    ///
+    /// The first creation for a `(realm, client app)` also seeds the three
+    /// built-in tiers. A replay answers 200 with `created = false`.
+    pub async fn create_org(
+        &self,
+        realm_id: &str,
+        request: CreateOrgSdkRequest,
+    ) -> Result<OrgInfo, Error> {
+        let url = format!("{}/api/ext/realms/{}/orgs", self.base_url, realm_id);
+        let response = self
+            .build_request(Method::POST, &url)
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for create_org: {:?}", resp);
+        resp
+    }
+
+    /// Delete an organization (memberships cascade). Repeated delete → 404.
+    pub async fn delete_org(&self, realm_id: &str, org_id: &str) -> Result<(), Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}",
+            self.base_url, realm_id, org_id
+        );
+        let response = self.build_request(Method::DELETE, &url).send().await?;
+        // 204 carries an empty body — nothing to deserialize into ().
+        if response.status().as_u16() == 204 {
+            return Ok(());
+        }
+        handle_response(response).await
+    }
+
+    /// Add or change an organization member (idempotent upsert)
+    ///
+    /// Granting the `org-owner` tier performs an atomic ownership transfer.
+    pub async fn upsert_org_member(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+        request: UpsertOrgMemberSdkRequest,
+    ) -> Result<OrgMemberInfo, Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}/members",
+            self.base_url, realm_id, org_id
+        );
+        let response = self
+            .build_request(Method::POST, &url)
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for upsert_org_member: {:?}", resp);
+        resp
+    }
+
+    /// Remove an organization member (owner and last admin are protected)
+    pub async fn remove_org_member(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+        user_id: &str,
+        actor_user_id: Option<&str>,
+    ) -> Result<(), Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}/members/{}",
+            self.base_url, realm_id, org_id, user_id
+        );
+        let mut request = self.build_request(Method::DELETE, &url);
+        if let Some(actor_user_id) = actor_user_id {
+            request = request.query(&[("actorUserId", actor_user_id)]);
+        }
+        let response = request.send().await?;
+        // 204 carries an empty body — nothing to deserialize into ().
+        if response.status().as_u16() == 204 {
+            return Ok(());
+        }
+        handle_response(response).await
+    }
+
+    /// List an organization's members, first page with server defaults
+    /// (page = 1, pageSize = 20).
+    pub async fn list_org_members(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+    ) -> Result<OrgMemberPage, Error> {
+        self.list_org_members_page(realm_id, org_id, None, None)
+            .await
+    }
+
+    /// List an organization's members with pagination.
+    pub async fn list_org_members_page(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+        page: Option<u64>,
+        page_size: Option<u64>,
+    ) -> Result<OrgMemberPage, Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}/members",
+            self.base_url, realm_id, org_id
+        );
+        let mut query: Vec<(&str, u64)> = Vec::new();
+        if let Some(page) = page {
+            query.push(("page", page));
+        }
+        if let Some(page_size) = page_size {
+            query.push(("pageSize", page_size));
+        }
+        let mut request = self.build_request(Method::GET, &url);
+        if !query.is_empty() {
+            request = request.query(&query);
+        }
+        let response = request.send().await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for list_org_members: {:?}", resp);
+        resp
+    }
+
+    /// Query a user's tier in an organization (non-members get
+    /// `member = false`).
+    pub async fn get_org_member(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+        user_id: &str,
+    ) -> Result<OrgMemberLookup, Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}/members/{}",
+            self.base_url, realm_id, org_id, user_id
+        );
+        let response = self.build_request(Method::GET, &url).send().await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for get_org_member: {:?}", resp);
+        resp
+    }
+
+    /// Check a user's capabilities in an organization (all rules must hit;
+    /// non-members and denied members are structured 200 results)
+    pub async fn check_org_permission(
+        &self,
+        realm_id: &str,
+        org_id: &str,
+        request: OrgPermissionCheckSdkRequest,
+    ) -> Result<OrgPermissionCheckResult, Error> {
+        let url = format!(
+            "{}/api/ext/realms/{}/orgs/{}/permission-check",
+            self.base_url, realm_id, org_id
+        );
+        let response = self
+            .build_request(Method::POST, &url)
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for check_org_permission: {:?}", resp);
+        resp
+    }
+
+    /// List a user's organizations in the caller's Client App, first page
+    /// with server defaults (page = 1, pageSize = 20).
+    pub async fn list_user_orgs(
+        &self,
+        realm_id: &str,
+        user_id: &str,
+    ) -> Result<UserOrgPage, Error> {
+        self.list_user_orgs_page(realm_id, user_id, None, None)
+            .await
+    }
+
+    /// List a user's organizations in the caller's Client App with
+    /// pagination.
+    pub async fn list_user_orgs_page(
+        &self,
+        realm_id: &str,
+        user_id: &str,
+        page: Option<u64>,
+        page_size: Option<u64>,
+    ) -> Result<UserOrgPage, Error> {
+        let url = format!("{}/api/ext/realms/{}/orgs", self.base_url, realm_id);
+        let mut query: Vec<(&str, String)> = vec![("userId", user_id.to_string())];
+        if let Some(page) = page {
+            query.push(("page", page.to_string()));
+        }
+        if let Some(page_size) = page_size {
+            query.push(("pageSize", page_size.to_string()));
+        }
+        let response = self
+            .build_request(Method::GET, &url)
+            .query(&query)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let resp = handle_response(response).await;
+        debug!(status = %status, "API Response for list_user_orgs: {:?}", resp);
+        resp
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -1846,6 +2196,39 @@ mod tests {
             Error::NotFound(_) => {}
             other => panic!("Expected NotFound, got: {:?}", other),
         }
+
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_org_member_encodes_actor_user_id() {
+        let server = MockServer::start().await;
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None);
+
+        // '#' would truncate the query into a fragment and '&' would spawn a
+        // stray parameter if the actor id were concatenated unencoded.
+        Mock::given(method("DELETE"))
+            .and(path(
+                "/api/ext/realms/realm1/orgs/00000000-0000-0000-0000-000000000001/members/00000000-0000-0000-0000-000000000002",
+            ))
+            .and(query_param(
+                "actorUserId",
+                "actor#with&reserved+chars",
+            ))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        client
+            .remove_org_member(
+                "realm1",
+                "00000000-0000-0000-0000-000000000001",
+                "00000000-0000-0000-0000-000000000002",
+                Some("actor#with&reserved+chars"),
+            )
+            .await
+            .unwrap();
 
         server.verify().await;
     }

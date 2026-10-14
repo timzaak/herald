@@ -7,6 +7,7 @@ pub mod billing;
 pub mod client_app;
 mod client_app_scope;
 pub mod client_helper;
+pub mod organization;
 pub mod permission;
 pub mod points;
 pub mod realm;
@@ -45,6 +46,14 @@ use herald_api_base::application::http::state::AppState;
         crate::client_app::create_client_app,
         crate::client_app::list_client_apps,
         crate::client_app::get_client_app,
+        crate::organization::create_org,
+        crate::organization::delete_org,
+        crate::organization::upsert_org_member,
+        crate::organization::remove_org_member,
+        crate::organization::list_org_members,
+        crate::organization::get_org_member,
+        crate::organization::check_org_permission,
+        crate::organization::list_user_orgs,
     ),
     components(schemas(
         crate::permission::PermissionCheckRequest,
@@ -76,6 +85,21 @@ use herald_api_base::application::http::state::AppState;
         crate::client_app::ClientAppInfoResponse,
         crate::client_app::ClientAppListItem,
         crate::client_app::ClientAppListResponse,
+        crate::organization::CreateOrgExtRequest,
+        crate::organization::OrgExtResponse,
+        crate::organization::UpsertOrgMemberExtRequest,
+        crate::organization::OrgRoleRef,
+        crate::organization::OrgMemberExtResponse,
+        crate::organization::ListOrgMembersExtQuery,
+        crate::organization::OrgMemberListItem,
+        crate::organization::OrgMemberListResponse,
+        crate::organization::GetOrgMemberResponse,
+        crate::organization::OrgPermissionCheckExtRequest,
+        crate::organization::OrgCheckRule,
+        crate::organization::OrgPermissionCheckResponse,
+        crate::organization::ListUserOrgsExtQuery,
+        crate::organization::UserOrgListItem,
+        crate::organization::UserOrgListResponse,
     ))
 )]
 pub struct ApiDoc;
@@ -169,6 +193,28 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         .route(
             "/realms/{realmId}/client-apps/{clientAppId}",
             axum::routing::get(client_app::get_client_app),
+        )
+        .route(
+            "/realms/{realmId}/orgs",
+            axum::routing::get(organization::list_user_orgs).post(organization::create_org),
+        )
+        .route(
+            "/realms/{realmId}/orgs/{orgId}",
+            axum::routing::delete(organization::delete_org),
+        )
+        .route(
+            "/realms/{realmId}/orgs/{orgId}/members",
+            axum::routing::get(organization::list_org_members)
+                .post(organization::upsert_org_member),
+        )
+        .route(
+            "/realms/{realmId}/orgs/{orgId}/members/{userId}",
+            axum::routing::delete(organization::remove_org_member)
+                .get(organization::get_org_member),
+        )
+        .route(
+            "/realms/{realmId}/orgs/{orgId}/permission-check",
+            axum::routing::post(organization::check_org_permission),
         )
         .layer(api_key_middleware)
 }

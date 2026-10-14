@@ -324,10 +324,11 @@ pub const MCP_LOOPBACK_REDIRECT_TEMPLATES: [&str; 3] = [
 /// MCP flow can authorize.
 ///
 /// WHY a test-side seed: the shared test schema's template realm is inserted
-/// by `init_template_data` AFTER `run_template_migrations` runs, so migration
-/// 0011's per-realm seed loop sees zero realms and the template realm has no
-/// `herald-mcp` row. Realms created through `POST /api/realms` DO get the
-/// seed via `create_realm` — covered by the client-app scenarios.
+/// by `init_template_data` AFTER `run_template_migrations` runs, so the
+/// baseline migration's herald-mcp seed (admin realm only) never covers the
+/// template realm and it has no `herald-mcp` row. Realms created through
+/// `POST /api/realms` DO get the seed via `create_realm` — covered by the
+/// client-app scenarios.
 pub async fn ensure_mcp_client_seeded(ctx: &SchemaTestContext) -> uuid::Uuid {
     let redirect_uris = serde_json::json!(MCP_LOOPBACK_REDIRECT_TEMPLATES).to_string();
     let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(

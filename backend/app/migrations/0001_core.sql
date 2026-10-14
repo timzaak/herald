@@ -1,13 +1,20 @@
 -- ====================================
 -- Herald Core Schema (baseline)
 -- ====================================
--- Consolidates identity, RBAC, TOTP, API keys, OAuth config, audit events,
--- and email tables into a single baseline. Pre-launch squash: no ALTER/DROP.
+-- Consolidates identity, RBAC, org authorization, TOTP, passkeys, API keys,
+-- OAuth + OIDC signing-key config, custom domains, audit events, and email
+-- tables into a single baseline. Pre-launch squash: no ALTER/DROP.
 -- The user_roles role-grant provenance/expiry columns and split manual/payment
 -- partial unique indexes (former 0006_support_paywall) are inlined.
 -- email_verification_code is realm-scoped (realm_id column + realm-scoped
 -- lookup indexes, former email-verification realm linkage): a code issued in
 -- one realm must not be matched or consumed via another realm's path.
+-- Second pre-launch squash folds in former 0005_custom_domain,
+-- 0006_passkey, 0010_oidc_signing_key, 0011_mcp_oauth_client (column + admin
+-- seed; the per-realm backfill loop is dropped — create_realm seeds new
+-- realms) and 0012_org_authorization (tables only; the per-realm orgs
+-- permission/policy backfill is dropped — init_default_rbac seeds every
+-- realm, including the startup-initialized admin realm).
 
 -- ====================================
 -- UUID v7 Support (PostgreSQL 18+)
@@ -122,6 +129,12 @@ CREATE TABLE client_app (
     turnstile_enabled boolean NOT NULL DEFAULT false,
     turnstile_site_key text,
     turnstile_secret_key text,
+    -- MCP disable generation (DEC-mcp-server-006): bumped by the atomic
+    -- disable UPDATE on the built-in MCP client; MCP credentials carry the
+    -- generation they were issued under and are rejected once stale.
+    -- Always 0 for other clients.
+    mcp_token_generation BIGINT NOT NULL DEFAULT 0
+        CHECK (mcp_token_generation >= 0),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
     CONSTRAINT client_app_realm_client_idx UNIQUE (realm_id, client_id),
@@ -156,6 +169,7 @@ COMMENT ON COLUMN client_app.is_first_party IS 'Internal trust marker reserved f
 COMMENT ON COLUMN client_app.enabled IS 'Whether the client app is enabled, OAuth authorization cannot be completed when disabled';
 COMMENT ON COLUMN client_app.icon_url IS 'App icon URL, optional';
 COMMENT ON COLUMN client_app.client_secret IS 'OAuth client secret, UUID auto-generated on creation';
+COMMENT ON COLUMN client_app.mcp_token_generation IS 'MCP disable generation (DEC-mcp-server-006): bumped by the atomic disable UPDATE on the built-in MCP client; MCP credentials carry the generation they were issued under and are rejected once stale. Always 0 for other clients.';
 COMMENT ON INDEX client_app_realm_client_idx IS 'Unique constraint on (realm_id, client_id) for external lookups';
 COMMENT ON INDEX idx_client_app_realm_enabled IS 'Index for filtering enabled client apps by realm';
 
@@ -307,6 +321,54 @@ COMMENT ON COLUMN role_policies.action IS 'Action identifier (e.g., "view", "man
 COMMENT ON COLUMN role_policies.effect IS 'True for allow, false for deny';
 
 -- ====================================
+-- Organization Authorization Tables
+-- ====================================
+-- (former 0012_org_authorization) Organizations and their memberships are
+-- Herald-hosted entities mapped to app-side groupings (workspace, team, ...)
+-- via the app-supplied external_id. Scoped to exactly one (realm, Client App):
+-- a bound API key reaches only its own app's organizations. Membership roles
+-- reference the existing roles/role_policies metadata (tier = a (realm,
+-- client_id) roles row); flat RBAC runtime tables are untouched.
+-- The orgs.view/orgs.manage permissions and realm-admin policies are NOT
+-- seeded here: init_default_rbac seeds them for every realm (including the
+-- admin realm at startup).
+
+CREATE TABLE organizations (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    realm_id TEXT NOT NULL,
+    client_app_id UUID NOT NULL REFERENCES client_app(id) ON DELETE RESTRICT,
+    external_id TEXT NOT NULL,
+    name TEXT,
+    owner_user_id UUID NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT organizations_unique_app_external UNIQUE (client_app_id, external_id)
+);
+
+-- Owner FK cascades so a hard-deleted owner's account delete cannot fail on a
+-- dangling owner reference; the org's memberships cascade in turn. client_app
+-- uses RESTRICT (same as subscription.client_app_id): an app with
+-- organizations must be cleaned up explicitly before deletion.
+
+COMMENT ON TABLE organizations IS 'Herald-hosted organizations: app-side groupings (workspace/team) mapped via external_id, owned by exactly one (realm, Client App)';
+COMMENT ON COLUMN organizations.external_id IS 'App-side identifier (workspace id etc.); unique per Client App, drives idempotent create';
+
+CREATE TABLE org_memberships (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES roles(id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT org_memberships_unique_org_user UNIQUE (org_id, user_id)
+);
+
+COMMENT ON TABLE org_memberships IS 'Organization membership: exactly one tier (roles row) per (org, user); org deletion and account hard-delete cascade';
+COMMENT ON CONSTRAINT org_memberships_unique_org_user ON org_memberships IS 'Single membership row and single tier per member; idempotent upsert key';
+
+CREATE INDEX idx_org_memberships_user_id ON org_memberships(user_id);
+
+-- ====================================
 -- Authentication Tables (TOTP)
 -- ====================================
 
@@ -352,6 +414,55 @@ CREATE INDEX idx_user_totp_backup_codes_used ON user_totp_backup_codes(used);
 COMMENT ON TABLE user_totp_backup_codes IS 'Backup recovery codes for TOTP';
 COMMENT ON COLUMN user_totp_backup_codes.code_hash IS 'bcrypt hashed backup code';
 COMMENT ON COLUMN user_totp_backup_codes.used IS 'Whether this backup code has been used';
+
+-- ====================================
+-- Passkey Authentication Table
+-- ====================================
+-- (former 0006_passkey) WebAuthn/FIDO2 passkey credentials. Realm passkey
+-- configuration reuses realm_config with config_type = 'passkey'; no
+-- configuration table is added.
+
+CREATE TABLE user_passkey_credential (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    realm_id TEXT NOT NULL,
+    rp_id TEXT NOT NULL,
+    credential_id BYTEA NOT NULL,
+    credential_public_key BYTEA NOT NULL,
+    counter BIGINT NOT NULL DEFAULT 0,
+    transports JSONB NOT NULL DEFAULT '[]',
+    aaguid UUID NULL,
+    backup_eligible BOOLEAN NOT NULL DEFAULT false,
+    backup_state BOOLEAN NOT NULL DEFAULT false,
+    user_verified BOOLEAN NOT NULL DEFAULT false,
+    nickname TEXT NULL,
+    last_used_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX uniq_user_passkey_credential_realm_user_rp_cred
+    ON user_passkey_credential(realm_id, user_id, rp_id, credential_id);
+CREATE INDEX idx_user_passkey_credential_user
+    ON user_passkey_credential(user_id);
+CREATE INDEX idx_user_passkey_credential_realm
+    ON user_passkey_credential(realm_id);
+CREATE INDEX idx_user_passkey_credential_rp
+    ON user_passkey_credential(rp_id);
+
+COMMENT ON TABLE user_passkey_credential IS 'User WebAuthn/FIDO2 passkey credentials';
+COMMENT ON COLUMN user_passkey_credential.user_id IS 'Account that owns this passkey credential';
+COMMENT ON COLUMN user_passkey_credential.realm_id IS 'Realm isolation boundary for the credential';
+COMMENT ON COLUMN user_passkey_credential.credential_id IS 'Authenticator credential ID, unique within a realm';
+COMMENT ON COLUMN user_passkey_credential.credential_public_key IS 'COSE public key returned by the authenticator';
+COMMENT ON COLUMN user_passkey_credential.counter IS 'Signature counter used for cloned credential detection';
+COMMENT ON COLUMN user_passkey_credential.transports IS 'Authenticator transports, e.g. ["usb","internal"]';
+COMMENT ON COLUMN user_passkey_credential.aaguid IS 'Authenticator attestation GUID';
+COMMENT ON COLUMN user_passkey_credential.backup_eligible IS 'Whether the credential is eligible for backup/sync';
+COMMENT ON COLUMN user_passkey_credential.backup_state IS 'Current credential backup/sync state';
+COMMENT ON COLUMN user_passkey_credential.user_verified IS 'Whether user verification was satisfied at registration';
+COMMENT ON COLUMN user_passkey_credential.nickname IS 'User-visible passkey device name';
+COMMENT ON COLUMN user_passkey_credential.last_used_at IS 'Most recent successful use timestamp';
 
 -- ====================================
 -- API Keys Table
@@ -409,6 +520,40 @@ COMMENT ON COLUMN oauth_provider_config.scopes IS 'OAuth scopes to request';
 COMMENT ON COLUMN oauth_provider_config.enabled IS 'Whether this provider is enabled';
 
 -- ====================================
+-- OIDC Signing Key Table
+-- ====================================
+-- (former 0010_oidc_signing_key) Platform-level OIDC signing keys (RS256
+-- id_token signing). One row per generated RSA-2048 key; `id` doubles as the
+-- JWKS/id_token `kid`.
+--   * status state machine: active (signing + published) -> retained
+--     (overlap window, published only) -> retired (not published);
+--   * the partial unique index enforces at most one platform-wide active key,
+--     which is the concurrency guard for both startup bootstrapping and
+--     rotation (the loser of a 23505 treats the winner as authoritative);
+--   * private_key_pem_encrypted stores AES-256-GCM ciphertext as
+--     nonce(12B) || ciphertext; the KEK is derived from [jwt] secret, so
+--     rotating that secret invalidates stored keys — run one signing-key
+--     rotation after changing [jwt] secret.
+-- No public-key column: n/e are derived from the private key on read, so
+-- the pair can never drift out of sync.
+
+CREATE TABLE oidc_signing_key (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    status TEXT NOT NULL CHECK (status IN ('active', 'retained', 'retired')),
+    private_key_pem_encrypted BYTEA NOT NULL,
+    retained_until TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX oidc_signing_key_single_active_idx
+    ON oidc_signing_key (status) WHERE status = 'active';
+
+COMMENT ON TABLE oidc_signing_key IS 'Platform-level OIDC RS256 signing keys: active key signs id_tokens, retained keys stay published in JWKS through their overlap window';
+COMMENT ON COLUMN oidc_signing_key.status IS 'active = signs and is published; retained = published only until retained_until; retired = no longer published';
+COMMENT ON COLUMN oidc_signing_key.retained_until IS 'Overlap-window deadline for retained keys; NULL for active/retired';
+
+-- ====================================
 -- General Configuration Table
 -- ====================================
 
@@ -435,6 +580,41 @@ COMMENT ON COLUMN realm_config.config_type IS 'Configuration type: oauth, turnst
 COMMENT ON COLUMN realm_config.config_key IS 'Configuration key, e.g., "provider_id" for oauth, "secret" for turnstile';
 COMMENT ON COLUMN realm_config.is_secret IS 'Whether this is sensitive information (should be encrypted)';
 COMMENT ON COLUMN realm_config.metadata IS 'Additional JSON metadata for structured configuration';
+
+-- ====================================
+-- Custom Domain Mapping Table
+-- ====================================
+-- (former 0005_custom_domain) Stores the host→realm mapping for custom login
+-- domains. This table is the request-time lookup surface for host→realm
+-- resolution (middleware/CORS/ask/resolve) and the single-save/status-update
+-- targets. It mirrors the effective custom-domain value stored in
+-- realm_config; active hostname rows live here, keyed globally unique by
+-- hostname.
+
+CREATE TABLE custom_domain_mapping (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    realm_id text NOT NULL,
+    hostname text NOT NULL UNIQUE,
+    enabled boolean NOT NULL DEFAULT true,
+    cname_verified boolean NOT NULL DEFAULT false,
+    tls_ready boolean NOT NULL DEFAULT false,
+    status_checked_at timestamptz NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX custom_domain_mapping_hostname_idx
+    ON custom_domain_mapping(hostname);
+CREATE INDEX custom_domain_mapping_realm_idx
+    ON custom_domain_mapping(realm_id);
+
+COMMENT ON TABLE custom_domain_mapping IS 'Host→realm mapping for active custom login domains';
+COMMENT ON COLUMN custom_domain_mapping.realm_id IS 'Realm this custom domain resolves to (no FK, matches realm_config style)';
+COMMENT ON COLUMN custom_domain_mapping.hostname IS 'Precise custom login hostname, normalized (lowercase, trailing dot stripped); globally unique';
+COMMENT ON COLUMN custom_domain_mapping.enabled IS 'Whether this mapping is active; request-time resolution keys solely on this';
+COMMENT ON COLUMN custom_domain_mapping.cname_verified IS 'Surface-only: whether CNAME currently points to Herald cname target (not part of resolution)';
+COMMENT ON COLUMN custom_domain_mapping.tls_ready IS 'Surface-only: whether Caddy has issued On-Demand TLS for the hostname (not part of resolution)';
+COMMENT ON COLUMN custom_domain_mapping.status_checked_at IS 'Last time CNAME/TLS status was probed';
 
 -- ====================================
 -- Email Tables
@@ -549,4 +729,24 @@ VALUES (uuidv7(), 'admin', 'user-account-center', 'User Account Center', true);
 -- Insert built-in API Key Client App for the admin realm
 INSERT INTO client_app (id, realm_id, client_id, name, description, enabled, redirect_uris)
 VALUES (uuidv7(), 'admin', 'admin-api-client', 'API Key Client', 'Built-in client for API key authentication', true, '[]'::jsonb)
+ON CONFLICT (realm_id, client_id) DO NOTHING;
+
+-- Built-in MCP public client for the admin realm (same shape as
+-- seed_mcp_client_app; realms created through the API are seeded by
+-- create_realm instead). Opt-in: seeded disabled — a realm admin enables it
+-- from the client-app list before any agent can connect.
+INSERT INTO client_app (
+    id, realm_id, client_id, name, description,
+    redirect_uris, allowed_origins, browser_refresh_absolute_ttl_seconds,
+    is_first_party, enabled, client_secret, device_code_grant_enabled,
+    turnstile_enabled, mcp_token_generation
+)
+VALUES (
+    uuidv7(), 'admin', 'herald-mcp', 'Herald MCP',
+    'Built-in read-only AI agent access client',
+    '["http://127.0.0.1/callback","http://localhost/callback","http://[::1]/callback"]'::jsonb,
+    '[]'::jsonb, 2592000,
+    false, false, NULL, false,
+    false, 0
+)
 ON CONFLICT (realm_id, client_id) DO NOTHING;

@@ -114,6 +114,14 @@ pub enum AuditAction {
     AgreementPublished,
     #[serde(rename = "agreement.reverted")]
     AgreementReverted,
+    #[serde(rename = "org.create")]
+    OrgCreate,
+    #[serde(rename = "org.delete")]
+    OrgDelete,
+    #[serde(rename = "org.member.upsert")]
+    OrgMemberUpsert,
+    #[serde(rename = "org.member.remove")]
+    OrgMemberRemove,
 }
 
 /// Type of the target entity an audit event refers to.
@@ -128,6 +136,7 @@ pub enum AuditTargetType {
     Product,
     OAuthConfig,
     Payment,
+    Organization,
 }
 
 /// Outcome of the audited operation.
@@ -145,4 +154,7 @@ pub enum ActorType {
     User,
     Admin,
     System,
+    /// An application backend acting through its bound API key on the ext
+    /// face. `actor_id` carries the bound Client App's `client_id`.
+    Client,
 }

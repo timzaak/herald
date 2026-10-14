@@ -21,6 +21,58 @@ use uuid::Uuid;
 // Client API Key 辅助函数
 /// ============================================================================
 ///
+/// Shared core of the API-key fixtures: generate, hash, insert, and return
+/// `(plaintext, entity)`; `client_app_id` picks between an unbound key and a
+/// Client-App-bound one (the organization ext face requires the latter).
+async fn create_api_key_with_client_app(
+    ctx: &TestContext,
+    name: &str,
+    enabled: bool,
+    expires_at: Option<chrono::DateTime<Utc>>,
+    client_app_id: Option<Uuid>,
+) -> (String, ClientApiKey) {
+    // 1. 生成 API Key (UUID v7)
+    let api_key_plaintext = ClientApiKeyService::generate_api_key();
+
+    // 2. 哈希 API Key
+    let api_key_hash = ClientApiKeyService::hash_api_key(&api_key_plaintext);
+
+    // 3. 创建数据库记录
+    let id = Uuid::now_v7();
+    let api_key_entity = ClientApiKey {
+        id: id.to_string(),
+        name: name.to_string(),
+        api_key_hash,
+        realm_id: ctx._realm_id.clone(),
+        client_app_id,
+        enabled,
+        expires_at,
+        created_at: Utc::now(),
+        last_used_at: None,
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO client_api_keys (id, name, api_key_hash, realm_id, client_app_id, enabled, expires_at, created_at, last_used_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(id)
+    .bind(&api_key_entity.name)
+    .bind(&api_key_entity.api_key_hash)
+    .bind(&api_key_entity.realm_id)
+    .bind(api_key_entity.client_app_id)
+    .bind(api_key_entity.enabled)
+    .bind(api_key_entity.expires_at)
+    .bind(api_key_entity.created_at)
+    .bind(api_key_entity.last_used_at)
+    .execute(&ctx.app_state.pool)
+    .await
+    .expect("Failed to create API key");
+
+    (api_key_plaintext, api_key_entity)
+}
+
 /// 创建测试用 API Key
 ///
 /// # Arguments
@@ -44,46 +96,19 @@ pub async fn create_test_api_key(
     enabled: bool,
     expires_at: Option<chrono::DateTime<Utc>>,
 ) -> (String, ClientApiKey) {
-    // 1. 生成 API Key (UUID v7)
-    let api_key_plaintext = ClientApiKeyService::generate_api_key();
+    create_api_key_with_client_app(ctx, name, enabled, expires_at, None).await
+}
 
-    // 2. 哈希 API Key
-    let api_key_hash = ClientApiKeyService::hash_api_key(&api_key_plaintext);
-
-    // 3. 创建数据库记录
-    let id = Uuid::now_v7();
-    let api_key_entity = ClientApiKey {
-        id: id.to_string(),
-        name: name.to_string(),
-        api_key_hash,
-        realm_id: ctx._realm_id.clone(),
-        client_app_id: None,
-        enabled,
-        expires_at,
-        created_at: Utc::now(),
-        last_used_at: None,
-    };
-
-    sqlx::query(
-        r#"
-        INSERT INTO client_api_keys (id, name, api_key_hash, realm_id, client_app_id, enabled, expires_at, created_at, last_used_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        "#,
-    )
-    .bind(Uuid::parse_str(&api_key_entity.id).expect("Failed to parse API key ID as UUID"))
-    .bind(&api_key_entity.name)
-    .bind(&api_key_entity.api_key_hash)
-    .bind(&api_key_entity.realm_id)
-    .bind(api_key_entity.client_app_id)
-    .bind(api_key_entity.enabled)
-    .bind(api_key_entity.expires_at)
-    .bind(api_key_entity.created_at)
-    .bind(api_key_entity.last_used_at)
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("Failed to create API key");
-
-    (api_key_plaintext, api_key_entity)
+/// 创建绑定到 Client App 的测试 API Key（组织面 ext 端点要求凭证绑定应用）；
+/// 返回 (api_key_plaintext, api_key_entity)。
+pub async fn create_test_client_app_api_key(
+    ctx: &TestContext,
+    name: &str,
+    enabled: bool,
+    expires_at: Option<chrono::DateTime<Utc>>,
+    client_app_id: Uuid,
+) -> (String, ClientApiKey) {
+    create_api_key_with_client_app(ctx, name, enabled, expires_at, Some(client_app_id)).await
 }
 
 /// 创建带权限的测试用户（简化版）
@@ -436,7 +461,10 @@ pub async fn grant_api_key_permissions(
         "INSERT INTO roles (id, name, realm_id, client_id, is_builtin) VALUES ($1, $2, $3, $4, false)"
     )
     .bind(role_id)
-    .bind(format!("test-api-key-role-{}", &api_key_id[..8]))
+    // Full key id: a v7 id's leading bytes are a timestamp, so truncating to
+    // the first 8 chars collides when several helpers run in the same
+    // millisecond.
+    .bind(format!("test-api-key-role-{}", api_key_id))
     .bind(realm_id)
     .bind(client_id)
     .execute(pool)

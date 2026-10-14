@@ -34,6 +34,7 @@ pub use application::http::state::AppState;
 // (the app crate, test-support's create_cors_test_router) can construct a
 // default without depending on herald_api_base directly.
 pub use herald_api_base::application::http::real_ip::RealIpConfig;
+use herald_api_base::application::http::state::build_org_service;
 pub use herald_api_billing::WebhookEventProcessorImpl;
 
 use application::http::oauth::device_functions::init_device_functions;
@@ -313,6 +314,15 @@ pub async fn build_app_state_with_migrations(
     ));
     info!("Legal service initialized");
 
+    let org_service = build_org_service(
+        db.clone(),
+        pg_pool.clone(),
+        redis_manager.clone(),
+        audit_event_repository.clone(),
+        user_repository.clone(),
+    )?;
+    info!("Organization service initialized");
+
     let browser_token_service = Arc::new(RedisBrowserTokenService::new(redis_manager.clone()));
     let user_totp_repository = Arc::new(PostgresUserTotpRepository::new(db.clone().into()));
     let self_delete_service = Arc::new(SelfDeleteService::new(
@@ -560,6 +570,7 @@ pub async fn build_app_state_with_migrations(
             herald_core::infrastructure::ldap::Ldap3Authenticator::default(),
         ),
         oidc_signing_key_store,
+        org_service,
     });
 
     // Initialize Redis Functions using the final state's redis_manager

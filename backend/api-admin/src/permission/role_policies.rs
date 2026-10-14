@@ -68,8 +68,8 @@ async fn role_in_realm_or_404(
     db: &sea_orm::DatabaseConnection,
     role_id: Uuid,
     realm_id: &str,
-) -> Result<(), ApiError> {
-    let role_exists = herald_core::entity::roles::Entity::find()
+) -> Result<herald_core::entity::roles::Model, ApiError> {
+    herald_core::entity::roles::Entity::find()
         .filter(herald_core::entity::roles::Column::Id.eq(role_id))
         .filter(herald_core::entity::roles::Column::RealmId.eq(realm_id))
         .one(db)
@@ -78,11 +78,7 @@ async fn role_in_realm_or_404(
             tracing::error!(error = %e, role_id = %role_id, "Failed to query role");
             ApiError::internal("Failed to query role")
         })?
-        .is_some();
-    if !role_exists {
-        return Err(ApiError::not_found("Role not found"));
-    }
-    Ok(())
+        .ok_or_else(|| ApiError::not_found("Role not found"))
 }
 
 /// Get role's policies
@@ -181,15 +177,15 @@ pub async fn add_policy_to_role(
         .await?;
     let realm_id = admin.realm_id().to_string();
 
-    // Scope the role lookup to the admin session's realm (permissions.md
-    // §4.2: cross-realm resources 404 rather than 403).
-    role_in_realm_or_404(state.db.as_ref(), role_id, &realm_id).await?;
+    let role = role_in_realm_or_404(state.db.as_ref(), role_id, &realm_id).await?;
 
     // Security: wildcard policies are reserved for the platform; shared guard
     // with the other policy-creation surfaces so the same names (including
     // action-segment `All`/`*`) are rejected everywhere (currently inert —
     // matches_policy is exact-match — but a future matcher change would
-    // otherwise make this a bypass).
+    // otherwise make this a bypass). Kept ahead of the self-hold guard, as on
+    // the other policy-creation surfaces, so wildcard attempts fail on the
+    // pure check with its dedicated warn signal.
     if crate::admin::middleware::is_reserved_wildcard(&request.resource, &request.action) {
         tracing::warn!(
             role_id = %role_id,
@@ -206,9 +202,19 @@ pub async fn add_policy_to_role(
     // sub-admin could grant e.g. ("users","manage") to the builtin "user"
     // role and escalate every account in the realm. Mirrors the guard on
     // direct user-permission assignment.
-    admin
-        .require_permission(&state, &request.resource, &request.action)
-        .await?;
+    //
+    // Exemption: the builtin organization tiers. Their vocabularies are the
+    // app-scoped authorization words (org checks only — builtin roles are
+    // not assignable as flat roles), and realm admins necessarily do not
+    // hold app resource names, so without this exemption no tier could ever
+    // be configured through the console.
+    let is_builtin_org_tier = role.is_builtin
+        && herald_core::domain::organization::BUILTIN_ORG_TIERS.contains(&role.name.as_str());
+    if !is_builtin_org_tier {
+        admin
+            .require_permission(&state, &request.resource, &request.action)
+            .await?;
+    }
 
     // Create new policy
     let policy = role_policies::ActiveModel {

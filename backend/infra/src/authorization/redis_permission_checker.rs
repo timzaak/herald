@@ -9,6 +9,7 @@
 //
 // =============================================================================
 use herald_domain::authorization::permission_service::{PermissionService, Policy};
+use herald_domain::authorization::policy_semantics::{MANAGE_IMPLIES, action_matches_hierarchy};
 use herald_domain::authorization::principal_types;
 use herald_domain::common::entities::app_errors::CoreError;
 use herald_entity::{role_policies, user_roles};
@@ -672,34 +673,6 @@ impl RedisPermissionChecker {
     /// Cache permission check result
     async fn cache_result(&self, key: &str, value: bool, ttl: u64) {
         self.cache(key, &value, ttl).await;
-    }
-}
-
-/// Actions a `manage` grant conveys on the same resource. Single source of
-/// the manage→view/create implication (permissions PRD §4.1): both the
-/// policy-check path (`action_matches_hierarchy`) and the listing path
-/// (`expand_permission_hierarchy`) read this constant, so the two cannot
-/// drift apart.
-const MANAGE_IMPLIES: &[&str] = &["view", "create"];
-
-/// Check if a granted action covers the requested action (with hierarchy)
-///
-/// Permission hierarchy: manage > create > view — `manage` is the only action
-/// with downward implication, covering `view` and `create` on the same
-/// resource (permissions PRD §4.1). Both the policy-check path
-/// (`matches_policy`) and the effective-permission expansion
-/// (`expand_permission_hierarchy`) derive from `MANAGE_IMPLIES`.
-fn action_matches_hierarchy(granted_action: &str, requested_action: &str) -> bool {
-    // Exact match always works
-    if granted_action == requested_action {
-        return true;
-    }
-
-    // Hierarchical checks
-    match granted_action {
-        "manage" => MANAGE_IMPLIES.contains(&requested_action),
-        "view" => false,
-        _ => false,
     }
 }
 

@@ -2450,6 +2450,7 @@ dependencies = [
  "herald-core",
  "herald-sdk",
  "herald-test-support",
+ "reqwest 0.12.28",
  "serde_json",
  "sqlx",
  "test-context",

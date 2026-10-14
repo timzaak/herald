@@ -39,6 +39,10 @@
 --     are inline; provider_entitlement_mappings and the points_distribution_*
 --     pair are declared before their referencers, so no post-CREATE ALTER
 --     is needed
+--   - second pre-launch squash folds in former 0007_billing_statistics
+--     (idx_payment_attempts_realm_created), 0008_points_grant_schedules_
+--     rule_active (rule-deactivation partial index) and 0009_payment_refunds
+--     (provider-refund idempotency ledger).
 --
 -- Available balance is exclusively a derived SUM over points_credit_ledger
 -- (same predicate as consumption); there is no stored/derived dual-track.
@@ -691,6 +695,17 @@ CREATE INDEX idx_points_grant_schedules_bucket_id
     ON points_grant_schedules(bucket_id);
 CREATE INDEX idx_points_grant_schedules_subscription_id
     ON points_grant_schedules(subscription_id);
+-- Rule-disable deactivation: upsert_rules_in_tx flips every active schedule
+-- bound to a disabled distribution rule (WHERE realm_id = $1 AND
+-- distribution_rule_id = $2 AND active = TRUE). distribution_rule_id had no
+-- index, so the planner could only ride the realm prefix of
+-- uq_points_grant_schedules_user_rule and filter the realm's whole schedule
+-- population inside the upsert transaction. Partial index in the shape of
+-- idx_points_grant_schedules_next_grant_time: only the rule's active rows
+-- are touched.
+CREATE INDEX idx_points_grant_schedules_realm_rule_active
+    ON points_grant_schedules(realm_id, distribution_rule_id)
+    WHERE active = TRUE;
 
 COMMENT ON TABLE points_grant_schedules IS 'Automatic points granting schedules for free users and subscriptions';
 
@@ -823,6 +838,12 @@ CREATE INDEX idx_payment_attempts_status_expires ON payment_attempts(status, exp
 -- Index for looking up attempts by provider reference (for webhooks)
 CREATE INDEX idx_payment_attempts_provider_reference ON payment_attempts(payment_provider, provider_reference);
 
+-- Realm-scoped window aggregation for payment statistics and the admin
+-- purchase-history query. Mirrors idx_points_transactions_realm_created —
+-- payment_attempts needs a realm-leading index too.
+CREATE INDEX idx_payment_attempts_realm_created
+    ON payment_attempts(realm_id, created_at DESC);
+
 -- Anti-repeat DB guard: marks attempts subject to the "one purchase per user"
 -- rule (billing_type=one_time + non-empty granted_role_ids). The partial unique
 -- index on (user_id, target_id) WHERE status='Succeeded' AND is_one_time_role=TRUE
@@ -842,6 +863,46 @@ COMMENT ON COLUMN payment_attempts.provider_reference IS 'Platform-specific orde
 COMMENT ON COLUMN payment_attempts.provider_status IS 'Raw status from payment platform';
 COMMENT ON COLUMN payment_attempts.expires_at IS 'Payment attempt expiration time (2 hours after creation)';
 COMMENT ON COLUMN payment_attempts.completed_at IS 'Time when payment was completed (succeeded or failed)';
+
+-- ====================================
+-- Payment Refunds
+-- ====================================
+-- (former 0009_payment_refunds) Provider-refund ledger for topup refund
+-- revocation. One row per processed payment-provider refund (Stripe `re_...`
+-- / Creem refund id):
+--   * the UNIQUE (realm_id, payment_provider, refund_id) constraint is the
+--     persistent idempotency unit for refund revocation — a repeated
+--     push of the same refund never revokes twice, regardless of the event id
+--     it arrives under (replaces the 24h-TTL `refund:topup:` idempotency_keys
+--     business key);
+--   * `amount` is that single refund's own amount (the incremental revocation
+--     input), never the cumulative provider figure;
+--   * `cumulative_refunded_after` snapshots the cumulative refund total after
+--     this refund (Stripe: provider-authoritative payload `amount_refunded`;
+--     Creem: in-transaction SUM over this attempt's rows) — the recorded input
+--     of the full-refund gate that decides payment-role revocation.
+-- No backfill: refunds that arrived before this table are not reconstructed
+-- (history is not retroactively compensated).
+CREATE TABLE payment_refunds (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    realm_id TEXT NOT NULL,
+    payment_provider TEXT NOT NULL CHECK (payment_provider IN ('stripe', 'creem')),
+    payment_attempt_id UUID NOT NULL,
+    refund_id TEXT NOT NULL,
+    amount BIGINT NOT NULL CHECK (amount > 0),
+    original_payment_amount BIGINT NOT NULL CHECK (original_payment_amount > 0),
+    cumulative_refunded_after BIGINT NOT NULL CHECK (cumulative_refunded_after > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_payment_refunds_provider_refund
+        UNIQUE (realm_id, payment_provider, refund_id)
+);
+
+CREATE INDEX idx_payment_refunds_attempt ON payment_refunds(payment_attempt_id);
+
+COMMENT ON TABLE payment_refunds IS 'Processed provider refunds: persistent refund-id idempotency and cumulative-refund tracking for topup refund revocation';
+COMMENT ON COLUMN payment_refunds.amount IS 'This refund''s own amount (minimal currency unit) — incremental revocation input, not the cumulative total';
+COMMENT ON COLUMN payment_refunds.original_payment_amount IS 'Immutable snapshot of payment_attempts.amount at refund time — gate denominator';
+COMMENT ON COLUMN payment_refunds.cumulative_refunded_after IS 'Cumulative refunded total including this refund (Stripe payload amount_refunded / Creem in-table SUM) — full-refund gate input';
 
 -- ====================================
 -- Invoice Seller Config
