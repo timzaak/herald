@@ -6,47 +6,78 @@
 [![CD Pipeline](https://github.com/timzaak/herald/actions/workflows/cd.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/cd.yml)
 [![Release](https://img.shields.io/github/v/release/timzaak/herald)](https://github.com/timzaak/herald/releases/latest)
 
-**Open-source, self-hosted infrastructure for AI products.**
+**Auth, billing, credits, and an admin console for AI products, in one open-source codebase.**
 
-Start with multi-tenant authentication, billing, payments, paywall-ready entitlements, credits, and an admin console already connected. Adapt the open codebase with AI-assisted development, then spend your iterations on the product logic customers actually pay for.
+Run it yourself, and every identity, payment, and credit record sits in your own Postgres. Hand the repo to your AI coding tool, and it starts from a working product instead of a blank project. Apache-2.0, no per-user license fee.
 
-[Website](https://www.fornetcode.com) · [Live Demo](https://auth.fornetcode.com) · [Get Started](https://www.fornetcode.com/en/docs/getting-started) · [Star on GitHub](https://github.com/timzaak/herald)
+[Website](https://www.fornetcode.com) · [Live demo](https://auth.fornetcode.com) · [Get started](https://www.fornetcode.com/en/docs/getting-started) · [Star on GitHub](https://github.com/timzaak/herald)
 
 ## Why Herald
 
-AI startup teams need to validate and iterate quickly, but every paid product still needs accounts, tenant isolation, permissions, subscriptions, usage credits, and operational tooling. Building those systems from scratch—or stitching together separate providers—takes time away from the experience that makes the product unique.
+AI startup teams keep hitting the same wall. AI tools build the product itself in days, and then the parts users never see take weeks: accounts, tenant isolation, roles, subscriptions, usage credits, an admin console. You either write all of it from scratch, or stitch together separate auth, payment, and billing services and hope the wiring holds.
 
-Herald is more than an auth provider. It connects identity to payments, entitlements, and product usage in one codebase — a production-ready paywall out of the box:
+The wiring is what breaks. Each provider keeps its own user IDs, its own webhooks, its own retry rules. A subscription renews, the webhook gets dropped, and the customer has paid for access they no longer have. You find out from a support email.
 
-- a purchase can grant access and credits;
-- a refund or canceled subscription can revoke them;
-- every tenant can have its own users, roles, apps, branding, and billing setup;
-- the entire foundation remains self-hosted and customizable.
+Herald keeps identity, payments, entitlements, and usage in one codebase, so those connections are code you can read and change:
 
-## What You Get
+- a purchase grants access and credits;
+- a refund or canceled subscription revokes them;
+- every tenant can have its own users, roles, apps, branding, and billing setup.
+
+If all you need is login plus card payments, a hosted service is less work. Herald pays off when you want tenant-level control, credit-based pricing, or user data in your own database.
+
+## What you get
 
 | Area | Included capabilities |
 |------|-----------------------|
-| **Multi-tenant identity** | Isolated Realms, email/password plus one-time-code login, Google, GitHub, Apple, Facebook, WeChat, Discord and LDAP login, passkeys, TOTP 2FA, an OpenID Connect identity layer, bot protection |
-| **Authorization & apps** | Realm-level RBAC, Client Apps, API keys, OAuth 2.0, device authorization, cross-app SSO |
-| **Billing & payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, multi-currency pricing, invoices, payment-to-entitlement mapping, payment and credit-consumption statistics — an instant paywall |
-| **Credits & usage** | Prepaid balances, top-ups, refunds, expiry, per-user ledgers, grants, and rolling quota windows |
-| **Admin & operations** | Users, roles, billing, credits, apps, tenant settings, audit trails, and account lifecycle management |
-| **Product customization** | Custom domains, white-label branding, transactional email, versioned legal agreements, API docs and SDKs |
+| **Multi-tenant identity** | Isolated realms, email/password and one-time-code login, Google, GitHub, Apple, Facebook, WeChat, Discord, and LDAP login, passkeys, TOTP 2FA, an OpenID Connect layer, Cloudflare Turnstile bot protection |
+| **Authorization and apps** | Realm-level RBAC, organizations with their own roles and membership, Client Apps, API keys, OAuth 2.0, device authorization, cross-app SSO |
+| **Billing and payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, multi-currency pricing, invoices, payment-to-entitlement mapping, payment and credit-consumption statistics |
+| **Credits and usage** | Prepaid balances, top-ups, refunds, expiry, per-user ledgers, grants, rolling quota windows |
+| **Admin and operations** | Users, roles, billing, credits, apps, tenant settings, audit trails, account lifecycle management |
+| **Product customization** | Custom domains, white-label branding, transactional email, versioned legal agreements, API docs, SDKs |
 
-This foundation is especially useful for AI products with a paywall, free allowances, paid plans, metered usage, or credit-based pricing.
+This foundation is built for AI products with a paywall, free allowances, paid plans, metered usage, or credit-based pricing.
 
-## Built for AI-Assisted Iteration
+## What integration looks like
 
-Herald gives AI coding tools a complete, working product foundation to modify instead of a blank repository or a collection of disconnected APIs. Use it to adapt workflows, roles, integrations, branding, and business rules while preserving a shared model for identity, billing, and usage.
+`herald-auth-web` handles register, login, second factors, and silent token refresh in the browser:
 
-The project itself is developed with a hybrid AI-assisted workflow using Claude Code, GLM, and Codex. Its development toolkit builds on [web-dev-skills](https://github.com/timzaak/web-dev-skills).
+```ts
+import { createHeraldClient } from 'herald-auth-web'
 
-[herald-app-example](https://github.com/timzaak/herald-app-example) is a complete, fully AI-developed Flutter app that integrates Herald authentication — a working reference for this approach.
+const client = createHeraldClient({
+  baseUrl: 'https://auth.example.com',
+  realmId: '<your-realm>',
+  clientId: '<your-client-app>',
+})
 
-## Quick Start
+const result = await client.login({ email: 'user@example.com', password: '••••••••' })
+// result.kind: 'success' | 'requires-second-factor' | 'consent-required' | 'oauth-redirect'
+```
 
-You need Python 3.12+ with [uv](https://github.com/astral-sh/uv), Docker, Cargo, and npm.
+On the server, `herald-sdk` (Node and Rust) checks permissions and credit balances against the same records:
+
+```ts
+import { HeraldClient } from 'herald-sdk'
+
+const herald = new HeraldClient('https://your-herald-instance.com', '<your-api-key>')
+
+const check = await herald.checkPermission({
+  accessToken: 'user-browser-token',
+  rules: [{ resource: 'document', action: 'read' }],
+})
+
+const balance = await herald.getBalance('realm-id', 'user-id')
+```
+
+Before the browser SDK can call the API from your page, add the page origin to the Client App's `allowed_origins` in the Herald console.
+
+## Try it
+
+Online, zero install: open [auth.fornetcode.com](https://auth.fornetcode.com) and click **Create Your Realm**. You become the admin of an isolated tenant with its own users and billing setup, so you can experiment without touching anyone else's data.
+
+To run locally you need Python 3.12+ with [uv](https://github.com/astral-sh/uv), Docker, Cargo, and npm:
 
 ```bash
 git clone https://github.com/timzaak/herald.git
@@ -54,32 +85,27 @@ cd herald
 uv run scripts/demo-start.py
 ```
 
-Once running:
+The frontend comes up on http://localhost:3000 and the backend API on http://localhost:8080. For manual setup and next steps, see the [getting started guide](https://www.fornetcode.com/en/docs/getting-started).
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8080
+Stuck on setup, or evaluating Herald for your product? Email [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com); happy to help.
 
-See the [Getting Started guide](https://www.fornetcode.com/en/docs/getting-started) for manual setup and next steps.
+## Built for AI-assisted iteration
 
-Stuck on setup, or evaluating Herald for your product? Email [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com) — happy to help.
+The repo is meant to be modified by AI coding tools:
 
-## Try the Live Demo
-
-Open [auth.fornetcode.com](https://auth.fornetcode.com) and click **Create Your Realm** on the sign-in page to spin up your own realm. You become its admin, with a fully isolated tenant to explore — no shared account, no one else's data.
-
-## For AI Agents
-
-- **Docs for LLMs:** [llms.txt](https://www.fornetcode.com/llms.txt) (index) · [llms-full.txt](https://www.fornetcode.com/llms-full.txt) (full text) · append `.md` to any docs URL for Markdown
-- **API reference (OpenAPI):** [`docs-web/openapi.json`](docs-web/openapi.json)
-- **MCP server:** OAuth browser sign-in — no API key, no secret:
+- Docs for LLMs: [llms.txt](https://www.fornetcode.com/llms.txt) (index) · [llms-full.txt](https://www.fornetcode.com/llms-full.txt) (full text) · append `.md` to any docs URL for Markdown
+- API reference (OpenAPI): [`docs-web/openapi.json`](docs-web/openapi.json)
+- MCP server with OAuth browser sign-in, no API key, no secret:
 
   ```bash
   claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
   ```
 
-  Setup and tool reference: [MCP Integration for AI Agents](https://www.fornetcode.com/en/docs/integration/mcp)
+Setup and tool reference: [MCP integration for AI agents](https://www.fornetcode.com/en/docs/integration/mcp).
 
-## Talk to Us
+[herald-app-example](https://github.com/timzaak/herald-app-example) is a complete Flutter app that integrates Herald authentication and was developed entirely with AI; it works as a reference for this approach. Herald itself is developed with a hybrid Claude Code, GLM, and Codex workflow, built on [web-dev-skills](https://github.com/timzaak/web-dev-skills).
+
+## Talk to us
 
 Building a product on Herald? We'd love to hear what you're making.
 
@@ -88,4 +114,4 @@ Building a product on Herald? We'd love to hear what you're making.
 
 ## License
 
-Herald is licensed under [Apache-2.0](LICENSE). You can use, modify, and distribute it, including in commercial products. The open-source project has no per-user license fee.
+Herald is licensed under [Apache-2.0](LICENSE). You can use, modify, and distribute it, including in commercial products, and the open-source project has no per-user license fee.

@@ -100,21 +100,21 @@ export function HomePage({
                 animationDelay: "240ms",
               }}
             >
+              <Link
+                {...docsLink}
+                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-medium transition-all duration-200 shadow-lg shadow-amber-600/20 dark:shadow-amber-900/40 justify-center"
+              >
+                {texts.getStarted}
+              </Link>
               <a
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-full font-medium transition-all duration-200 shadow-lg shadow-amber-600/20 dark:shadow-amber-900/40 justify-center"
+                className="flex items-center gap-2 bg-white/70 dark:bg-stone-800/70 hover:bg-white dark:hover:bg-stone-800 backdrop-blur-md text-stone-700 dark:text-stone-300 px-6 py-3 rounded-full border border-stone-200 dark:border-stone-700 font-medium transition-all duration-200 shadow-sm justify-center"
               >
                 <GitHubIcon className="w-5 h-5" />
                 {texts.starGithub}
               </a>
-              <Link
-                {...docsLink}
-                className="flex items-center gap-2 bg-white/70 dark:bg-stone-800/70 hover:bg-white dark:hover:bg-stone-800 backdrop-blur-md text-stone-700 dark:text-stone-300 px-6 py-3 rounded-full border border-stone-200 dark:border-stone-700 font-medium transition-all duration-200 shadow-sm justify-center"
-              >
-                {texts.getStarted}
-              </Link>
               <a
                 href={DEMO_URL}
                 target="_blank"
@@ -318,21 +318,21 @@ export function HomePage({
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
+            <Link
+              {...docsLink}
+              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-8 py-3.5 rounded-full font-medium transition-all duration-200 shadow-lg shadow-amber-600/20 dark:shadow-amber-900/40 justify-center"
+            >
+              {texts.getStarted}
+            </Link>
             <a
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-8 py-3.5 rounded-full font-medium transition-all duration-200 shadow-lg shadow-amber-600/20 dark:shadow-amber-900/40 justify-center"
+              className="flex items-center gap-2 bg-white/70 dark:bg-stone-800/70 hover:bg-white dark:hover:bg-stone-800 backdrop-blur-md text-stone-700 dark:text-stone-300 px-8 py-3.5 rounded-full border border-stone-200 dark:border-stone-700 font-medium transition-all duration-200 shadow-sm justify-center"
             >
               <GitHubIcon className="w-5 h-5" />
               {texts.starGithub}
             </a>
-            <Link
-              {...docsLink}
-              className="flex items-center gap-2 bg-white/70 dark:bg-stone-800/70 hover:bg-white dark:hover:bg-stone-800 backdrop-blur-md text-stone-700 dark:text-stone-300 px-8 py-3.5 rounded-full border border-stone-200 dark:border-stone-700 font-medium transition-all duration-200 shadow-sm justify-center"
-            >
-              {texts.getStarted}
-            </Link>
           </div>
 
           <p className="mt-8 text-sm text-stone-500 dark:text-stone-400">
