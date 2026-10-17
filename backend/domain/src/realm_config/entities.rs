@@ -108,6 +108,8 @@ pub enum ConfigType {
     /// - `enabled`: Enable user registration for the realm ("true" or "false")
     /// - `allowed_domains`: Comma-separated list of allowed email domains (e.g., "example.com,test.org")
     /// - `require_email_verification`: Require email verification for new accounts ("true" or "false")
+    /// - `block_disposable_domains`: Reject sign-ups whose email domain is in the
+    ///   bundled disposable-mailbox domain list ("true" or "false"; default false)
     ///
     /// Password-policy keys (e.g. `password_min_length`, `require_uppercase`) are
     /// NOT consumed by any reader; password rules are enforced by the user
@@ -574,7 +576,7 @@ pub struct UpsertRealmConfigRequest {
     /// **WhiteLabel**: keys are listed for read completeness only — writes go
     /// through the dedicated white-label lifecycle endpoints, not this request
     /// **Turnstile**: `site_key`, `secret_key`
-    /// **Registration**: `allowed_domains`, `require_email_verification`
+    /// **Registration**: `allowed_domains`, `require_email_verification`, `block_disposable_domains`
     #[schema(example = "settings")]
     #[serde(rename = "configKey")]
     pub config_key: String,
@@ -585,6 +587,7 @@ pub struct UpsertRealmConfigRequest {
     /// For Turnstile keys: The actual key string
     /// For Registration `allowed_domains`: Comma-separated domains (e.g., "example.com,test.org")
     /// For Registration `require_email_verification`: "true" or "false"
+    /// For Registration `block_disposable_domains`: "true" or "false"
     #[schema(example = r#"{"enabled":true,"force_enabled":false}"#)]
     #[serde(rename = "configValue")]
     pub config_value: String,

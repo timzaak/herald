@@ -26,9 +26,9 @@ use uuid::Uuid;
 use validator::Validate;
 
 use herald_api_base::application::http::auth::util::{
-    ClientIp, is_email_otp_enabled, is_registration_email_domain_allowed, is_registration_enabled,
-    load_email_otp_settings, normalize_email, rate_limit_hit, user_agent_from_headers,
-    verify_turnstile_for_client_app,
+    ClientIp, is_email_otp_enabled, is_registration_disposable_email_blocked,
+    is_registration_email_domain_allowed, is_registration_enabled, load_email_otp_settings,
+    normalize_email, rate_limit_hit, user_agent_from_headers, verify_turnstile_for_client_app,
 };
 use herald_api_base::application::http::server::api_entities::ApiError;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -229,6 +229,30 @@ fn email_not_registered_conflict(message: &str) -> ApiError {
     })
 }
 
+/// Registration-domain gates shared by the OTP send and verify entrances:
+/// the realm allowlist first, then the bundled disposable-domain blocklist
+/// (registration/block_disposable_domains) — deny wins, so an explicit
+/// allowlist entry cannot bypass the blocklist. Both gates collapse into the
+/// same generic not-eligible response so the OTP entrance never becomes an
+/// oracle for which gate fired.
+async fn ensure_email_eligible_for_registration(
+    state: &AppState,
+    realm_id: &str,
+    email: &str,
+) -> Result<(), ApiError> {
+    if !is_registration_email_domain_allowed(state, realm_id, email).await? {
+        return Err(email_not_registered_conflict(
+            "This email is not eligible for registration.",
+        ));
+    }
+    if is_registration_disposable_email_blocked(state, realm_id, email).await? {
+        return Err(email_not_registered_conflict(
+            "This email is not eligible for registration.",
+        ));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // send handler
 // ---------------------------------------------------------------------------
@@ -347,11 +371,7 @@ pub async fn send(
                     "This email is not registered. Please sign up first.",
                 ));
             }
-            if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
-                return Err(email_not_registered_conflict(
-                    "This email is not eligible for registration.",
-                ));
-            }
+            ensure_email_eligible_for_registration(&state, &realm_id, &email).await?;
             // Auto-register requires consent expression BEFORE code issuance
             // (D-CONSENT-01). Missing agreements → 409 with current effective
             // summaries so the front-end can render the consent checkboxes.
@@ -651,11 +671,7 @@ pub async fn verify(
                     "This email is not registered. Please sign up first.",
                 ));
             }
-            if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
-                return Err(email_not_registered_conflict(
-                    "This email is not eligible for registration.",
-                ));
-            }
+            ensure_email_eligible_for_registration(&state, &realm_id, &email).await?;
             // Auto-register path. create_user_without_password starts in
             // WaitVerified (status 0); activate_user flips it to Normal before
             // create_token_family (which requires an active user).

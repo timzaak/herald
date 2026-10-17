@@ -22,3 +22,9 @@ redis = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 ipnetwork = { workspace = true }
+
+[build-dependencies]
+# Fetches the disposable-email blocklist at build time (see build.rs)
+ureq = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

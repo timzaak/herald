@@ -57,6 +57,9 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "postgres",
 bcrypt = "0.17"
 hmac = "0.12"
 sha2 = "0.10"
+# Blocking HTTP client for build scripts (disposable-email blocklist fetch);
+# rustls-only to keep the build-dep tree small
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 # Time & ID
 chrono = { version = "0.4", features = ["serde"] }

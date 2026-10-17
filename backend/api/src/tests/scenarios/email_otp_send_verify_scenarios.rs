@@ -26,7 +26,7 @@
 //
 // =============================================================================
 
-use crate::tests::helpers::otp_helpers::{inject_otp_code, read_otp_attempts};
+use crate::tests::helpers::otp_helpers::{inject_otp_code, read_otp_attempts, read_otp_code};
 use crate::tests::helpers::test_setup_helpers::record_test_user_consent;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -1014,5 +1014,59 @@ async fn test_scenario_email_otp_verify_totp_user_requires_second_factor(ctx: &m
     assert!(
         !temp_token.is_empty(),
         "response must carry a temp token for the second-factor step"
+    );
+}
+
+/// Enable the registration `block_disposable_domains` toggle so the bundled
+/// disposable-domain list is enforced on the OTP auto-register path.
+async fn enable_disposable_domain_block(ctx: &TestContext) {
+    sqlx::query(
+        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled)
+         VALUES ($1, 'registration', 'block_disposable_domains', 'true', true)
+         ON CONFLICT (realm_id, config_type, config_key) DO UPDATE SET config_value = 'true', enabled = true",
+    )
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to enable block_disposable_domains");
+}
+
+/// User Story: block_disposable_domains 在 OTP 自动注册入口同样生效
+///
+/// 开启拦截后，一次性域名邮箱走 OTP send 时不发码、不建号，返回与
+/// allowlist 拒绝相同的 `email_not_registered` 409（OTP 入口不区分具体
+/// 是哪道域名闸拒绝，避免成为探测出口）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_email_otp_auto_register_disposable_domain_blocked(ctx: &mut TestContext) {
+    enable_registration(ctx).await;
+    enable_email_otp(ctx, true).await;
+    enable_disposable_domain_block(ctx).await;
+
+    let email = format!("eo-disposable-{}@mailinator.com", uuid::Uuid::now_v7());
+
+    // Agreements are omitted on purpose: the disposable gate runs before the
+    // consent gate, so the 409 below proves which gate fired (a consent miss
+    // would instead return `consent_required`).
+    let send_resp = send_otp(ctx, &email, None, None).await;
+    assert_eq!(
+        send_resp.status(),
+        StatusCode::CONFLICT,
+        "disposable-domain email must not pass OTP auto-register"
+    );
+
+    let body: serde_json::Value = crate::tests::response_json(send_resp).await;
+    assert_eq!(
+        body["code"], "email_not_registered",
+        "the disposable gate must collapse into the generic not-registered shape"
+    );
+
+    // 拒绝必须发生在发码之前：不能给一次性邮箱留下可消费的验证码。
+    // 断言的是存码键本身——发码成功路径会 SET 码键并 DEL 计数键，
+    // 读计数键在"拒绝"与"发码成功"两种情况下都为 None，拦不住
+    // "闸门后置到发码之后"这类回归。
+    assert!(
+        read_otp_code(ctx, &ctx._realm_id, &email).await.is_none(),
+        "no OTP code must be stored for a blocked disposable email"
     );
 }

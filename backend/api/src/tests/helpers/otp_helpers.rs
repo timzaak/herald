@@ -137,6 +137,22 @@ pub async fn read_otp_attempts(ctx: &TestContext, realm_id: &str, email: &str) -
     conn.get(&key).await.expect("failed to read OTP counter")
 }
 
+/// Read back the stored OTP code JSON for an email (or `None` if no code is
+/// stored). This is the key the production `send` handler writes and `verify`
+/// consumes — unlike the attempt counter, a successful send leaves it
+/// present, so absence-proofs of "no code was issued" must assert on this
+/// key, not on the counter.
+pub async fn read_otp_code(ctx: &TestContext, realm_id: &str, email: &str) -> Option<String> {
+    let key = otp_redis_key(realm_id, email);
+    let mut conn = ctx
+        ._app_state
+        .redis_manager
+        .get()
+        .await
+        .expect("failed to get Redis connection");
+    conn.get(&key).await.expect("failed to read OTP code key")
+}
+
 /// Delete the stored OTP key for an email (test cleanup / explicit invalidation).
 pub async fn delete_otp_code(ctx: &TestContext, realm_id: &str, email: &str) {
     let key = otp_redis_key(realm_id, email);

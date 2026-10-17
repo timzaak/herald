@@ -857,6 +857,26 @@ async fn find_or_create_user_by_email(
                     "Email domain is not allowed for registration".to_string(),
                 ));
             }
+            // Bundled disposable-domain blocklist (registration/
+            // block_disposable_domains toggle), same response as the allowlist
+            // rejection — no new error surface for OAuth clients.
+            let disposable_blocked =
+                herald_api_base::application::http::auth::util::is_registration_disposable_email_blocked(
+                    state,
+                    realm_id,
+                    &user_info.email,
+                )
+                .await
+                .map_err(|_| {
+                    AuthError::InternalServerError(
+                        "Failed to query registration disposable-domain config".to_string(),
+                    )
+                })?;
+            if disposable_blocked {
+                return Err(AuthError::Conflict(
+                    "Email domain is not allowed for registration".to_string(),
+                ));
+            }
 
             // User not found, create new user
             let create_request = CreateUserRequest {

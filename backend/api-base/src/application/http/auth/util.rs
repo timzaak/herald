@@ -224,6 +224,47 @@ mod tests {
             "unknown socket + present config must not trust any header"
         );
     }
+
+    #[test]
+    fn disposable_email_list_matches_flagship_disposable_providers() {
+        // The defense IS the list's coverage: these are long-lived flagship
+        // disposable providers, so a miss means the bundled file was replaced
+        // or truncated and no longer covers the threat it ships for.
+        for domain in ["mailinator.com", "10minutemail.com", "guerrillamail.com"] {
+            assert!(
+                is_disposable_email(&format!("user@{domain}")),
+                "{domain} must be in the bundled list"
+            );
+        }
+    }
+
+    #[test]
+    fn disposable_email_list_is_substantially_sized() {
+        // Upstream currently ships ~9,900 domains. A floor of 3,000 pins that
+        // an update did not quietly replace the file with a stub while still
+        // passing the flagship-domain test above.
+        assert!(DISPOSABLE_EMAIL_DOMAINS.len() > 3_000);
+    }
+
+    #[test]
+    fn disposable_email_check_spares_ordinary_domains() {
+        assert!(!is_disposable_email("user@gmail.com"));
+        assert!(!is_disposable_email("user@example.com"));
+    }
+
+    #[test]
+    fn disposable_email_check_normalizes_domain_case() {
+        // Call sites hand in normalize_email output, but the check must not
+        // depend on that to stay correct.
+        assert!(is_disposable_email("USER@MAILINATOR.COM"));
+    }
+
+    #[test]
+    fn disposable_email_check_requires_an_at() {
+        // A bare domain is not an email address; upstream validators already
+        // reject it, and this check must never fire on non-emails.
+        assert!(!is_disposable_email("mailinator.com"));
+    }
 }
 
 pub fn normalize_email(email: &str) -> String {
@@ -371,14 +412,85 @@ pub async fn is_registration_email_domain_allowed(
     let Some(configured) = configured.filter(|value| !value.trim().is_empty()) else {
         return Ok(true);
     };
-    let Some((_, email_domain)) = email.rsplit_once('@') else {
+    let Some(email_domain) = normalized_email_domain(email) else {
         return Ok(false);
     };
-    let email_domain = email_domain.trim().to_ascii_lowercase();
     Ok(configured
         .split(',')
         .map(|domain| domain.trim().trim_start_matches('@').to_ascii_lowercase())
         .any(|domain| !domain.is_empty() && domain == email_domain))
+}
+
+/// Bundled disposable (temporary-mailbox) email domain list, compiled in via
+/// `include_str!` from OUT_DIR. The CC0 upstream list is fetched at build
+/// time by this crate's `build.rs` from a pinned upstream commit (sha256
+/// verified) and is not stored in the repository — provenance and update
+/// instructions live in `backend/api-base/build.rs`. Built once on first
+/// use; lookups are pure in-memory O(1). Entries are ASCII-lowercased at
+/// load so the lowercased query side keeps matching even if a future pin
+/// bump pulls mixed-case entries from upstream.
+static DISPOSABLE_EMAIL_DOMAINS: std::sync::LazyLock<std::collections::HashSet<String>> =
+    std::sync::LazyLock::new(|| {
+        include_str!(concat!(env!("OUT_DIR"), "/disposable_email_blocklist.conf"))
+            .lines()
+            .map(|line| line.trim().to_ascii_lowercase())
+            .filter(|domain| !domain.is_empty() && !domain.starts_with('#'))
+            .collect()
+    });
+
+/// The email's domain for exact-match comparisons: the part after the last
+/// `@`, trimmed + ASCII-lowercased, no subdomain wildcarding. `None` when the
+/// address has no `@`. Shared by the registration allowlist and the bundled
+/// disposable-domain list — the realm-settings PRD pins both gates to the
+/// same exact-match semantics, so they must not normalize independently.
+fn normalized_email_domain(email: &str) -> Option<String> {
+    email
+        .rsplit_once('@')
+        .map(|(_, domain)| domain.trim().to_ascii_lowercase())
+}
+
+/// Whether the email's domain is in the bundled disposable-domain list.
+/// Same normalization as the registration allowlist: the part after the last
+/// `@`, trimmed + ASCII-lowercased, exact match, no subdomain wildcarding.
+/// An email without `@` can never match.
+pub fn is_disposable_email(email: &str) -> bool {
+    normalized_email_domain(email)
+        .is_some_and(|domain| DISPOSABLE_EMAIL_DOMAINS.contains(domain.as_str()))
+}
+
+/// Check the optional registration `block_disposable_domains` toggle against
+/// the bundled disposable-domain list. A missing or non-true row disables the
+/// check — deployments that never set the toggle keep today's behavior, so
+/// the default can never reject an address. The in-memory list lookup runs
+/// first: ordinary domains (the overwhelming majority of traffic, including
+/// every realm that never set the toggle) skip the config round-trip.
+pub async fn is_registration_disposable_email_blocked(
+    state: &AppState,
+    realm_id: &str,
+    email: &str,
+) -> Result<bool, ApiError> {
+    if !is_disposable_email(email) {
+        return Ok(false);
+    }
+    let row = sqlx::query_scalar::<_, String>(
+        "SELECT config_value FROM realm_config
+         WHERE realm_id = $1
+           AND config_type = 'registration'
+           AND config_key = 'block_disposable_domains'
+           AND enabled = true",
+    )
+    .bind(realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, %realm_id, "Failed to query block_disposable_domains config");
+        ApiError::internal("Failed to query registration config")
+    })?;
+
+    let enabled = row
+        .map(|value| matches!(value.to_lowercase().as_str(), "true" | "1" | "yes"))
+        .unwrap_or(false);
+    Ok(enabled)
 }
 
 /// Check if email verification is required for user registration in a realm

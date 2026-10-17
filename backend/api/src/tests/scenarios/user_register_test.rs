@@ -918,3 +918,168 @@ async fn test_scenario_user_register_persists_nickname(ctx: &mut TestContext) {
             .unwrap();
     }
 }
+
+/// Enable Realm registration for the test realm (idempotent).
+async fn enable_registration(ctx: &TestContext) {
+    sqlx::query(
+        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled)
+         VALUES ($1, 'registration', 'enabled', 'true', true)
+         ON CONFLICT (realm_id, config_type, config_key) DO UPDATE SET config_value = 'true', enabled = true",
+    )
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to enable registration");
+}
+
+/// Enable the registration `block_disposable_domains` toggle so the bundled
+/// disposable-domain list is enforced on the password-register path.
+async fn enable_disposable_domain_block(ctx: &TestContext) {
+    sqlx::query(
+        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled)
+         VALUES ($1, 'registration', 'block_disposable_domains', 'true', true)
+         ON CONFLICT (realm_id, config_type, config_key) DO UPDATE SET config_value = 'true', enabled = true",
+    )
+    .bind(&ctx._realm_id)
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("failed to enable block_disposable_domains");
+}
+
+/// Build the register request shared by the block_disposable_domains
+/// scenarios; `client_ip` varies per test so IP rate-limit state never
+/// bleeds between scenarios.
+fn register_request(ctx: &TestContext, email: &str, client_ip: &str) -> Request<Body> {
+    let payload = json!({
+        "clientId": ctx._client_id,
+        "email": email,
+        "password": "password123",
+        "turnstileToken": "dummy"
+    });
+    Request::builder()
+        .method("POST")
+        .uri(format!("/api/auth/{}/register", ctx._realm_id))
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", client_ip)
+        .body(Body::from(payload.to_string()))
+        .unwrap()
+}
+
+/// Remove the account and any pending verification code for an email so
+/// scenarios whose registration succeeds leave no rows behind.
+async fn delete_registered_account(ctx: &TestContext, email: &str) {
+    sqlx::query("DELETE FROM email_verification_code WHERE email = $1")
+        .bind(email)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM account WHERE email = $1")
+        .bind(email)
+        .execute(&ctx._app_state.pool)
+        .await
+        .unwrap();
+}
+
+/// ============================================================================
+/// User Story: block_disposable_domains 拦截一次性邮箱注册
+///
+/// **场景**：realm 开启 registration/block_disposable_domains 后，内置一次性
+/// 域名列表中的邮箱（mailinator.com）注册被拒绝；响应复用域名拒绝契约
+/// （400 + "Email domain is not allowed for registration"），不引入新错误码。
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_register_disposable_domain_blocked_when_toggle_on(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    enable_registration(ctx).await;
+    enable_disposable_domain_block(ctx).await;
+
+    let response = app
+        .oneshot(register_request(
+            ctx,
+            "blocked-user@mailinator.com",
+            "3.3.4.1",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "disposable-domain email must be rejected when the toggle is on"
+    );
+    let body: serde_json::Value = crate::tests::response_json(response).await;
+    assert_eq!(
+        response_message(&body),
+        "Email domain is not allowed for registration",
+        "must reuse the domain-rejection message, not a new error surface"
+    );
+
+    // 拦截意味着不能建号：mailbox 里不允许留下半成品账号。
+    let account_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM account WHERE email = $1")
+        .bind("blocked-user@mailinator.com")
+        .fetch_one(&ctx._app_state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        account_count, 0,
+        "no account may be created for a blocked disposable email"
+    );
+}
+
+/// ============================================================================
+/// User Story: block_disposable_domains 开启时不误伤普通邮箱
+///
+/// **场景**：开关开启，普通域邮箱注册照常成功——拦截范围必须是列表精确
+/// 匹配，不能变成一刀切。
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_register_normal_domain_allowed_when_toggle_on(ctx: &mut TestContext) {
+    let app = ctx.create_unified_test_router();
+
+    enable_registration(ctx).await;
+    enable_disposable_domain_block(ctx).await;
+
+    let email = "disposable-toggle-normal@cas.com";
+    let response = app
+        .oneshot(register_request(ctx, email, "3.3.4.2"))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "ordinary domains must register normally while the toggle is on"
+    );
+
+    delete_registered_account(ctx, email).await;
+}
+
+/// ============================================================================
+/// User Story: 未配置 block_disposable_domains 时行为零变化
+///
+/// **场景**：只开启注册、不配置拦截开关，一次性域名邮箱照常注册成功——
+/// 现有部署升级后，只要管理员不主动开启开关，任何注册行为都不变。
+/// ============================================================================
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_scenario_register_disposable_domain_allowed_when_toggle_absent(
+    ctx: &mut TestContext,
+) {
+    let app = ctx.create_unified_test_router();
+
+    enable_registration(ctx).await;
+
+    let email = "disposable-default-off@10minutemail.com";
+    let response = app
+        .oneshot(register_request(ctx, email, "3.3.4.3"))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "absent toggle must keep pre-feature behavior: disposable domains register freely"
+    );
+
+    delete_registered_account(ctx, email).await;
+}

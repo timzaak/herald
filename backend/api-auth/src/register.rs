@@ -4,8 +4,9 @@ use axum::{
 };
 use axum_valid::Valid;
 use herald_api_base::application::http::auth::util::{
-    ClientIp, is_email_verification_required, is_registration_email_domain_allowed,
-    is_registration_enabled, normalize_email, rate_limit_hit, verify_turnstile_for_client_app,
+    ClientIp, is_email_verification_required, is_registration_disposable_email_blocked,
+    is_registration_email_domain_allowed, is_registration_enabled, normalize_email, rate_limit_hit,
+    verify_turnstile_for_client_app,
 };
 use herald_api_base::application::http::common::public_helper::realm_public_url_parts;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -104,6 +105,15 @@ pub async fn register(
         ));
     }
     if !is_registration_email_domain_allowed(&state, &realm_id, &email).await? {
+        return Err(ApiError::bad_request(
+            "Email domain is not allowed for registration".to_string(),
+        ));
+    }
+    // Bundled disposable-domain blocklist (registration/block_disposable_domains
+    // toggle). Runs after the allowlist so an explicit allowlist entry cannot
+    // bypass it: deny wins, matching the anti-abuse direction. Same response
+    // as the allowlist rejection — no new error surface.
+    if is_registration_disposable_email_blocked(&state, &realm_id, &email).await? {
         return Err(ApiError::bad_request(
             "Email domain is not allowed for registration".to_string(),
         ));
