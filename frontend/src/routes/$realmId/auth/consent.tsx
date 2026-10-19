@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { oauthConsentDecision, oauthConsentProbe, recordConsent } from '@/lib/api-generated'
 import type { LegalAgreementSummary } from '@/lib/api-generated'
-import { consentSearchSchema } from '@/lib/schemas/search-params'
+import { consentSearchSchema, type ConsentSearchParams } from '@/lib/schemas/search-params'
 import { getErrorMessage } from '@/lib/error-utils'
 import { validateOAuthParams } from '@/lib/auth-utils'
 import { useIsAuthenticated } from '@/stores/auth-store'
@@ -57,7 +57,7 @@ export function OAuthConsentPage() {
     ? { ...resolvedRealmContext, realmId: routeParams.realmId, isCustomDomain: false }
     : resolvedRealmContext
   const { realmId } = realmContext
-  const search = useCurrentSearch() as Record<string, string | undefined>
+  const search = useCurrentSearch<ConsentSearchParams>()
   const isAuthenticated = useIsAuthenticated()
 
   const { oauthParams, hasPartialOAuth } = validateOAuthParams(search)
@@ -171,12 +171,7 @@ export function OAuthConsentPage() {
   // against a double submission (React StrictMode re-runs effects).
   const autoApprovedRef = useRef(false)
   useEffect(() => {
-    if (
-      probeQuery.data &&
-      !probeQuery.data.consent_required &&
-      !decisionMutation.isPending &&
-      !autoApprovedRef.current
-    ) {
+    if (probeQuery.data && !probeQuery.data.consent_required && !autoApprovedRef.current) {
       autoApprovedRef.current = true
       decisionMutation.mutate(true)
     }

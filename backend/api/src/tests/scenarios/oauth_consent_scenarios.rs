@@ -24,7 +24,9 @@
 //
 // =============================================================================
 
-use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
+use crate::tests::helpers::auth_helpers::{
+    create_admin_session_with_role, create_admin_session_with_user,
+};
 use crate::tests::helpers::oauth_pkce_helpers::{
     compute_code_challenge, create_client_app_with_redirect_uris, extract_auth_code_from_redirect,
     generate_code_verifier, generate_state, login_with_oauth, oauth_authorize,
@@ -53,14 +55,6 @@ async fn setup_session_user(ctx: &mut SchemaTestContext, email: &str) -> (String
     )
     .await;
     (token, user_id)
-}
-
-/// Helper: admin session allowed to create client apps (role grant included,
-/// matching oauth_pkce_scenarios' setup_admin_session).
-async fn setup_admin_with_role(ctx: &mut SchemaTestContext, email: &str) -> String {
-    let (admin_token, user_id) = create_admin_session_with_user(ctx, email, 1800).await;
-    grant_realm_admin_role(ctx, &user_id).await;
-    admin_token
 }
 
 /// GET /consent probe with a bearer session.
@@ -154,7 +148,7 @@ async fn grant_count(ctx: &SchemaTestContext, user_id: &str, client_id: &str) ->
 #[tokio::test]
 async fn test_scenario_oauth_consent_session_user_full_flow(ctx: &mut SchemaTestContext) {
     let realm_id = ctx._realm_id.clone();
-    let admin_token = setup_admin_with_role(ctx, "consent-admin@test.com").await;
+    let admin_token = create_admin_session_with_role(ctx, "consent-admin@test.com", 1800).await;
 
     let redirect_uri = "https://oncewise.example/callback";
     let create_response = create_client_app_with_redirect_uris(
@@ -323,7 +317,8 @@ async fn test_scenario_oauth_consent_deny_redirects_and_consumes_state(
     ctx: &mut SchemaTestContext,
 ) {
     let realm_id = ctx._realm_id.clone();
-    let admin_token = setup_admin_with_role(ctx, "consent-deny-admin@test.com").await;
+    let admin_token =
+        create_admin_session_with_role(ctx, "consent-deny-admin@test.com", 1800).await;
     let redirect_uri = "https://denied-app.example/cb";
     let create_response = create_client_app_with_redirect_uris(
         ctx,
@@ -415,7 +410,8 @@ async fn test_scenario_oauth_consent_deny_redirects_and_consumes_state(
 #[tokio::test]
 async fn test_scenario_oauth_consent_decision_rejects_client_mismatch(ctx: &mut SchemaTestContext) {
     let realm_id = ctx._realm_id.clone();
-    let admin_token = setup_admin_with_role(ctx, "consent-mismatch-admin@test.com").await;
+    let admin_token =
+        create_admin_session_with_role(ctx, "consent-mismatch-admin@test.com", 1800).await;
     let redirect_uri = "https://mismatch-app.example/cb";
     for (client_id, name) in [("mismatch-app", "Mismatch App"), ("other-app", "Other App")] {
         let response = create_client_app_with_redirect_uris(
@@ -522,7 +518,8 @@ async fn test_scenario_oauth_consent_probe_requires_session_and_known_state(
 #[tokio::test]
 async fn test_scenario_oauth_login_completion_records_grant(ctx: &mut SchemaTestContext) {
     let realm_id = ctx._realm_id.clone();
-    let admin_token = setup_admin_with_role(ctx, "consent-login-admin@test.com").await;
+    let admin_token =
+        create_admin_session_with_role(ctx, "consent-login-admin@test.com", 1800).await;
     let redirect_uri = "https://login-path-app.example/cb";
     let create_response = create_client_app_with_redirect_uris(
         ctx,

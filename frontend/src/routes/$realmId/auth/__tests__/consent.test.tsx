@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // WHY these tests exist: the consent page is the branch point that was
 // missing when session-holding users were bounced off /auth/* — each test
@@ -49,28 +48,6 @@ vi.mock('@/lib/api-generated', () => ({
   recordConsent: (...args: unknown[]) => mockRecordConsent(...args),
 }))
 
-vi.mock('@/lib/auth-utils', () => ({
-  validateOAuthParams: (search: {
-    oauthClientId?: string
-    redirectUri?: string
-    state?: string
-  }) => {
-    const oauthParams =
-      search.oauthClientId && search.redirectUri && search.state
-        ? {
-            oauthClientId: search.oauthClientId,
-            redirectUri: search.redirectUri,
-            state: search.state,
-          }
-        : null
-    return {
-      oauthParams,
-      hasPartialOAuth:
-        !oauthParams && !!(search.oauthClientId || search.redirectUri || search.state),
-    }
-  },
-}))
-
 vi.mock('@/data/query-options', () => ({
   publicConfigQueryOptions: () => ({
     queryKey: ['public-config', 'test-realm'],
@@ -80,26 +57,13 @@ vi.mock('@/data/query-options', () => ({
 }))
 
 import { OAuthConsentPage } from '../consent'
+import { renderWithProviders } from '@/test/utils/render'
 
 const OAUTH_SEARCH = {
   clientId: 'admin-web-console',
   oauthClientId: 'oncewise-flow',
   redirectUri: 'https://oncewise.example/callback',
   state: 'st-123',
-}
-
-function createTestQueryClient() {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-}
-
-function renderConsentPage() {
-  return render(
-    <QueryClientProvider client={createTestQueryClient()}>
-      <OAuthConsentPage />
-    </QueryClientProvider>
-  )
 }
 
 describe('OAuthConsentPage', () => {
@@ -121,7 +85,7 @@ describe('OAuthConsentPage', () => {
 
   it('forwards an anonymous visitor to the login page with every continuation param', async () => {
     authenticated = false
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
 
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith({
@@ -150,7 +114,7 @@ describe('OAuthConsentPage', () => {
       error: undefined,
     })
 
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
 
     expect(await screen.findByText('OnceWise Flow')).toBeInTheDocument()
     // No code request happens before the user decides.
@@ -175,7 +139,7 @@ describe('OAuthConsentPage', () => {
       error: undefined,
     })
 
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
     await user.click(await screen.findByTestId('device-authorize-button'))
 
     await waitFor(() =>
@@ -208,7 +172,7 @@ describe('OAuthConsentPage', () => {
       error: undefined,
     })
 
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
 
     // No interaction: the approval fires by itself and the browser leaves.
     await waitFor(() =>
@@ -239,7 +203,7 @@ describe('OAuthConsentPage', () => {
       error: undefined,
     })
 
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
     await user.click(await screen.findByTestId('device-deny-button'))
 
     await waitFor(() =>
@@ -261,7 +225,7 @@ describe('OAuthConsentPage', () => {
       error: { status: 400, body: { message: 'OAuth state not found' } },
     })
 
-    renderConsentPage()
+    renderWithProviders(<OAuthConsentPage />)
 
     expect(await screen.findByTestId('oauth-consent-probe-error')).toBeInTheDocument()
     expect(mockDecision).not.toHaveBeenCalled()

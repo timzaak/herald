@@ -27,6 +27,26 @@ pub fn append_code_and_state(redirect_uri: &str, code: &str, state: &str) -> Str
     }
 }
 
+/// Append an RFC 6749 §4.1.2.1 `error` code and `state` pair to a downstream
+/// redirect URI as properly percent-encoded query parameters — the error
+/// counterpart of [`append_code_and_state`], used when an authorization is
+/// denied. Same encoding rationale: `state` is client-controlled, so raw
+/// concatenation could truncate or rewrite the query.
+pub fn append_error_and_state(redirect_uri: &str, error: &str, state: &str) -> String {
+    match url::Url::parse(redirect_uri) {
+        Ok(mut url) => {
+            url.query_pairs_mut()
+                .append_pair("error", error)
+                .append_pair("state", state);
+            url.into()
+        }
+        // The redirect_uri was validated at /authorize time, so this arm is
+        // unreachable in practice; keep the legacy concatenation rather than
+        // failing the denial on a defensive path.
+        Err(_) => format!("{redirect_uri}?error={error}&state={state}"),
+    }
+}
+
 /// Whether a space-delimited scope string requests the `openid` scope.
 /// OIDC scope tokens are case-sensitive: `OPENID` or `openidprofile` do not
 /// count.
@@ -163,6 +183,65 @@ pub async fn ensure_mcp_client_still_enabled(
         );
     }
     Ok(())
+}
+
+/// Load the pending authorize transaction's stored fields and check them
+/// against the request — the one-time-state ritual every completion path
+/// (login entrances and the consent endpoints) performs: the stored record
+/// was written by `/authorize` only after it validated the client, redirect
+/// URI, and realm, so a mismatch here means the request's parameters were
+/// substituted after the fact and the flow must restart. When `consume` is
+/// false the state stays pending (consent probe); when true the GETDEL makes
+/// the load one-shot (completion).
+pub async fn load_and_match_state(
+    conn: &mut redis::aio::ConnectionManager,
+    oauth_client_id: &str,
+    redirect_uri: &str,
+    state_param: &str,
+    realm_id: &str,
+    consume: bool,
+) -> Result<serde_json::Value, herald_api_base::application::http::server::api_entities::ApiError> {
+    use herald_api_base::application::http::server::api_entities::ApiError;
+
+    let state_key = format!("oauth:state:{}", state_param);
+    let state_json: Option<String> = if consume {
+        redis::cmd("GETDEL").arg(&state_key).query_async(conn).await
+    } else {
+        redis::cmd("GET").arg(&state_key).query_async(conn).await
+    }
+    .map_err(|e| {
+        tracing::error!(error = %e, "Redis state lookup failed for OAuth state");
+        ApiError::internal("Internal server error".to_string())
+    })?;
+
+    let state_json = state_json.ok_or_else(|| {
+        ApiError::bad_request(
+            "OAuth state not found or already used. Please restart the authorization flow."
+                .to_string(),
+        )
+    })?;
+
+    let state_data: serde_json::Value = serde_json::from_str(&state_json).map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse OAuth state JSON");
+        ApiError::internal("Internal server error".to_string())
+    })?;
+
+    if state_data["client_id"].as_str().unwrap_or("") != oauth_client_id {
+        return Err(ApiError::bad_request(
+            "OAuth state client_id mismatch".to_string(),
+        ));
+    }
+    if state_data["realm_id"].as_str().unwrap_or("") != realm_id {
+        return Err(ApiError::bad_request(
+            "OAuth state realm_id mismatch".to_string(),
+        ));
+    }
+    if state_data["redirect_uri"].as_str().unwrap_or("") != redirect_uri {
+        return Err(ApiError::bad_request(
+            "OAuth state redirect_uri mismatch".to_string(),
+        ));
+    }
+    Ok(state_data)
 }
 
 #[cfg(test)]

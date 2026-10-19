@@ -238,6 +238,23 @@ pub async fn create_admin_session(ctx: &TestContext, email: &str, ttl_seconds: u
     token
 }
 
+/// 创建已授予 Realm Admin 角色的管理员会话
+///
+/// `create_admin_session_with_user` + `grant_realm_admin_role` 的组合，
+/// 供需要管理端权限（如创建 Client App）的场景直接搭建。
+///
+/// **返回**: token (String)
+///
+pub async fn create_admin_session_with_role(
+    ctx: &TestContext,
+    email: &str,
+    ttl_seconds: usize,
+) -> String {
+    let (admin_token, user_id) = create_admin_session_with_user(ctx, email, ttl_seconds).await;
+    grant_realm_admin_role(ctx, &user_id).await;
+    admin_token
+}
+
 /// 授予 Realm Admin 角色（通过 user_roles 表）
 ///
 /// 将用户加入 realm-admin 角色，自动获得标准权限：

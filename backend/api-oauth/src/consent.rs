@@ -79,7 +79,6 @@ pub struct ConsentDecisionResponse {
     /// listed agreements and re-submit — the state was NOT consumed).
     pub status: String,
     pub redirect_to: Option<String>,
-    pub consent_required: Option<bool>,
     pub agreements: Option<Vec<LegalAgreementSummary>>,
 }
 
@@ -145,57 +144,27 @@ fn parse_identity_user(identity: &Identity) -> Result<Uuid, ApiError> {
         .map_err(|_| ApiError::unauthorized("Invalid session identity".to_string()))
 }
 
-/// Load the pending authorize transaction's stored fields and check them
-/// against the request, mirroring the login entrances' state validation. When
-/// `consume` is false the state stays pending (probe); when true the GETDEL
-/// makes the load one-shot (decision).
-async fn load_and_match_state(
-    conn: &mut redis::aio::ConnectionManager,
-    oauth_client_id: &str,
-    redirect_uri: &str,
-    state_param: &str,
+/// Realm guard + per-user rate limit + identity parse shared by the probe
+/// and decision handlers; both draw on the same `rl:oauth-consent:user:{}`
+/// bucket, so the two entrances share one 20-per-5-min budget per user.
+async fn consent_prelude(
+    state: &AppState,
+    identity: &Identity,
     realm_id: &str,
-    consume: bool,
-) -> Result<serde_json::Value, ApiError> {
-    let state_key = format!("oauth:state:{}", state_param);
-    let state_json: Option<String> = if consume {
-        redis::cmd("GETDEL").arg(&state_key).query_async(conn).await
-    } else {
-        redis::cmd("GET").arg(&state_key).query_async(conn).await
-    }
-    .map_err(|e| {
-        tracing::error!(error = %e, "Redis state lookup failed for OAuth consent");
-        ApiError::internal("Internal server error".to_string())
-    })?;
-
-    let state_json = state_json.ok_or_else(|| {
-        ApiError::bad_request(
-            "OAuth state not found or already used. Please restart the authorization flow."
-                .to_string(),
-        )
-    })?;
-
-    let state_data: serde_json::Value = serde_json::from_str(&state_json).map_err(|e| {
-        tracing::error!(error = %e, "Failed to parse OAuth state JSON");
-        ApiError::internal("Internal server error".to_string())
-    })?;
-
-    if state_data["client_id"].as_str().unwrap_or("") != oauth_client_id {
-        return Err(ApiError::bad_request(
-            "OAuth state client_id mismatch".to_string(),
+) -> Result<Uuid, ApiError> {
+    if identity.realm_id() != realm_id {
+        return Err(ApiError::forbidden(
+            "Access denied: cannot consent for a different realm".to_string(),
         ));
     }
-    if state_data["realm_id"].as_str().unwrap_or("") != realm_id {
-        return Err(ApiError::bad_request(
-            "OAuth state realm_id mismatch".to_string(),
-        ));
-    }
-    if state_data["redirect_uri"].as_str().unwrap_or("") != redirect_uri {
-        return Err(ApiError::bad_request(
-            "OAuth state redirect_uri mismatch".to_string(),
-        ));
-    }
-    Ok(state_data)
+    rate_limit_hit(
+        state,
+        format!("rl:oauth-consent:user:{}", identity.user_id()),
+        20,
+        300,
+    )
+    .await?;
+    parse_identity_user(identity)
 }
 
 // ---------------------------------------------------------------------------
@@ -230,53 +199,51 @@ pub async fn oauth_consent_probe(
     Extension(identity): Extension<Identity>,
     Query(params): Query<ConsentProbeQueryParams>,
 ) -> Result<Json<ConsentProbeResponse>, ApiError> {
-    if identity.realm_id() != realm_id {
-        return Err(ApiError::forbidden(
-            "Access denied: cannot consent for a different realm".to_string(),
-        ));
-    }
-    rate_limit_hit(
-        &state,
-        format!("rl:oauth-consent:user:{}", identity.user_id()),
-        20,
-        300,
-    )
-    .await?;
+    let user_id = consent_prelude(&state, &identity, &realm_id).await?;
 
-    let user_id = parse_identity_user(&identity)?;
-
+    // The state lookup (Redis) and the client lookup (DB) are independent —
+    // /authorize wrote the state only after validating the client — so fetch
+    // them concurrently instead of paying two serial round-trips on the path
+    // between the authorize redirect and the consent UI.
     let mut conn = state
         .redis_manager
         .get()
         .await
         .map_err(|_| ApiError::internal("Internal server error".to_string()))?;
-    load_and_match_state(
-        &mut conn,
-        &params.oauth_client_id,
-        &params.redirect_uri,
-        &params.state,
-        &realm_id,
-        false,
-    )
-    .await?;
-
-    let client_app = state
-        .service
-        .client_service()
-        .get_client_app_by_client_id(&realm_id, &params.oauth_client_id)
-        .await
-        .map_err(|e| match e {
-            herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
-                ApiError::not_found(format!(
-                    "Client app with client_id '{}' not found in realm '{}'",
-                    params.oauth_client_id, realm_id
-                ))
-            }
-            error => {
-                tracing::error!(error = %error, "Client app lookup failed: OAuth consent probe");
-                ApiError::internal("Internal server error".to_string())
-            }
-        })?;
+    let (state_result, client_result) = tokio::join!(
+        herald_api_auth::oauth_oidc::load_and_match_state(
+            &mut conn,
+            &params.oauth_client_id,
+            &params.redirect_uri,
+            &params.state,
+            &realm_id,
+            false,
+        ),
+        async {
+            state
+                .service
+                .client_service()
+                .get_client_app_by_client_id(&realm_id, &params.oauth_client_id)
+                .await
+                .map_err(|e| match e {
+                    herald_core::domain::common::entities::app_errors::CoreError::NotFound => {
+                        ApiError::not_found(format!(
+                            "Client app with client_id '{}' not found in realm '{}'",
+                            params.oauth_client_id, realm_id
+                        ))
+                    }
+                    error => {
+                        tracing::error!(error = %error, "Client app lookup failed: OAuth consent probe");
+                        ApiError::internal("Internal server error".to_string())
+                    }
+                })
+        }
+    );
+    // join! (not try_join!) so both I/Os overlap yet the error precedence
+    // stays the serial contract's: an unknown or consumed state must always
+    // read as the restartable 400, never race the client lookup's 404.
+    state_result?;
+    let client_app = client_result?;
     if !client_app.enabled {
         return Err(ApiError::forbidden("Client app is disabled".to_string()));
     }
@@ -321,20 +288,7 @@ pub async fn oauth_consent_decision(
     Extension(identity): Extension<Identity>,
     Json(payload): Json<ConsentDecisionRequest>,
 ) -> Result<Json<ConsentDecisionResponse>, ApiError> {
-    if identity.realm_id() != realm_id {
-        return Err(ApiError::forbidden(
-            "Access denied: cannot consent for a different realm".to_string(),
-        ));
-    }
-    rate_limit_hit(
-        &state,
-        format!("rl:oauth-consent:user:{}", identity.user_id()),
-        20,
-        300,
-    )
-    .await?;
-
-    let user_id = parse_identity_user(&identity)?;
+    let user_id = consent_prelude(&state, &identity, &realm_id).await?;
 
     // The legal consent gate runs BEFORE the state is consumed: a blocked
     // approval must be retryable after the user records consent, mirroring
@@ -357,7 +311,6 @@ pub async fn oauth_consent_decision(
             return Ok(Json(ConsentDecisionResponse {
                 status: "consent_required".to_string(),
                 redirect_to: None,
-                consent_required: Some(true),
                 agreements: Some(summaries),
             }));
         }
@@ -369,7 +322,7 @@ pub async fn oauth_consent_decision(
         .await
         .map_err(|_| ApiError::internal("Internal server error".to_string()))?;
 
-    let state_data = load_and_match_state(
+    let state_data = herald_api_auth::oauth_oidc::load_and_match_state(
         &mut conn,
         &payload.oauth_client_id,
         &payload.redirect_uri,
@@ -390,21 +343,11 @@ pub async fn oauth_consent_decision(
     .await?;
 
     if !payload.approved {
-        let redirect_to = match url::Url::parse(&payload.redirect_uri) {
-            Ok(mut url) => {
-                url.query_pairs_mut()
-                    .append_pair("error", "access_denied")
-                    .append_pair("state", &payload.state);
-                url.into()
-            }
-            // The redirect_uri was validated at /authorize time, so this arm
-            // is unreachable in practice; keep a usable fallback rather than
-            // failing the denial on a defensive path.
-            Err(_) => format!(
-                "{}?error=access_denied&state={}",
-                payload.redirect_uri, payload.state
-            ),
-        };
+        let redirect_to = herald_api_auth::oauth_oidc::append_error_and_state(
+            &payload.redirect_uri,
+            "access_denied",
+            &payload.state,
+        );
         tracing::info!(
             realm_id = %realm_id,
             %user_id,
@@ -414,7 +357,6 @@ pub async fn oauth_consent_decision(
         return Ok(Json(ConsentDecisionResponse {
             status: "denied".to_string(),
             redirect_to: Some(redirect_to),
-            consent_required: None,
             agreements: None,
         }));
     }
@@ -486,7 +428,6 @@ pub async fn oauth_consent_decision(
     Ok(Json(ConsentDecisionResponse {
         status: "authorized".to_string(),
         redirect_to: Some(redirect_to),
-        consent_required: None,
         agreements: None,
     }))
 }

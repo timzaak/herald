@@ -14,18 +14,14 @@ export const loginSearchSchema = z.object({
 })
 
 /**
- * Search params carried on the OAuth consent route. The authorize endpoint
- * 302s here with the continuation tuple the login page also consumes:
- * `clientId` names the first-party client used when an anonymous visitor is
- * forwarded to login; `oauthClientId`/`redirectUri`/`state` identify the
- * pending third-party flow.
+ * Search params carried on the OAuth consent route: the login continuation
+ * tuple minus `redirect` (the pending flow's own redirect_uri plays that
+ * role). The authorize endpoint 302s here with `clientId` naming the
+ * first-party client used when an anonymous visitor is forwarded to login;
+ * `oauthClientId`/`redirectUri`/`state` identify the pending third-party
+ * flow.
  */
-export const consentSearchSchema = z.object({
-  clientId: z.string().optional(),
-  oauthClientId: z.string().optional(),
-  redirectUri: z.string().optional(),
-  state: z.string().optional(),
-})
+export const consentSearchSchema = loginSearchSchema.omit({ redirect: true })
 
 export const usersSearchSchema = z.object({
   page: z.number().int().min(0).optional(),
