@@ -46,7 +46,9 @@ const HistoryTableRow = memo(({ event, index }: HistoryTableRowProps) => {
       <TableCell>
         {event.user ? (
           <div className="space-y-1">
-            <div className="text-sm">{event.user.email}</div>
+            <div className="max-w-xs truncate text-sm" title={event.user.email}>
+              {event.user.email}
+            </div>
             <div className="text-xs text-muted-foreground">{event.user.id}</div>
           </div>
         ) : (

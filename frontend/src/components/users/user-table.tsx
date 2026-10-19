@@ -53,7 +53,14 @@ function createUserColumns(
     {
       accessorKey: 'email',
       header: m['users.table_email'](),
-      cell: ({ row }) => row.getValue('email') || '-',
+      cell: ({ row }) => {
+        const email = String(row.getValue('email') ?? '') || '-'
+        return (
+          <div className="max-w-xs truncate" title={email}>
+            {email}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'nickname',

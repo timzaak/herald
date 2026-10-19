@@ -151,7 +151,10 @@ function createClientAppColumns({
               </Badge>
             </div>
             {row.original.clientId === MCP_CLIENT_ID && (
-              <p className="text-xs text-muted-foreground" data-testid="client-app-mcp-hint">
+              <p
+                className="max-w-xs whitespace-normal text-xs text-muted-foreground"
+                data-testid="client-app-mcp-hint"
+              >
                 {m['client_apps.mcp_disable_hint']()}
               </p>
             )}

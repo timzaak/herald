@@ -100,8 +100,16 @@ export function PointsConsumptionPanel({ realmId, days }: PointsConsumptionPanel
                     {data.buckets.map((bucket) => (
                       <TableRow key={bucket.bucketId}>
                         <TableCell>
-                          <span className="font-medium">{bucket.bucketName}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">
+                          <span
+                            className="inline-block max-w-[200px] truncate font-medium"
+                            title={bucket.bucketName}
+                          >
+                            {bucket.bucketName}
+                          </span>
+                          <span
+                            className="ml-2 inline-block max-w-[140px] truncate text-xs text-muted-foreground"
+                            title={bucket.bucketKey}
+                          >
                             {bucket.bucketKey}
                           </span>
                         </TableCell>

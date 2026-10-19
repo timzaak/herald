@@ -47,7 +47,11 @@ export function CreditNoteRow({ note, track, currency, showOperator }: CreditNot
   return (
     <TableRow className={rowClass} data-testid={rowTestId}>
       <TableCell className="font-mono">{note.id}</TableCell>
-      <TableCell>{note.memo ?? '—'}</TableCell>
+      <TableCell>
+        <div className="max-w-xs truncate" title={note.memo ?? undefined}>
+          {note.memo ?? '—'}
+        </div>
+      </TableCell>
       {showOperator && <TableCell>{note.createdByUserId ?? '—'}</TableCell>}
       <TableCell>{issuedAt}</TableCell>
       <TableCell>

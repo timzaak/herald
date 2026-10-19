@@ -18,7 +18,7 @@ use herald_core::domain::security_constants::{
     REAUTH_VERIFY_IP_RATE_LIMIT, REAUTH_VERIFY_USER_RATE_LIMIT,
 };
 use herald_core::domain::user_passkey::{
-    PasskeyLoginState, UserPasskeyRepository, UserPasskeyService,
+    PasskeyLoginState, PasskeyRelyingParty, UserPasskeyRepository, UserPasskeyService,
 };
 use herald_core::domain::user_totp::{TotpVerificationResult, UserTotpRepository, UserTotpService};
 use herald_core::infrastructure::authentication::{
@@ -31,7 +31,7 @@ use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::passkey_rp::resolve_passkey_rp;
+use crate::passkey_rp::{is_passkey_enabled, resolve_passkey_rp};
 
 pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
@@ -175,38 +175,72 @@ pub async fn begin_reauth(
 
     let passkey_repo = Arc::new(PostgresUserPasskeyRepository::new(state.db.clone()));
     let relying_party =
-        resolve_passkey_rp(state, &user.realm_id, headers, Some(context.client_app_id)).await?;
-    let has_passkey = !passkey_repo
-        .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
-        .await?
-        .is_empty();
+        reauth_probe_rp(state, &user.realm_id, headers, context.client_app_id).await?;
+    let has_passkey = match relying_party.as_ref() {
+        Some(relying_party) => !passkey_repo
+            .list_by_user_and_rp(&user.realm_id, user.id, &relying_party.id)
+            .await?
+            .is_empty(),
+        None => false,
+    };
     let factors = available_factors(user.password_hash.is_some(), has_totp, has_passkey);
-    let challenge = if has_passkey {
-        let service = passkey_service(state, passkey_repo)?;
-        let login_state = PasskeyLoginState {
-            realm_id: user.realm_id.clone(),
-            client_id: context.client_app_id.to_string(),
-            client_ip: String::new(),
-            oauth_client_id: None,
-            redirect_uri: None,
-            state: None,
-        };
-        let (options, challenge_token) = service
-            .begin_second_factor(&login_state, user.id, relying_party)
-            .await
-            .map_err(|_| ApiError::internal("Failed to begin Passkey reauthentication"))?;
-        Some(serde_json::json!({
-            "challengeToken": challenge_token,
-            "options": options,
-        }))
-    } else {
-        None
+    let challenge = match relying_party {
+        Some(relying_party) if has_passkey => {
+            let service = passkey_service(state, passkey_repo)?;
+            let login_state = PasskeyLoginState {
+                realm_id: user.realm_id.clone(),
+                client_id: context.client_app_id.to_string(),
+                client_ip: String::new(),
+                oauth_client_id: None,
+                redirect_uri: None,
+                state: None,
+            };
+            let (options, challenge_token) = service
+                .begin_second_factor(&login_state, user.id, relying_party)
+                .await
+                .map_err(|_| ApiError::internal("Failed to begin Passkey reauthentication"))?;
+            Some(serde_json::json!({
+                "challengeToken": challenge_token,
+                "options": options,
+            }))
+        }
+        _ => None,
     };
 
     Ok(ReauthBeginResponse {
         available_factors: factors,
         challenge,
     })
+}
+
+/// Resolve the relying party for the reauth factor probe, returning `None`
+/// when passkey cannot participate: the realm has not enabled Passkey, or RP
+/// resolution failed (e.g. a deployment that never configured `RP_ID`/
+/// `RP_ORIGIN`). Every resolution failure degrades to "passkey not offered" —
+/// deliberately broader tolerance than the login second-factor probe
+/// (`login_second_factor_has_passkey`), which fail-closes 400-class origin
+/// errors into a realm-wide credential check: a password/TOTP reauth must
+/// never hard-fail on global passkey env config the user may not even use.
+async fn reauth_probe_rp(
+    state: &AppState,
+    realm_id: &str,
+    headers: &HeaderMap,
+    client_app_id: uuid::Uuid,
+) -> Result<Option<PasskeyRelyingParty>, ApiError> {
+    if !is_passkey_enabled(state, realm_id).await? {
+        return Ok(None);
+    }
+    match resolve_passkey_rp(state, realm_id, headers, Some(client_app_id)).await {
+        Ok(relying_party) => Ok(Some(relying_party)),
+        Err(error) => {
+            tracing::warn!(
+                realm_id = realm_id,
+                error = %error,
+                "Passkey RP resolution failed during reauth factor probe; passkey will not be offered"
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub async fn verify_reauth(

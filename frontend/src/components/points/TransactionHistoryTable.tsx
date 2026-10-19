@@ -127,7 +127,9 @@ export function TransactionHistoryTable({
                 const label = bucket ? bucket.name : bucketId ? String(bucketId).slice(0, 8) : '-'
                 return (
                   <div data-testid={`transaction-bucket-${row.index}`}>
-                    <Badge variant="outline">{label}</Badge>
+                    <Badge variant="outline" className="max-w-[200px]" title={label}>
+                      <span className="min-w-0 truncate">{label}</span>
+                    </Badge>
                   </div>
                 )
               },

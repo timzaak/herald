@@ -242,7 +242,9 @@ function OverviewRow({
                 expanded ? 'rotate-90' : ''
               }`}
             />
-            <span className="font-medium">{row.name}</span>
+            <span className="max-w-xs truncate font-medium" title={row.name}>
+              {row.name}
+            </span>
             {!row.enabled && (
               <Badge
                 variant="secondary"

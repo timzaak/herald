@@ -35,6 +35,13 @@ fn setup_passkey_env() {
     }
 }
 
+fn remove_passkey_env() {
+    unsafe {
+        std::env::remove_var("RP_ID");
+        std::env::remove_var("RP_ORIGIN");
+    }
+}
+
 fn softtoken() -> TestAuthenticator {
     Es256Authenticator::new()
 }
@@ -1109,4 +1116,121 @@ async fn test_password_login_crafted_origin_cannot_drop_passkey_second_factor(
         "a crafted Origin must not drop the TOTP ceremony either"
     );
     assert!(body["accessToken"].is_null());
+}
+
+async fn begin_reauth_probe(ctx: &TestContext, session: &str) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/user/reauth")
+        .header("content-type", "application/json")
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::from(
+            json!({ "targetOperation": "change_password" }).to_string(),
+        ))
+        .unwrap();
+    let response = ctx.create_unified_test_router().oneshot(req).await.unwrap();
+    let status = response.status();
+    (status, response_body(response).await)
+}
+
+/// 回归（bug：未配置 RP_ID/RP_ORIGIN 的部署上 reauth 类自助操作 500）：
+/// begin_reauth 曾无条件解析 passkey RP，而解析第一步就要求 RP_ID/
+/// RP_ORIGIN env —— 从未启用 passkey 的部署上，纯密码用户的改密码/
+/// 删账号在 reauth 第一步即 500。修复后 realm 未启用 passkey 就不触碰
+/// RP env：begin 200、factors 仅 password、无 passkey challenge。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_reauth_begin_password_only_user_without_passkey_env(ctx: &mut TestContext) {
+    remove_passkey_env();
+    let email = "reauth-no-rp-env@test.com";
+    create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+
+    let (status, body) = begin_reauth_probe(ctx, &session).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "password-only reauth must not depend on passkey env the deployment never configured"
+    );
+    assert_eq!(body["availableFactors"], json!(["password"]));
+    assert!(
+        body["challenge"].is_null(),
+        "no passkey ceremony should be pre-armed"
+    );
+}
+
+/// 回归（bug：未配置 RP_ID/RP_ORIGIN 的部署上 reauth 类自助操作 500）
+/// 补充路径：realm 已启用 passkey 但部署缺 RP env 时，RP 解析失败按
+/// 「不提供 passkey」降级（该配置下 passkey ceremony 同样无法运行，
+/// 登录二因素探测对同类 env 缺配同样降级），用户仍可用密码完成
+/// reauth，而不是整个 reauth 500。凭据行直接落库模拟 env 缺配前
+/// 已注册的 passkey。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_reauth_begin_degrades_passkey_factor_when_rp_env_missing(ctx: &mut TestContext) {
+    remove_passkey_env();
+    setup_realm_passkey_config(ctx, &ctx._realm_id, true).await;
+    let email = "reauth-rp-env-missing@test.com";
+    let user_id = create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+
+    sqlx::query(
+        "INSERT INTO user_passkey_credential
+            (id, user_id, realm_id, rp_id, credential_id, credential_public_key, counter, transports,
+             backup_eligible, backup_state, user_verified, nickname, created_at, updated_at)
+         VALUES ($1, $2, $3, 'localhost', $4, $5, 0, '[]'::jsonb, false, false, false, 'legacy key', NOW(), NOW())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(Uuid::parse_str(&user_id).unwrap())
+    .bind(&ctx._realm_id)
+    .bind(Vec::<u8>::from("reauth-degrade-credential"))
+    .bind(Vec::<u8>::from("reauth-degrade-public-key"))
+    .execute(&ctx._app_state.pool)
+    .await
+    .expect("enrolled passkey fixture should insert before the probe");
+
+    let (status, body) = begin_reauth_probe(ctx, &session).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an unrunnable passkey ceremony must degrade away, not fail the whole reauth"
+    );
+    assert_eq!(
+        body["availableFactors"],
+        json!(["password"]),
+        "passkey factor must be absent when the RP env is not configured"
+    );
+    assert!(body["challenge"].is_null());
+}
+
+/// 防回归：修复只降级「不可运行」的 passkey 探测。env 齐配、realm 启用
+/// 且用户已注册 passkey 时，begin_reauth 仍须列出 passkey 因子并预发
+/// challenge（challengeToken + options）。
+#[test_context(TestContext)]
+#[tokio::test]
+async fn test_reauth_begin_still_offers_passkey_factor_when_configured(ctx: &mut TestContext) {
+    setup_passkey_env();
+    setup_realm_passkey_config(ctx, &ctx._realm_id, true).await;
+    let email = "reauth-passkey-ok@test.com";
+    let user_id = create_test_user(ctx, email, PASSWORD).await;
+    let session = create_session(ctx, email, PASSWORD).await;
+    let mut authenticator = softtoken();
+    register_one_passkey(
+        ctx,
+        &session,
+        &user_id,
+        PASSWORD,
+        Some("Reauth Key"),
+        &mut authenticator,
+    )
+    .await;
+
+    let (status, body) = begin_reauth_probe(ctx, &session).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["availableFactors"], json!(["password", "passkey"]));
+    assert!(
+        body["challenge"]["challengeToken"].is_string(),
+        "passkey reauth must pre-arm a challenge ceremony when configured"
+    );
+    assert!(body["challenge"]["options"].is_object());
 }

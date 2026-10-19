@@ -266,7 +266,9 @@ function InvoiceContent({
                   <div>
                     <span className="font-medium">{item.name}</span>
                     {item.description && (
-                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                      <p className="max-w-xs whitespace-normal break-words text-xs text-muted-foreground">
+                        {item.description}
+                      </p>
                     )}
                   </div>
                 </TableCell>
@@ -337,7 +339,7 @@ function ContactCard({
       <h3 className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h3>
       <div className="space-y-1 text-sm">
         <p className="font-medium">{name}</p>
-        {email && <p className="text-muted-foreground">{email}</p>}
+        {email && <p className="break-all text-muted-foreground">{email}</p>}
         <p className="text-muted-foreground">{address}</p>
         {phone && <p className="text-muted-foreground">{phone}</p>}
         {taxId && <p className="text-muted-foreground">{m['billing.invoice_tax_id']({ taxId })}</p>}
