@@ -475,6 +475,16 @@ async fn token_authorization_code(
         ));
     }
 
+    // The exchange is the single choke point every entrance's codes pass
+    // through (password, TOTP, passkey, LDAP, social callbacks, and the
+    // consent page), so this is where a completed authorization is
+    // remembered: the next /authorize for this user + client completes
+    // without the consent UI. First-party clients skip the grant — their
+    // login already IS the authorization and they never see consent.
+    if !client_app.is_first_party {
+        crate::consent::record_user_client_grant(state, realm_id, user.id, client_app.id).await;
+    }
+
     let token_service = RedisBrowserTokenService::new(state.redis_manager.clone());
 
     if is_mcp {

@@ -60,6 +60,9 @@ pub mod device_code_scenarios;
 // OAuth PKCE (Authorization Code + PKCE) scenarios
 pub mod oauth_pkce_scenarios;
 
+// OAuth consent (session-holder continuation / grant memory) scenarios
+pub mod oauth_consent_scenarios;
+
 // OIDC identity layer scenarios (discovery / JWKS / id_token / userinfo /
 // signing-key rotation on top of the PKCE flow).
 pub mod oidc_scenarios;

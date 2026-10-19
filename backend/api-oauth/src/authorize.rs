@@ -3,8 +3,11 @@
 //! This endpoint implements the first step of the OAuth 2.1 Authorization Code + PKCE flow:
 //! 1. Validates client_id, redirect_uri, and PKCE code_challenge
 //! 2. Stores state token with PKCE parameters in Redis (CSRF protection)
-//! 3. Redirects to the Herald login page with OAuth parameters
-//! 4. After login, an authorization_code is generated for token exchange
+//! 3. Redirects to the Herald OAuth consent page with OAuth parameters
+//! 4. The consent page branches: unauthenticated users are forwarded to the
+//!    login page (parameters preserved), authenticated users with an existing
+//!    client grant are silently issued an authorization_code, and the rest see
+//!    the consent UI before a code is minted for token exchange
 
 use axum::{
     extract::{Path, Query, State},
@@ -56,14 +59,14 @@ fn default_response_type() -> String {
 /// 2. Validates redirect_uri is in whitelist (exact match only)
 /// 3. Validates PKCE code_challenge_method (must be S256 if provided)
 /// 4. Stores state token with PKCE parameters in Redis (5 minutes TTL)
-/// 5. Redirects to login page with OAuth parameters
+/// 5. Redirects to the OAuth consent page with OAuth parameters
 ///
 /// # Arguments
 /// * `realm_id` - Realm identifier
 /// * `params` - OAuth query parameters (client_id, redirect_uri, state, response_type, code_challenge, code_challenge_method)
 ///
 /// # Returns
-/// * 302 redirect to login page with OAuth parameters
+/// * 302 redirect to the OAuth consent page with OAuth parameters
 ///
 /// # Errors
 /// * 400 - Invalid parameters (missing client_id, redirect_uri, state, or code_challenge)
@@ -89,7 +92,7 @@ fn default_response_type() -> String {
         ("resource" = Option<String>, Query, description = "RFC 8707 resource indicator; required on (and only valid for) the built-in MCP client, where it must equal the realm's canonical {origin}/mcp/{realmId} URI")
     ),
     responses(
-        (status = 302, description = "Redirect to /{realmId}/auth/login with OAuth parameters"),
+        (status = 302, description = "Redirect to /{realmId}/auth/consent with OAuth parameters"),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 403, description = "Client app is disabled", body = ErrorResponse),
         (status = 404, description = "Client not found", body = ErrorResponse)
@@ -375,12 +378,16 @@ pub async fn oauth_authorize(
         realm_id = %realm_id,
         client_id = %params.client_id,
         redirect_uri = %params.redirect_uri,
-        "OAuth authorize successful: redirecting to login"
+        "OAuth authorize successful: redirecting to consent page"
     );
 
-    // Redirect to login page with OAuth parameters (camelCase query params matching frontend route)
-    let login_url = format!(
-        "/{}/auth/login?clientId=admin-web-console&oauthClientId={}&redirectUri={}&state={}",
+    // Redirect to the OAuth consent page with OAuth parameters (camelCase
+    // query params matching frontend route). The browser carries no Herald
+    // credential on this navigation (sessions are Bearer tokens held by the
+    // SPA, not cookies), so the authenticated-vs-anonymous branching happens
+    // in the SPA consent route, which can see the SDK session.
+    let consent_url = format!(
+        "/{}/auth/consent?clientId=admin-web-console&oauthClientId={}&redirectUri={}&state={}",
         urlencoding::encode(&realm_id),
         urlencoding::encode(&params.client_id),
         urlencoding::encode(&params.redirect_uri),
@@ -389,7 +396,7 @@ pub async fn oauth_authorize(
 
     Ok((
         StatusCode::FOUND,
-        [(axum::http::header::LOCATION, login_url)],
+        [(axum::http::header::LOCATION, consent_url)],
     )
         .into_response())
 }

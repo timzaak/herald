@@ -44,6 +44,7 @@ import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-passw
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
+import { Route as AuthConsentRouteImport } from './routes/auth/consent'
 import { Route as RealmIdDeviceRouteImport } from './routes/$realmId/device'
 import { Route as RealmIdUserRouteRouteImport } from './routes/$realmId/user/route'
 import { Route as RealmIdManageRouteRouteImport } from './routes/$realmId/manage/route'
@@ -98,6 +99,7 @@ import { Route as RealmIdAuthResetPasswordRouteImport } from './routes/$realmId/
 import { Route as RealmIdAuthRegisterRouteImport } from './routes/$realmId/auth/register'
 import { Route as RealmIdAuthLoginRouteImport } from './routes/$realmId/auth/login'
 import { Route as RealmIdAuthForgotPasswordRouteImport } from './routes/$realmId/auth/forgot-password'
+import { Route as RealmIdAuthConsentRouteImport } from './routes/$realmId/auth/consent'
 import { Route as ManageBillingPaymentProvidersIndexRouteImport } from './routes/manage/billing/payment-providers/index'
 import { Route as ManageBillingInvoicesIndexRouteImport } from './routes/manage/billing/invoices/index'
 import { Route as ManageBillingEntitlementMappingsIndexRouteImport } from './routes/manage/billing/entitlement-mappings/index'
@@ -325,6 +327,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthConsentRoute = AuthConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const RealmIdDeviceRoute = RealmIdDeviceRouteImport.update({
@@ -613,6 +620,11 @@ const RealmIdAuthForgotPasswordRoute =
     path: '/forgot-password',
     getParentRoute: () => RealmIdAuthRouteRoute,
   } as any)
+const RealmIdAuthConsentRoute = RealmIdAuthConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
+  getParentRoute: () => RealmIdAuthRouteRoute,
+} as any)
 const ManageBillingPaymentProvidersIndexRoute =
   ManageBillingPaymentProvidersIndexRouteImport.update({
     id: '/',
@@ -936,6 +948,7 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage': typeof RealmIdManageRouteRouteWithChildren
   '/$realmId/user': typeof RealmIdUserRouteRouteWithChildren
   '/$realmId/device': typeof RealmIdDeviceRouteWithChildren
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -964,6 +977,7 @@ export interface FileRoutesByFullPath {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device/': typeof DeviceIndexRoute
   '/manage/': typeof ManageIndexRoute
+  '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
   '/$realmId/auth/register': typeof RealmIdAuthRegisterRoute
@@ -1075,6 +1089,7 @@ export interface FileRoutesByTo {
   '/$realmId/auth': typeof RealmIdAuthRouteRouteWithChildren
   '/$realmId/legal': typeof RealmIdLegalRouteRouteWithChildren
   '/$realmId/user': typeof RealmIdUserRouteRouteWithChildren
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -1098,6 +1113,7 @@ export interface FileRoutesByTo {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device': typeof DeviceIndexRoute
   '/manage': typeof ManageIndexRoute
+  '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
   '/$realmId/auth/register': typeof RealmIdAuthRegisterRoute
@@ -1201,6 +1217,7 @@ export interface FileRoutesById {
   '/$realmId/manage': typeof RealmIdManageRouteRouteWithChildren
   '/$realmId/user': typeof RealmIdUserRouteRouteWithChildren
   '/$realmId/device': typeof RealmIdDeviceRouteWithChildren
+  '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
@@ -1229,6 +1246,7 @@ export interface FileRoutesById {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device/': typeof DeviceIndexRoute
   '/manage/': typeof ManageIndexRoute
+  '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
   '/$realmId/auth/register': typeof RealmIdAuthRegisterRoute
@@ -1346,6 +1364,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage'
     | '/$realmId/user'
     | '/$realmId/device'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -1374,6 +1393,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device/'
     | '/manage/'
+    | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
     | '/$realmId/auth/register'
@@ -1485,6 +1505,7 @@ export interface FileRouteTypes {
     | '/$realmId/auth'
     | '/$realmId/legal'
     | '/$realmId/user'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -1508,6 +1529,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device'
     | '/manage'
+    | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
     | '/$realmId/auth/register'
@@ -1610,6 +1632,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage'
     | '/$realmId/user'
     | '/$realmId/device'
+    | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
     | '/auth/register'
@@ -1638,6 +1661,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device/'
     | '/manage/'
+    | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
     | '/$realmId/auth/register'
@@ -1996,6 +2020,13 @@ declare module '@tanstack/react-router' {
       path: '/forgot-password'
       fullPath: '/auth/forgot-password'
       preLoaderRoute: typeof AuthForgotPasswordRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/auth/consent': {
+      id: '/auth/consent'
+      path: '/consent'
+      fullPath: '/auth/consent'
+      preLoaderRoute: typeof AuthConsentRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/$realmId/device': {
@@ -2376,6 +2407,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdAuthForgotPasswordRouteImport
       parentRoute: typeof RealmIdAuthRouteRoute
     }
+    '/$realmId/auth/consent': {
+      id: '/$realmId/auth/consent'
+      path: '/consent'
+      fullPath: '/$realmId/auth/consent'
+      preLoaderRoute: typeof RealmIdAuthConsentRouteImport
+      parentRoute: typeof RealmIdAuthRouteRoute
+    }
     '/manage/billing/payment-providers/': {
       id: '/manage/billing/payment-providers/'
       path: '/'
@@ -2744,6 +2782,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface RealmIdAuthRouteRouteChildren {
+  RealmIdAuthConsentRoute: typeof RealmIdAuthConsentRoute
   RealmIdAuthForgotPasswordRoute: typeof RealmIdAuthForgotPasswordRoute
   RealmIdAuthLoginRoute: typeof RealmIdAuthLoginRoute
   RealmIdAuthRegisterRoute: typeof RealmIdAuthRegisterRoute
@@ -2753,6 +2792,7 @@ interface RealmIdAuthRouteRouteChildren {
 }
 
 const RealmIdAuthRouteRouteChildren: RealmIdAuthRouteRouteChildren = {
+  RealmIdAuthConsentRoute: RealmIdAuthConsentRoute,
   RealmIdAuthForgotPasswordRoute: RealmIdAuthForgotPasswordRoute,
   RealmIdAuthLoginRoute: RealmIdAuthLoginRoute,
   RealmIdAuthRegisterRoute: RealmIdAuthRegisterRoute,
@@ -3077,6 +3117,7 @@ const RealmIdRouteRouteWithChildren = RealmIdRouteRoute._addFileChildren(
 )
 
 interface AuthRouteRouteChildren {
+  AuthConsentRoute: typeof AuthConsentRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
@@ -3086,6 +3127,7 @@ interface AuthRouteRouteChildren {
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthConsentRoute: AuthConsentRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,

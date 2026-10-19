@@ -88,7 +88,7 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
       expect(result.redirectLocation).toBeTruthy()
       redirectLocation = result.redirectLocation!
 
-      expect(redirectLocation).toContain(`/${realmId}/auth/login`)
+      expect(redirectLocation).toContain(`/${realmId}/auth/consent`)
       expect(redirectLocation).toContain('oauthClientId=')
       expect(redirectLocation).toContain('redirectUri=')
       expect(redirectLocation).toContain('state=')
@@ -258,11 +258,12 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
     await test.step('When: An MCP authorize URL opens a pending browser session', async () => {
       const result = await mcpAuthorize(realmId, { resource })
 
-      // The resource indicator is accepted: authorize 302s to the login page
-      // with a server-side pending state instead of erroring back.
+      // The resource indicator is accepted: authorize 302s to the OAuth consent
+      // page (which forwards anonymous visitors to the login page) with a
+      // server-side pending state instead of erroring back.
       expect(result.status).toBe(302)
       expect(result.redirectLocation).toBeTruthy()
-      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/consent`)
       abandonedLoginUrl = result.redirectLocation!
     })
 
@@ -278,7 +279,7 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
 
       const fresh = await mcpAuthorize(realmId, { resource })
       expect(fresh.status).toBe(302)
-      expect(fresh.redirectLocation).toContain(`/${realmId}/auth/login`)
+      expect(fresh.redirectLocation).toContain(`/${realmId}/auth/consent`)
     })
 
     let authCode: string

@@ -148,7 +148,9 @@ async fn test_scenario_oauth_pkce_full_flow_success(ctx: &mut SchemaTestContext)
     )
     .await;
 
-    // Then: Authorize succeeds (302 redirect to login page)
+    // Then: Authorize succeeds (302 redirect to the OAuth consent page —
+    // the SPA route that forwards anonymous users to login and completes
+    // silently for already-authenticated users with a remembered grant)
     assert_eq!(
         authorize_response.status(),
         StatusCode::FOUND,
@@ -161,8 +163,8 @@ async fn test_scenario_oauth_pkce_full_flow_success(ctx: &mut SchemaTestContext)
         .and_then(|v| v.to_str().ok())
         .expect("Should have Location header");
     assert!(
-        location.contains(&format!("/{}/auth/login", realm_id)),
-        "Redirect should point to login page, got: {}",
+        location.contains(&format!("/{}/auth/consent", realm_id)),
+        "Redirect should point to the OAuth consent page, got: {}",
         location
     );
 
@@ -2003,7 +2005,7 @@ async fn test_scenario_mcp_authorize_contract(ctx: &mut SchemaTestContext) {
 
     let code_challenge = compute_code_challenge(&generate_code_verifier());
 
-    // Happy path: 302 into the realm login page, state NX seeded.
+    // Happy path: 302 into the realm OAuth consent page, state NX seeded.
     let state = generate_state();
     let response = oauth_authorize_with_mcp(
         ctx,
@@ -2022,14 +2024,14 @@ async fn test_scenario_mcp_authorize_contract(ctx: &mut SchemaTestContext) {
         .headers()
         .get("location")
         .and_then(|v| v.to_str().ok())
-        .expect("authorize must redirect to the login page");
+        .expect("authorize must redirect to the consent page");
     assert!(
-        location.contains(&format!("/{}/auth/login", realm_id)),
-        "authorize must land on the realm login page, got {location}"
+        location.contains(&format!("/{}/auth/consent", realm_id)),
+        "authorize must land on the realm consent page, got {location}"
     );
     assert!(
         location.contains("oauthClientId=herald-mcp"),
-        "the login redirect must carry the MCP oauth client id, got {location}"
+        "the consent redirect must carry the MCP oauth client id, got {location}"
     );
 
     // Missing resource → 302 error redirect back to the (validated) callback.

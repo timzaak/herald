@@ -2624,5 +2624,15 @@
     "tour_next": "Next",
     "tour_prev": "Back",
     "tour_done": "Done"
+  },
+  "oauth_consent": {
+    "title": "Authorize Application",
+    "continuing": "Continuing...",
+    "redirecting_to_login": "Redirecting to login...",
+    "invalid_link": "This authorization link is invalid or has expired. Please restart the authorization from the application.",
+    "consent_title": "Agree to Continue",
+    "consent_description": "Before authorizing this application, you must review and accept the current agreements.",
+    "agree_and_continue": "Agree and Continue",
+    "consent_cancel": "Cancel"
   }
 }

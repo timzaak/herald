@@ -62,6 +62,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       !isSessionScopedPath(pathname) &&
       !!pathname.match(/^\/[^/]+\/?$/)
     const isAuthRoute = routePath.match(/^\/auth\//)
+    // The OAuth consent page is an /auth route that REQUIRES an
+    // authenticated user to mount (its whole job is completing a pending
+    // third-party authorize for the existing session). It must be exempt
+    // from the authenticated-bounce below or the continuation params
+    // (oauthClientId/redirectUri/state) are dropped and the authorization
+    // can never finish; it forwards anonymous users to /auth/login itself.
+    const isOAuthConsentRoute = routePath.startsWith('/auth/consent')
     const isLegalRoute = routePath.match(/^\/legal\//)
     const isManageRoute = routePath.match(/^\/manage/)
 
@@ -98,8 +105,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       }
 
       // Public routes (auth + legal): redirect authenticated users away from auth pages,
-      // but allow them to stay on legal agreement pages.
-      if (isAuthRoute && authenticated) {
+      // but allow them to stay on legal agreement pages — and on the OAuth
+      // consent page, which only exists for authenticated users.
+      if (isAuthRoute && authenticated && !isOAuthConsentRoute) {
         const targetPath = checkAdminPermission() ? '/manage' : '/user/profile'
         throw redirect({
           to: realmPath(realmContext, targetPath),

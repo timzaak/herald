@@ -723,14 +723,20 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
             "/api/oauth/{realmId}/.well-known/jwks.json",
             get(oauth::oidc_jwks),
         )
-        // OIDC userinfo (browser access token via the shared identity
-        // middleware; POST accepted per OIDC Core §5.3.1 and ignores the body).
+        // OIDC userinfo and the third-party OAuth consent probe + decision
+        // (browser access token via the shared identity middleware; the
+        // consent pair is what the SPA consent route calls to decide between
+        // silent continuation, the consent UI, and the login forward).
         .nest(
             "/api/oauth/{realmId}",
             Router::new()
                 .route(
                     "/userinfo",
                     get(oauth::oidc_userinfo).post(oauth::oidc_userinfo),
+                )
+                .route(
+                    "/consent",
+                    get(oauth::oauth_consent_probe).post(oauth::oauth_consent_decision),
                 )
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )

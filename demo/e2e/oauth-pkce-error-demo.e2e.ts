@@ -475,7 +475,7 @@ test.describe('[OAuth PKCE] Error and Edge Case Demo Tests', () => {
       // Old grants staying dead after re-enable is the backend contract
       // (mcp_scenarios); here a brand-new authorization is possible again.
       expect(result.status).toBe(302)
-      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/consent`)
     })
   })
 })

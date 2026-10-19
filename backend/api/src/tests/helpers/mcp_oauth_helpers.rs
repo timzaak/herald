@@ -127,7 +127,7 @@ pub async fn obtain_mcp_tokens(
     assert_eq!(
         authorize_response.status(),
         StatusCode::FOUND,
-        "MCP authorize must redirect to the login page"
+        "MCP authorize must redirect to the OAuth consent page"
     );
     let location = authorize_response
         .headers()
@@ -137,9 +137,9 @@ pub async fn obtain_mcp_tokens(
         .to_string();
     assert!(
         location.starts_with(&format!(
-            "/{realm_id}/auth/login?clientId=admin-web-console&oauthClientId={MCP_CLIENT_ID}"
+            "/{realm_id}/auth/consent?clientId=admin-web-console&oauthClientId={MCP_CLIENT_ID}"
         )),
-        "authorize must hand the OAuth context to the login page, got: {location}"
+        "authorize must hand the OAuth context to the consent page, got: {location}"
     );
 
     // Login with the OAuth context; the pending server-side state (never the

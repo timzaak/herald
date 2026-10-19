@@ -41,6 +41,7 @@
 - redirect_uri 白名单精确匹配（origin + port 一致）
 - TOTP 二次认证流程中保持 OAuth 上下文
 - 前端登录页透传 OAuth 参数，处理后端返回的 redirectTo 跳转
+- **会话用户无感续接与授权同意页（consent）**：`/authorize` 固定 302 到 SPA 授权同意页（`/{realmId}/auth/consent`，参数原样携带）；浏览器导航本身不携带 Herald 凭据（会话是 SPA 持有的 Bearer token，非 cookie），三分支由同意页完成——未登录用户带全参转登录页（登录完成即发码，行为不变）；已登录且对该 client 已有授权记忆（`user_client_grant` 表，由 `/token` 兑换成功统一写入，覆盖密码/TOTP/passkey/LDAP/社交/同意页全部发码入口）时静默批准并跳回 redirect_uri 携带 code；已登录且无授权记忆时展示应用名/图标的同意 UI，批准发码、拒绝按 RFC 6749 §4.1.2.1 以 `error=access_denied` 回跳。一方 Client App 视为登录即授权，不展示同意 UI
 - 第三方 API 认证（API Key 方式），支持用户登录状态验证、权限检查和订阅状态查询；Ext API 另提供 Realm（创建/列表/查询）、User（创建/列表/查询）、Client App（创建/列表/查询）、Billing（订阅计划/分配查询）、Points（余额查询/消费/交易查询）管理能力（详见各自独立 PRD）
 - API Key 绑定到特定 Client App（Client App Scope），普通 Client App 的 API Key 仅能访问该 App 所属资源，Admin API Client 的 Key 可跨 App 访问
 - API Key 轮换（Rotate），生成新密钥并立即失效旧密钥
@@ -54,7 +55,7 @@
 - Refresh Token（server-side token 当前不支持令牌刷新）；浏览器 token 变体支持旋转 refresh token（见 [自建用户 UI](/docs/prd/integration/custom-user-ui.md) D-TOK-01）
 - Token 撤销：server-side token 当前不支持撤销；浏览器 token 变体支持即时吊销（见 [自建用户 UI](/docs/prd/integration/custom-user-ui.md) D-TOK-02）
 - OAuth 2.0 Scope 管理（没有细粒度 scope 授权页面；唯一例外是 OIDC 身份层识别字面 `openid` token 以触发 id_token 签发，其余 scope 一律原样透传，见 [openid-connect.md](openid-connect.md)）
-- 用户主动授权/拒绝授权页面（当前授权自动完成，用户无需手动批准）
+- Scope 级别的细粒度授权勾选页（同意页为 Client App 级整卡批准/拒绝，不做按 scope 勾选）；已授权 Client 列表与主动撤销入口（后续优化，当前无用户侧管理界面）
 - Implicit Flow（已被 OAuth 2.1 废弃）
 - API Key 管理界面（后续优化）
 - Webhooks 和 GraphQL 支持（后续优化）
@@ -158,6 +159,7 @@
 - **authorization_code**: 一次性，使用后立即失效（Redis 删除）
 - **state token**: 一次性，校验后立即失效（Redis 删除），TTL 5 分钟。`/authorize` 播种 state 使用 SET NX 语义：state 值已存在未消费的 pending 事务时拒绝该次 authorize（400），防止已知受害者 state 值的攻击者在登录完成前用自身 client_id/redirect_uri/PKCE 重播种（state fixation）；客户端应为每次流程生成新的随机 state
 - **OAuth 上下文参数**: oauthClientId、redirectUri、state 三项必须完整才触发 OAuth 流程
+- **user_client_grant（授权记忆）**: 每用户每 Client App 至多一行（UNIQUE）；`/token` 授权码兑换成功时以 INSERT ... ON CONFLICT DO NOTHING 写入（仅非一方 Client），写入失败仅告警（降级为下次多确认一次，绝不跳过确认）。同一 state 的同意决定（批准或拒绝）一次性消费 state，拒绝不写授权记忆；同意批准被法律条款 gate 拦截时不消费 state，用户补记同意后重交即可
 
 ---
 
@@ -172,6 +174,7 @@
 - API Key 实现严格的 realm 隔离，不可跨租户访问
 - 无效/过期/禁用的凭证均返回正确的错误状态
 - OAuth 参数不完整时前端明确报错，不静默降级
+- 已有一方会话的用户经任一第三方 Client 发起 authorize 可完整走通：无授权记忆时出现同意页、批准后拿到 code；有授权记忆时无感跳回 redirect_uri；拒绝以 access_denied 回跳且 state 一次性消费
 
 ---
 
@@ -181,7 +184,7 @@
 
 **API / 集成边界:**
 - OAuth Provider 管理接口为 Realm 级别资源，仅 Realm Admin 可访问
-- 第三方 OAuth 授权涉及 authorize（Client App 校验和登录页重定向）与 token（授权码校验和令牌签发）两个核心能力
+- 第三方 OAuth 授权涉及 authorize（Client App 校验和同意页重定向）、consent（会话用户授权探测/决定，Bearer 认证，含每用户限流）与 token（授权码校验、令牌签发和授权记忆写入）三个核心能力
 - 权限检查接口支持 batch 模式（多个 rules）；订阅查询接口在无订阅时返回 free tier 信息
 - Client App 禁用时拒绝所有 OAuth 授权请求
 - API Key 轮换需要 `api_keys.manage` 权限；轮换端点路径无 realm 段，realm 由 admin 会话钉定

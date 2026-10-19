@@ -13,6 +13,20 @@ export const loginSearchSchema = z.object({
   state: z.string().optional(),
 })
 
+/**
+ * Search params carried on the OAuth consent route. The authorize endpoint
+ * 302s here with the continuation tuple the login page also consumes:
+ * `clientId` names the first-party client used when an anonymous visitor is
+ * forwarded to login; `oauthClientId`/`redirectUri`/`state` identify the
+ * pending third-party flow.
+ */
+export const consentSearchSchema = z.object({
+  clientId: z.string().optional(),
+  oauthClientId: z.string().optional(),
+  redirectUri: z.string().optional(),
+  state: z.string().optional(),
+})
+
 export const usersSearchSchema = z.object({
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
@@ -79,6 +93,7 @@ export type ResetPasswordSearchParams = z.infer<typeof resetPasswordSearchSchema
 export type ChangeEmailSearchParams = z.infer<typeof changeEmailSearchSchema>
 export type PaginationParams = z.infer<typeof paginationSchema>
 export type LoginSearchParams = z.infer<typeof loginSearchSchema>
+export type ConsentSearchParams = z.infer<typeof consentSearchSchema>
 export type UsersSearchParams = z.infer<typeof usersSearchSchema>
 export type RealmsSearchParams = z.infer<typeof realmsSearchSchema>
 export type ClientAppsSearchParams = z.infer<typeof clientAppsSearchSchema>

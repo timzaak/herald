@@ -2624,5 +2624,15 @@
     "tour_next": "下一步",
     "tour_prev": "上一步",
     "tour_done": "完成"
+  },
+  "oauth_consent": {
+    "title": "应用授权",
+    "continuing": "正在继续…",
+    "redirecting_to_login": "正在跳转到登录…",
+    "invalid_link": "授权链接无效或已过期，请从应用重新发起授权。",
+    "consent_title": "同意并继续",
+    "consent_description": "授权该应用前，你需要查看并接受当前协议。",
+    "agree_and_continue": "同意并继续",
+    "consent_cancel": "取消"
   }
 }

@@ -5,6 +5,7 @@ pub mod apple_native;
 pub mod authorize;
 pub mod callback;
 pub mod config;
+pub mod consent;
 pub mod device_authorize;
 pub mod device_confirm;
 pub mod device_functions;
@@ -27,6 +28,7 @@ pub use apple_native::*;
 pub use authorize::*;
 pub use callback::*;
 pub use config::*;
+pub use consent::*;
 pub use device_authorize::*;
 pub use device_confirm::*;
 pub use device_functions::*;
@@ -48,6 +50,8 @@ pub use wechat_miniprogram::*;
 #[openapi(
     paths(
         crate::authorize::oauth_authorize,
+        crate::consent::oauth_consent_probe,
+        crate::consent::oauth_consent_decision,
         crate::login::oauth_login,
         crate::callback::oauth_callback,
         crate::callback::oauth_callback_form,
@@ -80,6 +84,10 @@ pub use wechat_miniprogram::*;
         crate::callback::OAuthCallbackResponse,
         crate::callback::OAuthCallbackErrorResponse,
         crate::authorize::AuthorizeQueryParams,
+        crate::consent::ConsentProbeQueryParams,
+        crate::consent::ConsentProbeResponse,
+        crate::consent::ConsentDecisionRequest,
+        crate::consent::ConsentDecisionResponse,
         crate::config::CreateOAuthConfigRequest,
         crate::config::UpdateOAuthConfigRequest,
         crate::config::OAuthConfigResponse,

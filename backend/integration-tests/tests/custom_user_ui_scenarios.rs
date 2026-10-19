@@ -885,14 +885,6 @@ async fn test_custom_user_ui_profile_read_write(ctx: &mut SchemaTestContext) {
 #[test_context(SchemaTestContext)]
 #[tokio::test]
 async fn test_custom_user_ui_change_password_requires_reauth(ctx: &mut SchemaTestContext) {
-    // `/api/user/reauth` advertises the passkey factor by probing the user's
-    // passkey credentials via `resolve_passkey_rp`, which reads the global
-    // RP_ID/RP_ORIGIN env vars first (see login.rs:284). Set them so a
-    // password-only user can still reach the reauth flow.
-    unsafe {
-        std::env::set_var("RP_ID", "localhost");
-        std::env::set_var("RP_ORIGIN", "http://localhost:3000");
-    }
     let app = create_custom_client_app(ctx, true).await;
     let email = format!("cui-change-password-{}@test.com", Uuid::now_v7());
     create_user(ctx, &email).await;
@@ -938,12 +930,6 @@ async fn test_custom_user_ui_change_password_requires_reauth(ctx: &mut SchemaTes
 #[test_context(SchemaTestContext)]
 #[tokio::test]
 async fn test_custom_user_ui_delete_account_requires_reauth(ctx: &mut SchemaTestContext) {
-    // See `test_custom_user_ui_change_password_requires_reauth` for why the
-    // global passkey RP env vars must be set before any /api/user/reauth call.
-    unsafe {
-        std::env::set_var("RP_ID", "localhost");
-        std::env::set_var("RP_ORIGIN", "http://localhost:3000");
-    }
     let app = create_custom_client_app(ctx, true).await;
     let email = format!("cui-delete-{}@test.com", Uuid::now_v7());
     create_user(ctx, &email).await;
@@ -979,12 +965,6 @@ async fn test_custom_user_ui_delete_account_requires_reauth(ctx: &mut SchemaTest
 #[test_context(SchemaTestContext)]
 #[tokio::test]
 async fn test_custom_user_ui_reauth_expired_consumed_mismatch(ctx: &mut SchemaTestContext) {
-    // See `test_custom_user_ui_change_password_requires_reauth` for why the
-    // global passkey RP env vars must be set before any /api/user/reauth call.
-    unsafe {
-        std::env::set_var("RP_ID", "localhost");
-        std::env::set_var("RP_ORIGIN", "http://localhost:3000");
-    }
     let app = create_custom_client_app(ctx, true).await;
     let email = format!("cui-reauth-mismatch-{}@test.com", Uuid::now_v7());
     let user_id = create_user(ctx, &email).await;
