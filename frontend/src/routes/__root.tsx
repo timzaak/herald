@@ -12,7 +12,7 @@ import {
   ADMIN_WEB_CONSOLE_CLIENT_ID,
   USER_ACCOUNT_CENTER_CLIENT_ID,
 } from '@/lib/constants/auth-constants'
-import { useIsAuthenticated, useRealmId } from '@/stores/auth-store'
+import { useAuthStore, useIsAuthenticated, useRealmId } from '@/stores/auth-store'
 import { ReconsentDialog } from '@/components/legal/ReconsentDialog'
 import { RootRouteError } from '@/components/route-error'
 import {
@@ -79,6 +79,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         : USER_ACCOUNT_CENTER_CLIENT_ID
       const result = await initializeAuth(realmId, targetClientId)
       const authenticated = result.authenticated
+      // A session minted for another realm cannot serve this realm's pages
+      // (its Bearer token 403s on realm-scoped endpoints), so for routing it
+      // is no session: without this, the bounce below would exile a
+      // cross-realm user from /auth/login — the very page the OAuth consent
+      // route forwards them to — and a third-party authorize could never
+      // complete for them.
+      const sessionMatchesRealm = useAuthStore.getState().realmId === realmId
 
       // Route redirect logic using Zustand state
 
@@ -104,10 +111,12 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         })
       }
 
-      // Public routes (auth + legal): redirect authenticated users away from auth pages,
-      // but allow them to stay on legal agreement pages — and on the OAuth
-      // consent page, which only exists for authenticated users.
-      if (isAuthRoute && authenticated && !isOAuthConsentRoute) {
+      // Public routes (auth + legal): redirect authenticated users away from
+      // auth pages, but allow them to stay on legal agreement pages, on the
+      // OAuth consent page (which only exists for authenticated users), and
+      // whenever the session belongs to another realm (such a user must be
+      // able to reach this realm's login page to re-authenticate).
+      if (isAuthRoute && authenticated && sessionMatchesRealm && !isOAuthConsentRoute) {
         const targetPath = checkAdminPermission() ? '/manage' : '/user/profile'
         throw redirect({
           to: realmPath(realmContext, targetPath),

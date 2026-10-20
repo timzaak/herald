@@ -686,6 +686,35 @@ export function handle401(): void {
 
 如果你用 axios 之类的客户端而不是 `fetch` 包装，把同样的逻辑接进它的请求拦截器（注入 `Authorization: Bearer`）和响应拦截器（401 时刷新一次、重试一次，否则 `handle401`）。
 
+### 弹窗登录的推荐窗口尺寸
+
+整页跳转之外，登录也可以在弹窗里完成：主页面保持不动，`window.open` 打开 authorize 入口（例如 `/api/auth/oauth/start?redirect=/devices`，302 会在弹窗内继续跳转），回调落点用 `window.opener.postMessage(...)` 把结果交回主页面后 `window.close()`。
+
+弹窗尺寸完全由调用方控制——`window.open` 第三个参数里没有 `width`/`height` 时，浏览器会开一个接近全屏的默认窗口；而 Herald 登录/授权页是响应式页面，窗口给多大就填多大，自身无法缩小宿主窗口。主流方案的开箱默认值可作参照：Auth0 的 auth0-js 为 500×600，MSAL.js 为 483×600，oidc-client-ts 为 640×640。Herald 登录页可能在凭证表单之上叠加第二因素（TOTP/passkey）步骤，纵向比单表单略长，推荐 **500×640**、相对当前窗口居中、允许用户手动拉伸：
+
+```typescript
+function openLoginPopup(startUrl: string): Window {
+  const width = 500
+  const height = 640
+  // 相对当前浏览器窗口居中，auth0-js 的 popup-handler 用同一算法。
+  const left = window.screenX + (window.outerWidth - width) / 2
+  const top = window.screenY + (window.outerHeight - height) / 2
+
+  const popup = window.open(
+    startUrl,
+    'herald-login',
+    `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes`,
+  )
+  if (!popup) throw new Error('login popup was blocked')
+  return popup
+}
+```
+
+两个坑：
+
+- features 里不要写 `noopener` 或 `noreferrer`。回调落点靠 `window.opener` 做 `postMessage` 通信，`noopener`（以及隐式启用它的 `noreferrer`）会把 opener 置空，结果就送不回主页面了。
+- 窄屏上弹窗体验差（内容挤、又盖住主页面），`window.innerWidth` 不足时直接退回整页跳转。
+
 ### Google One Tap
 
 Google One Tap 让已登录 Google 的用户在你自己的页面上一键登录，全程不跳转到 Herald 或 Google 登录页。Herald 在服务端校验 Google ID Token（签名、签发者、受众、过期时间），并签发与跳转式登录完全一致的 Bearer token 家族，因此 One Tap 与跳转式登录会落到同一个 Herald 账号上。集成分六步：

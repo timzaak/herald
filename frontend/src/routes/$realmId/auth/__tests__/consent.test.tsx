@@ -33,9 +33,11 @@ vi.mock('@/lib/realm-routing', () => ({
 }))
 
 let authenticated = false
+let sessionRealm = 'test-realm'
 
 vi.mock('@/stores/auth-store', () => ({
   useIsAuthenticated: () => authenticated,
+  useRealmId: () => sessionRealm,
 }))
 
 const mockProbe = vi.fn()
@@ -73,6 +75,7 @@ describe('OAuthConsentPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authenticated = false
+    sessionRealm = 'test-realm'
     currentSearch = { ...OAUTH_SEARCH }
     mockProbe.mockResolvedValue({ data: undefined, error: undefined })
     mockDecision.mockResolvedValue({ data: undefined, error: undefined })
@@ -100,6 +103,33 @@ describe('OAuthConsentPage', () => {
       })
     )
     // The session-only API is never touched for an anonymous visitor.
+    expect(mockProbe).not.toHaveBeenCalled()
+  })
+
+  it('forwards a session minted for another realm to the login page instead of probing into the invalid-link dead end', async () => {
+    // The shared refresh-token storage restores e.g. an admin-console session
+    // on a third-party realm's consent URL; the backend would answer the
+    // probe 403 (identity.realm_id != flow realm) and the page used to render
+    // the misleading "invalid link" error. The user must be sent to this
+    // realm's login with the continuation params so the flow can finish as a
+    // credential login.
+    authenticated = true
+    sessionRealm = 'admin'
+
+    renderWithProviders(<OAuthConsentPage />)
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/test-realm/auth/login',
+        params: { realmId: 'test-realm' },
+        search: {
+          clientId: 'admin-web-console',
+          oauthClientId: 'oncewise-flow',
+          redirectUri: 'https://oncewise.example/callback',
+          state: 'st-123',
+        },
+      })
+    )
     expect(mockProbe).not.toHaveBeenCalled()
   })
 

@@ -7,8 +7,9 @@
  * Token model (Bearer access/refresh token family), owned by the
  * `herald-auth-web` SDK client (`lib/herald-client.ts`):
  * - The rotating **refresh token** is persisted by the SDK's storage adapter
- *   (`herald.refreshToken`) so the app can restore the session on startup by
- *   refreshing; it is no longer part of this store.
+ *   (`herald.refreshToken:{realmId}`, one slot per realm) so the app can
+ *   restore the session on startup by refreshing; it is no longer part of
+ *   this store.
  * - The short-lived **access token** lives only in the SDK's in-memory holder
  *   and is NEVER persisted. A full page reload clears it and triggers a
  *   refresh-first restore in `initializeAuth`.

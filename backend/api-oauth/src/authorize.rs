@@ -20,6 +20,7 @@ use utoipa::ToSchema;
 use herald_api_base::application::http::auth::util::{ClientIp, rate_limit_hit};
 use herald_api_base::application::http::server::api_entities::{ApiError, ErrorResponse};
 use herald_api_base::application::http::state::AppState;
+use herald_core::domain::client::ADMIN_WEB_CONSOLE_CLIENT_ID;
 use herald_core::domain::security_constants::{
     OAUTH_AUTHORIZE_EXTRA_PARAM_MAX_BYTES, OAUTH_AUTHORIZE_IP_RATE_LIMIT, OAUTH_STATE_TTL_SECONDS,
 };
@@ -317,6 +318,11 @@ pub async fn oauth_authorize(
         None
     };
 
+    // Resolve the login-continuation client BEFORE the state is seeded: a
+    // realm that cannot resolve one has no working login entrance at all, so
+    // the flow must fail here rather than leave a pending state behind.
+    let login_client_id = resolve_login_client_id(&state, &realm_id).await?;
+
     // Store state token in Redis with PKCE parameters (5 minutes TTL, CSRF protection)
     let state_key = format!("oauth:state:{}", params.state);
     let mut state_value = serde_json::json!({
@@ -385,10 +391,13 @@ pub async fn oauth_authorize(
     // query params matching frontend route). The browser carries no Herald
     // credential on this navigation (sessions are Bearer tokens held by the
     // SPA, not cookies), so the authenticated-vs-anonymous branching happens
-    // in the SPA consent route, which can see the SDK session.
+    // in the SPA consent route, which can see the SDK session. `clientId` is
+    // the realm's resolved login-continuation client (see
+    // resolve_login_client_id), not the OAuth client.
     let consent_url = format!(
-        "/{}/auth/consent?clientId=admin-web-console&oauthClientId={}&redirectUri={}&state={}",
+        "/{}/auth/consent?clientId={}&oauthClientId={}&redirectUri={}&state={}",
         urlencoding::encode(&realm_id),
+        urlencoding::encode(&login_client_id),
         urlencoding::encode(&params.client_id),
         urlencoding::encode(&params.redirect_uri),
         urlencoding::encode(&params.state)
@@ -399,6 +408,44 @@ pub async fn oauth_authorize(
         [(axum::http::header::LOCATION, consent_url)],
     )
         .into_response())
+}
+
+/// Resolve the first-party client the SPA login page binds the continuation
+/// session to (the consent redirect's `clientId` param). Realm provisioning
+/// seeds an enabled `admin-web-console` on every creation path, so that id is
+/// the preferred value; resolving it per realm — instead of trusting the seed
+/// string — keeps the flow alive when the seed is disabled or removed, since
+/// any other enabled first-party client (e.g. `user-account-center`) serves
+/// the same login entrances. A realm with none is broken beyond this flow:
+/// no login entrance could issue a session at all.
+async fn resolve_login_client_id(state: &AppState, realm_id: &str) -> Result<String, ApiError> {
+    let client_id = sqlx::query_scalar::<_, String>(
+        "SELECT client_id FROM client_app
+         WHERE realm_id = $1 AND enabled AND is_first_party
+         ORDER BY (client_id = $2) DESC, created_at, client_id
+         LIMIT 1",
+    )
+    .bind(realm_id)
+    .bind(ADMIN_WEB_CONSOLE_CLIENT_ID)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            realm_id,
+            error = %e,
+            "Database query failed: first-party client lookup for login continuation"
+        );
+        ApiError::internal("Database query failed".to_string())
+    })?;
+    client_id.ok_or_else(|| {
+        tracing::error!(
+            realm_id,
+            "OAuth authorize failed: realm has no enabled first-party client for the login continuation"
+        );
+        ApiError::internal(
+            "No enabled first-party client in realm for login continuation".to_string(),
+        )
+    })
 }
 
 /// MCP-only redirect matching (RFC 8252 §7.3): the request must equal a

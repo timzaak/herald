@@ -41,7 +41,7 @@
 - redirect_uri 白名单精确匹配（origin + port 一致）
 - TOTP 二次认证流程中保持 OAuth 上下文
 - 前端登录页透传 OAuth 参数，处理后端返回的 redirectTo 跳转
-- **会话用户无感续接与授权同意页（consent）**：`/authorize` 固定 302 到 SPA 授权同意页（`/{realmId}/auth/consent`，参数原样携带）；浏览器导航本身不携带 Herald 凭据（会话是 SPA 持有的 Bearer token，非 cookie），三分支由同意页完成——未登录用户带全参转登录页（登录完成即发码，行为不变）；已登录且对该 client 已有授权记忆（`user_client_grant` 表，由 `/token` 兑换成功统一写入，覆盖密码/TOTP/passkey/LDAP/社交/同意页全部发码入口）时静默批准并跳回 redirect_uri 携带 code；已登录且无授权记忆时展示应用名/图标的同意 UI，批准发码、拒绝按 RFC 6749 §4.1.2.1 以 `error=access_denied` 回跳。一方 Client App 视为登录即授权，不展示同意 UI
+- **会话用户无感续接与授权同意页（consent）**：`/authorize` 固定 302 到 SPA 授权同意页（`/{realmId}/auth/consent`，参数原样携带）；浏览器导航本身不携带 Herald 凭据（会话是 SPA 持有的 Bearer token，非 cookie），三分支由同意页完成——未登录用户（含仅持有**其他 realm** 会话的访客：该会话在本 realm 不可用，视同未登录转登录页；refresh token 按 realm 分槽持久化，登录本 realm 不挤掉原 realm 会话）带全参转登录页（登录完成即发码，行为不变）；跳转登录页所携 `clientId` 为该 realm 解析出的登录续接第一方 Client——优先内置 `admin-web-console`，兜底任一启用的第一方 Client（如 `user-account-center`），realm 无任何启用第一方 Client 时该次 authorize 直接失败（不播种 state）；已登录且对该 client 已有授权记忆（`user_client_grant` 表，由 `/token` 兑换成功统一写入，覆盖密码/TOTP/passkey/LDAP/社交/同意页全部发码入口）时静默批准并跳回 redirect_uri 携带 code；已登录且无授权记忆时展示应用名/图标的同意 UI，批准发码、拒绝按 RFC 6749 §4.1.2.1 以 `error=access_denied` 回跳。一方 Client App 视为登录即授权，不展示同意 UI
 - 第三方 API 认证（API Key 方式），支持用户登录状态验证、权限检查和订阅状态查询；Ext API 另提供 Realm（创建/列表/查询）、User（创建/列表/查询）、Client App（创建/列表/查询）、Billing（订阅计划/分配查询）、Points（余额查询/消费/交易查询）管理能力（详见各自独立 PRD）
 - API Key 绑定到特定 Client App（Client App Scope），普通 Client App 的 API Key 仅能访问该 App 所属资源，Admin API Client 的 Key 可跨 App 访问
 - API Key 轮换（Rotate），生成新密钥并立即失效旧密钥
@@ -175,6 +175,7 @@
 - 无效/过期/禁用的凭证均返回正确的错误状态
 - OAuth 参数不完整时前端明确报错，不静默降级
 - 已有一方会话的用户经任一第三方 Client 发起 authorize 可完整走通：无授权记忆时出现同意页、批准后拿到 code；有授权记忆时无感跳回 redirect_uri；拒绝以 access_denied 回跳且 state 一次性消费
+- 持有其他 realm 会话的用户（如管理控制台会话）经第三方 Client 发起 authorize 同样可完整走通：被转至本 realm 登录页完成认证发码，且原 realm 会话不受影响；realm 内置管理控制台 Client 被禁用时，授权流程改经其余启用的第一方 Client 续接登录，不受影响
 
 ---
 

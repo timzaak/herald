@@ -18,12 +18,14 @@ client.setConfig({
 })
 
 // Point the Herald SDK client (login-family calls + token transport) at the
-// same MSW-intercepted origin, and drop its persisted refresh token between
-// tests so token state never leaks across test cases.
-import { setHeraldBaseUrlOverride, HERALD_REFRESH_TOKEN_STORAGE_KEY } from '@/lib/herald-client'
+// same MSW-intercepted origin, and drop its persisted per-realm refresh
+// tokens between tests so token state never leaks across test cases.
+import { setHeraldBaseUrlOverride, HERALD_REFRESH_TOKEN_STORAGE_PREFIX } from '@/lib/herald-client'
 setHeraldBaseUrlOverride('http://localhost:3000')
 beforeEach(() => {
-  window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)
+  Object.keys(window.localStorage)
+    .filter((key) => key.startsWith(HERALD_REFRESH_TOKEN_STORAGE_PREFIX))
+    .forEach((key) => window.localStorage.removeItem(key))
 })
 
 // Set fixed English locale for all tests to prevent translation functions

@@ -1,9 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isRedirect } from '@tanstack/react-router'
 import { USER_ACCOUNT_CENTER_CLIENT_ID } from '@/lib/constants/auth-constants'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * The __root loader's OAuth-consent exemption, pinned at the loader level.
@@ -60,6 +61,13 @@ function runRootLoader(pathname: string) {
 }
 
 describe('__root loader OAuth consent exemption', () => {
+  beforeEach(() => {
+    // initializeAuth is mocked here, so its store side effect — recording the
+    // session's realm — must be simulated; the loader's cross-realm routing
+    // reads exactly that. 'test-realm' matches every path used below.
+    useAuthStore.setState({ realmId: 'test-realm' })
+  })
+
   it('lets an authenticated user stay on /auth/consent (no redirect, continuation params survive)', async () => {
     mockInitializeAuth.mockResolvedValue({
       authenticated: true,
@@ -87,5 +95,20 @@ describe('__root loader OAuth consent exemption', () => {
     })
 
     await expect(runRootLoader('/test-realm/auth/consent')).resolves.toEqual({})
+  })
+
+  it('lets a cross-realm session reach /auth/login (the consent page forwards it there to re-authenticate)', async () => {
+    // The refresh-token storage is shared across realms, so an admin-console
+    // session can be restored on a third-party realm's pages. Bouncing such
+    // a user off /auth/login would strand the consent forward — this is the
+    // loader half of the cross-realm consent fix, the page half lives in
+    // consent.tsx.
+    useAuthStore.setState({ realmId: 'admin' })
+    mockInitializeAuth.mockResolvedValue({
+      authenticated: true,
+      clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
+    })
+
+    await expect(runRootLoader('/test-realm/auth/login')).resolves.toEqual({})
   })
 })

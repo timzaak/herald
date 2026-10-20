@@ -594,3 +594,130 @@ async fn test_scenario_oauth_login_completion_records_grant(ctx: &mut SchemaTest
         "the token exchange must remember the authorization for the next visit"
     );
 }
+
+// =============================================================================
+// Login-continuation client resolution
+// =============================================================================
+
+/// The consent redirect's `clientId` names the first-party client the SPA
+/// login page binds the continuation session to. It is resolved per realm,
+/// not hardcoded to the seed id: a realm whose `admin-web-console` seed is
+/// disabled still has `user-account-center` (provisioning seeds both), and
+/// the authorization must complete through it — end to end, down to the
+/// token exchange.
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_oauth_consent_login_client_resolved_per_realm(ctx: &mut SchemaTestContext) {
+    let realm_id = ctx._realm_id.clone();
+    let admin_token =
+        create_admin_session_with_role(ctx, "consent-resolve-admin@test.com", 1800).await;
+
+    let redirect_uri = "https://resolve.example/callback";
+    let create_response = create_client_app_with_redirect_uris(
+        ctx,
+        &realm_id,
+        &admin_token,
+        "resolve-flow",
+        "Resolve Flow",
+        &[redirect_uri],
+    )
+    .await;
+    assert_eq!(
+        create_response.status(),
+        201,
+        "Client app creation should succeed"
+    );
+
+    // Disable the seeded console client: the realm's remaining enabled
+    // first-party client must take over the login continuation.
+    sqlx::query("UPDATE client_app SET enabled = false WHERE realm_id = $1 AND client_id = $2")
+        .bind(&realm_id)
+        .bind("admin-web-console")
+        .execute(&ctx._app_state.pool)
+        .await
+        .expect("disable the seeded console client");
+
+    let verifier = generate_code_verifier();
+    let code_challenge = compute_code_challenge(&verifier);
+    let state = generate_state();
+    let authorize_response = oauth_authorize(
+        ctx,
+        &realm_id,
+        "resolve-flow",
+        redirect_uri,
+        &state,
+        &code_challenge,
+        "S256",
+    )
+    .await;
+    assert_eq!(authorize_response.status(), StatusCode::FOUND);
+    let location = authorize_response
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .expect("authorize must redirect")
+        .to_string();
+    assert!(
+        location.contains("clientId=user-account-center"),
+        "the login continuation must bind to an enabled first-party client, got: {location}"
+    );
+    assert!(
+        !location.contains("clientId=admin-web-console"),
+        "a disabled first-party client must not be handed to the login page, got: {location}"
+    );
+
+    // End-to-end: the resolved client actually serves as the login entrance.
+    let email = "consent-resolve-user@test.com";
+    let password = "password123";
+    let _user_id = create_test_user(ctx, email, password).await;
+
+    let login_payload = json!({
+        "clientId": "user-account-center",
+        "email": email,
+        "password": password,
+        "turnstileToken": "dummy",
+        "oauthClientId": "resolve-flow",
+        "redirectUri": redirect_uri,
+        "state": state,
+    });
+    let login_response = ctx
+        .create_unified_test_router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/auth/{}/login", realm_id))
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "3.3.3.3")
+                .body(Body::from(login_payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        login_response.status(),
+        StatusCode::OK,
+        "login through the resolved client must succeed"
+    );
+    let login_body: Value = response_json(login_response).await;
+    let redirect_to = login_body["redirectTo"]
+        .as_str()
+        .expect("OAuth login must complete with a redirect carrying the code");
+    let auth_code =
+        extract_auth_code_from_redirect(redirect_to).expect("code in the login redirect");
+
+    let token_response = oauth_token_exchange(
+        ctx,
+        &realm_id,
+        "authorization_code",
+        &auth_code,
+        redirect_uri,
+        "resolve-flow",
+        &verifier,
+    )
+    .await;
+    assert_eq!(
+        token_response.status(),
+        StatusCode::OK,
+        "the code minted through the resolved login client must exchange"
+    );
+}

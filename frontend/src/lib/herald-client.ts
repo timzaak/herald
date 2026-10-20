@@ -3,7 +3,9 @@
  * `herald-auth-web` (DEC-js-sdk-013).
  *
  * One client instance per realm (a browser session operates in a single realm
- * context at a time). The SDK owns the token family end-to-end:
+ * context at a time, but each realm's refresh token persists under its own
+ * storage slot so coexisting realm sessions never overwrite each other). The
+ * SDK owns the token family end-to-end:
  *   - in-memory access token (its holder replaces the former store-side
  *     `accessTokenHolder`);
  *   - persisted refresh token via the SDK's storage adapter (replaces the
@@ -22,8 +24,23 @@ import { createHeraldClient, type HeraldClient, type SessionEvent } from 'herald
 import { useAuthStore } from '@/stores/auth-store'
 import { FIRST_PARTY_CLIENT_ID } from '@/lib/constants/auth-constants'
 
-/** localStorage key the SDK persists the refresh token under. */
-export const HERALD_REFRESH_TOKEN_STORAGE_KEY = 'herald.refreshToken'
+/**
+ * localStorage key prefix for the SDK's persisted refresh tokens — one slot
+ * per realm (`herald.refreshToken:{realmId}`), so logging into one realm
+ * never overwrites another realm's session in the same browser (the OAuth
+ * consent flow can forward a cross-realm user to the flow realm's login;
+ * that login must not evict e.g. their admin-console session).
+ *
+ * The bare prefix string is the pre-per-realm shared key; it is dropped on
+ * client creation (no compatibility migration — a stale shared token would
+ * be a live credential no UI flow can log out).
+ */
+export const HERALD_REFRESH_TOKEN_STORAGE_PREFIX = 'herald.refreshToken'
+
+/** The per-realm localStorage key the SDK persists the refresh token under. */
+export function heraldRefreshTokenStorageKey(realmId: string): string {
+  return `${HERALD_REFRESH_TOKEN_STORAGE_PREFIX}:${realmId}`
+}
 
 let baseUrlOverride: string | null = null
 let active: { realmId: string; client: HeraldClient } | null = null
@@ -84,8 +101,9 @@ function handleSessionEvent(event: SessionEvent, client: HeraldClient): void {
 }
 
 /**
- * Ensure the SDK client exists for `realmId` (recreated on realm change; the
- * shared storage key keeps the refresh token across instances). The initial
+ * Ensure the SDK client exists for `realmId` (recreated on realm change;
+ * each realm reads and writes its own storage slot, so instances never
+ * share token material across realms). The initial
  * `clientId` binding only applies at creation — flows that target a specific
  * product rebind explicitly via `tokens.bindClientId`.
  */
@@ -94,11 +112,15 @@ export function ensureHeraldClient(
   clientId: string = FIRST_PARTY_CLIENT_ID
 ): HeraldClient {
   if (!active || active.realmId !== realmId) {
+    // Drop the pre-per-realm shared key on this browser: nothing reads it
+    // anymore, and the token family inside it can no longer be revoked
+    // through the UI.
+    window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_PREFIX)
     const client = createHeraldClient({
       baseUrl: baseUrlOverride ?? window.location.origin,
       realmId,
       clientId,
-      storageKey: HERALD_REFRESH_TOKEN_STORAGE_KEY,
+      storageKey: heraldRefreshTokenStorageKey(realmId),
       onSessionChange: (event) => handleSessionEvent(event, client),
     })
     active = { realmId, client }

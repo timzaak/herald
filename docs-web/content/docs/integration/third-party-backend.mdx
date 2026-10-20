@@ -684,6 +684,35 @@ export function handle401(): void {
 
 If you use an axios-style client instead of the `fetch` wrapper, wire the same logic into its request interceptor (inject `Authorization: Bearer`) and response interceptor (on 401, refresh once, retry once, else `handle401`).
 
+### Popup login: recommended window size
+
+Instead of a full-page redirect, login can run in a popup: the main page stays put, `window.open` loads the authorize entry (for example `/api/auth/oauth/start?redirect=/devices` — the 302 continues inside the popup), and your callback landing page hands the result back with `window.opener.postMessage(...)` before calling `window.close()`.
+
+The popup size is entirely the caller's decision — when the third argument to `window.open` omits `width`/`height`, the browser opens a near-fullscreen default window, and Herald's login/consent pages are responsive and simply fill whatever window they get (a page cannot shrink its host window). Out-of-the-box defaults from mainstream libraries are a good anchor: Auth0's auth0-js uses 500×600, MSAL.js uses 483×600, oidc-client-ts uses 640×640. Herald's login page can stack a second-factor (TOTP/passkey) step on top of the credential form, so it runs slightly taller than a single form — we recommend **500×640**, centered on the current window, resizable:
+
+```typescript
+function openLoginPopup(startUrl: string): Window {
+  const width = 500
+  const height = 640
+  // Center on the current browser window — same formula as auth0-js's popup-handler.
+  const left = window.screenX + (window.outerWidth - width) / 2
+  const top = window.screenY + (window.outerHeight - height) / 2
+
+  const popup = window.open(
+    startUrl,
+    'herald-login',
+    `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes`,
+  )
+  if (!popup) throw new Error('login popup was blocked')
+  return popup
+}
+```
+
+Two pitfalls:
+
+- Do not put `noopener` or `noreferrer` in the features string. The callback landing page needs `window.opener` to `postMessage` the result back; `noopener` (and `noreferrer`, which implies it) nulls the opener and cuts that channel.
+- Popups are a poor fit on narrow screens (cramped content covering the main page) — fall back to the full-page redirect when `window.innerWidth` is small.
+
 ### Google One Tap
 
 Google One Tap lets a signed-in Google user log into your app from your own page, with no redirect to a Herald or Google login screen. Herald verifies the Google ID Token server-side (signature, issuer, audience, expiry) and issues the same Bearer token family as the redirect flow, so One Tap and the redirect flow resolve to the same Herald account. The integration has six steps:

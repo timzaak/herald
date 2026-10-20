@@ -4,11 +4,12 @@
  * Uses the REAL `useAuthStore` and the REAL Herald SDK client (no mocks) to
  * assert the post-SDK-migration persistence contract (DEC-js-sdk-013):
  *   - the token family (in-memory AT + persisted RT) lives in the Herald SDK
- *     client's storage (`herald.refreshToken`), NOT in the Zustand persist
+ *     client's per-realm storage slot (`herald.refreshToken:{realmId}`), NOT
+ *     in the Zustand persist
  *   - the store persists UI/routing auth state (user, permissions,
  *     refreshClientId) and the PKCE state — never token material
  *   - `logout()` / `reset()` / `clearAuthStorage()` purge the store state
- *   - the storage keys stay stable (AUTH_STORAGE_KEY, SDK storage key)
+ *   - the storage keys stay stable (AUTH_STORAGE_KEY, SDK storage keys)
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -17,7 +18,8 @@ import {
   ensureHeraldClient,
   getActiveHeraldClient,
   applyTokenSet,
-  HERALD_REFRESH_TOKEN_STORAGE_KEY,
+  heraldRefreshTokenStorageKey,
+  HERALD_REFRESH_TOKEN_STORAGE_PREFIX,
 } from '@/lib/herald-client'
 import { getLegacyRealmId } from '@/lib/realm-routing'
 import { AUTH_STORAGE_KEY } from '@/lib/constants/auth-constants'
@@ -61,7 +63,7 @@ beforeEach(() => {
   getActiveHeraldClient()?.tokens.clear()
   useAuthStore.getState().reset()
   window.localStorage.removeItem(AUTH_STORAGE_KEY)
-  window.localStorage.removeItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)
+  window.localStorage.removeItem(heraldRefreshTokenStorageKey(TEST_REALM))
 })
 
 describe('token family lives in the Herald SDK client, not the store persist', () => {
@@ -85,17 +87,62 @@ describe('token family lives in the Herald SDK client, not the store persist', (
     seedSession()
 
     // The SDK storage entry is exactly the opaque refresh token string.
-    expect(window.localStorage.getItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)).toBe(
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(TEST_REALM))).toBe(
       TOKEN_FIXTURE.refreshToken
     )
     // No access token under the SDK key (it is the raw RT string, not JSON).
-    expect(window.localStorage.getItem(HERALD_REFRESH_TOKEN_STORAGE_KEY)).not.toContain(
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(TEST_REALM))).not.toContain(
       'accessToken'
     )
     // And none in the persisted store snapshot.
     const snapshot = readPersistedSnapshot()
     expect(snapshot).not.toHaveProperty('accessToken')
     expect(snapshot).not.toHaveProperty('access_token')
+  })
+})
+
+describe('per-realm refresh-token slots (one browser, coexisting realm sessions)', () => {
+  // WHY: the OAuth consent flow can send a cross-realm user — e.g. someone
+  // holding an admin-console session — to the flow realm's login. That login
+  // must not evict the first realm's session, or authorizing a third-party
+  // app would silently log the user out of the console they came from.
+  const REALM_A = 'realm-a'
+  const REALM_B = 'realm-b'
+
+  function seedRealmSession(realmId: string, refreshToken: string) {
+    ensureHeraldClient(realmId)
+    applyTokenSet({
+      accessToken: TOKEN_FIXTURE.accessToken,
+      refreshToken,
+      clientId: TOKEN_FIXTURE.clientId,
+    })
+  }
+
+  it("a second realm's login writes its own slot and leaves the first realm's token intact", () => {
+    seedRealmSession(REALM_A, 'rt-realm-a')
+    seedRealmSession(REALM_B, 'rt-realm-b')
+
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(REALM_A))).toBe('rt-realm-a')
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(REALM_B))).toBe('rt-realm-b')
+  })
+
+  it("the active realm's token purge (logoutFlow's SDK clear) leaves the other realm's slot untouched", () => {
+    seedRealmSession(REALM_A, 'rt-realm-a')
+    seedRealmSession(REALM_B, 'rt-realm-b')
+
+    // REALM_B's client is active; logoutFlow clears only through it.
+    getActiveHeraldClient()?.tokens.clear()
+
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(REALM_A))).toBe('rt-realm-a')
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey(REALM_B))).toBeNull()
+  })
+
+  it('drops the pre-per-realm shared key on client creation (no compat: the stale token is a live credential nothing can revoke via the UI)', () => {
+    window.localStorage.setItem(HERALD_REFRESH_TOKEN_STORAGE_PREFIX, 'legacy-shared-rt')
+    seedRealmSession('realm-c', 'rt-realm-c')
+
+    expect(window.localStorage.getItem(HERALD_REFRESH_TOKEN_STORAGE_PREFIX)).toBeNull()
+    expect(window.localStorage.getItem(heraldRefreshTokenStorageKey('realm-c'))).toBe('rt-realm-c')
   })
 })
 

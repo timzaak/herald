@@ -6,7 +6,7 @@ import type { LegalAgreementSummary } from '@/lib/api-generated'
 import { consentSearchSchema, type ConsentSearchParams } from '@/lib/schemas/search-params'
 import { getErrorMessage } from '@/lib/error-utils'
 import { validateOAuthParams } from '@/lib/auth-utils'
-import { useIsAuthenticated } from '@/stores/auth-store'
+import { useIsAuthenticated, useRealmId } from '@/stores/auth-store'
 import { AuthPageWrapper } from '@/components/auth/auth-page-wrapper'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AuthorizeConfirm } from '@/components/device/authorize-confirm'
@@ -32,8 +32,8 @@ export const Route = createFileRoute('/$realmId/auth/consent')({
   validateSearch: (search) => consentSearchSchema.parse(search),
   // NOTE: Authentication branching lives in the component, not __root.tsx —
   // this is the one /auth route that mounts FOR authenticated users (the
-  // root guard exempts it), and it forwards anonymous visitors to the login
-  // page with the OAuth continuation params preserved.
+  // root guard exempts it), and it forwards anonymous and cross-realm
+  // visitors to the login page with the OAuth continuation params preserved.
 })
 
 /**
@@ -42,12 +42,14 @@ export const Route = createFileRoute('/$realmId/auth/consent')({
  * credential (sessions are SPA-held Bearer tokens); this page is where the
  * three-way branch the flow needs actually happens:
  *
- * - anonymous → forwarded to /auth/login with all params (the login page
- *   already completes the OAuth flow after a credential login);
- * - authenticated + remembered grant (or first-party client) → silently
- *   approves and follows the redirect carrying the code;
- * - authenticated + no grant → shows the authorize/deny UI, then follows
- *   the redirect (deny arrives back as `error=access_denied`).
+ * - anonymous, or a session minted for ANOTHER realm → forwarded to
+ *   /auth/login with all params (the login page already completes the OAuth
+ *   flow after a credential login; a cross-realm session cannot consent
+ *   here — the backend enforces identity.realm_id == flow realm);
+ * - authenticated in this realm + remembered grant (or first-party client)
+ *   → silently approves and follows the redirect carrying the code;
+ * - authenticated in this realm + no grant → shows the authorize/deny UI,
+ *   then follows the redirect (deny arrives back as `error=access_denied`).
  */
 export function OAuthConsentPage() {
   const router = useRouter()
@@ -59,6 +61,13 @@ export function OAuthConsentPage() {
   const { realmId } = realmContext
   const search = useCurrentSearch<ConsentSearchParams>()
   const isAuthenticated = useIsAuthenticated()
+  const sessionRealmId = useRealmId()
+  // The consent endpoints enforce identity.realm_id == flow realm (403
+  // otherwise), so a session minted for another realm — e.g. an admin-console
+  // session arriving at a third-party realm's authorize — is functionally
+  // anonymous here: forward it to this realm's login instead of probing
+  // into the generic invalid-link dead end.
+  const flowAuthenticated = isAuthenticated && sessionRealmId === realmId
 
   const { oauthParams, hasPartialOAuth } = validateOAuthParams(search)
   const { data: publicConfig } = useQuery(publicConfigQueryOptions(realmId))
@@ -69,16 +78,16 @@ export function OAuthConsentPage() {
   const [consentAgreements, setConsentAgreements] = useState<LegalAgreementSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Anonymous visitors: forward to the login page with every continuation
-  // param preserved — the login form's post-login redirect completes the
-  // OAuth flow. Idempotent under StrictMode double-effects.
+  // Anonymous or cross-realm visitors: forward to the login page with every
+  // continuation param preserved — the login form's post-login redirect
+  // completes the OAuth flow. Idempotent under StrictMode double-effects.
   useEffect(() => {
-    if (!isAuthenticated && !hasPartialOAuth && !oauthParams) {
+    if (!flowAuthenticated && !hasPartialOAuth && !oauthParams) {
       // No OAuth context at all: the plain login page is the right target.
       router.navigate({ to: realmPath(realmContext, '/auth/login'), params: { realmId } })
       return
     }
-    if (!isAuthenticated && oauthParams) {
+    if (!flowAuthenticated && oauthParams) {
       router.navigate({
         to: realmPath(realmContext, '/auth/login'),
         params: { realmId },
@@ -91,7 +100,7 @@ export function OAuthConsentPage() {
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated])
+  }, [flowAuthenticated])
 
   const probeQuery = useQuery({
     queryKey: ['oauth-consent-probe', realmId, oauthParams?.state],
@@ -108,7 +117,7 @@ export function OAuthConsentPage() {
       if (response.error) throw response.error
       return response.data
     },
-    enabled: isAuthenticated && !!oauthParams,
+    enabled: flowAuthenticated && !!oauthParams,
     staleTime: Infinity,
     retry: false,
   })
@@ -202,19 +211,19 @@ export function OAuthConsentPage() {
             </p>
           )}
 
-          {!invalidLink && !isAuthenticated && (
+          {!invalidLink && !flowAuthenticated && (
             <p className="py-8 text-center text-muted-foreground">
               {m['oauth_consent.redirecting_to_login']()}
             </p>
           )}
 
-          {!invalidLink && isAuthenticated && probeQuery.isPending && (
+          {!invalidLink && flowAuthenticated && probeQuery.isPending && (
             <p className="py-8 text-center text-muted-foreground">
               {m['oauth_consent.continuing']()}
             </p>
           )}
 
-          {!invalidLink && isAuthenticated && probeQuery.isError && !error && (
+          {!invalidLink && flowAuthenticated && probeQuery.isError && !error && (
             <p
               className="py-4 text-center text-destructive text-sm"
               data-testid="oauth-consent-probe-error"
@@ -223,7 +232,7 @@ export function OAuthConsentPage() {
             </p>
           )}
 
-          {!invalidLink && isAuthenticated && consentAgreements && (
+          {!invalidLink && flowAuthenticated && consentAgreements && (
             <ConsentAgreementsPanel
               realmId={realmId}
               agreements={consentAgreements}
@@ -238,7 +247,7 @@ export function OAuthConsentPage() {
             />
           )}
 
-          {!invalidLink && isAuthenticated && probeQuery.data && !consentAgreements && (
+          {!invalidLink && flowAuthenticated && probeQuery.data && !consentAgreements && (
             <AuthorizeConfirm
               clientAppName={probeQuery.data.client_app_name}
               clientAppIconUrl={probeQuery.data.client_app_icon_url}

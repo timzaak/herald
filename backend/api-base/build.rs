@@ -17,10 +17,15 @@
 //   2. sha256sum /tmp/list.conf
 //   3. update UPSTREAM_COMMIT_SHA and EXPECTED_SHA256 below
 //
-// Caching & offline builds: the fetched copy lives in OUT_DIR and is reused
-// as long as it still matches EXPECTED_SHA256, so only the first build (or a
-// cargo clean) needs network access. Set HERALD_DISPOSABLE_LIST_URL to fetch
-// from a mirror instead of raw.githubusercontent.com; the content is still
+// Caching & offline builds: the fetched copy is cached at TWO levels. The
+// per-user shared cache (one file under ~/.cargo/herald-build-cache/, keyed
+// by the pinned sha256) is fingerprint-independent: cargo gives every build
+// fingerprint (check/test/nextest/rust-analyzer, incremental on or off) its
+// own OUT_DIR, and without the shared level each new fingerprint would have
+// to re-download — on a network that cannot reach raw.githubusercontent.com
+// that fails the whole build. The OUT_DIR copy keeps the hot path
+// allocation-free. Set HERALD_DISPOSABLE_LIST_URL to fetch from a mirror
+// instead of raw.githubusercontent.com; the content is still
 // hash-verified, so a mirror can serve the pinned bytes but nothing else.
 
 use std::fs;
@@ -32,6 +37,25 @@ use sha2::{Digest, Sha256};
 const UPSTREAM_COMMIT_SHA: &str = "aa6cbc8922833cbf384e3204fba01bb2ad6d8177";
 const EXPECTED_SHA256: &str = "5052d5eebd1b8907738dbbf3f1f4cd961593c14f44435674bc6d8a34986009a7";
 
+fn shared_cache_path() -> Option<PathBuf> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    Some(
+        PathBuf::from(home)
+            .join(".cargo")
+            .join("herald-build-cache")
+            .join(format!(
+                "disposable_email_blocklist-{}.conf",
+                &EXPECTED_SHA256[..16]
+            )),
+    )
+}
+
+fn matches_expected_sha256(bytes: &[u8]) -> bool {
+    hex::encode(Sha256::digest(bytes)) == EXPECTED_SHA256
+}
+
 fn main() {
     // Source edits must not trigger network I/O; refetch only when the pin
     // itself (this file) or the mirror override changes.
@@ -42,9 +66,19 @@ fn main() {
     let dest = out_dir.join("disposable_email_blocklist.conf");
 
     if let Ok(cached) = fs::read(&dest)
-        && hex::encode(Sha256::digest(&cached)) == EXPECTED_SHA256
+        && matches_expected_sha256(&cached)
     {
         return; // pinned copy already fetched by an earlier build
+    }
+
+    // Fingerprint-independent second chance: a download that succeeded for
+    // ANY earlier build fingerprint serves this one too.
+    if let Some(shared) = shared_cache_path()
+        && let Ok(cached) = fs::read(&shared)
+        && matches_expected_sha256(&cached)
+    {
+        fs::write(&dest, cached).expect("failed to write the blocklist into OUT_DIR");
+        return;
     }
 
     // An exported-but-empty override (CI rendering an unset variable, an
@@ -84,5 +118,14 @@ fn main() {
          (expected sha256 {EXPECTED_SHA256}, got {actual})"
     );
 
+    // Seed the shared cache first so later fingerprints (and later crates in
+    // this very build) never re-download; a read-only home only costs the
+    // next fingerprint one download, so failures stay best-effort.
+    if let Some(shared) = shared_cache_path()
+        && let Some(parent) = shared.parent()
+        && fs::create_dir_all(parent).is_ok()
+    {
+        let _ = fs::write(&shared, &body);
+    }
     fs::write(&dest, body).expect("failed to write the blocklist into OUT_DIR");
 }
