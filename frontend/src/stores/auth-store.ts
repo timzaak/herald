@@ -2,7 +2,8 @@
  * Authentication Store (Zustand)
  *
  * Centralized state management for authentication and authorization.
- * Uses DevTools integration for debugging and persist middleware for localStorage.
+ * UI authentication state stays in this tab's memory. Only a pending PKCE
+ * transaction is persisted in sessionStorage so 2FA/reload can complete it.
  *
  * Token model (Bearer access/refresh token family), owned by the
  * `herald-auth-web` SDK client (`lib/herald-client.ts`):
@@ -13,15 +14,12 @@
  * - The short-lived **access token** lives only in the SDK's in-memory holder
  *   and is NEVER persisted. A full page reload clears it and triggers a
  *   refresh-first restore in `initializeAuth`.
- * - This store keeps only UI/routing auth state (user, permissions, the
- *   `refreshClientId` the token family binds to) plus the transient **PKCE
- *   verifier** and pending auth state, persisted so an in-progress PKCE login
- *   interrupted by a 2FA step (or a reload during the PKCE window) can still
- *   complete the token exchange.
+ * - User, permissions and product binding are restored from the realm's
+ *   credential and are never hydrated from a shared authentication snapshot.
  */
 
 import { create } from 'zustand'
-import { persist, devtools } from 'zustand/middleware'
+import { persist, devtools, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 import type { UserProfile } from '@/lib/api-generated'
 import { AUTH_STORAGE_KEY, AUTH_STORE_NAME } from '@/lib/constants/auth-constants'
@@ -32,6 +30,8 @@ import { AUTH_STORAGE_KEY, AUTH_STORE_NAME } from '@/lib/constants/auth-constant
  * reload or a second-factor detour within the PKCE code's TTL.
  */
 export interface PersistedPkceState {
+  realmId: string
+  expiresAt: number
   /** The PKCE `code_verifier` used to complete the `oauthToken` exchange. */
   codeVerifier: string
   /** The OAuth `client_id` (e.g. `admin-web-console`) bound to this flow. */
@@ -89,7 +89,7 @@ export interface AuthActions {
   /** Persist the PKCE verifier + bound OAuth params for the active flow. */
   setPkceState: (state: PersistedPkceState | null) => void
 
-  /** Read the persisted PKCE state (or null if no flow is in progress). */
+  /** Read the pending PKCE state — null when no unexpired flow is in progress. */
   getPkceState: () => PersistedPkceState | null
 
   // Store actions
@@ -160,7 +160,12 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
         setPkceState: (pkceState) => set({ pkceState }),
 
-        getPkceState: () => get().pkceState,
+        /** Read the pending PKCE state — null when no unexpired flow is in
+         * progress (expired transactions are dead and must not be reused). */
+        getPkceState: () => {
+          const pkce = get().pkceState
+          return pkce && pkce.expiresAt > Date.now() ? pkce : null
+        },
 
         // Store actions
         reset: () => {
@@ -173,20 +178,19 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       }),
       {
         name: AUTH_STORAGE_KEY,
+        storage: createJSONStorage(() => sessionStorage),
         partialize: (state) => ({
-          // Persist UI/auth routing state and the in-flight PKCE state so a
-          // reload can restore/complete the flow. The token family itself
-          // (access in memory, refresh token) lives in the Herald SDK client
-          // and must not be duplicated here.
-          isAuthenticated: state.isAuthenticated,
-          realmId: state.realmId,
-          clientAppId: state.clientAppId,
-          user: state.user,
-          permissions: state.permissions,
-          roles: state.roles,
-          refreshClientId: state.refreshClientId,
+          // Only the current tab's pending flow survives reload. Authentication
+          // is restored from the realm's SDK credential, never a UI snapshot.
           pkceState: state.pkceState,
         }),
+        merge: (persisted, current) => {
+          const pkce = (persisted as { pkceState?: PersistedPkceState } | undefined)?.pkceState
+          return {
+            ...current,
+            pkceState: pkce?.realmId && pkce.expiresAt > Date.now() ? pkce : null,
+          }
+        },
       }
     ),
     { name: AUTH_STORE_NAME }
@@ -204,6 +208,7 @@ const persistStorage = useAuthStore.persist
  */
 export function clearAuthStorage(): void {
   persistStorage.clearStorage()
+  window.localStorage.removeItem(AUTH_STORAGE_KEY)
 }
 
 /**

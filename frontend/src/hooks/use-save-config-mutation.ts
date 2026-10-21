@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { queryKeys } from '@/data/query-options'
 import { resolveApiError } from '@/lib/error-utils'
 import { m } from '@/paraglide/messages'
+import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 
 interface UseSaveConfigMutationProps<T> {
   realmId: string
@@ -47,6 +48,7 @@ export function useSaveConfigMutation<T>({
 }: UseSaveConfigMutationProps<T>) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const realmContext = useResolvedRealmContext()
 
   const defaultInvalidateKeys = [
     ['payment-providers', realmId],
@@ -64,7 +66,7 @@ export function useSaveConfigMutation<T>({
       await Promise.all(
         keysToInvalidate.map((key) => queryClient.invalidateQueries({ queryKey: key }))
       )
-      navigate({ to: '/$realmId/manage/billing/payment-providers', params: { realmId } })
+      navigate({ to: realmPath({ ...realmContext, realmId }, '/manage/billing/payment-providers') })
     },
     onError: (error: unknown) => {
       toast.error(

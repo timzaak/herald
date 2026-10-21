@@ -125,7 +125,8 @@ export function getSafeRedirectPath(
 }
 
 /**
- * Storage key for auth state persistence in localStorage
+ * Tab-local pending authentication flow key (sessionStorage).
+ * The former localStorage entry under this key is discarded on auth restore.
  */
 export const AUTH_STORAGE_KEY = 'auth-storage'
 

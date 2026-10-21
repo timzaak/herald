@@ -1,10 +1,14 @@
 import { resolveCustomDomain, type PublicConfigResponse } from '@/lib/api-generated'
-import { useAuthStore } from '@/stores/auth-store'
-import { useLocation, useRouter } from '@tanstack/react-router'
+import { useLocation } from '@tanstack/react-router'
 
-const CUSTOM_DOMAIN_ROOT_SEGMENTS = new Set(['auth', 'manage', 'user', 'legal', 'device'])
 const SESSION_SCOPED_ROOT_SEGMENTS = new Set(['manage', 'user', 'subscription'])
 const REALM_SCOPED_PUBLIC_ROOT_SEGMENTS = new Set(['auth', 'legal', 'device'])
+// A custom domain serves the union: the prefix-less product tree plus the
+// realm-less public entrances.
+const CUSTOM_DOMAIN_ROOT_SEGMENTS = new Set([
+  ...SESSION_SCOPED_ROOT_SEGMENTS,
+  ...REALM_SCOPED_PUBLIC_ROOT_SEGMENTS,
+])
 
 export interface ResolvedRealmContext {
   realmId: string
@@ -13,18 +17,30 @@ export interface ResolvedRealmContext {
 }
 
 /**
- * Whether `pathname` is a session-scoped root (e.g. `/manage`, `/user/profile`).
- *
- * Session-scoped routes carry no realm in the URL — their realm is read from
- * the session store. The root loader must NOT treat these as "realm root"
- * paths (which would redirect an authenticated admin back to `/manage`,
- * creating a self-redirect loop). Route-tree conventions: `frontend/README.md`.
+ * Whether a path belongs to the prefix-less product tree used on custom domains.
  */
 export function isSessionScopedPath(pathname: string): boolean {
   return SESSION_SCOPED_ROOT_SEGMENTS.has(firstPathSegment(pathname) ?? '')
 }
 
+/**
+ * Whether a path is one of the public entrances that carry no realm in the
+ * URL on the main domain (`/auth/...`, `/legal/...`, `/device/...`).
+ */
+export function isRealmScopedPublicPath(pathname: string): boolean {
+  return REALM_SCOPED_PUBLIC_ROOT_SEGMENTS.has(firstPathSegment(pathname) ?? '')
+}
+
 let cachedCustomDomainContext: ResolvedRealmContext | null = null
+let hostResolved = false
+let hostResolution: Promise<void> | null = null
+
+export class RealmRequiredError extends Error {
+  constructor() {
+    super('Use a realm-prefixed URL on the main domain')
+    this.name = 'RealmRequiredError'
+  }
+}
 
 function firstPathSegment(pathname: string): string | null {
   return pathname.split('/').filter(Boolean)[0] ?? null
@@ -37,88 +53,44 @@ export function isCustomDomainPath(pathname: string): boolean {
 
 export function getLegacyRealmId(pathname: string): string {
   const first = firstPathSegment(pathname)
-  // The bare root and the session-scoped roots (/manage, /user, /subscription)
-  // carry no realm in the URL — both resolve to the persisted last-visited
-  // realm (written by initializeAuth on every realm page entry and kept across
-  // logout), falling back to the default 'admin' realm on a fresh browser.
-  if (!first || SESSION_SCOPED_ROOT_SEGMENTS.has(first)) {
-    return useAuthStore.getState().realmId || 'admin'
-  }
-  // Public realm-scoped roots (/auth, /legal, /device) are prefix-less on the
-  // main domain and resolve to the default 'admin' realm. Returning the segment
-  // name itself (e.g. 'auth') would yield an invalid realm id.
-  if (REALM_SCOPED_PUBLIC_ROOT_SEGMENTS.has(first)) {
-    return 'admin'
-  }
-  // Legacy realm-prefixed URLs (e.g. /admin/auth/login) — first segment is the realm.
+  if (first && SESSION_SCOPED_ROOT_SEGMENTS.has(first)) throw new RealmRequiredError()
+  // Only the main-domain root and public legacy entrances default to admin.
+  // Protected pages must identify their realm in the URL, never in an auth store.
+  if (!first || REALM_SCOPED_PUBLIC_ROOT_SEGMENTS.has(first)) return 'admin'
   return first
 }
 
-export function getCachedCustomDomainRealm(): ResolvedRealmContext | null {
-  return cachedCustomDomainContext
-}
-
 export async function resolveRealmContext(pathname: string): Promise<ResolvedRealmContext> {
-  if (!isCustomDomainPath(pathname)) {
-    return {
-      realmId: getLegacyRealmId(pathname),
-      isCustomDomain: false,
-    }
-  }
-
-  if (cachedCustomDomainContext) {
-    return cachedCustomDomainContext
-  }
-
-  // The resolve endpoint has no `?host=` override (removed as a host-to-realm
-  // oracle); it reads the request Host header, which the browser fetch carries
-  // as window.location.host automatically.
-  const response = await resolveCustomDomain()
-  if (response.error) {
-    // On a non-custom-domain host the resolve endpoint deterministically 404s.
-    // For main-domain paths that carry no realm prefix ('/', session-scoped
-    // /manage /user /subscription, public /auth /legal /device), fall back to
-    // the legacy realm model via getLegacyRealmId so the app still renders
-    // instead of throwing. getLegacyRealmId is the single source of truth for
-    // the fallback realm id across both entry points.
-    const firstSeg = firstPathSegment(pathname) ?? ''
-    const isUnprefixedMainDomainPath =
-      pathname === '/' ||
-      SESSION_SCOPED_ROOT_SEGMENTS.has(firstSeg) ||
-      REALM_SCOPED_PUBLIC_ROOT_SEGMENTS.has(firstSeg)
-    if (isUnprefixedMainDomainPath) {
-      // Cache the fallback so subsequent renders/loads don't re-fetch the same
-      // 404ing resolve endpoint on every navigation (the host is stable within
-      // a page session; a non-custom-domain host deterministically 404s). Without
-      // this cache, `resolveRealmContext` would re-fire on every render and drive
-      // the root loader + session-scoped routes into a fetch loop.
-      cachedCustomDomainContext = {
-        realmId: getLegacyRealmId(pathname),
-        isCustomDomain: false,
+  // Resolve Host even on a prefixed URL: a custom domain cannot be used to
+  // select another realm by changing a path segment. Cache only host identity.
+  if (!hostResolved) {
+    hostResolution ??= (async () => {
+      const response = await resolveCustomDomain()
+      if (response.error) {
+        // A network-level failure resolves with no response object at all —
+        // that is an outage, not a 404 "this host is the main domain".
+        if (response.response?.status !== 404)
+          throw new Error('Unable to resolve custom-domain realm')
+      } else {
+        if (!response.data.realmId)
+          throw new Error('Custom-domain resolve response did not include realmId')
+        cachedCustomDomainContext = {
+          realmId: response.data.realmId,
+          isCustomDomain: true,
+          publicConfig: response.data.publicConfig,
+        }
       }
-      return cachedCustomDomainContext
-    }
-    throw new Error('Unable to resolve custom-domain realm')
+      hostResolved = true
+    })().finally(() => {
+      hostResolution = null
+    })
+    await hostResolution
   }
-
-  const payload = response.data
-  if (!payload.realmId) {
-    throw new Error('Custom-domain resolve response did not include realmId')
-  }
-
-  cachedCustomDomainContext = {
-    realmId: payload.realmId,
-    isCustomDomain: true,
-    publicConfig: payload.publicConfig,
-  }
-  return cachedCustomDomainContext
+  return resolvedRealmFromPath(pathname)
 }
 
 export function resolvedRealmFromPath(pathname: string): ResolvedRealmContext {
-  if (isCustomDomainPath(pathname)) {
-    const resolved = getCachedCustomDomainRealm()
-    if (resolved) return resolved
-  }
+  if (cachedCustomDomainContext) return cachedCustomDomainContext
 
   return {
     realmId: getLegacyRealmId(pathname),
@@ -144,12 +116,7 @@ export function useCurrentPathname(): string {
 }
 
 export function useResolvedRealmContext(): ResolvedRealmContext {
-  const pathname = useCurrentPathname()
-  const sessionRealmId = useAuthStore((state) => state.realmId)
-  const context = resolvedRealmFromPath(pathname)
-  return SESSION_SCOPED_ROOT_SEGMENTS.has(firstPathSegment(pathname) ?? '')
-    ? { ...context, realmId: sessionRealmId || context.realmId }
-    : context
+  return resolvedRealmFromPath(useCurrentPathname())
 }
 
 export function useResolvedRealmId(fallback: string = 'admin'): string {
@@ -167,8 +134,8 @@ export function useLastPathSegment(offsetFromEnd: number = 0): string {
 
 export function useCurrentSearch<TSearch>(): TSearch {
   try {
-    const router = useRouter()
-    return router.state.location.search as TSearch
+    const location = useLocation()
+    return location.search as TSearch
   } catch {
     return getWindowSearch() as TSearch
   }
@@ -201,8 +168,49 @@ export function useOptionalRouteParams<TParams extends Record<string, string | u
 export function realmPath(context: ResolvedRealmContext, path: string): string {
   const normalized = path.startsWith('/') ? path : `/${path}`
   if (context.isCustomDomain) return normalized
-  if (!REALM_SCOPED_PUBLIC_ROOT_SEGMENTS.has(firstPathSegment(normalized) ?? '')) {
-    return normalized
+  return `/${context.realmId}${normalized === '/' ? '' : normalized}`
+}
+
+export function realmRelativePath(context: ResolvedRealmContext, pathname: string): string {
+  const prefix = `/${context.realmId}`
+  return pathname === prefix || pathname.startsWith(`${prefix}/`)
+    ? pathname.slice(prefix.length) || '/'
+    : pathname
+}
+
+export interface RealmRouteClassification {
+  isRootPath: boolean
+  /** Path relative to the realm prefix (identity on the custom-domain tree). */
+  routePath: string
+  isRealmRootPath: boolean
+  isAuthRoute: boolean
+  isLegalRoute: boolean
+  isManageRoute: boolean
+}
+
+/**
+ * Route-type classification shared by the root beforeLoad's guards and the
+ * root component's consent gate — the flags must not drift between the two.
+ */
+export function classifyRealmRoute(
+  context: ResolvedRealmContext,
+  pathname: string
+): RealmRouteClassification {
+  const routePath = realmRelativePath(context, pathname)
+  // A "realm root" is a single-segment realm-prefixed URL like `/admin` or
+  // `/realm-001/` — authenticated users there are redirected to their home.
+  // Session-scoped paths (`/manage`, `/user`, `/subscription`) carry no realm
+  // in the URL and are valid landing targets, so they must be excluded:
+  // otherwise `/manage` would match the single-segment pattern and the admin
+  // redirect would target `/manage` again → infinite self-redirect loop.
+  const isRealmRootPath =
+    !context.isCustomDomain && !isSessionScopedPath(pathname) && /^\/[^/]+\/?$/.test(pathname)
+  return {
+    isRootPath: pathname === '/',
+    routePath,
+    isRealmRootPath,
+    isAuthRoute: /^\/auth\//.test(routePath),
+    isLegalRoute: /^\/legal\//.test(routePath),
+    isManageRoute: /^\/manage/.test(routePath),
   }
-  return `/${context.realmId}${normalized}`
 }

@@ -88,12 +88,21 @@ export async function waitForTokenSwitch(): Promise<void> {
 }
 
 function handleSessionEvent(event: SessionEvent, client: HeraldClient): void {
-  if (event.type === 'session-expired') {
+  if (event.type === 'session-expired' && active?.client === client) {
     // Mirror the pre-SDK refresh-failure path: clear the stale token family so
     // it is not retried, and reset the UI auth state. Navigation stays with
     // the route loaders, exactly as before.
     client.tokens.clear()
     useAuthStore.getState().logout()
+  } else if (
+    event.type === 'session-expired' &&
+    (event.reason === 'family-revoked' || event.reason === 'client-app-disabled')
+  ) {
+    // A realm this tab has left: the family is server-side dead, so purge its
+    // own per-realm slot — otherwise returning to that realm retries a
+    // known-dead refresh token. 'refresh-failed' (e.g. a network blip) may
+    // still be a valid credential, so that reason never purges a left realm.
+    client.tokens.clear()
   }
   // 'authenticated' → hydration stays with initializeAuth / fetchAuthData (the
   //   login-success session is a placeholder until getStatus + profile run).
@@ -112,6 +121,17 @@ export function ensureHeraldClient(
   clientId: string = FIRST_PARTY_CLIENT_ID
 ): HeraldClient {
   if (!active || active.realmId !== realmId) {
+    const store = useAuthStore.getState()
+    useAuthStore.setState({
+      isAuthenticated: false,
+      realmId,
+      clientAppId: null,
+      user: null,
+      permissions: [],
+      roles: [],
+      refreshClientId: null,
+      pkceState: store.pkceState?.realmId === realmId ? store.pkceState : null,
+    })
     // Drop the pre-per-realm shared key on this browser: nothing reads it
     // anymore, and the token family inside it can no longer be revoked
     // through the UI.
@@ -133,6 +153,21 @@ export function getActiveHeraldClient(): HeraldClient | null {
   return active?.client ?? null
 }
 
+/**
+ * Abort sentinel for results that belong to a realm session this tab has
+ * already left — thrown wherever a superseded client or a stale snapshot must
+ * not write into the new realm's state. Consumers (and tests) match on
+ * `name === 'AbortError'` + the message.
+ */
+export function realmSessionChangedError(): DOMException {
+  return new DOMException('Realm session changed', 'AbortError')
+}
+
+/** Ignore results belonging to a realm that this tab has already left. */
+export function assertActiveHeraldClient(client: HeraldClient): void {
+  if (active?.client !== client) throw realmSessionChangedError()
+}
+
 /** Access token for the generated-client request interceptor. */
 export function getHeraldAccessToken(): string | null {
   return active?.client.tokens.getAccessToken() ?? null
@@ -142,14 +177,21 @@ export function getHeraldAccessToken(): string | null {
  * Inject a token set obtained outside the SDK (PKCE exchange, switch-client,
  * direct-issue responses) and remember the bound client for redirect routing.
  */
-export function applyTokenSet(tokens: {
-  accessToken: string
-  refreshToken: string
-  clientId?: string
-}): void {
-  const client = active?.client
+export function applyTokenSet(
+  tokens: {
+    accessToken: string
+    refreshToken: string
+    clientId?: string
+    realmId?: string
+  },
+  client: HeraldClient | null = getActiveHeraldClient()
+): void {
   if (!client) {
     throw new Error('applyTokenSet called before the Herald client was initialized for a realm')
+  }
+  assertActiveHeraldClient(client)
+  if (tokens.realmId && tokens.realmId !== active?.realmId) {
+    throw realmSessionChangedError()
   }
   client.tokens.setTokens(tokens)
   if (tokens.clientId) {
@@ -161,13 +203,16 @@ export function applyTokenSet(tokens: {
  * Rebind the SDK's request-body clientId and record the routing binding —
  * for flows whose tokens the SDK already applied itself (email-OTP verify).
  */
-export function bindHeraldClientId(clientId: string): void {
-  const client = active?.client
+export function bindHeraldClientId(
+  clientId: string,
+  client: HeraldClient | null = getActiveHeraldClient()
+): void {
   if (!client) {
     throw new Error(
       'bindHeraldClientId called before the Herald client was initialized for a realm'
     )
   }
+  assertActiveHeraldClient(client)
   client.tokens.bindClientId(clientId)
   useAuthStore.getState().setRefreshClientId(clientId)
 }

@@ -22,9 +22,18 @@ interface SignupCtaBlockProps {
  * (platform storefront) realm.
  */
 export function SignupCtaBlock({ realmContext }: SignupCtaBlockProps) {
-  const { data: signupStatus } = useQuery(signupStatusQueryOptions(ADMIN_REALM_ID))
+  const { data: signupStatus } = useQuery({
+    ...signupStatusQueryOptions(ADMIN_REALM_ID),
+    enabled: !realmContext.isCustomDomain,
+  })
 
-  if (realmContext.realmId !== ADMIN_REALM_ID || signupStatus?.enabled !== true) {
+  // Creating a realm leaves the current realm, so this platform entry belongs
+  // on the main host; a bound custom host cannot serve the new realm's console.
+  if (
+    realmContext.isCustomDomain ||
+    realmContext.realmId !== ADMIN_REALM_ID ||
+    signupStatus?.enabled !== true
+  ) {
     return null
   }
 

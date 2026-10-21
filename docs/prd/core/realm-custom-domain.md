@@ -42,15 +42,14 @@
 
 ### 2.3 未来范围（Deferred）
 
-以下能力原属本 feature 的完整设想，但因实现层面的技术约束（框架层面的请求改写层在路由匹配之后执行，无法在请求到达时按域名重写路径）尚未交付，列为未来范围，不在当前已发布能力中：
+前端 SPA 已通过公开 resolve 接口解析请求 Host，支持已绑定自定义域名下的无 realm 前缀 auth、manage、user 页面；主域名同时保留 `/{realmId}/...` 入口。父路由统一确认 realm 后再执行认证与子守卫，不依赖服务端框架的路径改写。
 
-- **自定义域名下承载 auth 流（host→realm 解析）**：请求到达生效的自定义域名时，系统按域名映射到对应 Realm 并进入其 auth 流，URL 保持自定义域名（无需 `/{realmId}` path 前缀）。当前 realm 维度仍由 path 段 `{realmId}` 唯一决定，自定义域名暂不改变 realm 解析方式。
-- **自定义域名覆盖全部 auth 流页面**：登录、注册、忘记密码、邮箱验证、OAuth 同意、TOTP、passkey 等 auth 流页面在自定义域名下提供。
-- **自定义域名与 canonical `herald.com/{realmId}` 入口并存**（自定义域名作为额外入口与 path-based 入口同时可用）。
+以下能力仍为未来范围：
+
 - **自定义域名与 canonical 域的跨域会话共享**（当前两个域的 session 不共享，为未来范围）。
 - **动态 CORS**（按已解析 Realm 的域做动态 origin 校验）。
 
-> 上述未来范围的落地依赖先解决框架层面的 host→realm 请求解析机制。当前已交付的配置生命周期与证书授权门控为其预留了映射基础。
+> 自定义域名和主域名属于不同 origin，当前各自恢复会话；域名解析不等于跨域登录状态共享。
 
 > **已交付更新**：按自定义域名生成的链接已覆盖 OAuth 回调与全部身份邮件/设备码链接面——`realm_public_origin_for_oauth` 优先返回生效的自定义域名，authorize/callback 的默认 `redirect_uri` 按其拼接；注册验证邮件链接、邮箱验证、更换邮箱、找回/重置密码与设备码授权页链接（`realm_public_url_parts`/`realm_public_url`）同样优先落在生效的自定义域名上。OAuth 回调 URL 属 IdP 注册的安全敏感字段，已从未来范围移出。
 >

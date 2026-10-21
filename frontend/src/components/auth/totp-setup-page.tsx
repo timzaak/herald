@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useRealmId } from '@/stores/auth-store'
+import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 import { QRCodeCanvas } from 'qrcode.react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,7 +33,7 @@ const passwordSchema = z.object({
 
 export function TotpSetupPage() {
   const navigate = useNavigate()
-  const realmId = useRealmId()
+  const realmContext = useResolvedRealmContext()
   const queryClient = useQueryClient()
 
   const [step, setStep] = useState<SetupStep>('password')
@@ -89,7 +89,7 @@ export function TotpSetupPage() {
     getSuccessMessage: () => 'TOTP enabled successfully',
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.TOTP_STATUS] })
-      navigate({ to: '/$realmId/user/security', params: { realmId } })
+      navigate({ to: realmPath(realmContext, '/user/security') })
     },
   })
 
@@ -112,7 +112,7 @@ export function TotpSetupPage() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => navigate({ to: '/$realmId/user/security', params: { realmId } })}
+          onClick={() => navigate({ to: realmPath(realmContext, '/user/security') })}
           data-testid="totp-setup-back-to-security"
           aria-label="Back to security settings"
         >

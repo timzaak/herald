@@ -12,6 +12,12 @@ import { APP_VERSION, GITHUB_REPO_URL } from '@/lib/constants'
 
 let currentPath = '/manage/billing?page=0&pageSize=20&status=all'
 
+// Prefix-less sidebar URLs belong to the admin realm's bound custom host.
+vi.mock('@/lib/realm-routing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/realm-routing')>()),
+  resolvedRealmFromPath: () => ({ realmId: 'admin', isCustomDomain: true }),
+}))
+
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: { id: 'admin', name: 'Admin' } }),
 }))

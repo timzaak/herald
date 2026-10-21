@@ -29,12 +29,15 @@ import {
   switchFirstPartyClient,
 } from '@/lib/auth-service'
 import { useAuthStore, clearAuthStorage } from '@/stores/auth-store'
+import type { HeraldClient } from 'herald-auth-web'
 import {
   applyTokenSet,
   bindHeraldClientId,
   ensureHeraldClient,
   getActiveHeraldClient,
   runTokenSwitch,
+  assertActiveHeraldClient,
+  realmSessionChangedError,
 } from '@/lib/herald-client'
 import {
   ADMIN_WEB_CONSOLE_CLIENT_ID,
@@ -44,6 +47,7 @@ import {
   DEFAULT_USER_REDIRECT,
   DEFAULT_ADMIN_REDIRECT,
   getSafeRedirectPath,
+  AUTH_STORAGE_KEY,
 } from '@/lib/constants/auth-constants'
 import { realmPath, resolvedRealmFromPath } from '@/lib/realm-routing'
 import { getErrorMessage, resolveApiError } from '@/lib/error-utils'
@@ -58,6 +62,8 @@ export { FIRST_PARTY_CLIENT_ID }
 
 /** FirstParty OAuth callback path (must match backend `FIRST_PARTY_CALLBACK_PATH`). */
 const FIRST_PARTY_CALLBACK_PATH = '/callback'
+// Match OAUTH_STATE_TTL_SECONDS in backend/domain/src/security_constants.rs.
+const FIRST_PARTY_PKCE_TTL_MS = 5 * 60 * 1000
 
 export interface LoginFlowResult {
   response: LoginResponse
@@ -109,6 +115,44 @@ export function resolveLdapLoginError(error: unknown): string {
 let initializedRealm: string | null = null
 let initializedClientId: string | null = null
 
+function currentRealmClient(realmId: string) {
+  const herald = getActiveHeraldClient()
+  if (!herald || useAuthStore.getState().realmId !== realmId) {
+    throw realmSessionChangedError()
+  }
+  return herald
+}
+
+type AuthStoreSnapshot = ReturnType<typeof useAuthStore.getState>
+
+/**
+ * Reset the UI session to anonymous while keeping the tab bound to `realmId`.
+ * The one shared field list for this reset — `ensureHeraldClient` and
+ * `logout()` reset different field sets on purpose and stay separate.
+ */
+function resetUiSession(store: AuthStoreSnapshot, realmId: string): void {
+  store.setAuthStatus(false, realmId)
+  store.setUserPermissions([], [])
+  store.setUserProfile(null)
+  store.setRefreshClientId(null)
+}
+
+/**
+ * Shared catch arm for the direct-issue login completions: a result whose
+ * realm session changed mid-flight aborts (it belongs to a realm this tab
+ * has left); any other failure tears the partially hydrated session back
+ * down before propagating.
+ */
+function failLoginCompletion(
+  herald: HeraldClient,
+  store: AuthStoreSnapshot,
+  error: unknown
+): never {
+  assertActiveHeraldClient(herald)
+  store.logout()
+  throw error
+}
+
 /**
  * Build the FirstParty OAuth `redirect_uri`. It must exactly equal
  * `{frontend origin}/callback` to pass backend `validate_first_party_redirect`.
@@ -137,8 +181,11 @@ export async function beginFirstPartyPkceFlow(
   redirectUri: string
   state: string
 } | null> {
+  const herald = ensureHeraldClient(realmId, clientId)
+  // getPkceState drops expired flows, so this reuse check only matches a
+  // live transaction for this realm + client.
   const existing = useAuthStore.getState().getPkceState()
-  if (existing?.clientId === clientId) {
+  if (existing?.realmId === realmId && existing.clientId === clientId) {
     return {
       oauthClientId: existing.clientId,
       redirectUri: existing.redirectUri,
@@ -174,7 +221,15 @@ export async function beginFirstPartyPkceFlow(
     return null
   }
 
+  // Stamp the TTL only after /authorize accepted the challenge — the backend
+  // OAUTH_STATE_TTL starts at that call, so stamping earlier (before the
+  // round-trips above) opens a window where the client drops the flow while
+  // the server still considers it live.
+  const expiresAt = Date.now() + FIRST_PARTY_PKCE_TTL_MS
+  assertActiveHeraldClient(herald)
   useAuthStore.getState().setPkceState({
+    realmId,
+    expiresAt,
     codeVerifier,
     clientId,
     redirectUri,
@@ -197,8 +252,22 @@ async function tryCompletePkceExchange(
   realmId: string,
   redirectTo: string | null | undefined
 ): Promise<boolean> {
+  const herald = currentRealmClient(realmId)
+  if (!redirectTo) return false
+  // getPkceState drops expired flows, so only the realm binding needs checking.
   const pkce = useAuthStore.getState().getPkceState()
-  if (!pkce || !redirectTo) return false
+  if (!pkce || pkce.realmId !== realmId) {
+    // A redirect onto OUR first-party callback can only complete through the
+    // pending PKCE transaction. With the flow gone (expired TTL / reload /
+    // realm switch) the code is unexchangeable — fail loudly instead of
+    // handing the URL back for "external" navigation: /callback is not a
+    // route, so a successful second factor would land on a dead page.
+    if (extractAuthorizationCode(redirectTo) && redirectTo.startsWith(firstPartyRedirectUri())) {
+      useAuthStore.getState().setPkceState(null)
+      throw new Error('PKCE token exchange failed; please sign in again.')
+    }
+    return false
+  }
   const parsed = extractAuthorizationCode(redirectTo)
   if (!parsed) return false
   // CSRF guard (RFC 6749 §10.12): the `state` returned with the code MUST equal
@@ -215,14 +284,18 @@ async function tryCompletePkceExchange(
       redirectUri: pkce.redirectUri,
       clientId: pkce.clientId,
     })
-    applyTokenSet({
-      accessToken: tokenSet.accessToken,
-      refreshToken: tokenSet.refreshToken,
-      clientId: pkce.clientId,
-    })
+    applyTokenSet(
+      {
+        accessToken: tokenSet.accessToken,
+        refreshToken: tokenSet.refreshToken,
+        clientId: pkce.clientId,
+      },
+      herald
+    )
     useAuthStore.getState().setPkceState(null)
     return true
   } catch {
+    assertActiveHeraldClient(herald)
     // Exchange failed (bad verifier / expired code) — force a clean re-login.
     useAuthStore.getState().logout()
     useAuthStore.getState().setPkceState(null)
@@ -240,13 +313,13 @@ async function tryCompletePkceExchange(
  * realm. Subsequent calls for the same realm reuse the store state.
  *
  * @param realmId - The realm ID to initialize auth for
- * @param targetClientId - Product Client App required by the destination route
+ * @param targetClientId - Required product; null restores the existing binding on public pages
  * @param forceRefresh - Force a fresh fetch even if already initialized (default: false)
  * @returns Object containing auth status and redirect path
  */
 export async function initializeAuth(
   realmId: string,
-  targetClientId: FirstPartyClientId = USER_ACCOUNT_CENTER_CLIENT_ID,
+  targetClientId: FirstPartyClientId | null = USER_ACCOUNT_CENTER_CLIENT_ID,
   forceRefresh: boolean = false
 ): Promise<{
   authenticated: boolean
@@ -256,7 +329,14 @@ export async function initializeAuth(
   const store = useAuthStore.getState()
 
   // Reuse already-initialized store state for this realm (skip on full reload)
-  if (initializedRealm === realmId && initializedClientId === targetClientId && !forceRefresh) {
+  if (
+    initializedRealm === realmId &&
+    store.realmId === realmId &&
+    store.isAuthenticated &&
+    getActiveHeraldClient()?.tokens.getAccessToken() &&
+    (targetClientId === null || initializedClientId === targetClientId) &&
+    !forceRefresh
+  ) {
     const redirectPath =
       store.refreshClientId === ADMIN_WEB_CONSOLE_CLIENT_ID && hasAdminPermission(store.permissions)
         ? DEFAULT_ADMIN_REDIRECT
@@ -272,9 +352,14 @@ export async function initializeAuth(
 
   // The Herald SDK client owns the token family from here on (DEC-js-sdk-013):
   // its storage holds the refresh token, its in-memory holder the access token.
-  const herald = ensureHeraldClient(realmId, targetClientId)
+  const herald = ensureHeraldClient(realmId, targetClientId ?? FIRST_PARTY_CLIENT_ID)
+  window.localStorage.removeItem(AUTH_STORAGE_KEY)
 
   try {
+    if (!herald.storage.getRefreshToken() && !herald.tokens.getAccessToken()) {
+      resetUiSession(store, realmId)
+      return { authenticated: false, redirectPath: DEFAULT_USER_REDIRECT, clientId: null }
+    }
     // --- Startup refresh-first restore ---
     // If a refresh token is persisted but there is no in-memory access token
     // (the normal case after a full page reload), refresh before checking
@@ -283,6 +368,7 @@ export async function initializeAuth(
       try {
         await herald.refresh()
       } catch {
+        assertActiveHeraldClient(herald)
         // Refresh failed (reuse/expiry/revocation) → force full re-login.
         // (The SDK also emits session-expired, which the herald-client bridge
         // turns into a token clear + store logout.)
@@ -297,9 +383,9 @@ export async function initializeAuth(
       }
     }
 
-    let { authStatus, userPermissions, userProfile } = await fetchAuthData()
+    let { authStatus, userPermissions, userProfile } = await fetchAuthData(herald, realmId)
 
-    if (authStatus.authenticated && authStatus.clientId !== targetClientId) {
+    if (authStatus.authenticated && targetClientId && authStatus.clientId !== targetClientId) {
       try {
         // The switch rotates the token family server-side while layout-level
         // queries may still be in flight with the old access token. Run the
@@ -308,14 +394,17 @@ export async function initializeAuth(
         // refresh token (which would revoke the family and log the just-
         // rotated session out).
         await runTokenSwitch(async () => {
-          const tokenSet = await switchFirstPartyClient(targetClientId)
-          applyTokenSet({
-            accessToken: tokenSet.accessToken,
-            refreshToken: tokenSet.refreshToken,
-            clientId: tokenSet.clientId,
-          })
+          const tokenSet = await switchFirstPartyClient(targetClientId, herald)
+          applyTokenSet(
+            {
+              accessToken: tokenSet.accessToken,
+              refreshToken: tokenSet.refreshToken,
+              clientId: tokenSet.clientId,
+            },
+            herald
+          )
         })
-        ;({ authStatus, userPermissions, userProfile } = await fetchAuthData())
+        ;({ authStatus, userPermissions, userProfile } = await fetchAuthData(herald, realmId))
       } catch (error) {
         // A denied admin switch is an authorization outcome, not a logout.
         // Keep the source product session so the root route can safely send
@@ -330,6 +419,9 @@ export async function initializeAuth(
       }
     }
 
+    assertActiveHeraldClient(herald)
+    store.setRefreshClientId(authStatus.clientId || null)
+    if (authStatus.clientId) herald.tokens.bindClientId(authStatus.clientId)
     store.setAuthStatus(
       authStatus.authenticated,
       authStatus.realmId || realmId,
@@ -342,7 +434,7 @@ export async function initializeAuth(
     initializedClientId = authStatus.clientId
 
     const redirectPath =
-      store.refreshClientId === ADMIN_WEB_CONSOLE_CLIENT_ID &&
+      authStatus.clientId === ADMIN_WEB_CONSOLE_CLIENT_ID &&
       hasAdminPermission(userPermissions.permissions)
         ? DEFAULT_ADMIN_REDIRECT
         : DEFAULT_USER_REDIRECT
@@ -353,6 +445,7 @@ export async function initializeAuth(
       clientId: authStatus.clientId,
     }
   } catch {
+    assertActiveHeraldClient(herald)
     // The Herald client is guaranteed to exist here (created above the try),
     // so its storage is the source of truth for an established token family.
     if (herald.storage.getRefreshToken()) {
@@ -363,7 +456,7 @@ export async function initializeAuth(
       store.setUserPermissions([], [])
       store.setUserProfile(null)
     } else {
-      store.reset()
+      resetUiSession(store, realmId)
     }
     initializedRealm = null
     initializedClientId = null
@@ -373,7 +466,7 @@ export async function initializeAuth(
       clientId: null,
     }
   } finally {
-    store.setIsLoading(false)
+    if (getActiveHeraldClient() === herald) store.setIsLoading(false)
   }
 }
 
@@ -387,7 +480,11 @@ async function hydrateAuthenticatedSession(
   store: ReturnType<typeof useAuthStore.getState>,
   realmId: string
 ): Promise<Awaited<ReturnType<typeof fetchAuthData>>> {
-  const fetched = await fetchAuthData()
+  const herald = currentRealmClient(realmId)
+  const fetched = await fetchAuthData(herald, realmId)
+  assertActiveHeraldClient(herald)
+  store.setRefreshClientId(fetched.authStatus.clientId || null)
+  if (fetched.authStatus.clientId) herald.tokens.bindClientId(fetched.authStatus.clientId)
   store.setAuthStatus(fetched.authStatus.authenticated, fetched.authStatus.realmId || realmId)
   store.setUserPermissions(fetched.userPermissions.permissions, fetched.userPermissions.roles)
   store.setUserProfile(fetched.userProfile)
@@ -428,6 +525,7 @@ export async function loginFlow(
   credentials: LoginRequestPayload,
   options?: { performer?: LoginPerformer }
 ): Promise<LoginFlowResult> {
+  const herald = ensureHeraldClient(realmId, credentials.clientId)
   const store = useAuthStore.getState()
   // True once the Bearer token family has been issued + persisted (PKCE exchange
   // succeeded). Guards the catch block: a failure AFTER this point (e.g. a
@@ -453,6 +551,10 @@ export async function loginFlow(
     }
 
     const loginResponse = await (options?.performer ?? performLogin)(realmId, loginCredentials)
+    assertActiveHeraldClient(herald)
+    if (loginResponse.realmId && loginResponse.realmId !== realmId) {
+      throw new Error('Login response does not match the route realm')
+    }
 
     if (loginResponse.requiresTotp) {
       // 2FA detour: keep the PKCE state so the post-TOTP exchange can complete.
@@ -498,6 +600,7 @@ export async function loginFlow(
 
     return { response: loginResponse, redirectPath }
   } catch (error) {
+    assertActiveHeraldClient(herald)
     // Only tear down the session when no Bearer token family was established
     // (e.g. bad credentials, PKCE exchange failure). If the token exchange
     // already succeeded, a transient failure in the subsequent auth-data fetch
@@ -521,35 +624,37 @@ export async function loginFlow(
  * @param realmId - The realm ID to logout from
  */
 export async function logoutFlow(realmId: string): Promise<void> {
+  const realmContext = resolvedRealmFromPath(window.location.pathname)
+  if (realmContext.realmId !== realmId)
+    throw new Error('Logout realm does not match the route realm')
+  const herald = ensureHeraldClient(realmId)
+  const refreshToken = herald.storage.getRefreshToken()
   const store = useAuthStore.getState()
   store.setIsLoading(true)
 
   try {
     // Perform logout API call — revokes the Bearer access/refresh token family.
-    await performLogout()
+    await performLogout(herald)
   } catch (error) {
     // Log the error but continue with state cleanup
     console.error('Logout API call failed:', error)
   } finally {
     // Always reset the store, clear the SDK's token family and persisted
     // storage (refresh token + PKCE state).
-    getActiveHeraldClient()?.tokens.clear()
-    store.reset()
-    initializedRealm = null
-    initializedClientId = null
-    store.setIsLoading(false)
-
-    clearAuthStorage()
-
-    // Logout wipes tokens and user state, but the last-visited realm memory
-    // survives: re-persist it so a later bare-origin visit lands back on this
-    // realm's login page instead of the hardcoded admin default.
-    store.setAuthStatus(false, realmId)
-
-    // Navigate to login page - use window.location for simple redirect
-    // since we need to reload the page to properly clear in-memory state.
-    const realmContext = resolvedRealmFromPath(window.location.pathname)
-    window.location.href = realmPath({ ...realmContext, realmId }, '/auth/login')
+    // A navigation during logout must not clear the newly active realm.
+    if (getActiveHeraldClient() === herald || herald.storage.getRefreshToken() === refreshToken) {
+      herald.tokens.clear()
+    }
+    if (getActiveHeraldClient() === herald) {
+      store.reset()
+      initializedRealm = null
+      initializedClientId = null
+      store.setIsLoading(false)
+      clearAuthStorage()
+      store.setAuthStatus(false, realmId)
+      // Reload to clear the current tab's remaining in-memory UI state.
+      window.location.href = realmPath(realmContext, '/auth/login')
+    }
   }
 }
 
@@ -590,6 +695,7 @@ export async function completeLoginAfterTotp(
   realmId: string,
   verifyResponse: VerifyTotpResponse
 ): Promise<{ redirectPath?: string; redirectTo?: string | null }> {
+  const herald = currentRealmClient(realmId)
   // PKCE flow: when redirectTo carries a code, complete the token exchange.
   if (verifyResponse.redirectTo) {
     const exchanged = await tryCompletePkceExchange(realmId, verifyResponse.redirectTo)
@@ -612,8 +718,7 @@ export async function completeLoginAfterTotp(
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
     return { redirectPath: redirectPathForPermissions(userPermissions.permissions) }
   } catch (error) {
-    store.logout()
-    throw error
+    failLoginCompletion(herald, store, error)
   }
 }
 
@@ -634,6 +739,7 @@ export async function completeLoginAfterPasskey(
   realmId: string,
   verifyResponse: PasskeyVerifyResponse
 ): Promise<{ redirectPath?: string; redirectTo?: string | null }> {
+  const herald = currentRealmClient(realmId)
   // PKCE flow: when redirectTo carries a code, complete the token exchange.
   if (verifyResponse.redirectTo) {
     const exchanged = await tryCompletePkceExchange(realmId, verifyResponse.redirectTo)
@@ -655,8 +761,7 @@ export async function completeLoginAfterPasskey(
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
     return { redirectPath: redirectPathForPermissions(userPermissions.permissions) }
   } catch (error) {
-    store.logout()
-    throw error
+    failLoginCompletion(herald, store, error)
   }
 }
 
@@ -685,16 +790,16 @@ export async function completeLoginAfterEmailOtp(
   clientId: string
 ): Promise<{ redirectPath: string }> {
   const store = useAuthStore.getState()
+  const herald = currentRealmClient(realmId)
 
   try {
-    bindHeraldClientId(clientId)
+    bindHeraldClientId(clientId, herald)
     store.login(realmId)
 
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
     return { redirectPath: redirectPathForPermissions(userPermissions.permissions) }
   } catch (error) {
-    store.logout()
-    throw error
+    failLoginCompletion(herald, store, error)
   }
 }
 
@@ -728,20 +833,23 @@ export async function completeLoginAfterOneTap(
   clientId: string
 ): Promise<{ redirectPath: string }> {
   const store = useAuthStore.getState()
+  const herald = currentRealmClient(realmId)
 
   try {
-    applyTokenSet({
-      accessToken: tokenResponse.accessToken,
-      refreshToken: tokenResponse.refreshToken,
-      clientId,
-    })
+    applyTokenSet(
+      {
+        accessToken: tokenResponse.accessToken,
+        refreshToken: tokenResponse.refreshToken,
+        clientId,
+      },
+      herald
+    )
     store.login(realmId)
 
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
     return { redirectPath: redirectPathForPermissions(userPermissions.permissions) }
   } catch (error) {
-    store.logout()
-    throw error
+    failLoginCompletion(herald, store, error)
   }
 }
 
@@ -767,20 +875,23 @@ export async function completeSignup(
   clientId: string
 ): Promise<{ redirectPath: string }> {
   const store = useAuthStore.getState()
+  const herald = ensureHeraldClient(realmId, clientId)
 
   try {
-    applyTokenSet({
-      accessToken: tokenResponse.accessToken,
-      refreshToken: tokenResponse.refreshToken,
-      clientId,
-    })
+    applyTokenSet(
+      {
+        accessToken: tokenResponse.accessToken,
+        refreshToken: tokenResponse.refreshToken,
+        clientId,
+      },
+      herald
+    )
     store.login(realmId)
 
     const { userPermissions } = await hydrateAuthenticatedSession(store, realmId)
     return { redirectPath: redirectPathForPermissions(userPermissions.permissions) }
   } catch (error) {
-    store.logout()
-    throw error
+    failLoginCompletion(herald, store, error)
   }
 }
 

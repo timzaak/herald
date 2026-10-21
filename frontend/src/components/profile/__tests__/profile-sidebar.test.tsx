@@ -60,7 +60,7 @@ describe('ProfileSidebar', () => {
     )
 
     const entry = screen.getByTestId('profile-admin-console-link')
-    expect(entry).toHaveAttribute('href', '/manage')
+    expect(entry).toHaveAttribute('href', '/test-realm/manage')
     // The entry leads to the whole /manage console, so its label must say
     // "Admin Console" — not "Dashboard", which names the console's landing
     // page and misreads here as user-facing analytics.
@@ -123,7 +123,7 @@ describe('ProfileSidebar', () => {
 
     const entry = screen.getByTestId('profile-menu-subscription')
     expect(entry).toBeInTheDocument()
-    expect(entry).toHaveAttribute('href', '/user/my-subscriptions')
+    expect(entry).toHaveAttribute('href', '/test-realm/user/my-subscriptions')
     expect(entry).toHaveTextContent('Subscription')
   })
 

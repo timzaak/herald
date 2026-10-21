@@ -26,6 +26,7 @@
 
 import { client } from '@/lib/api-generated/client.gen'
 import type { ResolvedRequestOptions } from '@/lib/api-generated/client/types.gen'
+import type { HeraldClient } from 'herald-auth-web'
 import {
   getActiveHeraldClient,
   getHeraldAccessToken,
@@ -46,6 +47,7 @@ const REFRESH_PATH = '/api/auth/browser-token/refresh'
  * request, so waiting here would deadlock instead of recovering.
  */
 const SWITCH_CLIENT_PATH = '/api/auth/browser-token/switch-client'
+const requestClients = new WeakMap<Request, HeraldClient | null>()
 
 /**
  * Run the refresh exactly once for a batch of concurrent 401s. The SDK's
@@ -56,9 +58,8 @@ const SWITCH_CLIENT_PATH = '/api/auth/browser-token/switch-client'
  * turns into a token clear + store logout — mirroring the pre-SDK behaviour —
  * and the 401 propagates to the caller.
  */
-function refreshOnce(): Promise<boolean> {
-  const herald = getActiveHeraldClient()
-  if (!herald || !herald.storage.getRefreshToken()) {
+function refreshOnce(herald: HeraldClient): Promise<boolean> {
+  if (getActiveHeraldClient() !== herald || !herald.storage.getRefreshToken()) {
     return Promise.resolve(false)
   }
   return herald.refresh().then(
@@ -103,7 +104,7 @@ async function replayRequest(options: Record<string, unknown>): Promise<Response
  * Replay `options` with the loop-guard marker set, so a 401 on the replay
  * surfaces to the caller instead of triggering another recovery round.
  */
-async function replayMarkedRequest(options: ReqOptions): Promise<Response> {
+async function replayMarkedRequest(options: ReqOptions, herald: HeraldClient): Promise<Response> {
   // Mark the replay so a subsequent 401 is not refreshed again (loop guard).
   // Preserve the original per-request headers (a `Headers` instance by this
   // stage — spreading it as a plain object would drop them) and add the marker.
@@ -112,6 +113,8 @@ async function replayMarkedRequest(options: ReqOptions): Promise<Response> {
     (replayOptions.headers as Headers | Record<string, string> | undefined) ?? undefined
   )
   headers.set(RETRY_HEADER, '1')
+  const token = herald.tokens.getAccessToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   replayOptions.headers = headers
   return replayRequest(replayOptions)
 }
@@ -125,6 +128,7 @@ async function replayMarkedRequest(options: ReqOptions): Promise<Response> {
  */
 async function usedSupersededAccessToken(request: Request): Promise<boolean> {
   await waitForTokenSwitch()
+  if (requestClients.get(request) !== getActiveHeraldClient()) return false
   const accessToken = getHeraldAccessToken()
   const usedAuthorization = request.headers.get('Authorization')
   return Boolean(accessToken && usedAuthorization && usedAuthorization !== `Bearer ${accessToken}`)
@@ -141,6 +145,8 @@ export function initBearerClient(): void {
     // Skip the refresh endpoint itself — it authenticates with the refresh
     // token in the body, not a Bearer access token.
     const url = options.url
+    const herald = getActiveHeraldClient()
+    requestClients.set(request, herald)
     if (url === REFRESH_PATH) {
       return request
     }
@@ -155,13 +161,19 @@ export function initBearerClient(): void {
     if (!headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${accessToken}`)
     }
-    return new Request(request, { headers })
+    const authenticatedRequest = new Request(request, { headers })
+    requestClients.set(authenticatedRequest, herald)
+    return authenticatedRequest
   })
 
   // --- Response interceptor: 401 → refresh → retry once; mid-switch 403 →
   // replay with the rotated token (genuine 403s pass through) ---
   client.interceptors.response.use(
     async (response: Response, request: Request, options: ReqOptions) => {
+      const herald = requestClients.get(request)
+      // Recovery belongs to the identity that sent this request. A late 401
+      // from another realm must never refresh or replay using the new realm.
+      if (!herald || herald !== getActiveHeraldClient()) return response
       // Admin-console-scoped endpoints reject a mid-switch (superseded) access
       // token with 403 instead of 401. Replay only when the token actually
       // rotated while the request was in flight; a genuine permission 403 must
@@ -174,7 +186,7 @@ export function initBearerClient(): void {
           !request.headers.get(RETRY_HEADER) &&
           (await usedSupersededAccessToken(request))
         ) {
-          return replayMarkedRequest(options)
+          return replayMarkedRequest(options, herald)
         }
         return response
       }
@@ -198,15 +210,15 @@ export function initBearerClient(): void {
       // the superseded refresh token would revoke the family and log the
       // freshly-rotated session out.
       if (url !== SWITCH_CLIENT_PATH && (await usedSupersededAccessToken(request))) {
-        return replayMarkedRequest(options)
+        return replayMarkedRequest(options, herald)
       }
 
-      const refreshed = await refreshOnce()
-      if (!refreshed) {
+      const refreshed = await refreshOnce(herald)
+      if (!refreshed || herald !== getActiveHeraldClient()) {
         // Refresh failed; let the 401 propagate so the caller routes to re-login.
         return response
       }
-      return replayMarkedRequest(options)
+      return replayMarkedRequest(options, herald)
     }
   )
 }

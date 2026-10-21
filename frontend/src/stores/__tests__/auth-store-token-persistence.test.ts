@@ -6,8 +6,8 @@
  *   - the token family (in-memory AT + persisted RT) lives in the Herald SDK
  *     client's per-realm storage slot (`herald.refreshToken:{realmId}`), NOT
  *     in the Zustand persist
- *   - the store persists UI/routing auth state (user, permissions,
- *     refreshClientId) and the PKCE state — never token material
+ *   - authentication UI state stays in memory; only a realm-bound PKCE flow
+ *     persists in this tab's sessionStorage
  *   - `logout()` / `reset()` / `clearAuthStorage()` purge the store state
  *   - the storage keys stay stable (AUTH_STORAGE_KEY, SDK storage keys)
  */
@@ -27,9 +27,9 @@ import { TOKEN_FIXTURE } from '@/test/fixtures/browser-token'
 
 const TEST_REALM = 'realm-1'
 
-/** Read the persisted snapshot written to localStorage by the persist middleware. */
+/** Read the pending flow snapshot written to this tab's sessionStorage. */
 function readPersistedSnapshot(): Record<string, unknown> {
-  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+  const raw = window.sessionStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return {}
   try {
     const parsed = JSON.parse(raw)
@@ -41,6 +41,8 @@ function readPersistedSnapshot(): Record<string, unknown> {
 }
 
 const SAMPLE_PKCE: PersistedPkceState = {
+  realmId: TEST_REALM,
+  expiresAt: Date.now() + 600000,
   codeVerifier: 'verifier-abc',
   clientId: TOKEN_FIXTURE.clientId,
   redirectUri: 'http://localhost/callback',
@@ -63,11 +65,12 @@ beforeEach(() => {
   getActiveHeraldClient()?.tokens.clear()
   useAuthStore.getState().reset()
   window.localStorage.removeItem(AUTH_STORAGE_KEY)
+  window.sessionStorage.removeItem(AUTH_STORAGE_KEY)
   window.localStorage.removeItem(heraldRefreshTokenStorageKey(TEST_REALM))
 })
 
 describe('token family lives in the Herald SDK client, not the store persist', () => {
-  it('applyTokenSet stores AT in the SDK holder + RT in SDK storage, and only routing state in the store', () => {
+  it('keeps credentials in the SDK and persists only a tab-local PKCE transaction', () => {
     seedSession()
 
     // SDK owns the token family.
@@ -80,6 +83,11 @@ describe('token family lives in the Herald SDK client, not the store persist', (
     const snapshot = readPersistedSnapshot()
     expect(snapshot).not.toHaveProperty('refreshToken')
     expect(snapshot).not.toHaveProperty('accessToken')
+    expect(snapshot).not.toHaveProperty('realmId')
+    expect(snapshot).not.toHaveProperty('user')
+    expect(snapshot).not.toHaveProperty('permissions')
+    expect(snapshot).not.toHaveProperty('isAuthenticated')
+    expect(window.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
     expect(snapshot.pkceState).toMatchObject(SAMPLE_PKCE)
   })
 
@@ -166,7 +174,7 @@ describe('logout() / reset() / clearAuthStorage() purge the store state', () => 
     expect(useAuthStore.getState().pkceState).toBeNull()
   })
 
-  it('clearAuthStorage() wipes the persisted localStorage snapshot (no routing/PKCE residue)', () => {
+  it('clearAuthStorage() wipes the pending flow snapshot and legacy shared authentication data', () => {
     clearAuthStorage()
 
     const snapshot = readPersistedSnapshot()
@@ -175,36 +183,35 @@ describe('logout() / reset() / clearAuthStorage() purge the store state', () => 
   })
 })
 
-describe('logout keeps the last-visited realm memory (bare-origin landing contract)', () => {
-  it('the logoutFlow persistence sequence leaves only the realm behind — no tokens, user, or PKCE residue — and the bare root resolves back to it', () => {
+describe('logout cannot change another tabs route identity', () => {
+  it('the logoutFlow cleanup does not write a shared realm or authentication snapshot', () => {
     seedSession()
 
-    // logoutFlow's finally block, in order (auth-utils.ts): SDK token clear,
-    // store reset, persisted-storage wipe, then the realm-memory re-persist.
+    // logoutFlow clears this realm's SDK token and this tab's pending flow.
     getActiveHeraldClient()?.tokens.clear()
     useAuthStore.getState().reset()
     clearAuthStorage()
     useAuthStore.getState().setAuthStatus(false, TEST_REALM)
 
-    // The memory — and only the memory — survives the logout.
+    // Neither UI authentication nor a remembered realm is shared with tabs.
     const snapshot = readPersistedSnapshot()
-    expect(snapshot.realmId).toBe(TEST_REALM)
-    expect(snapshot.isAuthenticated).toBe(false)
-    expect(snapshot.refreshClientId).toBeNull()
+    expect(snapshot.realmId).toBeUndefined()
+    expect(snapshot.isAuthenticated).toBeUndefined()
+    expect(snapshot.refreshClientId).toBeUndefined()
     expect(snapshot.pkceState).toBeNull()
-    expect(snapshot.user).toBeNull()
+    expect(snapshot.user).toBeUndefined()
     expect(getActiveHeraldClient()?.storage.getRefreshToken()).toBeNull()
 
-    // So a later bare-origin visit lands back on the logged-out realm's
-    // login page instead of the hardcoded admin default.
-    expect(getLegacyRealmId('/')).toBe(TEST_REALM)
+    // Another tab's explicit URL still identifies its own realm.
+    expect(getLegacyRealmId('/oncewise/manage/settings')).toBe('oncewise')
+    expect(window.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
   })
 })
 
 describe('storage keys: stable shared constants (no undocumented keys)', () => {
   it('the persist middleware writes under AUTH_STORAGE_KEY', () => {
     seedSession()
-    expect(window.localStorage.getItem(AUTH_STORAGE_KEY)).not.toBeNull()
+    expect(window.sessionStorage.getItem(AUTH_STORAGE_KEY)).not.toBeNull()
     expect(AUTH_STORAGE_KEY).toBe('auth-storage')
   })
 })
@@ -217,5 +224,39 @@ describe('PKCE state round-trip (getPkceState reads what setPkceState wrote)', (
     // Clearing returns null.
     useAuthStore.getState().setPkceState(null)
     expect(useAuthStore.getState().getPkceState()).toBeNull()
+  })
+
+  it('ignores persisted UI authentication state and restores only an unexpired realm-bound flow', async () => {
+    useAuthStore.getState().reset()
+    sessionStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          isAuthenticated: true,
+          realmId: 'admin',
+          user: { id: 'admin-user' },
+          permissions: ['realm.manage'],
+          pkceState: SAMPLE_PKCE,
+        },
+        version: 0,
+      })
+    )
+    await useAuthStore.persist.rehydrate()
+    expect(useAuthStore.getState()).toMatchObject({
+      isAuthenticated: false,
+      realmId: null,
+      user: null,
+      permissions: [],
+      pkceState: SAMPLE_PKCE,
+    })
+  })
+
+  it.each([
+    { ...SAMPLE_PKCE, expiresAt: Date.now() - 1000 },
+    { ...SAMPLE_PKCE, realmId: undefined },
+  ])('does not restore an expired or legacy realm-less PKCE flow', async (pkceState) => {
+    sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ state: { pkceState }, version: 0 }))
+    await useAuthStore.persist.rehydrate()
+    expect(useAuthStore.getState().pkceState).toBeNull()
   })
 })

@@ -58,6 +58,7 @@ import { AgreementLinks } from '@/components/legal/AgreementLinks'
 import { formatDate } from '@/lib/date-utils'
 import {
   realmPath,
+  realmRelativePath,
   useCurrentSearch,
   useOptionalRouteParams,
   useResolvedRealmContext,
@@ -301,7 +302,13 @@ export function LoginPage() {
       toast.success(m['auth.login.login_successful']())
 
       const userRealmId = response.realmId || realmId
-      let redirectPath = search.redirect || data.result.redirectPath
+      // The realm canonicalization redirect forwards legacy ?redirect= values
+      // verbatim, so a bookmarked /{realmId}/... prefix can survive onto the
+      // login URL; strip this realm's own prefix before the open-redirect
+      // whitelist (which only admits prefix-less product paths).
+      let redirectPath = search.redirect
+        ? realmRelativePath(realmContext, search.redirect)
+        : data.result.redirectPath
 
       // Prevent open redirect attacks
       redirectPath = getSafeRedirect(redirectPath)
@@ -440,8 +447,12 @@ export function LoginPage() {
    * user in a different home realm.
    */
   async function navigateAfterLoginSuccess(redirectPath: string | undefined): Promise<void> {
-    // Prevent open redirect attacks
-    let safeRedirectPath = getSafeRedirect(search.redirect, redirectPath)
+    // Prevent open redirect attacks; strip a forwarded legacy /{realmId}
+    // prefix first (see the loginMutation redirect handling above).
+    let safeRedirectPath = getSafeRedirect(
+      search.redirect ? realmRelativePath(realmContext, search.redirect) : undefined,
+      redirectPath
+    )
 
     if (safeRedirectPath === '/') {
       safeRedirectPath = redirectPath || '/user/profile'
@@ -536,6 +547,7 @@ export function LoginPage() {
       gate.restrictedSession
     ) {
       applyTokenSet({
+        realmId,
         accessToken: gate.restrictedSession.accessToken,
         refreshToken: gate.restrictedSession.refreshToken,
         clientId: resolvedClientId,

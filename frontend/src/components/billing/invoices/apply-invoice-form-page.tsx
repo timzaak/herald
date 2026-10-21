@@ -13,6 +13,7 @@ import {
 import { useApplyInvoice } from '@/data/invoice-mutations'
 import { m } from '@/paraglide/messages'
 import { resolveApiError } from '@/lib/error-utils'
+import { realmPath, realmRelativePath, useResolvedRealmContext } from '@/lib/realm-routing'
 
 interface ApplyInvoiceFormPageProps {
   realmId: string
@@ -26,6 +27,8 @@ export function ApplyInvoiceFormPage({
   returnTo,
 }: ApplyInvoiceFormPageProps) {
   const navigate = useNavigate()
+  const realmContext = useResolvedRealmContext()
+  const invoicePath = realmPath({ ...realmContext, realmId }, '/user/invoices')
   const applyMutation = useApplyInvoice(realmId)
   const { mutate: apply, isPending: isSubmitting } = applyMutation
   // The legacy `creem_merchant_of_record` code is kept for the rename deploy
@@ -46,8 +49,7 @@ export function ApplyInvoiceFormPage({
       apply(value, {
         onSuccess: () => {
           navigate({
-            to: '/$realmId/user/invoices',
-            params: { realmId },
+            to: invoicePath,
           })
         },
       })
@@ -55,25 +57,26 @@ export function ApplyInvoiceFormPage({
   })
 
   const handleCancel = () => {
-    if (returnTo === `/${realmId}/user/points`) {
+    // Accept the return target in either URL form (realm-prefixed on the main
+    // domain, bare on a custom domain) by normalizing through the shared
+    // realm-relative helper before matching the whitelist.
+    const returnPath = realmRelativePath({ ...realmContext, realmId }, returnTo ?? '')
+    if (returnPath === '/user/points') {
       navigate({
-        to: '/$realmId/user/points',
-        params: { realmId },
+        to: realmPath({ ...realmContext, realmId }, '/user/points'),
       })
       return
     }
 
-    if (returnTo === `/${realmId}/user/subscription-history`) {
+    if (returnPath === '/user/subscription-history') {
       navigate({
-        to: '/$realmId/user/subscription-history',
-        params: { realmId },
+        to: realmPath({ ...realmContext, realmId }, '/user/subscription-history'),
       })
       return
     }
 
     navigate({
-      to: '/$realmId/user/invoices',
-      params: { realmId },
+      to: invoicePath,
     })
   }
 

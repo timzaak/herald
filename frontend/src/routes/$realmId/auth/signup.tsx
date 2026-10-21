@@ -15,8 +15,8 @@ export const Route = createFileRoute('/$realmId/auth/signup')({
 // Self-service realm signup is an admin-realm-only public entry (DEC-001): the
 // backend rejects any `realmId !== "admin"`. Branding still reads the admin
 // realm's public config so the page presents the platform brand regardless of
-// the URL it was opened under (main domain `/admin/auth/signup`, mirror
-// `/auth/signup`, or a custom domain).
+// the main-domain URL it was opened under. A bound custom host cannot serve
+// the newly created realm and therefore does not offer platform signup.
 export function SignupPage() {
   const navigate = useNavigate()
   // Reused by the mirror `/auth/signup` route (same component), so resolve the
@@ -26,17 +26,20 @@ export function SignupPage() {
   const realmContext = resolvedRealmFromPath(pathname)
 
   const { data: publicConfig, isLoading: publicConfigLoading } = useQuery(
-    publicConfigQueryOptions(ADMIN_REALM_ID)
+    publicConfigQueryOptions(realmContext.isCustomDomain ? realmContext.realmId : ADMIN_REALM_ID)
   )
   const {
     data: signupStatus,
     isLoading: statusLoading,
     error: statusError,
-  } = useQuery(signupStatusQueryOptions(ADMIN_REALM_ID))
+  } = useQuery({
+    ...signupStatusQueryOptions(ADMIN_REALM_ID),
+    enabled: !realmContext.isCustomDomain,
+  })
   const whiteLabel = publicConfig?.whiteLabel ?? null
 
   const isLoading = publicConfigLoading || statusLoading
-  const signupEnabled = signupStatus?.enabled === true
+  const signupEnabled = !realmContext.isCustomDomain && signupStatus?.enabled === true
 
   function handleSignupSuccess(redirectPath: string, realmId: string): void {
     // One-shot signal for the console's first-login guidance: keyed to the

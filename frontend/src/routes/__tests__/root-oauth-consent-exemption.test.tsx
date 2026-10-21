@@ -52,13 +52,7 @@ vi.mock('@tanstack/react-router', async () => {
 })
 
 import { Route as RootRoute } from '../__root'
-
-type RootLoaderFn = (ctx: { location: { pathname: string } }) => Promise<Record<string, never>>
-
-function runRootLoader(pathname: string) {
-  const loader = (RootRoute as unknown as { loader: RootLoaderFn }).loader
-  return loader({ location: { pathname } })
-}
+import { runRootBeforeLoad } from '@/test/utils/root-route'
 
 describe('__root loader OAuth consent exemption', () => {
   beforeEach(() => {
@@ -74,7 +68,9 @@ describe('__root loader OAuth consent exemption', () => {
       clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
     })
 
-    await expect(runRootLoader('/test-realm/auth/consent')).resolves.toEqual({})
+    await expect(runRootBeforeLoad(RootRoute, '/test-realm/auth/consent')).resolves.toMatchObject({
+      realmContext: { realmId: 'test-realm' },
+    })
   })
 
   it('still bounces an authenticated user off a regular /auth page (the contrast that makes the exemption necessary)', async () => {
@@ -83,7 +79,9 @@ describe('__root loader OAuth consent exemption', () => {
       clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
     })
 
-    const error = await runRootLoader('/test-realm/auth/login').catch((thrown) => thrown)
+    const error = await runRootBeforeLoad(RootRoute, '/test-realm/auth/login').catch(
+      (thrown) => thrown
+    )
     expect(isRedirect(error)).toBe(true)
     expect(JSON.stringify(error)).toContain('user/profile')
   })
@@ -94,7 +92,9 @@ describe('__root loader OAuth consent exemption', () => {
       clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
     })
 
-    await expect(runRootLoader('/test-realm/auth/consent')).resolves.toEqual({})
+    await expect(runRootBeforeLoad(RootRoute, '/test-realm/auth/consent')).resolves.toMatchObject({
+      realmContext: { realmId: 'test-realm' },
+    })
   })
 
   it('lets a cross-realm session reach /auth/login (the consent page forwards it there to re-authenticate)', async () => {
@@ -109,6 +109,21 @@ describe('__root loader OAuth consent exemption', () => {
       clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
     })
 
-    await expect(runRootLoader('/test-realm/auth/login')).resolves.toEqual({})
+    await expect(runRootBeforeLoad(RootRoute, '/test-realm/auth/login')).resolves.toMatchObject({
+      realmContext: { realmId: 'test-realm' },
+    })
+  })
+
+  it('requires the route realm on protected pages even if an unrelated session is authenticated', async () => {
+    useAuthStore.setState({ realmId: 'admin' })
+    mockInitializeAuth.mockResolvedValue({
+      authenticated: true,
+      clientId: USER_ACCOUNT_CENTER_CLIENT_ID,
+    })
+    const outcome = await runRootBeforeLoad(RootRoute, '/test-realm/user/profile').catch(
+      (error) => error
+    )
+    expect(isRedirect(outcome)).toBe(true)
+    expect(outcome.options).toMatchObject({ to: '/test-realm/auth/login' })
   })
 })

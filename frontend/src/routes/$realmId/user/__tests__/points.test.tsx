@@ -27,6 +27,19 @@ import { UserPointsWrapper } from '../points'
 import { transactionBucketSearchSchema } from '@/lib/schemas/points-forms'
 import type { ListWalletsByBucketResponse } from '@/lib/api-generated'
 
+// This minimal router omits the root's Host lookup. Supply its established
+// realm to the shared page for the main-domain and custom-domain route forms.
+vi.mock('@/lib/realm-routing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/realm-routing')>()
+  return {
+    ...actual,
+    useResolvedRealmContext: () => ({
+      realmId: 'realm-001',
+      isCustomDomain: actual.useCurrentPathname().startsWith('/user/'),
+    }),
+  }
+})
+
 // Seed wallets/transactions without MSW (UserPointsPage test pattern). One
 // wallet-backed bucket so the Bucket Select renders a real option.
 vi.mock('@/data/query-options', () => ({

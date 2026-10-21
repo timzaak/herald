@@ -19,6 +19,22 @@ import {
 } from '@/lib/constants/auth-constants'
 import { makePaymentStats, makePointsStats } from '@/test/fixtures/billing-stats'
 
+// Both URL shapes remain supported: prefixed URLs on the main host and
+// prefix-less URLs on a bound custom host. Host lookup itself is covered by
+// realm-routing/custom-domain guard tests; this suite exercises page searches.
+const hostMode = vi.hoisted(() => ({ isCustomDomain: false }))
+vi.mock('@/lib/realm-routing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/realm-routing')>()
+  const context = () => ({ realmId: 'admin', isCustomDomain: hostMode.isCustomDomain })
+  return {
+    ...actual,
+    resolveRealmContext: async () => context(),
+    resolvedRealmFromPath: context,
+    useResolvedRealmContext: context,
+    useResolvedRealmId: () => 'admin',
+  }
+})
+
 /**
  * Full-route-tree regression for manage pages shared by BOTH route forms:
  * each page component backs /$realmId/manage/... and the prefix-less mirror
@@ -114,6 +130,7 @@ const WAIT_ASSERTION_MS = 10000
 const TEST_BUDGET_MS = 30000
 
 function renderAt(initialUrl: string) {
+  hostMode.isCustomDomain = !initialUrl.startsWith('/admin/')
   const queryClient = createTestQueryClient()
   const router = createRouter({
     routeTree,

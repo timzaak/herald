@@ -13,6 +13,15 @@ import { OnboardingOrchestrator } from '../onboarding-orchestrator'
 // it at a different realm's console.
 const routerState = vi.hoisted(() => ({ pathname: '/admin/manage' }))
 const navigateMock = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/realm-routing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/realm-routing')>()),
+  useResolvedRealmContext: () => ({
+    realmId: routerState.pathname.startsWith('/manage')
+      ? 'admin'
+      : routerState.pathname.split('/')[1],
+    isCustomDomain: routerState.pathname.startsWith('/manage'),
+  }),
+}))
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
   return {

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
-import { renderWithProviders } from '@/test/utils/render'
+import { createTestQueryClient, renderWithProviders } from '@/test/utils/render'
+import { signupStatusQueryOptions } from '@/data/query-options'
 import { SignupCtaBlock } from '../signup-cta-block'
 
 // The block renders a TanStack Router Link; outside a real router only the
@@ -38,6 +39,17 @@ describe('SignupCtaBlock visibility (fail-closed)', () => {
 
   beforeEach(() => {
     statusRequests = []
+  })
+
+  it('does not offer cross-realm platform signup on a bound custom host even with cached enabled status', () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(signupStatusQueryOptions('admin').queryKey, { enabled: true })
+    renderWithProviders(
+      <SignupCtaBlock realmContext={{ realmId: 'admin', isCustomDomain: true }} />,
+      queryClient
+    )
+    expect(screen.queryByTestId('signup-cta-block')).not.toBeInTheDocument()
+    queryClient.clear()
   })
 
   it('GIVEN the platform signup switch is enabled WHEN the block mounts THEN it renders and links into the admin realm signup page', async () => {

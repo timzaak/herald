@@ -507,7 +507,7 @@ describe('InvoiceAdminPage', () => {
       const link = screen.getByTestId('create-invoice-configure-link')
       expect(link).toHaveTextContent('Configure')
       // Deep-link to the invoices route with the seller-config open param.
-      expect(link).toHaveAttribute('href', '/manage/billing/invoices?open=seller')
+      expect(link).toHaveAttribute('href', `/${REALM_ID}/manage/billing/invoices?open=seller`)
     })
   })
 

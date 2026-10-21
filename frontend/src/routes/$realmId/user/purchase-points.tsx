@@ -19,6 +19,7 @@ import { PaymentMethodSelector } from '@/components/purchase/payment-method-sele
 import { PaymentAttemptStatus } from '@/components/purchase/payment-attempt-status'
 import { usePurchaseFlowActions, usePaymentAttempt } from '@/stores/purchase-flow-store'
 import { usePurchaseFlowStore } from '@/stores/purchase-flow-store'
+import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 import { useAuthStore } from '@/stores/auth-store'
 import { useLocale } from '@/components/shared/locale-provider'
 import { initializeAuth } from '@/lib/auth-utils'
@@ -106,6 +107,7 @@ export function PurchasePointsPage({
   wechatOpenid?: string
 }) {
   const navigate = useNavigate()
+  const realmContext = useResolvedRealmContext()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.user)
   // App UI language (locale-provider state, not navigator.language) — sent on
@@ -399,7 +401,8 @@ export function PurchasePointsPage({
 
   const handleRetry = () => setCurrentStep('payment')
   const handleCancel = () => cancelPaymentMutation.mutate()
-  const handleComplete = () => navigate({ to: `/${realmId}/user/points` })
+  const handleComplete = () =>
+    navigate({ to: realmPath({ ...realmContext, realmId }, '/user/points') })
 
   const isNextDisabled = () => {
     if (currentStep === 'packages') return !selectedMappingId

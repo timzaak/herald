@@ -29,10 +29,8 @@ import type {
   BrowserTokenResponse,
   SwitchClientResponse,
 } from '@/lib/api-generated'
-import type { ConsentAgreement, LoginResult } from 'herald-auth-web'
-import { ensureHeraldClient, getActiveHeraldClient } from '@/lib/herald-client'
-import { useAuthStore } from '@/stores/auth-store'
-import { ADMIN_REALM_ID } from '@/lib/constants/auth-constants'
+import type { ConsentAgreement, HeraldClient, LoginResult } from 'herald-auth-web'
+import { ensureHeraldClient, assertActiveHeraldClient } from '@/lib/herald-client'
 
 /**
  * Extended status response with permissions
@@ -46,10 +44,16 @@ export interface ExtendedStatusResponse extends StatusResponse {
  *
  * @returns The authentication status
  */
-export async function fetchAuthStatus(): Promise<StatusResponse> {
-  const realmId = useAuthStore.getState().realmId ?? ADMIN_REALM_ID
-  const data = await ensureHeraldClient(realmId).getStatus()
+export async function fetchAuthStatus(herald: HeraldClient): Promise<StatusResponse> {
+  const data = await herald.getStatus()
+  assertActiveHeraldClient(herald)
   return data as StatusResponse
+}
+
+function authHeaders(herald: HeraldClient): HeadersInit {
+  assertActiveHeraldClient(herald)
+  const token = herald.tokens.getAccessToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 /**
@@ -57,11 +61,14 @@ export async function fetchAuthStatus(): Promise<StatusResponse> {
  *
  * @returns Object containing permissions and roles arrays
  */
-export async function fetchUserPermissions(): Promise<{ permissions: string[]; roles: string[] }> {
+export async function fetchUserPermissions(
+  herald: HeraldClient
+): Promise<{ permissions: string[]; roles: string[] }> {
   const [permissionsResult, rolesResult] = await Promise.all([
-    getCurrentUserPermissions(),
-    getUserRoles(),
+    getCurrentUserPermissions({ headers: authHeaders(herald) }),
+    getUserRoles({ headers: authHeaders(herald) }),
   ])
+  assertActiveHeraldClient(herald)
 
   if (permissionsResult.error || rolesResult.error) {
     return { permissions: [], roles: [] }
@@ -78,8 +85,9 @@ export async function fetchUserPermissions(): Promise<{ permissions: string[]; r
  *
  * @returns The user profile or null if not authenticated
  */
-export async function fetchUserProfile(): Promise<UserProfile | null> {
-  const { data, error } = await getProfile()
+export async function fetchUserProfile(herald: HeraldClient): Promise<UserProfile | null> {
+  const { data, error } = await getProfile({ headers: authHeaders(herald) })
+  assertActiveHeraldClient(herald)
   if (error || !data) {
     return null
   }
@@ -194,9 +202,7 @@ export async function performLdapLogin(
  * Herald SDK client (which also clears its token state and emits
  * `logged-out`).
  */
-export async function performLogout(): Promise<void> {
-  const herald = getActiveHeraldClient()
-  if (!herald) return
+export async function performLogout(herald: HeraldClient): Promise<void> {
   await herald.logout()
 }
 
@@ -214,11 +220,14 @@ export class ClientSwitchError extends Error {
 }
 
 export async function switchFirstPartyClient(
-  targetClientId: string
+  targetClientId: string,
+  herald: HeraldClient
 ): Promise<SwitchClientResponse> {
   const { data, error, response } = await switchClient({
     body: { targetClientId },
+    headers: authHeaders(herald),
   })
+  assertActiveHeraldClient(herald)
   if (!data) {
     throw new ClientSwitchError(response.status, error)
   }
@@ -289,17 +298,24 @@ export async function performPkceTokenExchange(
  *
  * @returns Object containing auth status, user permissions, and profile
  */
-export async function fetchAuthData(): Promise<{
+export async function fetchAuthData(
+  herald: HeraldClient,
+  realmId: string
+): Promise<{
   authStatus: StatusResponse
   userPermissions: { permissions: string[]; roles: string[] }
   userProfile: UserProfile | null
 }> {
   // First, check authentication status
-  const authStatus = await fetchAuthStatus()
+  const authStatus = await fetchAuthStatus(herald)
+  if (authStatus.authenticated && authStatus.realmId !== realmId) {
+    herald.tokens.clear()
+    throw new Error('Authenticated session does not match the route realm')
+  }
 
   // Fetch user data in parallel since they have no dependency on each other
   const [userPermissions, userProfile] = authStatus.authenticated
-    ? await Promise.all([fetchUserPermissions(), fetchUserProfile().catch(() => null)])
+    ? await Promise.all([fetchUserPermissions(herald), fetchUserProfile(herald).catch(() => null)])
     : [{ permissions: [], roles: [] }, null]
 
   return {

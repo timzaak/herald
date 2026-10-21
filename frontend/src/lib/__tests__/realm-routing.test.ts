@@ -1,80 +1,130 @@
-/**
- * Bare-origin realm resolution honors the persisted last-visited realm.
- *
- * The realm for a URL without a realm prefix used to be a hardcoded 'admin'.
- * But the session store already persists the realm the user last visited —
- * `initializeAuth` writes it on every realm page entry (anonymous visits
- * included), and `logoutFlow` re-persists it after logout. These tests pin
- * the resolution contract:
- *   - the bare '/' reads that memory, so a returning user lands back on
- *     their realm's login page (and a live session restores against the
- *     right realm-scoped Herald client) instead of the admin default;
- *   - 'admin' remains the fallback for a fresh browser with no memory;
- *   - a realm in the URL always wins over the memory.
- */
-
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { getLegacyRealmId, resolveRealmContext } from '@/lib/realm-routing'
-import { useAuthStore } from '@/stores/auth-store'
 
-// On the main domain the custom-domain probe deterministically 404s — that is
-// the path the bare '/' takes through resolveRealmContext.
-vi.mock('@/lib/api-generated', () => ({
-  resolveCustomDomain: vi.fn(async () => ({ data: null, error: { status: 404 } })),
-}))
+const resolveHost = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/api-generated', () => ({ resolveCustomDomain: resolveHost }))
 
-beforeEach(() => {
-  useAuthStore.getState().reset()
+let routing: typeof import('@/lib/realm-routing')
+let authStore: typeof import('@/stores/auth-store')
+
+beforeEach(async () => {
+  vi.resetModules()
+  resolveHost.mockReset()
+  resolveHost.mockResolvedValue({ error: {}, response: { status: 404 } })
+  routing = await import('@/lib/realm-routing')
+  // Import the store from the SAME post-resetModules graph as the module
+  // under test: if realm-routing ever goes back to reading login memory from
+  // the store, these writes are what it must observe. A statically imported
+  // instance would be isolated by resetModules and the "URL realm ignores
+  // login memory" contract would pass vacuously.
+  authStore = await import('@/stores/auth-store')
+  authStore.useAuthStore.getState().reset()
 })
 
-describe('bare-root / resolves to the persisted last-visited realm', () => {
-  it('returns the remembered realm of a live session', () => {
-    useAuthStore.getState().setAuthStatus(true, 'realm-042')
-
-    expect(getLegacyRealmId('/')).toBe('realm-042')
+describe('main-domain realm identity belongs to the URL', () => {
+  it('keeps two realm URLs independent of the last login or logout', async () => {
+    authStore.useAuthStore.getState().setAuthStatus(true, 'admin')
+    expect((await routing.resolveRealmContext('/oncewise/manage/settings')).realmId).toBe(
+      'oncewise'
+    )
+    authStore.useAuthStore.getState().setAuthStatus(false, 'oncewise')
+    expect((await routing.resolveRealmContext('/admin/manage/settings')).realmId).toBe('admin')
+    expect((await routing.resolveRealmContext('/oncewise/manage/settings')).realmId).toBe(
+      'oncewise'
+    )
+    expect(resolveHost).toHaveBeenCalledTimes(1)
   })
 
-  it('returns the post-logout memory — the exact shape logoutFlow leaves behind (no session, only the realm)', () => {
-    useAuthStore.getState().setAuthStatus(false, 'realm-001')
+  it.each(['/manage/settings', '/user/profile', '/subscription'])(
+    'refuses to guess the realm for %s',
+    async (pathname) => {
+      authStore.useAuthStore.getState().setAuthStatus(true, 'oncewise')
+      await expect(routing.resolveRealmContext(pathname)).rejects.toBeInstanceOf(
+        routing.RealmRequiredError
+      )
+    }
+  )
 
-    expect(getLegacyRealmId('/')).toBe('realm-001')
+  it('uses a deterministic admin root and public legacy entry instead of shared login memory', () => {
+    authStore.useAuthStore.getState().setAuthStatus(true, 'oncewise')
+    expect(routing.getLegacyRealmId('/')).toBe('admin')
+    expect(routing.getLegacyRealmId('/auth/login')).toBe('admin')
   })
 
-  it("falls back to the default 'admin' realm on a fresh browser with no memory", () => {
-    expect(useAuthStore.getState().realmId).toBeNull()
-
-    expect(getLegacyRealmId('/')).toBe('admin')
+  it.each([
+    '/manage/settings',
+    '/user/profile',
+    '/subscription',
+    '/auth/login',
+    '/legal/privacy',
+    '/device',
+  ])('retains the realm when generating %s', (path) => {
+    expect(routing.realmPath({ realmId: 'oncewise', isCustomDomain: false }, path)).toBe(
+      `/oncewise${path}`
+    )
   })
 })
 
-describe('a realm in the URL always wins over the memory', () => {
+describe('a bound custom domain owns all realm entrances', () => {
   beforeEach(() => {
-    useAuthStore.getState().setAuthStatus(true, 'realm-001')
+    resolveHost.mockResolvedValue({ data: { realmId: 'oncewise', publicConfig: {} } })
   })
 
-  it('realm-prefixed paths use the URL segment even when the store remembers another realm', () => {
-    expect(getLegacyRealmId('/acme/auth/login')).toBe('acme')
+  it.each(['/manage/settings', '/user/profile', '/subscription', '/auth/login', '/'])(
+    'uses the Host mapping for %s even with an admin store',
+    async (pathname) => {
+      authStore.useAuthStore.getState().setAuthStatus(true, 'admin')
+      expect(await routing.resolveRealmContext(pathname)).toMatchObject({
+        realmId: 'oncewise',
+        isCustomDomain: true,
+      })
+      expect(routing.resolvedRealmFromPath(pathname).realmId).toBe('oncewise')
+      expect(
+        routing.realmPath({ realmId: 'oncewise', isCustomDomain: true }, '/manage/settings')
+      ).toBe('/manage/settings')
+    }
+  )
+
+  it('resolves the Host even when the path carries another realm', async () => {
+    expect(await routing.resolveRealmContext('/admin/manage/settings')).toMatchObject({
+      realmId: 'oncewise',
+      isCustomDomain: true,
+    })
+    expect(resolveHost).toHaveBeenCalledTimes(1)
   })
 
-  it('session-scoped roots keep reading the session store', () => {
-    expect(getLegacyRealmId('/user/profile')).toBe('realm-001')
-  })
-
-  it('prefix-less public roots still resolve to admin (legacy entry, deliberately unchanged)', () => {
-    expect(getLegacyRealmId('/auth/login')).toBe('admin')
+  it('shares one in-flight host lookup between concurrent guards', async () => {
+    await Promise.all([
+      routing.resolveRealmContext('/auth/login'),
+      routing.resolveRealmContext('/manage'),
+    ])
+    expect(resolveHost).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('resolveRealmContext on a 404ing custom-domain probe (main domain)', () => {
-  // resolveRealmContext caches the fallback context for the whole page
-  // session (cachedCustomDomainContext), so exactly one test here may call
-  // it — a second call would read the first test's cache.
-  it('initializes the bare root with the remembered realm so the root loader runs the session restore against the right realm client', async () => {
-    useAuthStore.getState().setAuthStatus(true, 'realm-001')
-
-    const context = await resolveRealmContext('/')
-
-    expect(context.realmId).toBe('realm-001')
-    expect(context.isCustomDomain).toBe(false)
+it('fails closed on a resolver outage and allows retry, rather than selecting admin', async () => {
+  resolveHost.mockResolvedValueOnce({ error: {}, response: { status: 503 } })
+  await expect(routing.resolveRealmContext('/oncewise/manage')).rejects.toThrow('Unable to resolve')
+  resolveHost.mockResolvedValueOnce({ data: { realmId: 'oncewise' } })
+  expect(await routing.resolveRealmContext('/manage')).toMatchObject({
+    realmId: 'oncewise',
+    isCustomDomain: true,
   })
+})
+
+it('fails closed with the sentinel error when the resolver fails without a response (network outage)', async () => {
+  // The generated client resolves network-level failures (DNS / offline) as
+  // `{ error, response: undefined }` — the sentinel must surface, not a
+  // TypeError from dereferencing the missing response.
+  resolveHost.mockResolvedValueOnce({ error: new Error('fetch failed'), response: undefined })
+  await expect(routing.resolveRealmContext('/oncewise/manage')).rejects.toThrow(
+    'Unable to resolve custom-domain realm'
+  )
+})
+
+it('removes only a complete realm segment when preserving a return path', () => {
+  const context = { realmId: 'once', isCustomDomain: false }
+  expect(routing.realmRelativePath(context, '/once/manage/settings')).toBe('/manage/settings')
+  expect(routing.realmRelativePath(context, '/oncewise/manage/settings')).toBe(
+    '/oncewise/manage/settings'
+  )
 })

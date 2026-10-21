@@ -91,7 +91,7 @@ describe('ChangeEmailConfirmPage', () => {
     // — same rule the profile sidebar links follow.
     expect(screen.getByTestId('change-email-confirm-back-link')).toHaveAttribute(
       'href',
-      '/user/profile'
+      '/realm-001/user/profile'
     )
   })
 

@@ -187,8 +187,7 @@ describe('ApplyInvoiceFormPage', () => {
 
       // Should navigate back after successful submit
       expect(mockNavigate).toHaveBeenCalledWith({
-        to: '/$realmId/user/invoices',
-        params: { realmId: REALM_ID },
+        to: `/${REALM_ID}/user/invoices`,
       })
     })
   })
@@ -213,8 +212,7 @@ describe('ApplyInvoiceFormPage', () => {
       await user.click(screen.getByTestId('apply-invoice-back-button'))
 
       expect(mockNavigate).toHaveBeenCalledWith({
-        to: '/$realmId/user/invoices',
-        params: { realmId: REALM_ID },
+        to: `/${REALM_ID}/user/invoices`,
       })
     })
   })
