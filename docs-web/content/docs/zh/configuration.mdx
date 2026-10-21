@@ -80,14 +80,21 @@ HTTP 服务器和日志配置。
 | `bind_address` | string | `0.0.0.0:3000` | `0.0.0.0:3000` | 否 | 监听地址，格式为 `ip:port` |
 | `log_level` | string | `info` | `info` | 否 | 日志级别（trace/debug/info/warn/error） |
 | `app_env` | string | `production` | `production` | 否 | 运行环境标识 |
+| `trusted_proxies` | string 数组 | `[]`（空） | `[]` | 否 | 受信任的反向代理 CIDR 网段。只有当连接的 socket 对端落在其中某个网段内时才采信转发 IP 头；否则忽略转发头，直接取 socket 对端 IP（该 IP 驱动限流与审计日志）。空列表 = 不信任任何代理，是直接对外暴露时的正确取值。CIDR 非法会让启动直接失败。 |
+| `real_ip_header` | string | `X-Forwarded-For` | `X-Forwarded-For` | 否 | 受信代理写入真实客户端 IP 的请求头：`X-Forwarded-For`（从右向左剔除受信代理的链式算法）、`CF-Connecting-IP`（Cloudflare，单值）、`X-Real-IP`（nginx/traefik，单值）。 |
 
 `app_env` 是闭合集合的三态开关，不是自由文本：`production`/`prod` 启用全部生产安全闸门（密钥校验、首启管理员密码要求、支付渠道 `base_url` 覆盖拒绝、限流、OAuth 回调 HTTPS 强制、Turnstile 测试密钥拒绝），`demo`/`development`/`dev`/`test` 关闭这些闸门。任何其他拼写（笔误、尾随空白、`staging`）都会在启动时被拒绝——未识别的取值会静默地让部署在全部闸门关闭的状态下运行。`bind_address` 用 `0.0.0.0` 表示监听所有网卡。
+
+`trusted_proxies` 同时决定租户自定义域名的状态推进：某个域名的 `cname_verified`/`tls_ready` 只有在该主机名的 HTTPS 请求经由列表内代理送达后才会翻为已验证——来自其他来源的 `X-Forwarded-Proto` 可被客户端伪造，一律忽略。TLS 入口不在列表里时，所有自定义域名的 CNAME/TLS 状态都会无声地卡住不生效。套在 Cloudflare 代理后面时，把 `trusted_proxies` 设为 Cloudflare 公布的 IP 段（https://www.cloudflare.com/ips/）并设 `real_ip_header = "CF-Connecting-IP"`，否则限流和审计日志会把全体访客折叠成几个边缘节点 IP——见[部署 → 前置 Cloudflare](/docs/zh/deployment#前置-cloudflare)。
 
 ```toml
 [server]
 bind_address = "0.0.0.0:3000"
 log_level = "info"
 app_env = "production"
+# 套在 Cloudflare 代理后面时另外设置（完整列表：https://www.cloudflare.com/ips/）：
+# trusted_proxies = ["173.245.48.0/20", "..."]
+# real_ip_header = "CF-Connecting-IP"
 ```
 
 ### [frontend]

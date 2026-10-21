@@ -15,7 +15,7 @@ The custom-domain management endpoints live under `/api/realms/{realmId}/config/
 
 ## Step 1: Set the server-side config
 
-Two settings under `[custom_domain]` in the config file must be set before the feature works. See [Configuration → custom-domain](/docs/configuration#custom-domain) for the full table and a sample.
+Two settings under `[custom_domain]` in the config file must be set before the feature works. See [Configuration → custom-domain](/docs/configuration#custom_domain) for the full table and a sample.
 
 | Field | Purpose |
 |-------|---------|
@@ -63,5 +63,5 @@ Realm routing is still driven by the `{realmId}` path segment, exactly as before
 ## Related docs
 
 - [White-label](/docs/customization/branding) — brands the page; custom domain brands the URL. White-label uses a draft/publish lifecycle; custom domain is a single save.
-- [Configuration](/docs/configuration#custom-domain) — the `[custom_domain]` config section
+- [Configuration](/docs/configuration#custom_domain) — the `[custom_domain]` config section
 - [Deployment](/docs/deployment) — reverse-proxy / on-demand TLS setup

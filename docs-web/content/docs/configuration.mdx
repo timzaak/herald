@@ -80,14 +80,21 @@ HTTP server and logging settings.
 | `bind_address` | string | `0.0.0.0:3000` | `0.0.0.0:3000` | No | Listen address, format `ip:port` |
 | `log_level` | string | `info` | `info` | No | Log level (trace/debug/info/warn/error) |
 | `app_env` | string | `production` | `production` | No | Runtime environment identifier |
+| `trusted_proxies` | string array | `[]` (empty) | `[]` | No | Trusted reverse-proxy CIDRs. Forwarded IP headers are honored only when the connection's socket peer falls inside one of these ranges; otherwise they are ignored and the socket peer IP is used (that IP drives rate limiting and audit logs). Empty = trust nothing, correct when Herald is exposed directly. An invalid CIDR aborts startup. |
+| `real_ip_header` | string | `X-Forwarded-For` | `X-Forwarded-For` | No | Which header a trusted proxy writes the real client IP into: `X-Forwarded-For` (rightmost-untrusted chain algorithm), `CF-Connecting-IP` (Cloudflare, single value), or `X-Real-IP` (nginx/traefik, single value). |
 
 `app_env` is a closed-set tri-state switch, NOT a free-form label: `production`/`prod` enable the production-only security gates (secret validation, first-boot admin password requirement, payment-provider `base_url` override rejection, rate limiting, OAuth redirect HTTPS enforcement, Turnstile test-secret rejection), while `demo`/`development`/`dev`/`test` disable them. Any other spelling (a typo, trailing whitespace, `staging`) is REJECTED at startup — an unrecognized value would otherwise silently run the deployment with every gate disabled. Using `0.0.0.0` for `bind_address` means listening on all network interfaces.
+
+`trusted_proxies` also gates tenant custom-domain status: a realm's `cname_verified`/`tls_ready` flip to verified only when an HTTPS request for that hostname arrives through a peer listed there — an `X-Forwarded-Proto` from anyone else is client-forgeable and ignored. A TLS-terminating ingress missing from the list leaves every custom domain stuck at "pending verification" with no error. Behind Cloudflare's proxy, set `trusted_proxies` to the published Cloudflare ranges (https://www.cloudflare.com/ips/) and `real_ip_header = "CF-Connecting-IP"`, or rate limiting and audit logs collapse onto a handful of Cloudflare edge IPs — see [Deployment → Behind Cloudflare](/docs/deployment#behind-cloudflare).
 
 ```toml
 [server]
 bind_address = "0.0.0.0:3000"
 log_level = "info"
 app_env = "production"
+# Behind Cloudflare's proxy, additionally set (full list: https://www.cloudflare.com/ips/):
+# trusted_proxies = ["173.245.48.0/20", "..."]
+# real_ip_header = "CF-Connecting-IP"
 ```
 
 ### [frontend]

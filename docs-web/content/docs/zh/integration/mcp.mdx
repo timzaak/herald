@@ -87,7 +87,7 @@ claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-i
 - 分页从 1 开始，默认 `page=1` / `pageSize=20`，最大 100。
 - 时间过滤接受 RFC 3339 时间戳或 `YYYY-MM-DD`（按 UTC 零点解释）。
 - 返回字段刻意收窄——agent 可能把结果带入第三方模型：不透出 IP、User Agent、Trace ID、配置值或支付元数据。
-- 只读是刻意设计。写操作被有意排除，只会在逐工具安全评审后按工具逐步加入。需要写入数据或完整字段面时，请改用客户端凭证调用 REST API——参见[第三方后端集成指南](/zh/docs/integration/third-party-backend)与 [OpenAPI 参考](/zh/docs/api)。
+- 只读是刻意设计。写操作被有意排除，只会在逐工具安全评审后按工具逐步加入。需要写入数据或完整字段面时，请改用客户端凭证调用 REST API——参见[第三方后端集成指南](/zh/docs/integration/third-party-backend)与 [OpenAPI 参考](/docs/openapi)。
 
 ## 5. 连通性自检
 

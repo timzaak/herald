@@ -19,16 +19,31 @@ pub const OTP_MAX_ATTEMPTS: i64 = 5;
 /// TTL of a stored OTP code (seconds). Redis `EX` on `emailotp:{realm}:{email}`.
 pub const OTP_CODE_TTL_SECONDS: u64 = 300;
 // Rate limits: (max_requests, window_seconds) — matches `rate_limit_hit` params.
-pub const OTP_SEND_IP_RATE_LIMIT: (i64, usize) = (5, 60);
+/// Passwordless login behind one NAT IP: several users may request codes in
+/// the same minute; the per-mailbox cap stays the mail-cost bound.
+pub const OTP_SEND_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 pub const OTP_SEND_EMAIL_RATE_LIMIT: (i64, usize) = (2, 60);
 pub const OTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 pub const OTP_VERIFY_EMAIL_RATE_LIMIT: (i64, usize) = (5, 60);
 
 // --- Rate limits: (max_requests, window_seconds) ---
-pub const LOGIN_IP_RATE_LIMIT: (i64, usize) = (10, 60);
-pub const LOGIN_IDENTIFIER_RATE_LIMIT: (i64, usize) = (2, 60);
+/// Per-IP ceiling for the login entrances (password / LDAP / passkey).
+/// Matches the 30/min family of the other unauthenticated entrances
+/// (/authorize, /token, discovery) so an office NAT's morning login burst
+/// is not blocked; the per-identifier limit below is the brute-force bound.
+pub const LOGIN_IP_RATE_LIMIT: (i64, usize) = (30, 60);
+/// Per-account (email/username) login throttle — OWASP recommends counting
+/// per account, not per IP. Industry anchors: ANSSI/Keycloak practice 5
+/// failures, PCI-DSS 6, Auth0 10/min per user, Entra smart lockout 10
+/// failures → 60s. 5/min is the conservative end of that 5–10 band: a human
+/// typist gets five attempts per minute while online brute force stays
+/// bounded (each attempt also pays bcrypt cost 12 and, where configured,
+/// Turnstile).
+pub const LOGIN_IDENTIFIER_RATE_LIMIT: (i64, usize) = (5, 60);
 
-pub const REGISTER_IP_RATE_LIMIT: (i64, usize) = (5, 60);
+/// Org onboarding / classroom signups happen behind one NAT IP; the
+/// per-email cap below stays the anti-bombing bound.
+pub const REGISTER_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 pub const REGISTER_EMAIL_RATE_LIMIT: (i64, usize) = (5, 60);
 
 pub const RESET_PASSWORD_REQUEST_IP_RATE_LIMIT: (i64, usize) = (5, 60);
@@ -61,6 +76,10 @@ pub const TOTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 
 pub const REAUTH_VERIFY_USER_RATE_LIMIT: (i64, usize) = (5, 60);
 pub const REAUTH_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
+
+/// Per-user cap on passkey registration/management calls (authenticated
+/// entrance).
+pub const PASSKEY_USER_RATE_LIMIT: (i64, usize) = (5, 60);
 
 /// Anonymous WeChat webhook ingress (per IP per realm). The handler reaches
 /// the WeChat Pay client (and possibly a platform-cert download) BEFORE the
@@ -183,6 +202,25 @@ mod tests {
     fn signup_code_request_limits_are_one_per_two_minutes() {
         assert_eq!(SIGNUP_CODE_REQUEST_IP_RATE_LIMIT, (1, 120));
         assert_eq!(SIGNUP_CODE_REQUEST_EMAIL_RATE_LIMIT, (1, 120));
+    }
+
+    // WHY: the login throttles are the platform's primary online brute-force
+    // bound, tuned against industry anchors (Auth0 10/min per user, Entra
+    // smart lockout 10 failures → 60s, ANSSI/Keycloak practice 5 failures,
+    // PCI-DSS 6 → 30min lock): per-identifier sits at the conservative end
+    // of the 5–10/min band, and the per-IP ceiling matches the 30/min family
+    // shared by the unauthenticated OAuth entrances so an office NAT's
+    // morning burst is not blocked. Register and OTP-send per-IP budgets
+    // carry the same NAT rationale; their per-mailbox caps remain the
+    // mail-cost bound. Silently loosening any of these reopens brute-force
+    // or mail-bombing surface with no failing test.
+    #[test]
+    fn auth_rate_limits_keep_reviewed_thresholds() {
+        assert_eq!(LOGIN_IP_RATE_LIMIT, (30, 60));
+        assert_eq!(LOGIN_IDENTIFIER_RATE_LIMIT, (5, 60));
+        assert_eq!(REGISTER_IP_RATE_LIMIT, (10, 60));
+        assert_eq!(OTP_SEND_IP_RATE_LIMIT, (10, 60));
+        assert_eq!(PASSKEY_USER_RATE_LIMIT, (5, 60));
     }
 
     // WHY: the id_token TTL and the key retention window are protocol-facing

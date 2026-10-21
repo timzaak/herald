@@ -73,7 +73,7 @@ ask_key = "replace-with-your-custom-domain-key"
 cname_target = "custom.your-domain.com"
 ```
 
-Leave the database and Redis addresses at their defaults (`db:5432`, `redis:6379`) — they match the compose service names. If `[custom_domain].ask_key` stays `change-me-in-production`, the server refuses to start. See [Configuration](/docs/en/configuration#custom_domain).
+Leave the database and Redis addresses at their defaults (`db:5432`, `redis:6379`) — they match the compose service names. If `[custom_domain].ask_key` stays `change-me-in-production`, the server refuses to start. See [Configuration](/docs/configuration#custom_domain).
 
 ### Runtime env: .env
 
@@ -173,6 +173,36 @@ After editing the Caddyfile, no container restart is needed:
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
+## Behind Cloudflare
+
+Cloudflare can sit in front of this stack in two modes, and only the proxied one needs extra config.
+
+**DNS only (grey cloud).** Cloudflare is pure DNS: traffic goes straight to your server, Caddy terminates TLS, and nothing in this guide changes.
+
+**Proxied (orange cloud).** Cloudflare's edge terminates TLS and opens its own connection to your origin. Two adjustments:
+
+1. **Set SSL/TLS to Full (strict)** so Cloudflare reaches Caddy over HTTPS and validates its Let's Encrypt certificate. "Flexible" speaks plain HTTP to the origin, and Caddy's automatic HTTP→HTTPS redirect turns that into an infinite redirect loop.
+
+2. **Tell Herald which IPs to trust.** Every request now arrives from a Cloudflare edge IP. Add the published ranges to `[server].trusted_proxies` in `config.toml` and switch `real_ip_header` to Cloudflare's single-value header, then `docker compose restart herald`:
+
+```toml
+[server]
+# Official list: https://www.cloudflare.com/ips/ (IPv4 + IPv6). An invalid CIDR
+# aborts startup on purpose, so paste carefully — and refresh the list when
+# Cloudflare publishes new ranges (rare).
+trusted_proxies = [
+  "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+  "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+  "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+  "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+  "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+  "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+]
+real_ip_header = "CF-Connecting-IP"
+```
+
+Without this, two things silently break: rate limiting and audit logs see Cloudflare edge IPs, so all visitors share a handful of addresses and per-IP limits throttle everyone together; and tenant custom domains never advance past "pending verification", because `cname_verified`/`tls_ready` only flip on an HTTPS request that arrives through a trusted proxy. Both settings are documented in [Configuration → server](/docs/configuration#server).
+
 ## Upgrade
 
 An upgrade swaps only the image; PostgreSQL and Redis are untouched. Expect a few seconds of downtime.
@@ -236,6 +266,10 @@ The logs show `connection refused`. Check that herald's `depends_on` waits for t
 ### Caddy certificate request fails
 
 The logs show `acme: error`. Check that the domain's DNS points at the server IP (`dig your-domain.com`), that the firewall allows 80 and 443, and that nothing else is listening on port 80 (`ss -tlnp | grep :80`).
+
+### Custom domains stuck at "pending verification"
+
+`cname_verified`/`tls_ready` only advance when an HTTPS request for the hostname arrives through a proxy listed in `[server].trusted_proxies`. Behind Cloudflare or any other TLS ingress, add its ranges there and set the matching `real_ip_header` — see [Behind Cloudflare](#behind-cloudflare). If the ingress is already trusted, check that the domain's CNAME actually points at your `cname_target` (see [Custom domains](/docs/customization/custom-domain)).
 
 ### realm-admin role not found
 

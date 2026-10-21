@@ -26,6 +26,7 @@ use herald_core::domain::authentication::{
     CredentialScope, Identity, TargetOperation, TokenCredentialContext,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
+use herald_core::domain::security_constants::PASSKEY_USER_RATE_LIMIT;
 use herald_core::domain::user::ports::UserRepository;
 use herald_core::domain::user_passkey::{
     PasskeyCredentialView, PasskeyError, UserPasskeyRepository, UserPasskeyService,
@@ -38,7 +39,6 @@ use herald_core::infrastructure::user_passkey::{
 use crate::passkey_rp::{ensure_passkey_enabled, resolve_passkey_rp};
 use crate::reauth::consume_reauth;
 
-const PASSKEY_USER_RATE_LIMIT: (i64, usize) = (5, 60);
 const PASSKEY_CHALLENGE_TTL_SECONDS: u64 = 300;
 
 pub fn router() -> axum::Router<AppState> {

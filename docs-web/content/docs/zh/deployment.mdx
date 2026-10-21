@@ -173,6 +173,35 @@ volumes:
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
+## 前置 Cloudflare
+
+在这套架构前面放 Cloudflare 有两种模式，只有代理模式需要额外配置。
+
+**仅 DNS（灰云）。** Cloudflare 只做 DNS 解析：流量直达你的服务器，TLS 由 Caddy 终止，本页前面的步骤一个都不用改。
+
+**代理（橙云）。** 流量先进 Cloudflare 边缘节点，由它终止 TLS、再回源连接你的服务器。需要两处调整：
+
+1. **把 SSL/TLS 模式设为 Full (strict)**，让 Cloudflare 以 HTTPS 回源并校验 Caddy 的 Let's Encrypt 证书。“Flexible” 用明文 HTTP 回源，Caddy 的 HTTP→HTTPS 自动跳转会把请求变成无限重定向循环。
+
+2. **告诉 Herald 该信任哪些 IP。** 所有请求的来源 IP 都变成 Cloudflare 边缘节点。把官方公布的网段填进 `config.toml` 的 `[server].trusted_proxies`，并把 `real_ip_header` 换成 Cloudflare 的单值头，然后 `docker compose restart herald`：
+
+```toml
+[server]
+# 官方列表：https://www.cloudflare.com/ips/（IPv4 + IPv6）。CIDR 非法会故意
+# 让启动失败，粘贴务必小心；Cloudflare 公布新网段时（很少见）同步更新。
+trusted_proxies = [
+  "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+  "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+  "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+  "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+  "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+  "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+]
+real_ip_header = "CF-Connecting-IP"
+```
+
+不配的话有两件事会无声地坏掉：限流和审计日志看到的都是 Cloudflare 边缘 IP，全体访客共享几个地址，按 IP 限流等于把所有人捆在一起限；租户自定义域名的 CNAME/TLS 状态永远不会生效——`cname_verified`/`tls_ready` 只在经可信代理送达的 HTTPS 请求下才推进。这两个设置详见[配置 → server](/docs/zh/configuration#server)。
+
 ## 升级
 
 升级只换镜像，PostgreSQL 和 Redis 不动。中间有几秒服务中断。
@@ -236,6 +265,10 @@ docker compose logs herald
 ### Caddy 证书申请失败
 
 日志里看到 `acme: error`。检查域名 DNS 是否指向服务器 IP（`dig your-domain.com`），防火墙是否开放 80 和 443，服务器 80 端口是否被别的进程占了（`ss -tlnp | grep :80`）。
+
+### 自定义域名一直卡在“待验证”
+
+`cname_verified`/`tls_ready` 只有在该主机名的 HTTPS 请求经由 `[server].trusted_proxies` 列表内代理送达后才推进。前面有 Cloudflare 或其他 TLS 入口时，把对应网段加进去并配好 `real_ip_header`，见[前置 Cloudflare](#前置-cloudflare)；若入口已在列表里，再检查域名的 CNAME 是否真的指向 `cname_target`（见[自定义域名](/docs/zh/customization/custom-domain)）。
 
 ### realm-admin role not found
 

@@ -87,7 +87,7 @@ Any Herald user granted the scopes can call the self tools — no admin role nee
 - Pagination is 1-based, default `page=1` / `pageSize=20`, max 100.
 - Time filters accept RFC 3339 timestamps or `YYYY-MM-DD` (interpreted as UTC midnight).
 - Outputs are deliberately narrow because agents may carry results into third-party models: no IP addresses, user agents, trace ids, config values, or payment metadata.
-- Read-only is deliberate. Write operations are excluded and only arrive tool-by-tool after a per-tool security review. For writes or the full field surface, call the REST API with a client credential instead — see the [third-party backend integration guide](/docs/integration/third-party-backend) and the [OpenAPI reference](/docs/api).
+- Read-only is deliberate. Write operations are excluded and only arrive tool-by-tool after a per-tool security review. For writes or the full field surface, call the REST API with a client credential instead — see the [third-party backend integration guide](/docs/integration/third-party-backend) and the [OpenAPI reference](/docs/openapi).
 
 ## 5. Connectivity Self-Check
 

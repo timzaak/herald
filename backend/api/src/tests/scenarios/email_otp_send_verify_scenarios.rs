@@ -625,7 +625,8 @@ async fn test_scenario_email_otp_send_rate_limited(ctx: &mut TestContext) {
     let email = format!("eo-sendrl-{}@test.com", uuid::Uuid::now_v7());
     create_active_user_with_consent(ctx, &email).await;
 
-    // Exceed OTP_SEND_IP_RATE_LIMIT (5,60) + OTP_SEND_EMAIL_RATE_LIMIT (2,60).
+    // Exceed OTP_SEND_EMAIL_RATE_LIMIT (2,60) for this mailbox (the
+    // per-IP budget is OTP_SEND_IP_RATE_LIMIT (10,60)).
     for _ in 0..6 {
         let resp = send_otp(ctx, &email, None, None).await;
         // enforce_in_dev=false → rate limiting skipped → 200, not 429.

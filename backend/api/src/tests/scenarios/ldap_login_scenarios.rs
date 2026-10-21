@@ -778,8 +778,8 @@ async fn test_scenario_ldap_rate_limit_shared_budget_note(ctx: &mut TestContext)
         None,
         "right",
     ));
-    // Exceed LOGIN_IDENTIFIER_RATE_LIMIT (2,60) with wrong passwords.
-    for _ in 0..3 {
+    // Exceed LOGIN_IDENTIFIER_RATE_LIMIT (5,60) with wrong passwords.
+    for _ in 0..6 {
         let resp = ldap_login(ctx, &mock, "rluser", "wrong", None).await;
         assert_eq!(
             resp.status(),
