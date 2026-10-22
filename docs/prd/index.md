@@ -8,7 +8,7 @@ PRD 文件保留独立主题，便于评审和追踪；规划、排期和端到�
 
 | 能力包 | 目标 | 应合并阅读的 PRD |
 |-------|------|------------------|
-| 租户与运营 | 创建、配置和运营 Realm | [Realm](core/realm.md)、[SaaS 自助注册开通 Realm](core/realm-create.md)、[Onboarding Guidance（自助开通强指引与首登引导）](core/realm-onboarding-guidance.md)、[Realm Settings](core/realm-settings.md)、[Dashboard](core/dashboard.md)、[Audit](core/audit.md) |
+| 租户与运营 | 创建、配置和运营 Realm | [Realm](core/realm.md)、[SaaS 自助注册开通 Realm](core/realm-create.md)、[Onboarding Guidance（自助开通强指引与首登引导）](core/realm-onboarding-guidance.md)、[Realm Settings](core/realm-settings.md)、[Realm 入口与会话隔离](core/frontend-realm-isolation.md)、[Dashboard](core/dashboard.md)、[Audit](core/audit.md) |
 | 用户生命周期与合规 | 用户从注册、资料维护到协议确认和注销 | [Users](core/users.md)、[会话管理/强制下线](core/kickoff-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
 | 登录体验与品牌 | 提供统一、可品牌化且可本地化的认证入口 | [OAuth](auth/oauth.md)、[OpenID Connect](auth/openid-connect.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/ui-custom.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 配置并完成多因素或无密码认证 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
@@ -52,6 +52,7 @@ docs/
 | [realm-settings.md](core/realm-settings.md) | Realm 设置 | Realm Admin |
 | [ui-custom.md](core/ui-custom.md) | White-label（Per-Realm 登录/注册及 Auth 流 UI 定制） | Realm Admin, Regular User |
 | [realm-custom-domain.md](core/realm-custom-domain.md) | Realm 自定义域名（配置 + 证书授权门控） | Realm Admin, Regular User |
+| [frontend-realm-isolation.md](core/frontend-realm-isolation.md) | Realm 入口与会话隔离（多 realm 同浏览器并存：URL 入口确定与标签级会话隔离） | All Users |
 | [audit.md](core/audit.md) | Audit 审计日志 | Realm Admin, Admin Realm |
 | [dashboard.md](core/dashboard.md) | Dashboard | Realm Admin |
 | [i18n.md](core/i18n.md) | 国际化（i18n）支持 | All Users |

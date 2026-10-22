@@ -55,6 +55,7 @@
 - **功能开关前置验证**：`require_email_verification` 开关仅在邮件配置完整时可开启；未配置邮件时，该开关显示为禁用状态，提示 "Email verification requires email configuration"
 - **OAuth 配置独立**：OAuth Provider 有独立配置系统，不在 Realm Config 中管理
 - **Registration 配置**：管理用户注册策略，包括是否开放注册（enabled）、是否需要邮箱验证（require_email_verification）、允许的邮箱域名（allowed_domains）、是否拦截一次性邮箱域名（block_disposable_domains）。`allowed_domains` 为空时不限制；非空时按标准化后的邮箱域名做不区分大小写的精确匹配，不把子域自动视为父域命中。`block_disposable_domains` 默认关闭（缺省行或非 true 值均视为关），开启后按与 `allowed_domains` 相同的精确匹配语义比对后端内置的一次性邮箱域名列表（CC0 上游列表不入库，构建期由 api-base 的 build.rs 从钉定上游 commit 拉取并做 sha256 校验后编译进二进制，见 `backend/api-base/build.rs`）；该检查在 `allowed_domains` 之后独立执行，deny 优先——即使域名被 allowlist 显式允许，开启拦截时仍拒绝。两者均覆盖密码注册、Email OTP 自动注册及 OAuth/One Tap 等首次自动建号（各入口复用其现有域名拒绝响应，不引入新错误码），已存在账号的登录不受影响，且不经 public config 端点暴露
+- **开启注册的默认协议拦截**：将 Registration 的 `enabled` 从关闭切换为开启时，若本 realm 的用户协议或隐私政策仍使用平台默认模板（未自定义），该次保存被拦截，须管理员确认后方可开启；仅拦截关闭→开启的转变，协议已自定义、或注册本就处于开启状态的保存不受影响
 - **config_type 枚举强校验**：HTTP 写路径（单个 upsert、批量 batch_upsert、删除 delete）对未知 config_type 一律返回 400
 - **审计要求**：关键配置变更应记录审计日志
 - **测试邮件速率限制**：同一 realm + 用户组合限制 3 次 / 60 秒，超限返回 429
@@ -100,6 +101,7 @@
 - **每个 Tab 包含**：配置标题、启用/禁用开关、配置项表单、保存/重置按钮
 - **敏感字段交互**：密码/密钥类字段展示脱敏占位符，点击编辑后变为输入框
 - **功能开关联动**：未配置邮件时，Registration Tab 中邮箱验证开关显示为禁用状态，并提示原因
+- **开启注册的默认协议提醒**：触发 §4.1「开启注册的默认协议拦截」时，弹出可确认的提醒对话框——「前往协议设置」跳转协议配置 Tab 并放弃本次未保存的开关状态；「仍然开启」确认后继续执行保存；直接关闭对话框同样放弃本次保存
 - **操作反馈**：保存成功/失败有明确反馈，测试邮件发送有结果反馈
 
 ---

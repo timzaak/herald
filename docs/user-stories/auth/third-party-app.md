@@ -23,7 +23,8 @@ Given 第三方应用 "my-app" 已接入 realm-1
 And 第三方前端生成了 code_verifier 和对应的 code_challenge（S256 方法）
 When 第三方前端将用户重定向到 Herald 授权端点，携带 client_id、redirect_uri、state、response_type=code、code_challenge 和 code_challenge_method=S256
 Then Herald 校验 Client App 存在且启用、redirect_uri 在白名单中
-And Herald 将用户重定向到登录页面，携带 OAuth 上下文参数
+And Herald 将用户重定向到本 realm 的授权同意页，携带 OAuth 上下文参数
+And 若用户未登录或仅持有其他 realm 的会话，同意页继续将其转发到登录页并保留全部 OAuth 上下文参数
 ```
 
 **场景 2：用户登录成功，获取授权码**
@@ -351,7 +352,7 @@ Given 第三方 SPA 已在 Herald 注册 Client App "my-app"
 When SPA 在浏览器中生成随机 code_verifier
 And 计算 code_challenge（SHA256 哈希 + Base64url 编码）
 And 将用户重定向到 Herald 授权端点，携带 client_id、redirect_uri、state、response_type=code、code_challenge、code_challenge_method=S256
-Then Herald 校验参数通过，将用户重定向到登录页面
+Then Herald 校验参数通过，将用户重定向到本 realm 的授权同意页（未登录时由同意页转发到登录页并保留全部 PKCE 参数）
 ```
 
 **场景 2：SPA 回调页面接收授权码**

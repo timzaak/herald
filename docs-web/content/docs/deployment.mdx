@@ -219,6 +219,12 @@ docker compose up -d herald
 
 To roll back, set `HERALD_IMAGE` in `.env` back to the old version tag and run `docker compose up -d herald` again.
 
+### Migration baseline reset in v0.6.4
+
+v0.6.4 reset the database migration baseline: the former migrations 0004–0011 were folded into a rewritten 0001–0003, and the 0004/0005 numbers were later reused for new content. Herald validates applied migrations against the checksums embedded in the binary (`sqlx::migrate!`), so a database last started by v0.6.3 or earlier fails migration validation on boot — there is no in-place upgrade path across the reset.
+
+If you are on v0.6.3 or earlier: back up your data, drop and recreate the database (for example remove the PostgreSQL volume, or run `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`), and start the new version so migrations run from scratch. Redis can be kept. Deployments already on v0.6.4 or later upgrade normally with the steps above.
+
 ## Backup and restore
 
 The app itself is stateless. The only persistent data is PostgreSQL:

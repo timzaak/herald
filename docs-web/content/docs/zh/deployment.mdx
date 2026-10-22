@@ -218,6 +218,12 @@ docker compose up -d herald
 
 出问题就回滚。把 `.env` 里的 `HERALD_IMAGE` 改回旧版本 tag，再 `docker compose up -d herald`。
 
+### v0.6.4 的迁移基线重置
+
+v0.6.4 重置了数据库迁移基线：原 0004–0011 迁移被折叠进重写的 0001–0003，0004/0005 两个编号后来被新内容重新占用。Herald 启动时会用二进制内嵌的迁移校验和（`sqlx::migrate!`）比对已应用的迁移，因此最后由 v0.6.3 或更早版本启动过的数据库会在新版本启动时迁移校验失败——跨越这次重置没有原地升级路径。
+
+如果你在 v0.6.3 或更早版本：先备份数据，删除并重建数据库（例如删除 PostgreSQL volume，或执行 `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`），再启动新版本让它从零执行迁移。Redis 可以保留。已经在 v0.6.4 或更新版本上的部署按上面的步骤正常升级。
+
 ## 备份与恢复
 
 App 本身无状态。持久化数据只有 PostgreSQL：

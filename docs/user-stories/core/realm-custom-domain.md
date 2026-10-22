@@ -130,9 +130,9 @@ And 不泄露该域名关联的 Realm 身份或其他信息
 
 ---
 
-## 未来范围（Deferred）
+## 已交付的历史 Deferred 项
 
-以下故事原属本 feature 的完整设想，但因 host→realm 解析机制尚未交付，列为未来范围，不在当前已发布能力中：
+以下两项原列为本 feature 的未来范围（当时 host→realm 解析机制尚未交付）。域名绑定解析与前端 SPA 托管已交付（见 [docs/prd/core/realm-custom-domain.md](/docs/prd/core/realm-custom-domain.md) §2.3 与 [docs/prd/core/frontend-realm-isolation.md](/docs/prd/core/frontend-realm-isolation.md)），两项均属当前已发布能力：
 
-- **终端用户在自定义域名下完成 auth 流**：终端用户在租户的自定义域名（如 `login.acme.com`）下完成登录/注册及其他 auth 流，URL 保持该自有品牌域名，收到的邮件链接也指向该自定义域名。依赖 host→realm 解析先落地。
-- **自定义域名与 path-based canonical 域名并存**：配置自定义域名后，原有 `herald.com/{realmId}` 路径入口仍可用，两条入口同时可用，不强制迁移。依赖 host→realm 解析先落地。
+- **终端用户在自定义域名下完成 auth 流**（已交付）：终端用户可在租户的自定义域名（如 `login.acme.com`）下完成登录/注册及其他 auth 流，URL 保持该自有品牌域名，收到的邮件链接也指向该自定义域名。
+- **自定义域名与 path-based canonical 域名并存**（已交付）：配置自定义域名后，原有 `herald.com/{realmId}` 路径入口仍可用，两条入口同时可用，不强制迁移；两种入口的确定规则与标签级会话隔离见 frontend-realm-isolation PRD。
