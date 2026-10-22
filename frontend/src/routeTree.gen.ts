@@ -16,6 +16,7 @@ import { Route as LegalRouteRouteImport } from './routes/legal/route'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
 import { Route as RealmIdRouteRouteImport } from './routes/$realmId/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as UserIndexRouteImport } from './routes/user/index'
 import { Route as ManageIndexRouteImport } from './routes/manage/index'
 import { Route as DeviceIndexRouteImport } from './routes/device.index'
 import { Route as UserSubscriptionHistoryRouteImport } from './routes/user/subscription-history'
@@ -56,6 +57,7 @@ import { Route as UserInvoicesIndexRouteImport } from './routes/user/invoices/in
 import { Route as ManageClientAppsIndexRouteImport } from './routes/manage/client-apps/index'
 import { Route as ManageAuditIndexRouteImport } from './routes/manage/audit/index'
 import { Route as ManageApiKeysIndexRouteImport } from './routes/manage/api-keys/index'
+import { Route as RealmIdUserIndexRouteImport } from './routes/$realmId/user/index'
 import { Route as RealmIdManageIndexRouteImport } from './routes/$realmId/manage/index'
 import { Route as RealmIdDeviceIndexRouteImport } from './routes/$realmId/device.index'
 import { Route as UserSecurityTotpSetupRouteImport } from './routes/user/security/totp-setup'
@@ -187,6 +189,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const UserIndexRoute = UserIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => UserRouteRoute,
 } as any)
 const ManageIndexRoute = ManageIndexRouteImport.update({
   id: '/',
@@ -389,6 +396,11 @@ const ManageApiKeysIndexRoute = ManageApiKeysIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ManageApiKeysRoute,
+} as any)
+const RealmIdUserIndexRoute = RealmIdUserIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RealmIdUserRouteRoute,
 } as any)
 const RealmIdManageIndexRoute = RealmIdManageIndexRouteImport.update({
   id: '/',
@@ -977,6 +989,7 @@ export interface FileRoutesByFullPath {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device/': typeof DeviceIndexRoute
   '/manage/': typeof ManageIndexRoute
+  '/user/': typeof UserIndexRoute
   '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
@@ -1021,6 +1034,7 @@ export interface FileRoutesByFullPath {
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
   '/$realmId/device/': typeof RealmIdDeviceIndexRoute
   '/$realmId/manage/': typeof RealmIdManageIndexRoute
+  '/$realmId/user/': typeof RealmIdUserIndexRoute
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
@@ -1085,10 +1099,8 @@ export interface FileRoutesByTo {
   '/$realmId': typeof RealmIdRouteRouteWithChildren
   '/auth': typeof AuthRouteRouteWithChildren
   '/legal': typeof LegalRouteRouteWithChildren
-  '/user': typeof UserRouteRouteWithChildren
   '/$realmId/auth': typeof RealmIdAuthRouteRouteWithChildren
   '/$realmId/legal': typeof RealmIdLegalRouteRouteWithChildren
-  '/$realmId/user': typeof RealmIdUserRouteRouteWithChildren
   '/auth/consent': typeof AuthConsentRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
@@ -1113,6 +1125,7 @@ export interface FileRoutesByTo {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device': typeof DeviceIndexRoute
   '/manage': typeof ManageIndexRoute
+  '/user': typeof UserIndexRoute
   '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
@@ -1148,6 +1161,7 @@ export interface FileRoutesByTo {
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
   '/$realmId/device': typeof RealmIdDeviceIndexRoute
   '/$realmId/manage': typeof RealmIdManageIndexRoute
+  '/$realmId/user': typeof RealmIdUserIndexRoute
   '/manage/api-keys': typeof ManageApiKeysIndexRoute
   '/manage/audit': typeof ManageAuditIndexRoute
   '/manage/client-apps': typeof ManageClientAppsIndexRoute
@@ -1246,6 +1260,7 @@ export interface FileRoutesById {
   '/user/subscription-history': typeof UserSubscriptionHistoryRoute
   '/device/': typeof DeviceIndexRoute
   '/manage/': typeof ManageIndexRoute
+  '/user/': typeof UserIndexRoute
   '/$realmId/auth/consent': typeof RealmIdAuthConsentRoute
   '/$realmId/auth/forgot-password': typeof RealmIdAuthForgotPasswordRoute
   '/$realmId/auth/login': typeof RealmIdAuthLoginRoute
@@ -1290,6 +1305,7 @@ export interface FileRoutesById {
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
   '/$realmId/device/': typeof RealmIdDeviceIndexRoute
   '/$realmId/manage/': typeof RealmIdManageIndexRoute
+  '/$realmId/user/': typeof RealmIdUserIndexRoute
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
@@ -1393,6 +1409,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device/'
     | '/manage/'
+    | '/user/'
     | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
@@ -1437,6 +1454,7 @@ export interface FileRouteTypes {
     | '/user/security/totp-setup'
     | '/$realmId/device/'
     | '/$realmId/manage/'
+    | '/$realmId/user/'
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
@@ -1501,10 +1519,8 @@ export interface FileRouteTypes {
     | '/$realmId'
     | '/auth'
     | '/legal'
-    | '/user'
     | '/$realmId/auth'
     | '/$realmId/legal'
-    | '/$realmId/user'
     | '/auth/consent'
     | '/auth/forgot-password'
     | '/auth/login'
@@ -1529,6 +1545,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device'
     | '/manage'
+    | '/user'
     | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
@@ -1564,6 +1581,7 @@ export interface FileRouteTypes {
     | '/user/security/totp-setup'
     | '/$realmId/device'
     | '/$realmId/manage'
+    | '/$realmId/user'
     | '/manage/api-keys'
     | '/manage/audit'
     | '/manage/client-apps'
@@ -1661,6 +1679,7 @@ export interface FileRouteTypes {
     | '/user/subscription-history'
     | '/device/'
     | '/manage/'
+    | '/user/'
     | '/$realmId/auth/consent'
     | '/$realmId/auth/forgot-password'
     | '/$realmId/auth/login'
@@ -1705,6 +1724,7 @@ export interface FileRouteTypes {
     | '/user/security/totp-setup'
     | '/$realmId/device/'
     | '/$realmId/manage/'
+    | '/$realmId/user/'
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
@@ -1825,6 +1845,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/user/': {
+      id: '/user/'
+      path: '/'
+      fullPath: '/user/'
+      preLoaderRoute: typeof UserIndexRouteImport
+      parentRoute: typeof UserRouteRoute
     }
     '/manage/': {
       id: '/manage/'
@@ -2105,6 +2132,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/manage/api-keys/'
       preLoaderRoute: typeof ManageApiKeysIndexRouteImport
       parentRoute: typeof ManageApiKeysRoute
+    }
+    '/$realmId/user/': {
+      id: '/$realmId/user/'
+      path: '/'
+      fullPath: '/$realmId/user/'
+      preLoaderRoute: typeof RealmIdUserIndexRouteImport
+      parentRoute: typeof RealmIdUserRouteRoute
     }
     '/$realmId/manage/': {
       id: '/$realmId/manage/'
@@ -3065,6 +3099,7 @@ interface RealmIdUserRouteRouteChildren {
   RealmIdUserPurchasePointsRoute: typeof RealmIdUserPurchasePointsRoute
   RealmIdUserSecurityRoute: typeof RealmIdUserSecurityRouteWithChildren
   RealmIdUserSubscriptionHistoryRoute: typeof RealmIdUserSubscriptionHistoryRoute
+  RealmIdUserIndexRoute: typeof RealmIdUserIndexRoute
   RealmIdUserChangeEmailConfirmRoute: typeof RealmIdUserChangeEmailConfirmRoute
 }
 
@@ -3076,6 +3111,7 @@ const RealmIdUserRouteRouteChildren: RealmIdUserRouteRouteChildren = {
   RealmIdUserPurchasePointsRoute: RealmIdUserPurchasePointsRoute,
   RealmIdUserSecurityRoute: RealmIdUserSecurityRouteWithChildren,
   RealmIdUserSubscriptionHistoryRoute: RealmIdUserSubscriptionHistoryRoute,
+  RealmIdUserIndexRoute: RealmIdUserIndexRoute,
   RealmIdUserChangeEmailConfirmRoute: RealmIdUserChangeEmailConfirmRoute,
 }
 
@@ -3391,6 +3427,7 @@ interface UserRouteRouteChildren {
   UserPurchasePointsRoute: typeof UserPurchasePointsRoute
   UserSecurityRoute: typeof UserSecurityRouteWithChildren
   UserSubscriptionHistoryRoute: typeof UserSubscriptionHistoryRoute
+  UserIndexRoute: typeof UserIndexRoute
   UserChangeEmailConfirmRoute: typeof UserChangeEmailConfirmRoute
 }
 
@@ -3402,6 +3439,7 @@ const UserRouteRouteChildren: UserRouteRouteChildren = {
   UserPurchasePointsRoute: UserPurchasePointsRoute,
   UserSecurityRoute: UserSecurityRouteWithChildren,
   UserSubscriptionHistoryRoute: UserSubscriptionHistoryRoute,
+  UserIndexRoute: UserIndexRoute,
   UserChangeEmailConfirmRoute: UserChangeEmailConfirmRoute,
 }
 

@@ -16,6 +16,7 @@ let featureData = {
   },
 }
 let permissions: string[] = []
+let pathname = '/test-realm/user/profile'
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: featureData }),
@@ -27,7 +28,7 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  useLocation: () => ({ pathname: '/test-realm/user/profile' }),
+  useLocation: () => ({ pathname }),
 }))
 
 vi.mock('@/stores/auth-store', () => ({
@@ -48,6 +49,24 @@ vi.mock('@/data/query-options', () => ({
 describe('ProfileSidebar', () => {
   beforeEach(() => {
     permissions = []
+    pathname = '/test-realm/user/profile'
+  })
+
+  it('highlights the Profile item on the /user landing, which renders that section inline', () => {
+    // The landing page shows the Profile section's content; without the
+    // highlight the same content would show different navigation states
+    // depending on which URL it was reached from (mirrors /manage, whose
+    // index highlights Dashboard).
+    pathname = '/test-realm/user/'
+
+    render(
+      <LocaleProvider>
+        <ProfileSidebar />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByTestId('profile-menu-profile')).toHaveClass('font-semibold')
+    expect(screen.getByTestId('profile-menu-security')).not.toHaveClass('font-semibold')
   })
 
   it('shows the explicit admin-console entry only to an eligible administrator', () => {

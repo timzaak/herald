@@ -119,7 +119,15 @@
     "subscription": "Subscription",
     "invoices": "Invoices",
     "purchase_records": "Purchase Records",
-    "admin_console": "Admin Console"
+    "admin_console": "Admin Console",
+    "account_center": "Account Center"
+  },
+  "profile_hub": {
+    "account_group": "Account",
+    "billing_group": "Billing & Assets",
+    "security_hint": "Password · 2FA · Passkeys",
+    "language": "Language",
+    "back": "Back to account center"
   },
   "user_menu": {
     "profile": "Profile",
