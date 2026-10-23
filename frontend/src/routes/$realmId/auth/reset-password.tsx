@@ -5,7 +5,7 @@ import { resetPasswordConfirm } from '@/lib/api-generated'
 import { getErrorMessage } from '@/lib/error-utils'
 import { resetPasswordSearchSchema } from '@/lib/schemas/search-params'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { AuthPageWrapper } from '@/components/auth/auth-page-wrapper'
 import { TurnstileWidget } from '@/components/auth/turnstile-widget'
@@ -89,9 +89,8 @@ export function ResetPasswordPage() {
 
             <div>
               <Label htmlFor="new-password">{m['auth.reset_password.new_password_label']()}</Label>
-              <Input
+              <PasswordInput
                 id="new-password"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 disabled={isSubmitting}
@@ -110,9 +109,8 @@ export function ResetPasswordPage() {
               <Label htmlFor="confirm-password">
                 {m['auth.reset_password.confirm_password_label']()}
               </Label>
-              <Input
+              <PasswordInput
                 id="confirm-password"
-                type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isSubmitting}

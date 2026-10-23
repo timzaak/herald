@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -343,9 +344,8 @@ export function PasskeyList({ onAdd }: PasskeyListProps) {
                 {(field) => (
                   <div className="space-y-2">
                     <Label htmlFor="passkey-delete-password">{m['reauth.password_label']()}</Label>
-                    <Input
+                    <PasswordInput
                       id="passkey-delete-password"
-                      type="password"
                       value={field.state.value ?? ''}
                       onChange={(e) => {
                         field.handleChange(e.target.value)

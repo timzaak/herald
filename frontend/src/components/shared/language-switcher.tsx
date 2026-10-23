@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import type { Locale } from '@/paraglide/runtime'
 
 const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
@@ -14,14 +15,17 @@ const LOCALE_OPTIONS: ReadonlyArray<{ value: Locale; label: string }> = [
   { value: 'zh-CN', label: '中文' },
 ]
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({ className }: { className?: string }) {
   const { locale, switchLocale } = useLocale()
 
   return (
     <Select value={locale} onValueChange={(value) => switchLocale(value as Locale)}>
       <SelectTrigger
         data-testid="language-switcher"
-        className="h-8 border-sidebar-border bg-transparent px-2.5 text-xs text-sidebar-foreground/70 hover:text-sidebar-foreground"
+        className={cn(
+          'h-8 border-sidebar-border bg-transparent px-2.5 text-xs text-sidebar-foreground/70 hover:text-sidebar-foreground',
+          className
+        )}
       >
         {/* `flex!` overrides the trigger's `[&>span]:line-clamp-1` rule, which
             otherwise forces `display:-webkit-box` and stacks the icon/text. */}

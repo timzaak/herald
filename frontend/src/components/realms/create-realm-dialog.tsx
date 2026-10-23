@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { getFieldErrorMessage } from '@/lib/form-utils'
@@ -162,9 +163,8 @@ export function CreateRealmDialog({ open, onOpenChange }: CreateRealmDialogProps
               children={(field) => (
                 <div className="space-y-2">
                   <Label htmlFor="admin-password">{m['realms.admin_password_label']()}</Label>
-                  <Input
+                  <PasswordInput
                     id="admin-password"
-                    type="password"
                     value={field.state.value ?? ''}
                     onChange={(e) => field.handleChange(e.target.value)}
                     data-testid="realm-create-admin-password-input"

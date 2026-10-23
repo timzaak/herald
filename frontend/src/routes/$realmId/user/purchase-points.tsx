@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { AlertCircle, ArrowLeft, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { createPaymentAttempt, cancelPaymentAttempt } from '@/lib/api-generated'
 import type { PaymentAttemptStatusResponse } from '@/lib/api-generated'
 import {
@@ -32,6 +32,10 @@ import { purchasePointsSearchSchema } from '@/lib/schemas/search-params'
 import { useCurrentSearch, useResolvedRealmId } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
 
+// Fallback attempt expiry for responses that carry no server expiresAt
+// (attempt creation and the provider bounce both seed it).
+const PAYMENT_ATTEMPT_FALLBACK_TTL_MS = 15 * 60 * 1000
+
 export const Route = createFileRoute('/$realmId/user/purchase-points')({
   beforeLoad: async ({ context, params }) => {
     // Route beforeLoads run ahead of the __root loader, so on a cold reload
@@ -48,7 +52,7 @@ export const Route = createFileRoute('/$realmId/user/purchase-points')({
   component: PurchasePointsRoute,
 })
 
-type PurchaseStep = 'packages' | 'payment' | 'processing' | 'complete'
+type PurchaseStep = 'packages' | 'payment' | 'processing' | 'complete' | 'cancelled'
 
 export function PurchasePointsRoute() {
   const realmId = useResolvedRealmId()
@@ -120,6 +124,19 @@ export function PurchasePointsPage({
   // derived from the selected option, not picked separately.
   const [currentStep, setCurrentStep] = useState<PurchaseStep>('packages')
   const [selectedMappingId, setSelectedMappingId] = useState<string | null>(null)
+  // True only after a provider success bounce: the checkout page is behind us
+  // and the pending UI must ask the user to wait, not to go pay again.
+  const [confirmingCheckout, setConfirmingCheckout] = useState(false)
+  // The purchase target of the attempt currently being polled. React state is
+  // lost on the provider's full-page bounce, so re-entering the payment step
+  // (retry after failure) re-seeds the selection from here.
+  const [lastAttemptTargetId, setLastAttemptTargetId] = useState<string | null>(null)
+  // Amount line for the complete step, captured from the succeeded status
+  // before the flow store is cleared.
+  const [paidAmount, setPaidAmount] = useState<{
+    amount: number
+    currency: string
+  } | null>(null)
 
   // Store actions
   const { setPurchaseState, setPaymentAttempt, clearPurchaseState, canRecover } =
@@ -218,38 +235,76 @@ export function PurchasePointsPage({
   }, [attemptId, canRecover])
 
   // Resume from a provider redirect bounce. When the user returns with
-  // `?attemptId=...`, sync the store so the polling effect above picks it up
-  // — this works even if localStorage was cleared (query is the source of
-  // truth, persist is only a same-browser fallback). A `cancel` bounce means
-  // the user abandoned checkout at Stripe, so drop the attempt and step back.
+  // `?attemptId=...`, this is a UX bounce only — payment status is confirmed
+  // via webhook + the polling below, never by the URL params.
   useEffect(() => {
     if (!queryAttemptId) return
     if (queryStatus === 'cancel') {
-      clearPurchaseState()
-      setCurrentStep('payment')
-      return
-    }
-    // success or no status: ensure the store carries this attemptId so polling
-    // (gated on `attemptId`) fires. Skip if the store already tracks it — the
-    // webhook/polling will have updated status and we must not clobber it.
-    // The paymentContext is empty on bounce: the user already paid, so the
-    // checkout URL is irrelevant and PaymentAttemptStatus won't render a
-    // redirect prompt once status leaves Pending.
-    if (queryAttemptId !== attemptId) {
+      // The user abandoned checkout at the provider. The bounced attempt is
+      // deliberately NOT cancelled server-side: the provider session stays
+      // payable for hours, and a Cancelled attempt can no longer be fulfilled
+      // if the user completes that payment later (Cancelled → Succeeded is a
+      // forbidden transition) — money charged, no points granted. The backend
+      // expiry job reclaims the attempt on its own.
+      const store = usePurchaseFlowStore.getState()
+      // Only unwind the tracked purchase when it belongs to the bounced
+      // attempt: another tab may be mid-purchase with a newer attempt, and
+      // clearing it here would kill that tab's recovery.
+      if (store.attemptId === queryAttemptId) {
+        // Restore the purchase target so the cancelled view can offer a
+        // one-click retry of the same package.
+        if (store.targetId) setSelectedMappingId(store.targetId)
+        clearPurchaseState()
+      }
+      setCurrentStep('cancelled')
+    } else {
+      // success or no status: the user believes they paid; poll the
+      // authoritative server status. A fresh empty paymentContext hides the
+      // provider "redirect to checkout" prompt — that page is behind us.
+      setLastAttemptTargetId(usePurchaseFlowStore.getState().targetId ?? null)
       setPaymentAttempt(
         queryAttemptId,
         'Pending',
         {},
-        new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        new Date(Date.now() + PAYMENT_ATTEMPT_FALLBACK_TTL_MS).toISOString()
       )
+      setConfirmingCheckout(true)
       setCurrentStep('processing')
     }
+    // The bounce params are consumed — strip them so a refresh or a shared
+    // link does not replay the bounce. wechatOpenid must survive: it unlocks
+    // JSAPI ordering for a subsequent retry.
+    navigate({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        attemptId: undefined,
+        status: undefined,
+      }),
+      replace: true,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryAttemptId, queryStatus])
+
+  // Shared re-entry rule for when an attempt ends without success: the
+  // payment step needs a selected price for its provider cards to render,
+  // so re-seed the selection from the tracked purchase target when the
+  // React selection is gone (e.g. after a full-page provider bounce), and
+  // fall back to package picking when neither survives.
+  const reenterPaymentStep = (restorable: string | null) => {
+    if (restorable && !selectedMappingId) setSelectedMappingId(restorable)
+    setCurrentStep(restorable || selectedMappingId ? 'payment' : 'packages')
+  }
 
   useEffect(() => {
     if (paymentStatus) {
       if (paymentStatus.status === 'Succeeded') {
+        setPaidAmount(
+          paymentStatus.amount != null && paymentStatus.currency
+            ? { amount: paymentStatus.amount, currency: paymentStatus.currency }
+            : null
+        )
+        setConfirmingCheckout(false)
         setCurrentStep('complete')
         clearPurchaseState()
         if (user?.id) {
@@ -261,8 +316,12 @@ export function PurchasePointsPage({
         paymentStatus.status === 'Cancelled' ||
         paymentStatus.status === 'Expired'
       ) {
-        setCurrentStep('payment')
+        setConfirmingCheckout(false)
+        // After a full-page bounce the React selection is gone, so re-seed it
+        // from the tracked purchase target.
+        const restorable = usePurchaseFlowStore.getState().targetId ?? lastAttemptTargetId
         clearPurchaseState()
+        reenterPaymentStep(restorable)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,12 +366,12 @@ export function PurchasePointsPage({
           targetId: selectedMappingId,
           paymentProvider: selectedOption?.paymentProvider ?? null,
         })
-
+        setLastAttemptTargetId(selectedMappingId)
         setPaymentAttempt(
           data.id,
           'Pending',
           data.paymentContext || { paymentProvider: selectedOption?.paymentProvider ?? '' },
-          data.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          data.expiresAt || new Date(Date.now() + PAYMENT_ATTEMPT_FALLBACK_TTL_MS).toISOString()
         )
 
         queryClient.invalidateQueries({ queryKey: ['payment-attempt-status', realmId, data.id] })
@@ -352,8 +411,11 @@ export function PurchasePointsPage({
       return response.data
     },
     onSuccess: () => {
+      // Capture the target before clearing: the payment step needs a selected
+      // price to render its provider cards.
+      const targetId = usePurchaseFlowStore.getState().targetId
       clearPurchaseState()
-      setCurrentStep('payment')
+      reenterPaymentStep(targetId)
       toast.info(m['points.purchase_cancelled']())
     },
     onError: (error: unknown) => {
@@ -365,6 +427,8 @@ export function PurchasePointsPage({
   // browser without a caller-provided openid must not order at all: a Native
   // QR cannot be scanned by the same device and JSAPI cannot be created.
   const initiatePayment = (mappingId: string, provider: string) => {
+    // A new attempt replaces any bounce-driven "confirming" wait.
+    setConfirmingCheckout(false)
     if (
       provider === PAYMENT_PROVIDERS.WECHAT &&
       wechatSceneDecision.scene === 'jsapi_unavailable'
@@ -399,10 +463,14 @@ export function PurchasePointsPage({
     }
   }
 
-  const handleRetry = () => setCurrentStep('payment')
+  // Retry after a Failed/Expired attempt: the flow store was already cleared
+  // by the terminal-status effect, so the selection is re-seeded from the
+  // captured attempt target.
+  const handleRetry = () => reenterPaymentStep(lastAttemptTargetId)
   const handleCancel = () => cancelPaymentMutation.mutate()
   const handleComplete = () =>
     navigate({ to: realmPath({ ...realmContext, realmId }, '/user/points') })
+  const handleBackToHub = () => navigate({ to: realmPath({ ...realmContext, realmId }, '/user') })
 
   const isNextDisabled = () => {
     if (currentStep === 'packages') return !selectedMappingId
@@ -524,7 +592,34 @@ export function PurchasePointsPage({
           </div>
         )
 
-      case 'processing':
+      case 'processing': {
+        // A success bounce must not show provider "go pay" UI while the
+        // webhook lands: intercept every not-yet-final status with a waiting
+        // panel that tells the user not to pay twice.
+        const awaitingFinalStatus =
+          !paymentStatus ||
+          paymentStatus.status === 'Pending' ||
+          paymentStatus.status === 'RequiresAction'
+        if (confirmingCheckout && !paymentStatusQuery.isError && awaitingFinalStatus) {
+          return (
+            <div className="space-y-6 text-center" data-testid="purchase-confirming">
+              <div className="flex justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold">
+                  {m['points.purchase_confirming_title']()}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {m['points.purchase_confirming_description']()}
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {m['points.purchase_confirming_slow_hint']()}
+              </p>
+            </div>
+          )
+        }
         return (
           <div className="space-y-6" data-testid="purchase-step-processing">
             {paymentStatus && attemptId ? (
@@ -575,6 +670,59 @@ export function PurchasePointsPage({
             )}
           </div>
         )
+      }
+
+      case 'cancelled':
+        return (
+          <div className="space-y-6 text-center" data-testid="purchase-step-cancelled">
+            <div className="flex justify-center">
+              <XCircle className="h-16 w-16 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold">{m['points.purchase_cancelled']()}</h2>
+              <p className="text-sm text-muted-foreground">
+                {m['points.purchase_cancel_bounce_description']()}
+              </p>
+            </div>
+            {selectedOption && selectedOption.amount != null && selectedOption.currency ? (
+              <p className="text-sm text-muted-foreground" data-testid="purchase-cancel-summary">
+                {formatInvoiceAmount(selectedOption.amount, selectedOption.currency)}
+              </p>
+            ) : null}
+            <div className="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:items-center">
+              {selectedOption?.paymentProvider ? (
+                <Button
+                  onClick={() =>
+                    initiatePayment(selectedOption.mappingId, selectedOption.paymentProvider!)
+                  }
+                  disabled={createPaymentMutation.isPending}
+                  className="h-11 w-full sm:h-9 sm:w-auto"
+                  data-testid="purchase-cancel-retry"
+                >
+                  {createPaymentMutation.isPending
+                    ? m['points.purchase_processing_button']()
+                    : m['points.purchase_cancel_bounce_retry']()}
+                </Button>
+              ) : null}
+              <Button
+                variant={selectedOption?.paymentProvider ? 'outline' : 'default'}
+                onClick={() => setCurrentStep('packages')}
+                className="h-11 w-full sm:h-9 sm:w-auto"
+                data-testid="purchase-cancel-repick"
+              >
+                {m['points.purchase_cancel_bounce_repick']()}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleComplete}
+                className="h-11 w-full sm:h-9 sm:w-auto"
+                data-testid="purchase-cancel-view-points"
+              >
+                {m['points.purchase_view_points']()}
+              </Button>
+            </div>
+          </div>
+        )
 
       case 'complete':
         return (
@@ -582,11 +730,35 @@ export function PurchasePointsPage({
             <div className="flex justify-center">
               <CheckCircle2 className="h-16 w-16 text-success" />
             </div>
-            <div>
+            <div className="space-y-1">
               <h2 className="text-base font-semibold">{m['points.purchase_complete_title']()}</h2>
-              <p className="text-muted-foreground">{m['points.purchase_complete_description']()}</p>
+              <p className="text-sm text-muted-foreground">
+                {m['points.purchase_complete_description']()}
+              </p>
             </div>
-            <Button onClick={handleComplete}>{m['points.purchase_view_points']()}</Button>
+            {paidAmount ? (
+              <p className="text-sm text-muted-foreground" data-testid="purchase-complete-amount">
+                {m['points.purchase_paid_amount']({
+                  amount: formatInvoiceAmount(paidAmount.amount, paidAmount.currency),
+                })}
+              </p>
+            ) : null}
+            <div className="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:items-center">
+              <Button
+                onClick={handleComplete}
+                className="h-11 w-full sm:h-9 sm:w-auto"
+                data-testid="purchase-complete-view-points"
+              >
+                {m['points.purchase_view_points']()}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleBackToHub}
+                className="h-11 w-full sm:h-9 sm:w-auto"
+              >
+                {m['profile_hub.back']()}
+              </Button>
+            </div>
           </div>
         )
 
@@ -595,40 +767,56 @@ export function PurchasePointsPage({
     }
   }
 
+  // Each chip wraps as a unit, keeping the indicator usable on narrow
+  // screens. "Processing" is not a user step — it highlights the final chip
+  // while the payment outcome is being confirmed.
+  const indicatorSteps = useMemo(() => {
+    const steps: Array<{ key: 'packages' | 'payment' | 'complete'; label: string }> = [
+      { key: 'packages', label: m['points.purchase_step_select']() },
+    ]
+    if (!paymentStepSkipped)
+      steps.push({ key: 'payment', label: m['points.purchase_step_payment']() })
+    steps.push({ key: 'complete', label: m['points.purchase_step_complete']() })
+    return steps
+  }, [paymentStepSkipped])
+  const activeIndicatorKey: 'packages' | 'payment' | 'complete' | null =
+    currentStep === 'processing' || currentStep === 'complete'
+      ? 'complete'
+      : currentStep === 'packages' || currentStep === 'payment'
+        ? currentStep
+        : null
+
   return (
     <div className="container" data-testid="purchase-points-page">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold tracking-tight">
           {m['points.purchase_page_title']()}
         </h1>
-        <div
-          className="flex items-center gap-2 text-sm text-muted-foreground"
-          data-testid="purchase-step-indicator"
-        >
-          <span className={currentStep === 'packages' ? 'font-bold text-primary' : ''}>
-            {m['points.purchase_step_select']()}
-          </span>
-          <span>→</span>
-          {/* The "Payment" step only appears when more than one provider
-              matches the selected price (see `paymentStepSkipped`). When
-              skipped we omit it from the indicator so the trail reflects
-              the steps the user will actually visit. */}
-          {!paymentStepSkipped && (
-            <>
-              <span className={currentStep === 'payment' ? 'font-bold text-primary' : ''}>
-                {m['points.purchase_step_payment']()}
-              </span>
-              <span>→</span>
-            </>
-          )}
-          <span className={currentStep === 'processing' ? 'font-bold text-primary' : ''}>
-            {m['points.purchase_step_processing']()}
-          </span>
-          <span>→</span>
-          <span className={currentStep === 'complete' ? 'font-bold text-primary' : ''}>
-            {m['points.purchase_step_complete']()}
-          </span>
-        </div>
+        {/* The cancelled result view stands alone — a step trail with nothing
+            to highlight would only add noise. */}
+        {activeIndicatorKey && (
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            data-testid="purchase-step-indicator"
+          >
+            {indicatorSteps.map((step, index) => {
+              const isActive = step.key === activeIndicatorKey
+              return (
+                <span
+                  key={step.key}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                    isActive
+                      ? 'border-primary bg-primary/10 font-medium text-primary'
+                      : 'border-border text-muted-foreground'
+                  }`}
+                >
+                  <span className="font-mono">{index + 1}</span>
+                  {step.label}
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
       <div className="mt-4 border-t border-border pt-6">
         <div className="space-y-6">{renderStepContent()}</div>

@@ -25,7 +25,7 @@ import { USER_STATUS, getWritableUserStatusOptions } from '@/lib/constants/user'
 import { useQuery } from '@tanstack/react-query'
 import { useRealmId } from '@/stores/auth-store'
 import { adminRolesQueryOptions, queryKeys } from '@/data/query-options'
-import { TextField } from '@/components/shared/form-fields'
+import { TextField, PasswordField } from '@/components/shared/form-fields'
 import { m } from '@/paraglide/messages'
 
 interface CreateUserDialogProps {
@@ -113,12 +113,11 @@ export function CreateUserDialog({
               dataTestId="email-input"
             />
 
-            <TextField
+            <PasswordField
               form={form}
               name="password"
               label={m['users.form_password']()}
               inputId="password"
-              type="password"
               dataTestId="password-input"
             />
 

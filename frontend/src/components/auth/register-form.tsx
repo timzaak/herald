@@ -9,10 +9,11 @@ import { TurnstileWidget } from './turnstile-widget'
 import { AgreementLinks } from '@/components/legal/AgreementLinks'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 import { TextField } from '@/components/shared/form-fields/text-field'
+import { PasswordField } from '@/components/shared/form-fields/password-field'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys, turnstileStatusQueryOptions } from '@/data/query-options'
 import { m } from '@/paraglide/messages'
@@ -118,9 +119,8 @@ export function RegisterForm({ realmId, onSuccess }: RegisterFormProps) {
           {(field) => (
             <div className="space-y-2">
               <Label htmlFor="password">{m['auth.register.password_label']()}</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={field.state.value ?? ''}
                 onChange={(e) => field.handleChange(e.target.value)}
                 disabled={isSubmitting}
@@ -140,11 +140,10 @@ export function RegisterForm({ realmId, onSuccess }: RegisterFormProps) {
           )}
         </form.Field>
 
-        <TextField
+        <PasswordField
           form={form}
           name="confirmPassword"
           label={m['auth.register.confirm_password_label']()}
-          type="password"
           dataTestId="register-confirm-password-input"
           disabled={isSubmitting}
         />

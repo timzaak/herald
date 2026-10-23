@@ -12,6 +12,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -459,9 +460,8 @@ export function ClientAppFormPage({ mode, realmId, clientApp }: ClientAppFormPag
                             <Label htmlFor="app-turnstile-secret-key">
                               {m['client_apps.form_turnstile_secret_key_label']()}
                             </Label>
-                            <Input
+                            <PasswordInput
                               id="app-turnstile-secret-key"
-                              type="password"
                               value={field.state.value ?? ''}
                               onChange={(e) => field.handleChange(e.target.value)}
                               placeholder={

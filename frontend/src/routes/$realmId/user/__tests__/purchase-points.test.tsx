@@ -8,18 +8,87 @@ import { m } from '@/paraglide/messages'
 
 // --- Mocks ----------------------------------------------------------------
 
-// The purchase-flow store is a persisted zustand store; stub its actions so the
-// page never touches localStorage / cross-test state.
+// The purchase-flow store is a persisted zustand store. The mock backs both
+// the hook usages and the direct getState() reads the bounce logic performs,
+// so tests can stage a tracked purchase (attemptId/targetId) per scenario.
+const { mockStoreState, resetMockStoreState, mockNavigate, mockUsePurchaseFlowStore } = vi.hoisted(
+  () => {
+    const storeState = {
+      realmId: null as string | null,
+      userId: null as string | null,
+      targetType: null as string | null,
+      targetId: null as string | null,
+      paymentProvider: null as string | null,
+      attemptId: null as string | null,
+      attemptStatus: null as string | null,
+      paymentContext: null as Record<string, never> | null,
+      expiresAt: null as string | null,
+    }
+    // Pristine snapshot: the mock's clearPurchaseState and the per-test reset
+    // both restore exactly these fields, so a new store field cannot drift
+    // between the two reset sites.
+    const initialStoreState = { ...storeState }
+    const useStore = Object.assign(
+      (selector?: (s: typeof storeState) => unknown) =>
+        selector ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    )
+    return {
+      mockStoreState: storeState,
+      resetMockStoreState: () => Object.assign(storeState, initialStoreState),
+      mockNavigate: vi.fn(),
+      mockUsePurchaseFlowStore: useStore,
+    }
+  }
+)
+// Stable identity across renders, mirroring the real useShallow-bound actions:
+// an unstable canRecover would re-fire the recovery effect every render and
+// clobber the bounce-driven step. mockStoreState is referenced lazily (the
+// hoisted blocks above have already run by the time this is called).
+const { mockCanRecover } = vi.hoisted(() => ({
+  mockCanRecover: () =>
+    !!mockStoreState.attemptId &&
+    (mockStoreState.attemptStatus === 'Pending' ||
+      mockStoreState.attemptStatus === 'RequiresAction'),
+}))
+const { mockSetPurchaseState, mockSetPaymentAttempt, mockClearPurchaseState } = vi.hoisted(() => ({
+  mockSetPurchaseState: vi.fn(),
+  mockSetPaymentAttempt: vi.fn(
+    (attemptId: string, status: string, context: object, expiresAt: string) => {
+      Object.assign(mockStoreState, {
+        attemptId,
+        attemptStatus: status,
+        paymentContext: context,
+        expiresAt,
+      })
+    }
+  ),
+  mockClearPurchaseState: vi.fn(() => {
+    resetMockStoreState()
+  }),
+}))
 vi.mock('@/stores/purchase-flow-store', () => ({
   usePurchaseFlowActions: () => ({
-    setPurchaseState: vi.fn(),
-    setPaymentAttempt: vi.fn(),
-    clearPurchaseState: vi.fn(),
-    canRecover: () => false,
+    setPurchaseState: mockSetPurchaseState,
+    setPaymentAttempt: mockSetPaymentAttempt,
+    clearPurchaseState: mockClearPurchaseState,
+    canRecover: mockCanRecover,
   }),
-  usePaymentAttempt: () => ({ attemptId: null, paymentContext: null }),
-  usePurchaseFlowStore: () => null,
+  usePaymentAttempt: () => ({
+    attemptId: mockStoreState.attemptId,
+    attemptStatus: mockStoreState.attemptStatus,
+    paymentContext: mockStoreState.paymentContext,
+    expiresAt: mockStoreState.expiresAt,
+  }),
+  usePurchaseFlowStore: mockUsePurchaseFlowStore,
 }))
+
+// The bounce effect strips consumed params via navigate(replace) — outside a
+// real router the hook must be stubbed.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 // Auth store: minimal user identity.
 vi.mock('@/stores/auth-store', () => ({
@@ -36,8 +105,9 @@ vi.mock('@/components/shared/locale-provider', () => ({
 }))
 
 // Payment attempt API: capture the submitted target so we can assert mappingId.
-const { mockCreatePaymentAttempt } = vi.hoisted(() => ({
+const { mockCreatePaymentAttempt, mockGetPaymentAttemptStatus } = vi.hoisted(() => ({
   mockCreatePaymentAttempt: vi.fn(),
+  mockGetPaymentAttemptStatus: vi.fn(),
 }))
 vi.mock('@/lib/api-generated', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-generated')>()
@@ -45,6 +115,7 @@ vi.mock('@/lib/api-generated', async (importOriginal) => {
     ...actual,
     createPaymentAttempt: mockCreatePaymentAttempt,
     cancelPaymentAttempt: vi.fn(),
+    getPaymentAttemptStatus: mockGetPaymentAttemptStatus,
   }
 })
 
@@ -61,6 +132,7 @@ vi.mock('@/components/purchase/payment-method-selector', () => ({
 import { PurchasePointsPage } from '../purchase-points'
 import { disabledReason } from '@/components/billing/currency-purchase-group'
 import { makePurchaseOption } from '@/test/fixtures/purchase-option'
+import { formatInvoiceAmount } from '@/lib/invoice-utils'
 
 // --- Fixtures --------------------------------------------------------------
 
@@ -109,23 +181,39 @@ function makeWrapper(client: QueryClient) {
 function renderPage(
   items: PurchaseOptionView[],
   client?: QueryClient,
-  pageProps?: { wechatOpenid?: string }
+  pageProps?: {
+    wechatOpenid?: string
+    queryAttemptId?: string
+    queryStatus?: 'success' | 'cancel'
+  }
 ) {
   const qc = client ?? makeQueryClient()
   seedOptions(qc, items)
-  const view = render(<PurchasePointsPage realmId="realm-1" clientAppId="app-1" {...pageProps} />, {
-    wrapper: makeWrapper(qc),
-  })
+  const view = render(
+    <PurchasePointsPage
+      realmId="realm-1"
+      clientAppId="app-1"
+      queryAttemptId={pageProps?.queryAttemptId}
+      queryStatus={pageProps?.queryStatus}
+      wechatOpenid={pageProps?.wechatOpenid}
+    />,
+    {
+      wrapper: makeWrapper(qc),
+    }
+  )
   return { qc, ...view }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   appLocale.current = 'en'
+  resetMockStoreState()
   // Default: payment attempt creation resolves with an id.
   mockCreatePaymentAttempt.mockResolvedValue({
     data: { id: 'att-1', paymentContext: {}, expiresAt: '2026-01-01T00:00:00Z' },
   })
+  // Default: the status poll resolves with nothing yet (still loading).
+  mockGetPaymentAttemptStatus.mockResolvedValue({ data: undefined })
 })
 
 // --- Pure helper tests (pinned contract) ----------------------------------
@@ -316,6 +404,115 @@ describe('PurchasePointsPage', () => {
     // checkout follows it (server maps zh-CN → Stripe's zh); dropping this
     // would leave the checkout on the buyer's browser language.
     expect(call.body.locale).toBe('zh-CN')
+  })
+
+  describe('provider redirect bounce', () => {
+    it('a cancel bounce shows the cancelled result view and retries the restored package in one click', async () => {
+      const user = userEvent.setup()
+      // The tab tracked the bounced attempt: full-page reload wiped the React
+      // selection, but the persisted store still knows the purchase target.
+      Object.assign(mockStoreState, {
+        attemptId: 'att-9',
+        attemptStatus: 'Pending',
+        targetId: 'm-1',
+        paymentProvider: 'stripe',
+      })
+      renderPage(
+        [makeOption({ mappingId: 'm-1', externalPriceId: 'price_m', billingPeriod: 'month' })],
+        undefined,
+        { queryAttemptId: 'att-9', queryStatus: 'cancel' }
+      )
+
+      expect(await screen.findByTestId('purchase-step-cancelled')).toBeInTheDocument()
+      // The pre-redesign bug landed the bounce on the payment step with no
+      // selection, dead-ending on "no providers available" — that broken
+      // intermediate state must not render.
+      expect(screen.queryByTestId('purchase-step-payment')).toBeNull()
+      expect(screen.queryByTestId('payment-method-selector')).toBeNull()
+      expect(mockClearPurchaseState).toHaveBeenCalledTimes(1)
+
+      // One-click retry re-creates the attempt for the same package/provider.
+      await user.click(screen.getByTestId('purchase-cancel-retry'))
+      await waitFor(() => {
+        expect(mockCreatePaymentAttempt).toHaveBeenCalledTimes(1)
+      })
+      const call = mockCreatePaymentAttempt.mock.calls[0][0] as {
+        body: { targetId: string; paymentProvider: string }
+      }
+      expect(call.body.targetId).toBe('m-1')
+      expect(call.body.paymentProvider).toBe('stripe')
+      // The consumed bounce params are stripped from the URL (replace), and
+      // the search updater preserves every other param (wechatOpenid).
+      expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({ replace: true }))
+      const searchUpdater = mockNavigate.mock.calls[0][0].search as (
+        prev: Record<string, unknown>
+      ) => Record<string, unknown>
+      expect(searchUpdater({ attemptId: 'att-9', status: 'cancel', wechatOpenid: 'o-1' })).toEqual({
+        attemptId: undefined,
+        status: undefined,
+        wechatOpenid: 'o-1',
+      })
+    })
+
+    it('a cancel bounce for an attempt this tab is not tracking clears nothing and hides retry', async () => {
+      // Another tab may be mid-purchase with a newer attempt — unwinding the
+      // store here would kill that tab's recovery.
+      Object.assign(mockStoreState, {
+        attemptId: 'att-other',
+        attemptStatus: 'Pending',
+        targetId: 'm-2',
+        paymentProvider: 'stripe',
+      })
+      renderPage([makeOption({ mappingId: 'm-1', externalPriceId: 'price_m' })], undefined, {
+        queryAttemptId: 'att-9',
+        queryStatus: 'cancel',
+      })
+
+      expect(await screen.findByTestId('purchase-step-cancelled')).toBeInTheDocument()
+      expect(mockClearPurchaseState).not.toHaveBeenCalled()
+      expect(mockStoreState.attemptId).toBe('att-other')
+      // Without a restored selection there is nothing to retry — the way
+      // forward is picking a package again.
+      expect(screen.queryByTestId('purchase-cancel-retry')).toBeNull()
+      expect(screen.getByTestId('purchase-cancel-repick')).toBeInTheDocument()
+    })
+
+    it('a success bounce waits on a confirming panel without provider redirect prompts or a cancel affordance', async () => {
+      mockGetPaymentAttemptStatus.mockResolvedValue({
+        data: { status: 'Pending', amount: 10, currency: 'USD', expiresAt: '2099-01-01T00:00:00Z' },
+      })
+      renderPage([makeOption({ mappingId: 'm-1', externalPriceId: 'price_m' })], undefined, {
+        queryAttemptId: 'att-9',
+        queryStatus: 'success',
+      })
+
+      expect(await screen.findByTestId('purchase-confirming')).toBeInTheDocument()
+      // The provider "go pay" prompt and the cancel button are both wrong
+      // after the user already paid — neither may render.
+      expect(screen.queryByTestId('payment-attempt-status')).toBeNull()
+      expect(screen.queryByTestId('payment-cancel-button')).toBeNull()
+    })
+
+    it('a success bounce completes with the paid amount once the webhook-confirmed status lands', async () => {
+      mockGetPaymentAttemptStatus.mockResolvedValue({
+        data: {
+          status: 'Succeeded',
+          amount: 10,
+          currency: 'USD',
+          expiresAt: '2099-01-01T00:00:00Z',
+        },
+      })
+      renderPage([makeOption({ mappingId: 'm-1', externalPriceId: 'price_m' })], undefined, {
+        queryAttemptId: 'att-9',
+        queryStatus: 'success',
+      })
+
+      expect(await screen.findByTestId('purchase-step-complete')).toBeInTheDocument()
+      expect(screen.getByTestId('purchase-complete-amount').textContent).toBe(
+        m['points.purchase_paid_amount']({ amount: formatInvoiceAmount(10, 'USD') })
+      )
+      expect(mockClearPurchaseState).toHaveBeenCalled()
+    })
   })
 
   describe('WeChat provider branch', () => {

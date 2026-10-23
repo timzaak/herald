@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
-import { TextField } from '@/components/shared/form-fields/text-field'
+import { PasswordField } from '@/components/shared/form-fields/password-field'
 import { deleteAccountMutation } from '@/data/query-options'
 import { clearAuthStorage, useAuthStore } from '@/stores/auth-store'
 import { m } from '@/paraglide/messages'
@@ -135,11 +135,10 @@ export function DeleteAccountDialog({ realmId, open, onOpenChange }: DeleteAccou
               }}
               className="space-y-4"
             >
-              <TextField
+              <PasswordField
                 form={form}
                 name="password"
                 label={m['security.delete_account.password_label']()}
-                type="password"
                 dataTestId="delete-account-password-input"
               />
 

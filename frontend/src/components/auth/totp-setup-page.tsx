@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 import { QRCodeCanvas } from 'qrcode.react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BackupCodesDisplay } from '@/components/profile/totp/backup-codes-display'
@@ -176,9 +176,8 @@ export function TotpSetupPage() {
                   {(field) => (
                     <div className="space-y-2">
                       <Label htmlFor="totp-password">Current Password</Label>
-                      <Input
+                      <PasswordInput
                         id="totp-password"
-                        type="password"
                         value={field.state.value ?? ''}
                         onChange={(e) => field.handleChange(e.target.value)}
                         data-testid="totp-setup-password-input"

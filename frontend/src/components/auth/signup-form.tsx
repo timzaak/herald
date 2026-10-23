@@ -14,6 +14,7 @@ import { PasswordStrengthMeter } from './password-strength-meter'
 import { TurnstileWidget } from './turnstile-widget'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 import { getErrorMessage } from '@/lib/error-utils'
@@ -247,9 +248,8 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           {(field) => (
             <div className="space-y-2">
               <Label htmlFor="signup-password">{m['auth.signup.password_label']()}</Label>
-              <Input
+              <PasswordInput
                 id="signup-password"
-                type="password"
                 value={field.state.value ?? ''}
                 onChange={(e) => field.handleChange(e.target.value)}
                 disabled={isSubmitting}

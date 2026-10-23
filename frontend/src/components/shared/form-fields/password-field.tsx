@@ -1,7 +1,6 @@
 import React, { type ReactNode } from 'react'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 
 interface PasswordFieldProps {
@@ -14,7 +13,6 @@ interface PasswordFieldProps {
   disabled?: boolean
   helpText?: ReactNode
   required?: boolean
-  showToggle?: boolean
 }
 
 export function PasswordField({
@@ -27,50 +25,29 @@ export function PasswordField({
   disabled = false,
   helpText,
   required = false,
-  showToggle = true,
 }: PasswordFieldProps) {
-  const [isVisible, setIsVisible] = React.useState(false)
-
-  const toggleVisibility = React.useCallback(() => setIsVisible((prev) => !prev), [])
-
   return (
     <form.Field
       name={name}
       children={(
         field: any // eslint-disable-line @typescript-eslint/no-explicit-any -- generic field component
       ) => {
-        const hasValue = Boolean(field.state.value)
+        const inputProps = {
+          id: inputId ?? field.name,
+          'data-testid': dataTestId,
+          value: field.state.value ?? '',
+          onBlur: field.handleBlur,
+          onChange: (e: React.ChangeEvent<HTMLInputElement>) => field.handleChange(e.target.value),
+          placeholder,
+          disabled,
+        }
         return (
           <div className="space-y-2">
             <Label htmlFor={inputId ?? field.name}>
               {label}
               {required ? ' *' : null}
             </Label>
-            <div className="flex gap-2">
-              <Input
-                id={inputId ?? field.name}
-                data-testid={dataTestId}
-                type={isVisible ? 'text' : 'password'}
-                value={field.state.value ?? ''}
-                onBlur={field.handleBlur}
-                onChange={(e) => field.handleChange(e.target.value)}
-                placeholder={placeholder}
-                disabled={disabled}
-                className="flex-1"
-              />
-              {showToggle && hasValue && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleVisibility}
-                  data-testid={`${dataTestId}-visibility-toggle`}
-                  className="shrink-0"
-                >
-                  {isVisible ? 'Hide' : 'Show'}
-                </Button>
-              )}
-            </div>
+            <PasswordInput {...inputProps} />
             {helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
             {(field.state.meta.isTouched || form.state.isSubmitted) &&
               field.state.meta.errors.length > 0 && (

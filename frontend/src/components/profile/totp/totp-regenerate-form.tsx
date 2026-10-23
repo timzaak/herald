@@ -5,6 +5,7 @@ import { obtainReauthToken } from '@/lib/reauth-flow'
 import { useFormMutation } from '@/hooks/use-form-mutation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { QRCodeCanvas } from 'qrcode.react'
 import { BackupCodesDisplay } from './backup-codes-display'
@@ -110,9 +111,8 @@ export function TotpRegenerateForm({ onSuccess, onCancel }: TotpRegenerateFormPr
               {(field) => (
                 <div className="space-y-2">
                   <Label htmlFor="password">{m['profile.current_password_label']()}</Label>
-                  <Input
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={field.state.value ?? ''}
                     onChange={(e) => field.handleChange(e.target.value)}
                     data-testid="totp-regenerate-password-input"

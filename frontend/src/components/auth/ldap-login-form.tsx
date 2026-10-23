@@ -11,6 +11,7 @@
 import { useForm } from '@tanstack/react-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { TurnstileWidget } from '@/components/auth/turnstile-widget'
 import { AgreementLinks } from '@/components/legal/AgreementLinks'
@@ -100,9 +101,8 @@ export function LdapLoginForm({
           {(field) => (
             <div>
               <Label htmlFor="ldap-password">{m['auth.ldap.password_label']()}</Label>
-              <Input
+              <PasswordInput
                 id="ldap-password"
-                type="password"
                 autoComplete="current-password"
                 value={field.state.value}
                 onBlur={field.handleBlur}

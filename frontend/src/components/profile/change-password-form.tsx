@@ -4,7 +4,7 @@ import { changeUserPassword } from '@/lib/api-generated'
 import { obtainReauthToken } from '@/lib/reauth-flow'
 import { useFormMutation } from '@/hooks/use-form-mutation'
 import { Button } from '@/components/ui/button'
-import { TextField } from '@/components/shared/form-fields/text-field'
+import { PasswordField } from '@/components/shared/form-fields/password-field'
 import { queryKeys } from '@/data/query-options'
 import { m } from '@/paraglide/messages'
 
@@ -50,25 +50,22 @@ export function ChangePasswordForm() {
             }}
             className="max-w-sm space-y-4"
           >
-            <TextField
+            <PasswordField
               form={form}
               name="oldPass"
               label={m['profile.current_password_label']()}
-              type="password"
               dataTestId="change-password-old-input"
             />
-            <TextField
+            <PasswordField
               form={form}
               name="newPass"
               label={m['profile.new_password_label']()}
-              type="password"
               dataTestId="change-password-new-input"
             />
-            <TextField
+            <PasswordField
               form={form}
               name="confirmPass"
               label={m['profile.confirm_password_label']()}
-              type="password"
               dataTestId="change-password-confirm-input"
             />
 

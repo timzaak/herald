@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -180,9 +181,8 @@ export function ProviderConfigForm({
                           </span>
                         )}
                       </Label>
-                      <Input
+                      <PasswordInput
                         id="clientSecret"
-                        type="password"
                         value={field.state.value ?? ''}
                         onChange={(e) => field.handleChange(e.target.value)}
                         placeholder={

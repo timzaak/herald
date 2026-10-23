@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
@@ -322,9 +323,8 @@ export function ChangeEmailDialog({ currentEmail, onClose }: ChangeEmailDialogPr
                   <Label htmlFor="change-email-password-input">
                     {m['profile.change_email_factor_password']()}
                   </Label>
-                  <Input
+                  <PasswordInput
                     id="change-email-password-input"
-                    type="password"
                     autoComplete="current-password"
                     value={credential}
                     onChange={(e) => setCredential(e.target.value)}

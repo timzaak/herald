@@ -3,7 +3,7 @@ import { handleDisableTotp } from '@/lib/api-generated'
 import { obtainReauthToken } from '@/lib/reauth-flow'
 import { useFormMutation } from '@/hooks/use-form-mutation'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { getFieldErrorMessage } from '@/lib/form-utils'
@@ -77,9 +77,8 @@ export function TotpDisableForm({ onSuccess, onCancel, isForceTotpEnabled }: Tot
             {(field) => (
               <div className="space-y-2">
                 <Label htmlFor="password">{m['profile.current_password_label']()}</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={field.state.value ?? ''}
                   onChange={(e) => field.handleChange(e.target.value)}
                   data-testid="totp-disable-password-input"

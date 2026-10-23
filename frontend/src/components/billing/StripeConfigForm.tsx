@@ -7,7 +7,7 @@ import {
   getStripeConfigDefaults,
 } from '@/lib/schemas/stripe-config'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -95,9 +95,8 @@ export function StripeConfigFormDialog({
                   <Label htmlFor="stripe-publishable-key">
                     {m['billing.stripe_publishable_key']()}
                   </Label>
-                  <Input
+                  <PasswordInput
                     id="stripe-publishable-key"
-                    type="password"
                     value={field.state.value}
                     onChange={(e) => {
                       field.handleChange(e.target.value)
@@ -124,9 +123,8 @@ export function StripeConfigFormDialog({
               children={(field) => (
                 <div className="space-y-2">
                   <Label htmlFor="stripe-secret-key">{m['billing.stripe_secret_key']()}</Label>
-                  <Input
+                  <PasswordInput
                     id="stripe-secret-key"
-                    type="password"
                     value={field.state.value}
                     onChange={(e) => {
                       field.handleChange(e.target.value)
@@ -155,9 +153,8 @@ export function StripeConfigFormDialog({
                   <Label htmlFor="stripe-webhook-secret">
                     {m['billing.stripe_webhook_secret']()}
                   </Label>
-                  <Input
+                  <PasswordInput
                     id="stripe-webhook-secret"
-                    type="password"
                     value={field.state.value || ''}
                     onChange={(e) => {
                       field.handleChange(e.target.value)

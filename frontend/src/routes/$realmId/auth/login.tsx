@@ -28,6 +28,7 @@ import { applyTokenSet } from '@/lib/herald-client'
 import { firstPartyClientForPath } from '@/lib/constants/auth-constants'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { AuthPageWrapper } from '@/components/auth/auth-page-wrapper'
 import { TotpVerificationForm } from '@/components/auth/totp-verification-form'
@@ -806,9 +807,8 @@ export function LoginPage() {
                           {m['auth.forgot_password.forgot_link']()}
                         </Link>
                       </div>
-                      <Input
+                      <PasswordInput
                         id="password"
-                        type="password"
                         value={field.state.value}
                         onBlur={field.handleBlur}
                         onChange={(e) => field.handleChange(e.target.value)}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAppForm, AppForm } from '@/components/ui/tanstack-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { getFieldErrorMessage } from '@/lib/form-utils'
 import { withTimeout } from '@/lib/totp-utils'
@@ -169,9 +170,8 @@ export function PasskeyRegisterForm({ onSuccess, onCancel }: PasskeyRegisterForm
                   <Label htmlFor="passkey-password">
                     {m['profile.passkey_register_password_label']()}
                   </Label>
-                  <Input
+                  <PasswordInput
                     id="passkey-password"
-                    type="password"
                     value={field.state.value ?? ''}
                     onChange={(e) => field.handleChange(e.target.value)}
                     data-testid="passkey-register-password-input"

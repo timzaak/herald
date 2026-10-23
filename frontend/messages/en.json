@@ -26,7 +26,9 @@
     "update": "Update",
     "copy": "Copy",
     "copied": "Copied!",
-    "optional": "Optional"
+    "optional": "Optional",
+    "show_password": "Show password",
+    "hide_password": "Hide password"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -2326,7 +2328,6 @@
     "purchase_points_description": "Top up or subscribe for more credits",
     "purchase_step_select": "Select plan",
     "purchase_step_payment": "Payment",
-    "purchase_step_processing": "Processing",
     "purchase_step_complete": "Complete",
     "purchase_select_package_title": "Select Points Package",
     "purchase_select_package_description": "Choose a points package that fits your needs",
@@ -2345,6 +2346,13 @@
     "purchase_complete_button": "Complete Purchase",
     "purchase_create_failed": "Failed to create payment: {message}",
     "purchase_cancelled": "Payment cancelled",
+    "purchase_cancel_bounce_description": "You cancelled this payment. You have not been charged.",
+    "purchase_cancel_bounce_retry": "Pay again",
+    "purchase_cancel_bounce_repick": "Choose a different package",
+    "purchase_confirming_title": "Confirming your payment",
+    "purchase_confirming_description": "We are confirming the payment with the provider. This usually takes a few seconds. Please do not pay again.",
+    "purchase_confirming_slow_hint": "If this takes long, check the purchase history later for the final result.",
+    "purchase_paid_amount": "Amount paid: {amount}",
     "purchase_cancel_failed": "Failed to cancel payment: {message}",
     "purchase_no_mappings": "No purchasable point products available",
     "purchase_mapping_points": "{points} points",

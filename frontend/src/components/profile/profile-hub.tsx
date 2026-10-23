@@ -131,11 +131,14 @@ export function ProfileHub() {
             </a>
           )}
           <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-2.5">
-            <span className="flex items-center gap-3 text-sm font-medium">
+            {/* shrink-0 keeps the CJK label on one line: the default w-full
+                select trigger would otherwise claim the whole row and squeeze
+                the label to per-character wrapping. */}
+            <span className="flex shrink-0 items-center gap-3 text-sm font-medium">
               <Globe className={ROW_ICON_CLASS} />
               {m['profile_hub.language']()}
             </span>
-            <LanguageSwitcher />
+            <LanguageSwitcher className="w-auto" />
           </div>
         </div>
         {/* Logout sits alone in its own destructive card: it must be

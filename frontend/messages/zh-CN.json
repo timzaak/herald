@@ -26,7 +26,9 @@
     "update": "更新",
     "copy": "复制",
     "copied": "已复制！",
-    "optional": "可选"
+    "optional": "可选",
+    "show_password": "显示密码",
+    "hide_password": "隐藏密码"
   },
   "nav": {
     "dashboard": "仪表盘",
@@ -2326,7 +2328,6 @@
     "purchase_points_description": "充值或订阅获取更多积分",
     "purchase_step_select": "选择方案",
     "purchase_step_payment": "支付",
-    "purchase_step_processing": "处理中",
     "purchase_step_complete": "完成",
     "purchase_select_package_title": "选择积分套餐",
     "purchase_select_package_description": "选择适合您需求的积分套餐",
@@ -2345,6 +2346,13 @@
     "purchase_complete_button": "完成购买",
     "purchase_create_failed": "创建支付失败：{message}",
     "purchase_cancelled": "支付已取消",
+    "purchase_cancel_bounce_description": "你已取消本次支付，未产生任何扣款。",
+    "purchase_cancel_bounce_retry": "重新支付",
+    "purchase_cancel_bounce_repick": "返回重新选择",
+    "purchase_confirming_title": "正在确认支付结果",
+    "purchase_confirming_description": "我们正在与支付服务商确认本次支付，通常几秒内完成。请勿重复支付。",
+    "purchase_confirming_slow_hint": "若长时间未更新，请稍后在购买记录中查看结果。",
+    "purchase_paid_amount": "实付金额：{amount}",
     "purchase_cancel_failed": "取消支付失败：{message}",
     "purchase_no_mappings": "暂无可购买的积分产品",
     "purchase_mapping_points": "{points} 积分",
