@@ -72,10 +72,10 @@ Then 访问被拒绝
 And 不返回任何受保护数据
 ```
 
-**场景 7：旧指南的两种 API Key 配置均不能接入**
+**场景 7：两种 API Key 配置均不能接入**
 ```gherkin
 Given 我持有一个在 Herald 其他集成中仍有效的 Client API Key
-When 我分别按旧接入指南的两种 API Key 配置方式连接 Herald MCP 服务
+When 我分别以两种 API Key 配置方式连接 Herald MCP 服务
 Then 两种连接均被拒绝
 And 不返回任何查询数据
 And 客户端引导我完成浏览器授权
@@ -523,4 +523,3 @@ And agent 须重新完成浏览器授权才能继续查询
 - **PRD**: [docs/prd/integration/mcp-server.md](/docs/prd/integration/mcp-server.md)
 - **授权服务器基线**: [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)
 - **决策记录**: `docs/prd/integration/mcp-server.md` §7
-- **技术预研**: `.ai/tech-research/mcp-server.md`

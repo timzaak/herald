@@ -38,7 +38,7 @@
 
 ### 2.2 不包含功能 (Out of Scope)
 
-- OIDC scope 管理与用户主动同意（consent）授权页：维持"授权自动完成"现状（与 [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md) §2.2 一致）；本轮身份声明采用最小固定集
+- OIDC scope 管理与用户主动同意（consent）授权页：不做 OIDC scope 级同意页，授权同意沿用 [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md) 的 Client App 级同意页；本轮身份声明采用最小固定集
 - OAuth client_credentials（M2M 机器对机器授权）：独立候选 feature，另行立项
 - 标准化 refresh token：令牌刷新沿用现状（server-side token 不支持刷新；浏览器 token 走既有轮换机制）
 - RP 发起的登出（RP-initiated logout）与 front/back-channel logout
@@ -133,10 +133,10 @@
 
 ## 7. 已确认决策
 
-> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。本 feature 曾于 2026-07-14 Decision Brief（`.ai/decision/openid-connect.md`）裁决为 Park，2026-09-14 由用户显式决策重开（DEC-004）。
+> 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
 - **DEC-openid-connect-001 · Herald 产品定位**（user，2026-09-14 用户选择"最小 OIDC 层"时再次确认）：维持 SaaS 底座定位，不进入完整身份平台赛道；仅检测 `openid` 语义，不建 scope/consent 体系。理由：差异化护城河在计费+积分；完整身份平台是独立品类（Zitadel/Logto/Keycloak 专注），进入即放弃自身差异化。落点：§2.2、§4.1。重开条件：用户决定做完整 OIDC Provider / 正式进入身份平台赛道。
-- **DEC-openid-connect-004 · 能力范围**（user，2026-09-14 `/t-prd` 澄清门禁）：最小 OIDC 兼容层：id_token + JWKS + discovery + userinfo 叠加既有授权码流程，无 scope/consent 体系、无标准化 refresh；第三方接入边界由"仅为 Herald 开发的应用"扩展为"任意标准 OIDC 客户端亦可接入"。理由：用户在竞品差距分析（2026-09-14）后作出战略判断：OIDC 是 IdP 生态接入入场券。重启动因为用户显式决策而非客户需求证据（原重启条件 DEC-003 未被满足，由用户覆盖）。落点：§2.1、§2.2。重开条件：出现完整 scope/consent 体系需求或身份平台定位调整。
+- **DEC-openid-connect-004 · 能力范围**（user，2026-09-14 `/t-prd` 澄清门禁）：最小 OIDC 兼容层：id_token + JWKS + discovery + userinfo 叠加既有授权码流程，无 scope/consent 体系、无标准化 refresh；第三方接入边界由"仅为 Herald 开发的应用"扩展为"任意标准 OIDC 客户端亦可接入"。理由：用户在竞品差距分析（2026-09-14）后作出战略判断：OIDC 是 IdP 生态接入入场券。落点：§2.1、§2.2。重开条件：出现完整 scope/consent 体系需求或身份平台定位调整。
 - **DEC-openid-connect-005 · issuer 形态**（agent，实现层，2026-09-14 `/t-design`）：路径式 issuer `{origin}/api/oauth/{realmId}`（origin 随 Realm 自定义域名切换）；发现、公钥、userinfo 能力挂同一 Realm 路径前缀，发现 URL 按 OIDC 标准 append 语义拼接（规则正文见 §4.1）。理由：路径式 issuer 对 Grafana/Vault 类标准客户端兼容面最广；不叠加前端 realm 路径前缀（否则发现 URL 命中 SPA fallback 不可路由）；issuer 一经发布即对外契约，反转代价高，且影响 task/test 两阶段。落点：§4.1。重开条件：出现独立 OIDC 子域名需求或网关路由形态变化。
 - **DEC-openid-connect-006 · 签名密钥模型**（agent，实现层，2026-09-14 `/t-design`）：RS256、平台级密钥（Realm 无关）；私钥密文静态存储；启动自举首把密钥；内部运维端点轮换；7 天重叠期；JWKS 发布 Active 与未到期 Retained（规则正文见 §4.1、§4.2）。理由：iss+aud 校验已保证 realm 隔离，per-realm 轮换运维负担不成比例；RS256 客户端兼容面最广且 jsonwebtoken 已有 RS256 先例；密钥模型影响 task/test 且存量密钥形成后反转代价高。落点：§4.1、§4.2。重开条件：出现 per-realm 密钥、多算法或硬件密钥管理需求。
 - **DEC-openid-connect-007 · 令牌共存**（agent，实现层，2026-09-14 `/t-design`）：不引入新令牌类型：id_token 为既有令牌响应的增量字段（仅 openid 语义时出现）；userinfo 复用既有浏览器访问令牌认证链；nonce 透传回显（规则正文见 §4.1）。理由：保持令牌体系单一；"不含 openid 的请求行为不变"是 PRD 硬验收；nonce 是协议安全参数（非身份声明），标准客户端普遍发送并期望回显；影响 task/test 两阶段。落点：§2.1、§4.1。重开条件：引入 introspection 型 JWT access token 或标准化 refresh（超出 DEC-004 范围，需重新立项评估）。
@@ -150,6 +150,6 @@
 - 复用用户故事：[docs/user-stories/auth/third-party-app.md](/docs/user-stories/auth/third-party-app.md)、[docs/user-stories/auth/client-app-settings.md](/docs/user-stories/auth/client-app-settings.md)、[docs/user-stories/core/regular-user.md](/docs/user-stories/core/regular-user.md)
 - 接入指引（文档站）：`docs-web/content/docs/integration/oidc.mdx`（中英双语）
 - **与相关 PRD 的覆盖关系**：
-  - [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)：OIDC 身份层叠加于其 Authorization Code + PKCE 流程之上，不改变该 PRD 任何既有规则；其 §2.2"无细粒度 scope 授权页、授权自动完成"的边界对 OIDC 层继续适用（本 PRD §2.2 沿用）
+  - [docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)：OIDC 身份层叠加于其 Authorization Code + PKCE 流程之上，不改变该 PRD 任何既有规则；其 §2.2 的 scope 边界（不做细粒度 scope 授权勾选）对 OIDC 层同样适用（本 PRD §2.2 沿用）
   - [docs/prd/core/legal-consent-account-deletion.md](/docs/prd/core/legal-consent-account-deletion.md)：登录同意闸门对 OIDC 授权不豁免，id_token 签发时机与授权码一致
   - [docs/prd/auth/totp.md](/docs/prd/auth/totp.md)、[docs/prd/auth/passkey.md](/docs/prd/auth/passkey.md)：二次认证与 OIDC 授权流程的既有组合行为不变

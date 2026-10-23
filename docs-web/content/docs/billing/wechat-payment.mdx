@@ -73,7 +73,7 @@ WeChat mappings are created manually, like IAP mappings, because there is no cat
 
 WeChat has no hosted catalog, so the order amount comes from the mapping rather than a provider Price — that's what the **Price** and **Currency** fields are for. WeChat is the only provider whose mappings accept a manual price: entering one on any other provider's mapping is rejected by the API. It is also a single-price channel — the purchase page shows one price with no currency switcher, whatever the user's currency preference is (see the [Multi-Currency Pricing guide](/docs/billing/multi-currency)).
 
-Mappings created before the price field existed (or written straight to the database) may carry none; those still sell — the order goes out with a 1-fen sentinel amount to satisfy the payment attempt constraint. If a test order shows 0.01 CNY, this is why.
+Mappings without a configured price (e.g. created straight in the database) still sell — the order goes out with a 1-fen sentinel amount to satisfy the payment attempt constraint. If a test order shows 0.01 CNY, this is why.
 
 ## Step 3: The purchase flow
 

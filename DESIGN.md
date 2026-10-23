@@ -168,9 +168,9 @@
 
 | 角色 | 字体 | 加载 |
 |---|---|---|
-| UI/正文 | **Albert Sans**（400/500/600/700），中文回退 `PingFang SC` / `Microsoft YaHei` | Google Fonts（替换现有 Plus Jakarta Sans） |
+| UI/正文 | **Albert Sans**（400/500/600/700），中文回退 `PingFang SC` / `Microsoft YaHei` | Google Fonts |
 | 展示/品牌/大数字 | **Alumni Sans**（200–600，窄身大字） | Google Fonts |
-| 等宽 | **JetBrains Mono**（400/500）—— 现已声明但未加载，需补 | Google Fonts |
+| 等宽 | **JetBrains Mono**（400/500）—— 已在 `index.html` 加载 | Google Fonts |
 
 ```
 --font-sans:    'Albert Sans', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -322,20 +322,6 @@ API key 展示、设备码、审计事件 JSON、OAuth 原始配置：`instrumen
 - 中文正文行高 1.7（拉丁 1.6）；中文不用负字距。
 - Alumni Sans 展示字只用于拉丁与数字；中文标题用 sans 栈 600。
 - 等宽字体不含中文，mono 字段中出现的中文（如单位）自动回退 sans——可接受，不必强制。
-
----
-
-## 10. 落地顺序（实现参考）
-
-1. `frontend/src/styles.css`：替换 `:root` 令牌（§2.7）+ 增补扩展令牌 + 阴影/动效令牌（§5、§6）。
-2. `frontend/index.html`：字体换为 Albert Sans / Alumni Sans / JetBrains Mono（含中文回退栈确认）。
-3. `ui/button.tsx`：默认高度 32px、key-lift 阴影、尺寸档位 26/32/44。
-4. 侧栏活动指示：由 `--sidebar-primary` 自动变金，检查现有 sage 硬编码残留。
-5. 图表：系列色自动走 `--chart-*`，检查 auth-trend-chart / billing statistics 的硬编码色。
-6. 逐页过一遍眉题化标签（统计卡、分组、表头）与 mono 化 ID 列。
-7. 深色仪器面板：API key 展示、设备码、审计 JSON。
-
-每步保持 `data-testid` 与既有测试通过；视觉验收对照本文件与 `design-preview/herald-kinpaku-preview.svg`。
 
 ---
 

@@ -1,12 +1,10 @@
 # 多货币（按货币选择/本地化）用户故事
 
 > 角色定义以 `docs/user-stories/_roles.md` 为准。
-> 复用的已发布用户故事（不重复创建）：
+> 复用的既有用户故事（不重复创建）：
 > - 多价格同步/购买/解析：`docs/user-stories/billing/entitlement-mapping.md`（US-EM-007～009、US-BL-SYNC-001～004）
 > - 统一支付尝试与履约：`docs/user-stories/billing/payment-attempt.md`（US-PA-001～004）
 > 本文件仅承载「按货币选择/本地化体验」特有的场景。
->
-> 2026-08-15 变更（DEC-multiple_currency-014）：废除原故事 1（US-MC-001 配置 Realm 默认货币）与故事 2（US-MC-002 个人偏好货币覆盖）；货币必须由用户显式选定，系统不做任何默认/偏好/回退。
 
 ## 用户故事
 

@@ -53,13 +53,13 @@ And 反之，清空 role 授予保留积分策略，商品变为「纯积分包�
 **【用户故事】**
 **作为**：付费终端用户（Regular User）
 **我希望**：购买一个「不配积分、只授 role」的一次性商品时支付能成功完成，而不是系统报错
-**从而**：使最常见的「付费一次性解锁」付费形态可用（修复当前 one-time 不配积分即报 500 的不一致）
+**从而**：使最常见的「付费一次性解锁」付费形态可用
 
 **【验收标准】**
 
 **场景 1：one-time 纯权益购买成功**
 ```gherkin
-Given 一个 billing_type=one_time 的 entitlement mapping 已配置 role 授予但未配置积分分发规则（多钱包规则模型，无单点积分字段）
+Given 一个 billing_type=one_time 的 entitlement mapping 已配置 role 授予但未配置积分分发规则
 When 用户完成该商品的支付
 Then 支付尝试记录为成功
 And 系统不报错、不发放积分

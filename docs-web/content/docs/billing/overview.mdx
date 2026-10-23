@@ -81,7 +81,7 @@ The `has_access()` method decides whether a user has access: Active and Trialing
 
 ### Payment Attempt
 
-A Payment Attempt is a unified ledger recording every successful payment, covering one-time purchases, subscription first installments, and subscription renewals. Previously, a subscription renewal only updated the subscription period and credits, leaving no record of "this payment happened"; now every successful renewal also writes a successful payment attempt, which serves as the local anchor for external invoices. Every third-party-synced invoice can be traced directly to the payment attempt or subscription it belongs to. Zero-amount periods (100% discount / free tier) produce no renewal payment attempt. Attribution and anomaly detection are detailed in [Invoice Management](/docs/billing/invoice).
+A Payment Attempt is a unified ledger recording every successful payment, covering one-time purchases, subscription first installments, and subscription renewals. Every successful payment, including renewals, writes a successful payment attempt, which serves as the local anchor for external invoices. Every third-party-synced invoice can be traced directly to the payment attempt or subscription it belongs to. Zero-amount periods (100% discount / free tier) produce no renewal payment attempt. Attribution and anomaly detection are detailed in [Invoice Management](/docs/billing/invoice).
 
 ### Metadata contract
 

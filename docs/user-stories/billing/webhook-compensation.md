@@ -129,6 +129,5 @@ And 系统记录本批次统计（成功 2、失败 1）
 ## 相关文档
 
 - **PRD**: `docs/prd/billing/subscription.md` — 订阅计费 PRD（含 Webhook 处理与补偿规则）
-- **技术研究**: `.ai/tech-research/billing-webhook-compensation.md` — 技术预研报告
 - **用户故事**: `billing/entitlement-mapping.md` — Entitlement 映射（含 Webhook metadata 映射）
 - **用户故事**: `billing/payment-attempt.md` — 支付尝试（含主动查询补偿）

@@ -122,9 +122,65 @@ jobs:
           delete-untagged: true
           validate: true
 
+  # scripts/release.py advances an SDK's version only when that SDK actually
+  # has changes to publish, so "version unchanged since the previous release
+  # tag" means "this version was already published" — the publish jobs below
+  # are skipped for those, emitting no empty npm/crates.io releases.
+  sdk-versions:
+    name: Detect SDK publishes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      rust: ${{ steps.versions.outputs.rust }}
+      node: ${{ steps.versions.outputs.node }}
+      web: ${{ steps.versions.outputs.web }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compare SDK versions with the previous release
+        id: versions
+        run: |
+          current="${GITHUB_REF_NAME}"
+          # Highest previous release tag reachable from the release commit's
+          # parent; this release's own tag points at the release commit and is
+          # therefore excluded by --merged.
+          prev=$(git tag --merged "${current}^" --sort=-v:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          echo "Previous release tag: ${prev:-<none, first release>}"
+
+          cargo_toml_version() {
+            sed -n 's/^version = "\([^"]*\)".*/\1/p' | head -n1
+          }
+          package_json_version() {
+            grep -m1 '"version":' | sed -E 's/.*"version": *"([^"]+)".*/\1/'
+          }
+
+          # changed = the SDK's version in this release differs from the
+          # previous release tag. No previous tag or missing file => changed.
+          sdk_changed() {
+            path="$1"; extractor="$2"
+            cur=$("$extractor" < "$path")
+            if [ -z "$prev" ] || ! git cat-file -e "${prev}:${path}" 2>/dev/null; then
+              echo changed; return
+            fi
+            old=$(git show "${prev}:${path}" | "$extractor")
+            if [ "$cur" = "$old" ]; then echo unchanged; else echo changed; fi
+          }
+
+          {
+            echo "rust=$(sdk_changed sdk/rust/Cargo.toml cargo_toml_version)"
+            echo "node=$(sdk_changed sdk/node/package.json package_json_version)"
+            echo "web=$(sdk_changed sdk/web/package.json package_json_version)"
+          } >> "$GITHUB_OUTPUT"
+
   publish-rust-sdk:
     name: Publish Rust SDK
-    needs: merge
+    needs: [merge, sdk-versions]
+    if: needs.sdk-versions.outputs.rust == 'changed'
     permissions:
       contents: read
     uses: ./.github/workflows/publish-sdk.yml
@@ -133,7 +189,8 @@ jobs:
 
   publish-node-sdk:
     name: Publish Node SDK
-    needs: merge
+    needs: [merge, sdk-versions]
+    if: needs.sdk-versions.outputs.node == 'changed'
     permissions:
       contents: read
     uses: ./.github/workflows/publish-node-sdk.yml
@@ -142,7 +199,8 @@ jobs:
 
   publish-web-sdk:
     name: Publish Web SDK
-    needs: merge
+    needs: [merge, sdk-versions]
+    if: needs.sdk-versions.outputs.web == 'changed'
     permissions:
       contents: read
     uses: ./.github/workflows/publish-web-sdk.yml
@@ -155,6 +213,9 @@ jobs:
       - publish-rust-sdk
       - publish-node-sdk
       - publish-web-sdk
+    # !failure() keeps "no release when a publish failed"; !cancelled() lets
+    # this run when publish jobs were skipped (SDKs without changes).
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

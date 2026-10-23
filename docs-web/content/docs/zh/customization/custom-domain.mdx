@@ -56,9 +56,9 @@ login.acme.com  CNAME  custom.herald.com
 
 这些会随反代层跑 ACME 挑战而更新。创建 CNAME 记录后给 DNS 传播留点时间。
 
-## 当前路由方式
+## 路由方式
 
-Realm 路由目前仍由 `{realmId}` 路径段决定，和以前一样。自定义域名配置和证书授权门控是 host 路由的基础；直接在自定义域名上承载完整 auth 流的能力见后续版本。
+Realm 路由由 `{realmId}` 路径段决定。自定义域名直接承载完整的 auth/manage/user 树——realm 从主机名解析。
 
 ## 相关文档
 

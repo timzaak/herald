@@ -80,7 +80,7 @@ Handling rules:
 
 ### Compensation job
 
-`backend/worker/src/jobs/webhook_compensation_job.rs` already includes `credit_note.created` and `credit_note.voided` in the Stripe event compensation list. When a webhook is missing, the job pulls recent events from the Stripe Events API and reprocesses them.
+`backend/worker/src/jobs/webhook_compensation_job.rs` includes `credit_note.created` and `credit_note.voided` in the Stripe event compensation list. When a webhook is missing, the job pulls recent events from the Stripe Events API and reprocesses them.
 
 ## Recording a Manual Credit Note refund
 
@@ -152,8 +152,7 @@ Regular users see only the refund summary (e.g. "Refunded 30/100") in their invo
 
 ## Related docs
 
-- `docs/prd/billing/notes.md` — Credit Note product requirements
 - `docs/user-stories/billing/invoice-fallback.md` — US-IF-007 ~ US-IF-011
 - [Invoice main flow](/docs/billing/invoice)
 - [Stripe payment and webhooks](/docs/billing/stripe-payment)
-- `docs/prd/billing/webhook-compensation.md` — Webhook compensation mechanism
+- `docs/user-stories/billing/webhook-compensation.md` — Webhook compensation mechanism

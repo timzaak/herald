@@ -112,7 +112,7 @@
 **适用性**: 适用（API 与前端/交互边界合并陈述）
 
 **API / 集成边界:**
-- 能力边界：新增一个未认证身份的企业账号认证能力；管理端复用本 Realm 既有配置管理能力（不新增专用管理接口面）；新增独立的公开状态端点暴露企业账号登录启用状态——仅返回 `enabled`，不并入聚合 public-config，不包含任何目录配置细节或凭据（与 email-otp FR-9 同模式）。不新增其他高权限接口。
+- 能力边界：新增一个未认证身份的企业账号认证能力；管理端复用本 Realm 既有配置管理能力（不新增专用管理接口面）；新增独立的公开状态端点暴露企业账号登录启用状态——仅返回 `enabled`，不并入聚合 public-config，不包含任何目录配置细节或凭据（与 email-otp 登录的公开状态端点同模式）。不新增其他高权限接口。
 - 访问控制：企业账号认证为公开端点（无需已认证身份），但必须完成人机验证与限流；目录配置的读写仅限拥有本 Realm 设置管理权限（`settings.view`/`settings.manage`）的管理员。
 - 租户/realm 数据边界：认证请求绑定 Realm（与 Client App 上下文一致）；用户匹配与账号创建限定在当前 Realm 内；跨 Realm 配置访问被拒绝。
 - 兼容性：与现有密码登录、邮箱验证码登录、第三方 OAuth 登录、TOTP/Passkey、协议同意模型共存；兼容下游 Authorization Code 流程；公共配置新增信号为向后兼容变更。
@@ -133,9 +133,9 @@
 
 > 本节只收录当前有效的决策与未决问题，记取舍、理由、决策人与重开条件；规则正文只在 §4 定义，DEC/Q 编号保持稳定，供代码注释、测试与跨 PRD 引用追溯。
 
-- **DEC-support-ldap-001 · 功能范围**（user（未答，agent 按推荐项），2026-08-26）：仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项）。理由：2026-08-26 AskUserQuestion 范围三问未获用户回答，agent 按推荐项落地（对齐 DEC-wechat-support-012 的未答处理先例）；推荐依据：与现有 WeChat/Apple/Google 外部身份接入深度一致，工作量最小。落点：§2.1、§2.2。重开条件：出现组→角色映射或目录同步的具体客户需求。
-- **DEC-support-ldap-002 · JIT 建号**（user（未答，agent 按推荐项），2026-08-26）：首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，规则正文见 §4.1）。理由：同上未答按推荐项；与现有 OAuth JIT 建号模式（`backend/api-oauth/src/helper.rs`）一致，用户零摩擦接入；本地密码列保持 NULL 使本地密码回退登录天然不可能。落点：§4.1。重开条件：租户要求仅管理员预建账号可 LDAP 登录。
-- **DEC-support-ldap-003 · 桌面 SSO**（user（未答，agent 按推荐项），2026-08-26）：不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证。理由：同上未答按推荐项；SPNEGO 依赖 GSSAPI C FFI，违背 DEC-wechat-support-004 纯 Rust/no-openssl 硬约束，且浏览器协商流程显著扩大架构与安全面。落点：§2.2。重开条件：出现内网域免密 SSO 的具体客户需求（届时独立立项评估 GSSAPI 之外的方案）。
+- **DEC-support-ldap-001 · 功能范围**（agent，2026-08-26）：仅 LDAP 登录认证；不做组→角色映射、不做后台目录同步（各自独立立项）。理由：与现有 WeChat/Apple/Google 外部身份接入深度一致，工作量最小。落点：§2.1、§2.2。重开条件：出现组→角色映射或目录同步的具体客户需求。
+- **DEC-support-ldap-002 · JIT 建号**（agent，2026-08-26）：首次目录认证成功自动建号：无本地密码 + 目录身份链接；邮箱缺失用占位邮箱（账户直接置 Normal，账户模型无独立 email_verified 载体，规则正文见 §4.1）。理由：与现有 OAuth JIT 建号模式（`backend/api-oauth/src/helper.rs`）一致，用户零摩擦接入；本地密码列保持 NULL 使本地密码回退登录天然不可能。落点：§4.1。重开条件：租户要求仅管理员预建账号可 LDAP 登录。
+- **DEC-support-ldap-003 · 桌面 SSO**（agent，2026-08-26）：不做 SPNEGO/Kerberos 桌面单点登录，仅登录页表单认证。理由：SPNEGO 依赖 GSSAPI C FFI，违背 DEC-wechat-support-004 纯 Rust/no-openssl 硬约束，且浏览器协商流程显著扩大架构与安全面。落点：§2.2。重开条件：出现内网域免密 SSO 的具体客户需求（届时独立立项评估 GSSAPI 之外的方案）。
 - **DEC-support-ldap-004 · LDAP 客户端技术选型**（agent，实现层）：引入 `ldap3` 0.12 作为 workspace 依赖：`default-features = false`，`features = ["tls-rustls-ring"]`（不启用 `sync`、不启用 GSSAPI/NTLM），不引入 openssl/native-tls 系依赖。理由：承接 DEC-wechat-support-004（禁 openssl/native-tls 及一切间接拉入 native-tls 的依赖）；ldap3 默认 features 含 `tls`（= native-tls）必须关闭；依赖树已有 rustls 0.23.36 + ring（经 reqwest/tokio-rustls），`tls-rustls-ring` 零新增 TLS 后端；MSRV 1.82 低于锁定工具链 1.96.1。落点：设计/实现层。重开条件：ldap3 出不兼容升级或项目 rustls 主版本迁移。
 - **DEC-support-ldap-005 · 配置存储**（agent，实现层）：LDAP 配置存既有 `realm_config`（`config_type='ldap'`，服务账号 bind 密码 `is_secret=true`），复用通用 `/api/configs/{realmId}` 管理 CRUD，不新建独立配置体系；v1 不做应用层加密。理由：对齐 Stripe/Creem/Wechat 凭据存储主导先例（DEC-wechat-support-007 同结论）；不改变技术路线、依赖与兼容性。落点：§2.3、设计/实现层。重开条件：全 provider 凭据统一应用层加密立项（LDAP 一并受益）。
 - **DEC-support-ldap-006 · 认证接入形态**（agent，实现层）：新增专用端点（挂 `/api/auth/{realmId}` 下）做 LDAP 登录，完整镜像 `login.rs` 管线（Client App 解析、Turnstile、IP+标识符限流、TOTP/passkey 二因子探测、consent gate、OAuth code 分支、token family、审计 `method="ldap"`）；不在现有 `login.rs` 内部分支。理由：`UserServiceImpl::login` 内嵌 bcrypt 校验与时序均衡逻辑，LDAP bind 无本地哈希可验、无法复用该路径；`email_otp.rs` 已示范"替代第一因子走专用端点"形态，前端按状态开关展示（`EmailOtpLoginForm` 同型）。落点：§4.1、设计/实现层。重开条件：登录页统一单表单交互改版。
@@ -155,6 +155,5 @@
 - Client App 级人机验证：[Client App 管理](../integration/client-app.md)
 - 协议同意模型：[合规适配](../core/legal-consent-account-deletion.md)
 - 审计：[Audit 审计日志](../core/audit.md)
-- 技术预研：`.ai/tech-research/support-ldap.md`
 - 角色定义：`docs/user-stories/_roles.md`
 - 用户故事来源见 §1

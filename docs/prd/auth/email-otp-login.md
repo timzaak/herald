@@ -31,7 +31,7 @@
 - **邮箱验证码登录已有账号**：用户用邮箱接收一次性验证码完成登录，作为密码登录的低摩擦替代入口。
 - **未注册邮箱自动注册**：未注册邮箱在用户完成同意表达并验证成功后，自动创建并激活账户；自动注册视为注册路径，不要求用户再走单独的邮箱验证。
 - **邮箱所有权验证**：验证码验证即完成邮箱所有权验证；邮箱仍是账户必填身份与恢复渠道。
-- **客户端会话承接**：登录成功后承接自建用户 UI（custom-user-ui）已确认的 Bearer access/refresh token 方向，不退回 cookie-only 假设。
+- **客户端会话承接**：登录成功后签发 Bearer access/refresh token 建立会话，不走 cookie session。
 - **per-Realm 启停**：Realm 管理员可启用/关闭邮箱验证码登录，并单独控制自动注册开关。
 - **首期投放范围**：产品首期仅在 ai-agent-app 对应 Realm 启用；后端不硬编码 Realm 名称，而以每个 Realm 的 `email_otp` 开关承载投放，其他 Realm 默认关闭。
 - **与其他登录方式共存**：保留密码登录入口；Passkey 作为用户后续可绑定的增强/未来主入口；OTP 不替代现有 TOTP 二因素或高危操作重新认证。
@@ -69,7 +69,7 @@
 - **与其他认证方式共存**：保留密码登录入口；Passkey 作为用户后续可绑定的增强/未来主入口；用户可随后设置密码或绑定 Passkey/TOTP，账户身份不变。
 - **per-Realm 开关**：Realm 管理员可启用/关闭邮箱验证码登录，并单独控制自动注册；关闭后平滑降级，已注册用户仍可用密码/TOTP/Passkey 登录。启用（`enabled=true`）要求本 Realm 已配置邮件通道——控制台在未配置时禁用两个开关并以 tooltip 说明原因，API 侧未配置时拒绝写入（与注册侧"邮箱验证需邮件配置"的写入校验对称）；禁用与在 `enabled=false` 下预置 `auto_register` 不受此限制。
 - **公开状态查询**：提供无需登录的 Realm 邮箱 OTP 启用状态查询，仅返回 `enabled`，供登录页决定是否展示入口。
-- **客户端会话方向**：登录成功签发的会话承接自建用户 UI 的 Bearer access/refresh token 方向；不退回 cookie-only，不引入新的会话模型。
+- **客户端会话方向**：登录成功签发 Bearer access/refresh token；不走 cookie session，不引入新的会话模型。
 - **防滥用**：人机验证（Turnstile）按**当前请求绑定的 Client App** 的 Turnstile 配置执行（Client App 级，见 D-PROTECT-01）；维持 IP/identifier 限流；验证码对发送频率、尝试次数、有效期和一次性消费设定上限；首期限定目标 Realm 以控制批量发送与批量注册成本。
 - **防枚举**：验证码发送对存在但非激活的账户返回与正常发送一致的反馈，不暴露账户是否存在。
 - **注册政策优先**：自动注册不得绕过 Realm 注册政策；当 Realm 未开启自动注册（或不在首期开放范围）时，未注册邮箱只能得到未注册提示或引导到显式注册入口，不创建账户。
@@ -138,9 +138,9 @@
 - **D-REG-01（未注册邮箱自动注册）**：验证成功后自动创建激活账户；自动注册视为注册路径而非登录异常分支。
 - **D-EMAIL-01（邮箱仍必需）**：邮箱仍是账户必填身份与恢复渠道；验证码完成邮箱所有权验证；不引入无邮箱账户。
 - **D-PASSKEY-01（Passkey 定位）**：Passkey 作为增强/未来主入口，不作为唯一入口；OTP 与密码仍需存在；后续按采用率调整曝光。
-- **D-SESSION-01（会话方向承接）**：登录成功签发的会话承接自建用户 UI 的 Bearer access/refresh token 方向；不退回 cookie-only；自建用户 UI Bearer 登录能力须先于或同期交付。
+- **D-SESSION-01（会话方向承接）**：登录成功签发 Bearer access/refresh token；不走 cookie session；自建用户 UI Bearer 登录能力须先于或同期交付。
 - **D-CONSENT-01（自动注册的有效同意）**：用户输入邮箱 → 表达同意（勾选/点击"同意协议并继续"）→ 发送验证码 → 验证成功即视作对当前生效协议版本的有效同意并被记录；复用合规适配 PRD 的"登录即同意"语义。
-- **D-PROTECT-01（防滥用，Client App 级 Turnstile）**：人机验证（Turnstile）配置在 **Client App 级别**——每个 Client App 配置自己的 Turnstile site_key/secret_key 与启用开关，`realm_config` 不再承载 Turnstile；OTP 登录/自动注册的人机验证按当前请求绑定的 Client App 的 Turnstile 配置执行。维持 IP/identifier 限流；验证码对发送频率、尝试次数、有效期和一次性消费设定上限；首期限定目标 Realm 控制成本。Client App 级 Turnstile 配置能力本身不在本 PRD 定义（由 Client App PRD 承载），本 PRD 只声明依赖。该下放对 Realm Settings PRD 与自建用户 UI PRD 的 Turnstile 表述构成同步治理约束，已一并修订（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md)、[docs/prd/integration/custom-user-ui.md](../integration/custom-user-ui.md)）。
+- **D-PROTECT-01（防滥用，Client App 级 Turnstile）**：人机验证（Turnstile）配置在 **Client App 级别**——每个 Client App 配置自己的 Turnstile site_key/secret_key 与启用开关，Turnstile 配置归属 Client App 级；OTP 登录/自动注册的人机验证按当前请求绑定的 Client App 的 Turnstile 配置执行。维持 IP/identifier 限流；验证码对发送频率、尝试次数、有效期和一次性消费设定上限；首期限定目标 Realm 控制成本。Client App 级 Turnstile 配置能力本身不在本 PRD 定义（由 Client App PRD 承载），本 PRD 只声明依赖。
 - **D-COEXIST-01（与其他认证方式共存）**：保留密码登录入口；OTP 不替代现有 TOTP 二因素或高危操作重新认证；用户可随后设置密码或绑定 Passkey/TOTP。
 
 ---

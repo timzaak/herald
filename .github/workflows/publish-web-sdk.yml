@@ -5,9 +5,11 @@ name: Publish Web SDK
 # unavailable — the npm name `herald` is taken). Called by the CD pipeline and
 # available manually (workflow_dispatch) — mirrors the Rust `publish-sdk.yml`
 # trigger model. Version comes from
-# sdk/web/package.json and is kept in sync with the main project version by
-# the project release script (scripts/release.py); commit any pending bump,
-# then run this workflow.
+# sdk/web/package.json: scripts/release.py advances it only when sdk/web
+# sources or the backend OpenAPI spec changed since the previous publish
+# (spec tracked via sdk/web/.spec-hash), and the CD pipeline skips the
+# publish when that version is unchanged since the previous release tag. A
+# manual workflow_dispatch publishes whatever version is currently committed.
 #
 # Build prerequisite: the typed client under sdk/web/src/generated/ is gitignored
 # and must be regenerated from the backend OpenAPI spec (needs cargo + backend),

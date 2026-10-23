@@ -5,7 +5,7 @@
 
 ## 角色说明
 
-**SaaS 自助注册访客（SaaS Self-Signup Visitor）**：未登录的匿名访客，希望通过公共注册页面开通一个属于自己的 Herald realm，并成为该 realm 的 realm-admin。该角色在本 feature 之前不存在独立的入口；注册成功后其身份转化为所开通 realm 的 realm-admin（详见 `docs/user-stories/_roles.md`）。
+**SaaS 自助注册访客（SaaS Self-Signup Visitor）**：未登录的匿名访客，希望通过公共注册页面开通一个属于自己的 Herald realm，并成为该 realm 的 realm-admin。该角色注册前无独立入口；注册成功后其身份转化为所开通 realm 的 realm-admin（详见 `docs/user-stories/_roles.md`）。
 
 > 该访客是未认证的瞬态前置 actor（注册前），不是持久技术身份或 Principal，因此不单独列入 `_roles.md` 的角色清单；注册成功后即转化为 `realm-admin`。
 

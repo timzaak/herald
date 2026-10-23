@@ -5,7 +5,7 @@ description: "用一个 issuer URL 把 Grafana、Vault 等标准 OIDC 客户端�
 
 Herald 在既有 OAuth 2.0 Authorization Code + PKCE 流程之上提供 OpenID Connect 身份层。现成的 OIDC 客户端——Grafana、Vault 以及任何只要求填 issuer 的工具——都能用 Herald 账号登录，无需 Herald SDK 或私有 API 知识。
 
-这个身份层刻意保持最小：标准 OIDC Discovery、发布 RS256 公钥的 JWKS 端点、随访问令牌一并签发的 `id_token`、以及 userinfo 端点。没有独立的 scope/consent 体系。唯一具有 OIDC 语义的 scope 是字面量 `openid`，不含它的请求行为与从前完全一致。
+这个身份层刻意保持最小：标准 OIDC Discovery、发布 RS256 公钥的 JWKS 端点、随访问令牌一并签发的 `id_token`、以及 userinfo 端点。没有独立的 scope/consent 体系。唯一具有 OIDC 语义的 scope 是字面量 `openid`，不含它的请求走标准 OAuth 流程（不签发 `id_token`）。
 
 ## 1. Issuer URL
 
@@ -39,12 +39,12 @@ OIDC 登录与 OAuth 流程共用同一套 Client App：
 
 ## 3. 登录流程
 
-流程就是标准 OIDC 授权码 + PKCE 序列，新增的只有 `openid` scope（以及可选的 `nonce`）：
+流程就是标准 OIDC 授权码 + PKCE 序列，唯一的增加项是 `openid` scope（以及可选的 `nonce`）：
 
 1. 客户端把用户导向 `{issuer}/authorize`，携带 `response_type=code`、`scope=openid ...`、`code_challenge`/`code_challenge_method=S256`、`state`，可选 `nonce`。
 2. 用户在常规 Herald 登录页完成登录——密码、TOTP、Passkey、LDAP 与同意闸门的行为与其他登录完全一致。
 3. Herald 携带授权码重定向回已登记的回调 URI。
-4. 客户端用 `code_verifier` 在 `{issuer}/token` 换取令牌。令牌端点同时接受 `application/x-www-form-urlencoded`（RFC 6749 表单编码，标准 OIDC 客户端的默认形态）与 JSON，Grafana 类客户端与既有 Herald 集成都不用改。scope 含 `openid` 时，响应在既有 `access_token` 之外增加 `id_token` 字段；不含 `openid` 时，响应与该层出现之前逐字节一致。
+4. 客户端用 `code_verifier` 在 `{issuer}/token` 换取令牌。令牌端点同时接受 `application/x-www-form-urlencoded`（RFC 6749 表单编码，标准 OIDC 客户端的默认形态）与 JSON，Grafana 类客户端与既有 Herald 集成都不用改。scope 含 `openid` 时，响应在既有 `access_token` 之外增加 `id_token` 字段；不含 `openid` 时不签发 `id_token`，令牌响应即标准 OAuth 响应。
 
 `nonce` 会在 id_token 中原样返回；发送并核对它，把令牌绑定到你的请求上。
 
@@ -112,5 +112,5 @@ curl -X POST -H "X-Herald-Ask-Key: <shared secret>" \
 
 ## 8. Scope 语义与审计
 
-- 只有大小写敏感的字面量 scope `openid` 会启用身份层。`OPENID`、`OpenID` 或省略 scope 都是 OIDC 之前的行为——没有 id_token，令牌响应保持原样。
+- 只有大小写敏感的字面量 scope `openid` 会启用身份层。`OPENID`、`OpenID` 或省略 scope 结果相同：不签发 `id_token`，令牌响应即标准 OAuth 响应。
 - 每次 id_token 签发写入审计事件（`oidc.id_token_issue`）；每次轮换写入 `oidc.signing_key_rotate`。

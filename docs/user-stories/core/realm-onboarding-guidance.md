@@ -1,7 +1,7 @@
 # Realm Onboarding Guidance（自助开通强指引与首登引导）用户故事
 
 > 角色定义见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)
-> 与既有 `US-SR-001`~`US-SR-004`（[core/realm-create.md](realm-create.md)，已发布）的关系：本组故事只覆盖「入口曝光」与「首登引导」两层体验，不重复定义自助开通能力本身。
+> 与既有 `US-SR-001`~`US-SR-004`（[core/realm-create.md](realm-create.md)）的关系：本组故事只覆盖「入口曝光」与「首登引导」两层体验，不重复定义自助开通能力本身。
 
 ## 用户故事
 
@@ -137,6 +137,6 @@ Then 引导不再自动出现
 
 ## 与既有故事的关系
 
-- **承接 `US-SR-001`（自助注册开通新 Realm）**：US-OG-001 解决的是该能力「零曝光」的问题——能力与页面已发布（`docs/prd/core/realm-create.md`），本故事只在其前增加登录页指引层。
+- **承接 `US-SR-001`（自助注册开通新 Realm）**：该能力与页面已可用（`docs/prd/core/realm-create.md`），US-OG-001 解决其「零曝光」问题，只在其前增加登录页指引层。
 - **承接 `US-SR-002`（开通后立即管理新 Realm）**：US-OG-002 在「直达管理控制台」这一步之后增加价值引导层，不改变直达行为本身（DEC-realm-create-012）。
 - **引导对象边界**：仅 realm 管理员，不含普通终端用户首登（DEC-realm-onboarding-guidance-004）。

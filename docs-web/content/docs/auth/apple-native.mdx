@@ -13,7 +13,7 @@ Integrators adding Apple sign-in to an iOS app, and anyone who wants to understa
 
 ## What problem it solves
 
-Until now Apple login had only the web redirect path (OAuth Authorization Code redirect): the user leaves the app, bounces through a browser, and comes back. The experience is disjointed, and the web redirect path depends on `client_secret` — a JWT signed with an Apple private key, which has runtime-signing and 6-month renewal overhead.
+Apple login supports two paths. The web redirect path (OAuth Authorization Code redirect) sends the user out of the app, through a browser, and back. The experience is disjointed, and the web redirect path depends on `client_secret` — a JWT signed with an Apple private key, which has runtime-signing and 6-month renewal overhead.
 
 The native path sidesteps both. The iOS app gets the `identityToken` directly from the system SDK; Herald verifies signature, issuer, audience, and expiry against Apple JWKS on the server, then issues a session. The app never touches an Apple private key, and Herald never calls Apple's token endpoint or uses `client_secret`.
 
@@ -118,7 +118,7 @@ These are enforced by the backend, not suggestions.
 
 ## Relation to other login paths
 
-- **Apple web redirect login** (live): the two entry points coexist and resolve to the same Apple user. The web redirect `client_secret` auto-signing defect is independent; the native path neither depends on it nor fixes it.
+- **Apple web redirect login** (live): the two entry points coexist and resolve to the same Apple user. The web redirect path has a `client_secret` auto-signing defect of its own; it is unrelated to the native path.
 - **Google One Tap**: structurally identical (JWT credential → server-side verification → two-branch issue). Differences: Apple does not require `email_verified == true` to proceed (the placeholder rule covers it), and Apple's `iss` is the single value `https://appleid.apple.com`.
 - **Other providers** (GitHub, Facebook, WeChat, …): coexist without interference.
 

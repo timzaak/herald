@@ -46,7 +46,7 @@
 
 ### 2.2 不包含功能 (Out of Scope)
 
-- **Apple Pay / Google Pay 钱包支付**：钱包支付是依附于 Stripe/Creem 的资金来源，独立立项承载，与本 PRD 互不依赖
+- **Apple Pay / Google Pay 钱包支付**：钱包支付由 [support-googlepay-applepay.md](support-googlepay-applepay.md) 承载，与本 PRD 互不依赖
 - **Herald 移动 SDK**：Herald 不交付 iOS/Android 原生 SDK；StoreKit 2 / Google Play Billing 的客户端集成、商品展示、购买 UI 与购买失败反馈由各移动 App 集成方自行实现
 - **IAP 商品定价与商店管理 UI**：商品定价、订阅周期、退款规则、佣金档位由各 Realm 在 App Store Connect / Google Play Console 自行配置并维护，Herald 不维护本地商品目录、不提供商店管理界面
 - **Apple/Google 佣金（15–30%）核算**：佣金不纳入 Herald 代码范围；与现有促销 / 税务边界一致，Herald 不在本地实现佣金分摊或定价建议
@@ -203,7 +203,7 @@
 
 - **IAP 是独立支付渠道，不是钱包**：App Store / Google Play 内购由 Apple/Google 作为 merchant-of-record 处理扣款、订阅生命周期与佣金，与 Stripe / Creem 钱包场景完全不同，独立立项
 - **双平台同时纳入**：Apple App Store（StoreKit 2）+ Google Play Billing 同期接入，避免 iOS/Android 中间状态
-- **履约以客户端凭证提交为权威触发源**：Apple 用客户端 `jwsRepresentation` 的 JWS 密码学证明（Herald 本地验签，无需回调 Apple）；Google 用客户端 `purchaseToken`（Herald 调 Developer API 回查真实状态）。Apple SSV V2 作为事件流与兜底，驱动续费/退款/取消与漏发补偿。此决策经技术预研确认，取代此前"服务端通知为主"的设想
+- **履约以客户端凭证提交为权威触发源**：Apple 用客户端 `jwsRepresentation` 的 JWS 密码学证明（Herald 本地验签，无需回调 Apple）；Google 用客户端 `purchaseToken`（Herald 调 Developer API 回查真实状态）。Apple SSV V2 作为事件流与兜底，驱动续费/退款/取消与漏发补偿。此决策经技术预研确认
 - **Google 不接 RTDN / Pub/Sub**：RTDN 只能经 GCP Cloud Pub/Sub 投递，但其本身可选；当前以定时轮询（per-token `subscriptionsv2.get` + `voidedpurchases.list`）驱动 Google 全部生命周期，事件延迟以对账间隔为界，换取零 GCP 运维负担。后续可增量接入 RTDN 获得实时性，接入后业务语义不变
 - **佣金不纳入 Herald**：Apple/Google 的 15–30% 佣金不在 Herald 代码范围，与现有促销 / 税务边界一致；定价由各 Realm 在 App Store Connect / Google Play Console 自行决定
 - **不交付移动 SDK**：StoreKit 2 / Google Play Billing 客户端集成由各移动 App 集成方负责，Herald 只承担服务端通知接收、receipt 校验、履约与查询
@@ -212,7 +212,7 @@
 
 - **两种商品类型为本 PRD 编目边界**：自动续期订阅（recurring）、消耗型积分包（one_time）
 - **复用现有履约**：recurring 复用订阅状态机与续费积分策略，one_time 复用 topup_credit 发放；不扩展 `BillingType`
-- **非消耗型买断（buyout）与非续期订阅（non-renewing）溢入实现**：履约链路按 [履约模型扩展](pay_model.md) 的通用规则完整承载这两种形态（buyout 走 one_time 语义、non-renewing 建订阅行并到期不续），IAP 侧（凭证提交、Apple 通知、Google 轮询）与 Stripe/Creem 路径行为一致；商品规则本体仍由 pay_model.md 维护
+- **非消耗型买断（buyout）与非续期订阅（non-renewing）由履约模型扩展（[pay_model.md](pay_model.md)）的通用规则承载**：履约链路按其通用规则完整承载这两种形态（buyout 走 one_time 语义、non-renewing 建订阅行并到期不续），IAP 侧（凭证提交、Apple 通知、Google 轮询）与 Stripe/Creem 路径行为一致；商品规则本体仍由 pay_model.md 维护
 - **跨平台订阅不共享**：App Store 与 Google Play 各自独立订阅，不合并、不共享状态
 
 ---

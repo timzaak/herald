@@ -3,7 +3,7 @@
 **创建时间**: 2026-09-12
 **优先级**: P1
 
-> 场景背景：管理端对支付与积分此前只有逐笔流水（购买历史、订阅、发票、积分流水），没有任何汇总视角。本 PRD 是 `docs/prd/billing/subscription.md` §2.2 中「计费统计和报表：不在首版范围」这一延后项的正式立项（DEC-billing-statistics-001），交付管理后台 billing 区统一「统计」页：支付统计与积分消耗统计两个面板。本文档不承载接口端点、请求/响应 schema、HTTP 状态码、数据库建表/迁移或代码类型定义；技术方案细节请参见对应技术设计。
+> 场景背景：管理后台 billing 区提供统一「统计」页，以支付统计与积分消耗统计两个面板为支付与积分消耗提供汇总视角，区别于逐笔流水（购买历史、订阅、发票、积分流水）。本文档不承载接口端点、请求/响应 schema、HTTP 状态码、数据库建表/迁移或代码类型定义；技术方案细节请参见对应技术设计。
 
 ---
 
@@ -15,7 +15,7 @@
 |-------|------|--------|------|
 | US-BS-001 | 查看支付统计总览 | P1 | `docs/user-stories/billing/billing-statistics.md` |
 | US-BS-002 | 查看积分消耗统计 | P1 | `docs/user-stories/billing/billing-statistics.md` |
-| US-PV-005 | 查看支付平台使用统计——本 PRD 交付其「按渠道分组的成功/失败笔数、成功率、按币种金额」视角；Active Subs、Avg Payment Time 指标不随首版交付（Q-billing-statistics-003，排期另定） | P2 | `docs/user-stories/billing/payment-provider.md` |
+| US-PV-005 | 查看支付平台使用统计——本 PRD 覆盖其「按渠道分组的成功/失败笔数、成功率、按币种金额」视角；Active Subs、Avg Payment Time 指标不随首版交付（Q-billing-statistics-003，排期另定） | P2 | `docs/user-stories/billing/payment-provider.md` |
 | US-PO-007 | 查看免费用户积分统计——该故事主体为免费用户发放/转化漏斗，不随本 PRD 交付（Q-billing-statistics-003）；本 PRD 的消耗口径（按积分账户分组、按日趋势）与之互补但不重叠 | P1 | `docs/user-stories/billing/points-admin.md` |
 
 ---
@@ -104,7 +104,7 @@
 - **接口能力范围**：两个只读统计聚合查询（支付统计挂 `billing.view`、积分消耗挂 `points.view`），不改变既有购买/履约/积分端点；不在 PRD 列出端点、schema 或状态码。
 - **访问控制原则**：遵守 realm 隔离；统计为只读聚合，不产生资金或积分变更；口径须与既有事实来源（支付尝试记录、积分交易流水）一致，不引入第二事实源。
 - **租户/realm 边界**：统计数据按 Realm 严格隔离。
-- **兼容性要求**：项目未上线，无迁移兼容负担；与支付渠道、积分账本的详细契约下沉到技术设计（`.ai/design/billing-statistics.md`）。
+- **兼容性要求**：项目未上线，无迁移兼容负担；与支付渠道、积分账本的详细契约下沉到技术设计。
 
 **前端 / 交互边界:**
 - **统计页（billing 区）**：支付与积分消耗两面板并列，共用「最近 7 天 / 最近 30 天」窗口切换；侧边栏在 billing 区提供入口（DEC-billing-statistics-006）。
@@ -136,8 +136,7 @@
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 技术设计：`.ai/design/billing-statistics.md`（及 `.ai/design/billing-statistics/` 分端文档）
-- 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费与统一支付尝试基线；本 PRD 为其 §2.2 延后项的立项）
+- 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费与统一支付尝试基线）
 - 相关 PRD：`docs/prd/billing/points.md`（积分交易与退款回收口径）
 - 相关 PRD：`docs/prd/billing/credit-bucket.md`（积分账户分组维度）
 - 相关 PRD：`docs/prd/billing/multiple-currency.md`（多货币背景与金额快照口径）

@@ -1,7 +1,7 @@
 # WeChat Pay 用户故事
 
 > 角色定义以 `docs/user-stories/_roles.md` 为准。
-> 复用的已发布用户故事（不重复创建）：
+> 复用的既有用户故事（不重复创建）：
 > - 通用支付平台配置：`docs/user-stories/billing/payment-provider.md`（US-PV-001~005）
 > - 通用支付尝试生命周期：`docs/user-stories/billing/payment-attempt.md`（US-PA-001~004）
 > 本文件仅承载 WeChat Pay 渠道特有的场景：商户凭据配置、PC 扫码 Native 支付、微信内 JSAPI 唤起支付、回调验签解密与幂等履约、平台证书自动维护。

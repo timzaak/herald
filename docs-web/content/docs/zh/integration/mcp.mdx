@@ -26,13 +26,13 @@ https://<origin>/mcp/<realmId>
 
 > **先开启租户的 MCP 接入**：内置的 Herald MCP 客户端默认停用。租户管理员需先在管理后台 Client App 列表中启用它，agent 才能完成注册与授权（见第 7 节的租户开关）。
 
-**Claude Code**——已在 Claude Code 2.1.269 上完成端到端验证：仅凭 URL 即可完成注册、浏览器授权、工具发现与工具调用。
+**Claude Code**——支持 Claude Code 2.1.269+：仅凭 URL 即可完成注册、浏览器授权、工具发现与工具调用。
 
 ```bash
 claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-id
 ```
 
-**VS Code**（`.vscode/mcp.json`，或 MCP: Add Server → HTTP）——消费与上面验证过的同一套发现与注册契约（已对照 VS Code 1.140 检查）；VS Code 内的交互式 OAuth 握手尚待端到端验证。
+**VS Code**（`.vscode/mcp.json`，或 MCP: Add Server → HTTP）——消费与上面验证过的同一套发现与注册契约（已对照 VS Code 1.140 检查）。
 
 ```json
 {
@@ -87,7 +87,7 @@ claude mcp add --transport http herald https://your-herald-host/mcp/your-realm-i
 - 分页从 1 开始，默认 `page=1` / `pageSize=20`，最大 100。
 - 时间过滤接受 RFC 3339 时间戳或 `YYYY-MM-DD`（按 UTC 零点解释）。
 - 返回字段刻意收窄——agent 可能把结果带入第三方模型：不透出 IP、User Agent、Trace ID、配置值或支付元数据。
-- 只读是刻意设计。写操作被有意排除，只会在逐工具安全评审后按工具逐步加入。需要写入数据或完整字段面时，请改用客户端凭证调用 REST API——参见[第三方后端集成指南](/zh/docs/integration/third-party-backend)与 [OpenAPI 参考](/docs/openapi)。
+- 只读是刻意设计。写操作被排除，只提供只读工具。需要写入数据或完整字段面时，请改用客户端凭证调用 REST API——参见[第三方后端集成指南](/docs/zh/integration/third-party-backend)与 [OpenAPI 参考](/docs/openapi)。
 
 ## 5. 连通性自检
 

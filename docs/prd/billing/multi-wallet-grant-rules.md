@@ -5,7 +5,7 @@
 **优先级**: P0
 **所属域**: billing
 
-> 本 PRD 显式替换已发布基线中的两项单目标约束："Entitlement Mapping 必须归属唯一积分账户"和"每个 Realm 只有一个注册积分接收账户"；同时显式覆盖 `docs/prd/billing/points.md` 的 subscription/free-periodic quota-only 约束，允许订阅和免费周期规则选择 fixed 周期积分或滚动窗口 quota。`docs/prd/billing/credit-bucket.md` 与 `docs/prd/billing/points.md` 中相关条款已按本 PRD 修订。
+> 本 PRD 定义多钱包积分分发规则：订阅和免费周期规则可选择 fixed 周期积分或滚动窗口 quota。
 
 ---
 
@@ -19,14 +19,14 @@
 | US-MWGR-002 | 为注册配置多条积分分发规则 | P0 | `docs/user-stories/billing/multi-wallet-grant-rules.md` |
 | US-MWGR-003 | 一次业务事件完整执行多条积分规则 | P0 | `docs/user-stories/billing/multi-wallet-grant-rules.md` |
 | US-MWGR-004 | 查看和停用积分分发规则 | P1 | `docs/user-stories/billing/multi-wallet-grant-rules.md` |
-| US-CB-003 | 将套餐/积分包归属到账户——"归属唯一账户"替换为"配置零到多条规则，每条规则归属一个账户"（行为变更） | P0 | `docs/user-stories/billing/credit-bucket.md` |
-| US-CB-004 | 购买账户套餐/积分包——购买结果由单账户到账扩展为多账户同时到账（行为变更） | P0 | `docs/user-stories/billing/credit-bucket.md` |
-| US-CB-008 | 订阅生命周期按账户池发放与回收——由单账户扩展为逐规则、逐账户处理（行为变更） | P0 | `docs/user-stories/billing/credit-bucket.md` |
-| US-FU-001 | 注册时获得初始积分——目标账户从单一注册接收账户扩展为每条规则独立指定（行为变更） | P0 | `docs/user-stories/billing/points-free-user.md` |
-| US-FU-002 | 定期自动获得免费积分——目标账户从单一注册接收账户扩展为每条规则独立指定（行为变更） | P0 | `docs/user-stories/billing/points-free-user.md` |
-| US-PA-003 | 处理支付成功后的履约——单条积分结果扩展为多条积分结果，幂等约束保持不变（行为变更） | P0 | `docs/user-stories/billing/payment-attempt.md` |
-| US-PO-001 | 配置 Entitlement 积分策略——单组字段编辑扩展为规则列表编辑（行为变更） | P0 | `docs/user-stories/billing/points-admin.md` |
-| US-PO-006 | 配置 Realm 默认积分策略——单组字段编辑扩展为规则列表编辑（行为变更） | P0 | `docs/user-stories/billing/points-admin.md` |
+| US-CB-003 | 将套餐/积分包归属到账户——配置零到多条规则，每条规则归属一个账户 | P0 | `docs/user-stories/billing/credit-bucket.md` |
+| US-CB-004 | 购买账户套餐/积分包——购买结果多账户同时到账 | P0 | `docs/user-stories/billing/credit-bucket.md` |
+| US-CB-008 | 订阅生命周期按账户池发放与回收——逐规则、逐账户处理 | P0 | `docs/user-stories/billing/credit-bucket.md` |
+| US-FU-001 | 注册时获得初始积分——目标账户由每条规则独立指定 | P0 | `docs/user-stories/billing/points-free-user.md` |
+| US-FU-002 | 定期自动获得免费积分——目标账户由每条规则独立指定 | P0 | `docs/user-stories/billing/points-free-user.md` |
+| US-PA-003 | 处理支付成功后的履约——产生多条积分结果，幂等约束不变 | P0 | `docs/user-stories/billing/payment-attempt.md` |
+| US-PO-001 | 配置 Entitlement 积分策略——规则列表编辑 | P0 | `docs/user-stories/billing/points-admin.md` |
+| US-PO-006 | 配置 Realm 默认积分策略——规则列表编辑 | P0 | `docs/user-stories/billing/points-admin.md` |
 
 ---
 
@@ -35,14 +35,14 @@
 ### 2.1 包含功能
 
 - 一个 Entitlement Mapping 可配置零到多条积分分发规则；每条规则独立指定一个目标积分账户和一组发放策略。
-- 订阅和免费周期规则均可选择 fixed 周期积分或滚动窗口 quota；该策略范围显式覆盖已发布 quota-only 基线。
+- 订阅和免费周期规则均可选择 fixed 周期积分或滚动窗口 quota。
 - 规则触发源以当前生产代码为准：一次性充值购买、首次订阅、订阅续费、订阅升级、注册和免费周期发放。
 - 一次性购买、首次订阅、续费、非续期订阅及订阅升级等既有自动发放阶段，按对应规则集合发放积分；取消、退款、过期和升级回收按原发放结果派生。
 - Realm 可配置零到多条注册积分规则，包括注册初始积分和免费周期积分；每条规则独立指定目标积分账户。
 - 同一业务事件的多条积分规则整体执行、逐规则幂等、逐规则可追踪；重复事件不得重复发放。
 - Realm Admin 可在现有 Entitlement Mapping 和 Realm 积分配置入口新增、编辑、排序和停用规则。
 - 购买选项、购买结果和管理视图可展示一个购买对象关联的全部积分规则及目标账户。
-- 删除现有"注册积分接收账户"单选概念；积分账户继续只承担积分池目录与消费隔离职责。
+- 无"注册积分接收账户"单选概念，注册积分发放由规则集合路由；积分账户只承担积分池目录与消费隔离职责。
 
 ### 2.2 不包含功能 (Out of Scope)
 
@@ -91,7 +91,7 @@
 - 每条规则必须属于当前 Realm，且必须选择当前 Realm 内的一个积分账户。
 - 一条规则只指向一个积分账户；多账户发放通过多条规则表达。
 - 多条规则可以指向不同账户；只要规则语义不同，也允许指向同一账户。
-- 积分账户不再包含"注册积分接收账户"标记，也不直接保存任何购买或注册规则。
+- 积分账户无"注册积分接收账户"标记，也不直接保存任何购买或注册规则。
 - 规则不是跨拥有者复用的模板；复制配置会产生新的独立规则。
 
 ### 4.3 购买积分规则
@@ -158,8 +158,8 @@
 **适用性**: 适用（API 与前端/交互边界合并陈述）
 
 **API / 集成边界:**
-- Mapping 查询与写入能力必须表达规则列表，不再用单一目标账户和单一策略字段代表积分发放。
-- Realm 注册积分配置查询与写入能力必须表达注册规则列表，不再依赖单一注册接收账户。
+- Mapping 查询与写入能力必须表达规则列表，不使用单一目标账户和单一策略字段代表积分发放。
+- Realm 注册积分配置查询与写入能力必须表达注册规则列表，不依赖单一注册接收账户。
 - 规则写入需 `points.manage`；Mapping 的非积分字段仍沿用 `billing.manage`；读取沿用现有 `billing.view` / `points.view` 边界。
 - 所有规则、目标账户和业务事件必须校验 Realm 一致性，禁止跨 Realm 引用。
 - 支付与购买状态能力应能返回零到多条积分发放结果，而不是只返回一个积分结果。
@@ -167,10 +167,10 @@
 - 具体端点、请求响应字段、错误码与 OpenAPI/SDK 变更下沉到技术设计。
 
 **前端 / 交互边界:**
-- **Entitlement Mapping 管理**：现有创建、详情和批量管理入口将单一账户/积分策略编辑区替换为可增删、排序、编辑和停用的规则列表。
-- **Realm 注册积分配置**：现有默认积分配置页改为注册规则列表，区分注册初始积分和免费周期积分。
+- **Entitlement Mapping 管理**：现有创建、详情和批量管理入口的积分策略编辑区为可增删、排序、编辑和停用的规则列表。
+- **Realm 注册积分配置**：默认积分配置页为注册规则列表，区分注册初始积分和免费周期积分。
 - **规则编辑反馈**：每条规则显示目标账户、发放模型、关键数值、启用状态和行级校验错误；保存时同时展示整体提交状态。
-- **积分账户管理**：移除"注册积分接收账户"单选开关及其冲突提示；账户详情可展示有哪些购买/注册规则引用该账户。
+- **积分账户管理**：无"注册积分接收账户"单选开关及其冲突提示；账户详情可展示有哪些购买/注册规则引用该账户。
 - **购买展示**：购买选项不能再用一个积分数字概括全部权益；应按目标账户列出各条固定积分或额度窗口。
 - **购买结果**：支付完成视图应展示本次所有积分发放结果；没有积分规则时不显示伪造的零积分结果。
 - **关键状态**：覆盖加载、空规则、编辑中、保存失败、目标账户不可用、规则被停用和无权限状态。
@@ -189,13 +189,11 @@
 - **DEC-multi-wallet-grant-rules-007 · 规则生命周期**（agent）：已被业务记录引用的规则只允许禁用、不物理删除；停用影响后续，历史发放和归因保持（规则正文见 §4.5）。理由：保证生命周期回收和幂等定位稳定，同时避免额外规则快照审计表。落点：§4.5、§5。重开条件：产品要求彻底删除规则及其历史归因。
 - **DEC-multi-wallet-grant-rules-008 · 管理入口**（agent）：复用现有 Mapping 与 Realm 积分配置入口管理规则集合，不新增平行的通用规则管理模块。理由：规则只在其拥有者上下文中有意义，复用现有权限、路由和页面可减少新增概念。落点：§6。重开条件：规则需要跨触发器搜索、复用或独立授权。
 - **DEC-multi-wallet-grant-rules-009 · 触发源目录**（user，2026-07-29 会话）：六类现有自动发放来源进入规则；主动发放与派生回收不进入（规则正文见 §4.1）。理由：用户要求触发源以当前项目事实为准，并明确确认主动发放不由规则接管。落点：§2、§4.1、§5。重开条件：新增生产自动发放入口，或主动发放需要规则化。
-- **DEC-multi-wallet-grant-rules-010 · 规则统一存储**（agent，实现层）：使用单一 `points_distribution_rules` 表承载六类自动触发规则，以受限 owner 类型区分 Mapping 与 Realm 注册配置；账本、额度权益和周期计划统一引用规则 ID。理由：新的触发源目录要求跨固定积分、额度权益、计划和回收统一追踪；单表可提供一个真实外键，避免两套规则表带来的多态引用，同时 owner/trigger CHECK 将范围锁定在本 feature。落点：设计/实现层（`.ai/design/multi-wallet-grant-rules.md` §4.3）。重开条件：规则拥有者或策略字段出现无法用清晰 CHECK 表达的结构分裂。
+- **DEC-multi-wallet-grant-rules-010 · 规则统一存储**（agent，实现层）：使用单一 `points_distribution_rules` 表承载六类自动触发规则，以受限 owner 类型区分 Mapping 与 Realm 注册配置；账本、额度权益和周期计划统一引用规则 ID。理由：新的触发源目录要求跨固定积分、额度权益、计划和回收统一追踪；单表可提供一个真实外键，避免两套规则表带来的多态引用，同时 owner/trigger CHECK 将范围锁定在本 feature。落点：设计/实现层。重开条件：规则拥有者或策略字段出现无法用清晰 CHECK 表达的结构分裂。
 - **DEC-multi-wallet-grant-rules-011 · 周期策略**（user，2026-07-29 会话）：订阅和免费周期规则允许 fixed 周期积分或滚动窗口 quota，显式覆盖已发布 quota-only 基线（规则正文见 §4.3、§4.4）。理由：用户确认本 feature 不只改变单目标路由，也恢复 fixed 周期积分作为可配置策略。落点：§2.1、§4.3、§4.4。重开条件：产品重新收敛为 quota-only，或 fixed 周期执行成本不可接受。
 - **DEC-multi-wallet-grant-rules-012 · 事件完成记录**（agent，实现层）：每个分发事件在积分结果同一事务内写入唯一完成记录；完成记录包含零规则结果，重放先返回原事件结果，不重新解析当前规则集合。理由：仅靠"事件 + 规则"幂等无法区分首次零规则与尚未执行，也无法在规则集合变更后恢复原事件完整结果。落点：§4.5、设计/实现层。重开条件：业务源本身提供可复用且覆盖零结果的等价原子完成记录。
 - **DEC-multi-wallet-grant-rules-013 · 内部配额直写归因**（agent，实现层）：保留 demo/test-only internal quota 直写入口；该入口写入的 quota entitlement 允许 `distribution_event_id` 与 `distribution_rule_id` 同时为空，生产分发执行器写入时两者必须同时非空。理由：该入口用于快速 Demo 构造配额，不代表生产自动发放；强制其创建持久化业务规则会把测试夹具耦合到管理配置。落点：§4.1、设计/实现层。重开条件：internal quota 入口进入生产范围，或 Demo 改为完整购买链路。
-- **DEC-multi-wallet-grant-rules-015 · 后端任务拆分**（user，2026-07-29 会话，实现层）：backend/dev 使用 6 个顺序执行的责任闭环 item；用户明确授权超过默认 3-item 上限，并覆盖本阶段"单项超过 10 个核心文件必须拆分"的规则。理由：保持六个业务责任闭环，接受部分 item 文件面较大，以避免继续增加执行切换与 handoff。落点：设计/实现层（任务拆分）。重开条件：后端设计范围显著变化，或用户撤回本次拆分豁免。
-- **DEC-multi-wallet-grant-rules-016 · 前端任务拆分**（user，2026-07-29 会话，实现层）：frontend/dev 使用 4 个顺序执行的责任闭环 item（规则编辑基础层、Mapping 域、Realm 注册规则页、Bucket/购买展示与全局收尾）；用户明确授权超过默认 3-item 上限。理由：合并为 3 项会把 Realm 注册配置、Credit Bucket、用户购买展示三个弱相关页面域压进单项且恰好 10 个核心文件无余量，购买页 quota/fixed 求和风险的失败归因被稀释。落点：设计/实现层（任务拆分）。重开条件：前端设计范围显著变化，或用户撤回本次拆分豁免。
-- **DEC-multi-wallet-grant-rules-017 · Demo 管理端编辑覆盖**（user，2026-07-31 会话）：Demo 必须包含管理端 Mapping 与 Realm 注册规则编辑能力；迁移现有老旧管理端 Demo，不得只用 Seed 覆盖配置步骤。理由：用户明确指出管理端编辑能力已有 Demo 但代码老旧，需要随规则列表模型调整。落点：Demo/测试。重开条件：用户明确收窄 Demo 为纯用户侧结果，或管理端 UI 被移出本 feature。
+- **DEC-multi-wallet-grant-rules-017 · Demo 管理端编辑覆盖**（user，2026-07-31 会话）：Demo 必须包含管理端 Mapping 与 Realm 注册规则编辑能力。理由：管理端编辑能力需与规则列表模型一致。落点：Demo/测试。重开条件：用户明确收窄 Demo 为纯用户侧结果，或管理端 UI 被移出本 feature。
 
 
 ---
@@ -207,4 +205,3 @@
 - 已发布积分系统 PRD：`docs/prd/billing/points.md`
 - 已发布订阅 PRD：`docs/prd/billing/subscription.md`
 - 角色定义：`docs/user-stories/_roles.md`
-- 技术设计：`.ai/design/multi-wallet-grant-rules.md`

@@ -58,7 +58,7 @@ The invoice PDF displays the seller's info. Configure it before first use.
 1. On the Invoices page, click **Create Invoice**
 2. Fill the invoice form:
    - **Buyer info**: name, address, contact
-   - **Line items** (at least one): description, quantity, unit price (in yuan; the system stores it as cents)
+   - **Line items** (at least one): description, quantity, unit price (in the currency's minor unit, e.g. cents)
    - **Discount**: fixed amount or percentage
    - **Tax**: fixed amount or percentage
    - **Shipping**: fixed amount
@@ -120,9 +120,9 @@ Rules:
 
 - On every successful third-party payment (including subscription renewals), Herald records a successful payment attempt and maps a paid invoice.
 - Attribution: one-time-purchase invoice → the corresponding one-time payment attempt; subscription invoice (including renewals) → the corresponding subscription; a renewal invoice → both the renewal payment attempt and the subscription.
-- Creem renewals previously synced only the first invoice; now every renewal period has one, aligned with Stripe renewals.
+- Creem subscriptions sync one renewal invoice per renewal period, matching Stripe renewals.
 - A zero-amount period (100% discount or free tier) has no actual charge, so no renewal payment attempt is recorded and no renewal invoice is generated; the subscription period and credits still update as usual.
-- Duplicate webhooks do not produce duplicate records; existing historical empty attribution is not backfilled — this applies only to newly synced invoices.
+- Duplicate webhooks do not produce duplicate records; attribution is written only for invoices created by sync — existing empty attribution is not backfilled.
 - Manual self-issued invoices are not required to carry attribution (gift invoices, offline payments, and similar no-payment scenarios allow empty attribution).
 
 ## How attribution anomalies surface

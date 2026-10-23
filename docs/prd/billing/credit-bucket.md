@@ -19,13 +19,13 @@
 | US-CB-006 | 查看账户维度的交易历史 | P1 | `docs/user-stories/billing/credit-bucket.md` |
 | US-CB-007 | SDK 按 Client App 跨账户消费 | P0 | `docs/user-stories/billing/credit-bucket.md` |
 | US-CB-008 | 订阅生命周期按账户池发放与回收 | P0 | `docs/user-stories/billing/credit-bucket.md` |
-| US-PO-001 / US-PO-006 / US-PO-008 | 积分配置与发放变为账户维度；主动发放需选择目标账户（必选，无默认值）（行为变更） | — | `docs/user-stories/billing/points-admin.md` |
-| US-PU-001 ～ US-PU-004 | 余额与交易历史增加账户维度（行为变更） | — | `docs/user-stories/billing/points-user.md` |
-| US-FU-001 ～ US-FU-003 | 注册/免费积分按 `points_distribution_rules`（`owner_type=realm_registration`）路由到目标账户（可多账户扇出）（行为变更） | — | `docs/user-stories/billing/points-free-user.md` |
-| US-PU-006 ～ US-PU-008 | 积分包购买按归属账户入账（行为变更） | — | `docs/user-stories/billing/points-package-purchase.md` |
-| US-TP-017 | SDK 发放积分进入指定账户池（行为变更） | — | `docs/user-stories/integration/sdk.md` |
-| US-EM-001 ～ US-EM-006 | Entitlement Mapping 增加归属账户（行为变更） | — | `docs/user-stories/billing/entitlement-mapping.md` |
-| US-PA-003 | 支付履约按账户路由入账（行为变更） | — | `docs/user-stories/billing/payment-attempt.md` |
+| US-PO-001 / US-PO-006 / US-PO-008 | 积分配置与发放按账户维度；主动发放需选择目标账户（必选，无默认值） | — | `docs/user-stories/billing/points-admin.md` |
+| US-PU-001 ～ US-PU-004 | 余额与交易历史增加账户维度 | — | `docs/user-stories/billing/points-user.md` |
+| US-FU-001 ～ US-FU-003 | 注册/免费积分按 `points_distribution_rules`（`owner_type=realm_registration`）路由到目标账户（可多账户扇出） | — | `docs/user-stories/billing/points-free-user.md` |
+| US-PU-006 ～ US-PU-008 | 积分包购买按归属账户入账 | — | `docs/user-stories/billing/points-package-purchase.md` |
+| US-TP-017 | SDK 发放积分进入指定账户池 | — | `docs/user-stories/integration/sdk.md` |
+| US-EM-001 ～ US-EM-006 | Entitlement Mapping 增加归属账户 | — | `docs/user-stories/billing/entitlement-mapping.md` |
+| US-PA-003 | 支付履约按账户路由入账 | — | `docs/user-stories/billing/payment-attempt.md` |
 
 ---
 
@@ -36,11 +36,11 @@
 - Realm 级积分账户目录：创建、编辑、启用/禁用、展示顺序、删除未被使用的账户
 - 积分账户 ↔ Client App 覆盖集：声明每个积分账户覆盖的 Client App，作为消费授权范围
 - 套餐/积分包（Entitlement Mapping）归属账户：购买对象与积分策略仍以 Mapping 为基座，增加强制的账户归属
-- 每用户每账户独立积分池：替换单一钱包，一个用户可同时持有多账户独立池
+- 每用户每账户独立积分池：一个用户可同时持有多账户独立池
 - 按 Client App 的跨池消费：消费时按应用反查覆盖该应用的账户池，跨池按过期时间优先扣减
-- 购买/订阅履约账户路由：支付成功后积分进入 `(user, 账户)` 池；订阅记录绑定账户作为续费/取消/退款回收的真源
-- 注册/免费定期积分的多账户分发：注册与免费定期系统发放不再固定进入单一"注册接收账户"，而是由 `points_distribution_rules`（`owner_type=realm_registration`）配置的规则集合路由到目标账户，一次触发可同时扇出到多个账户；SDK/管理员主动发放需显式指定目标账户，无隐式池解析
-- 订阅生命周期（升级/降级/取消/退款）按订阅绑定账户池发放与回收
+- 购买/订阅履约账户路由：支付成功后积分按分发规则进入 `(user, 账户)` 池；续费/取消/退款回收按该订阅的发放记录（配额权益/积分账本携带的账户）定位账户池，订阅行本身不绑定账户
+- 注册/免费定期积分的多账户分发：注册与免费定期系统发放由 `points_distribution_rules`（`owner_type=realm_registration`）配置的规则集合路由到目标账户，一次触发可同时扇出到多个账户；SDK/管理员主动发放需显式指定目标账户，无隐式池解析
+- 订阅生命周期（升级/降级/取消/退款）按该订阅的发放记录定位账户池发放与回收
 - 按账户维度的余额与交易历史展示（用户与管理员视角）
 - 管理后台积分账户目录管理（积分账户、覆盖应用、归属套餐、积分策略、启用状态）
 
@@ -72,7 +72,7 @@
 - 每个积分账户有名称、可选展示顺序、启用状态
 - 管理员可删除未被钱包、交易、规则或商品映射引用的积分账户；存在引用时 `DELETE` 返回 `409 bucket_in_use`，应改用禁用以保留历史归属
 - 积分账户不维护价格、Provider 商品或积分策略，仅作为池目录与消费隔离边界
-- 注册/免费定期积分的入账路由由独立的 `points_distribution_rules`（`owner_type=realm_registration`）承载：一次注册或免费周期事件可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 或 quota），从而支持一次事件同时向多个账户扇出发放；规则集合替代了原"单一注册接收账户"模型
+- 注册/免费定期积分的入账路由由独立的 `points_distribution_rules`（`owner_type=realm_registration`）承载：一次注册或免费周期事件可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 或 quota），从而支持一次事件同时向多个账户扇出发放
 
 **积分账户 ↔ Client App 覆盖集**：
 - 每个积分账户声明它覆盖的 Client App 集合
@@ -81,7 +81,7 @@
 - 调整某积分账户的覆盖集仅影响后续消费资格，不回收已持有池的余额
 
 **套餐/积分包归属账户**：
-- 可购买套餐/积分包（Entitlement Mapping）的发放目标由 [multi-wallet-grant-rules.md](multi-wallet-grant-rules.md) 的分布规则（0..N 账户扇出）决定；本节"必须归属唯一账户"的历史条款已废止
+- 可购买套餐/积分包（Entitlement Mapping）的发放目标由 [multi-wallet-grant-rules.md](multi-wallet-grant-rules.md) 的分布规则（0..N 账户扇出）决定
 - 套餐/积分包可配置 0..N 条分发规则，每条规则显式绑定目标账户；纯角色商品可没有积分规则
 - 一个积分账户可归属多个套餐/积分包
 - 积分策略（每次发放量、触发时机、有效期、配额窗口等）归属 Mapping 下的分发规则，不在积分账户上
@@ -107,7 +107,7 @@
 
 **购买/订阅履约与生命周期**：
 - 购买创建时捕获 Mapping 的分发规则快照（含各目标账户）；支付成功后按快照向各账户池发放
-- 订阅记录不绑定单一账户（订阅侧的 bucket 绑定列已随分发规则模型移除）：续费/升级在事件时点按 Mapping 当前启用规则集合路由，各期积分可能落入不同账户池
+- 订阅记录不绑定单一账户：续费/升级在事件时点按 Mapping 当前启用规则集合路由，各期积分可能落入不同账户池
 - 续费：新一期积分按事件时点规则路由入账
 - 升级：按支付来源回收旧套餐会员积分并按新套餐规则发放；注册初始积分保留
 - 降级：当前周期已发积分保留，下周期按新套餐规则发放
@@ -139,7 +139,7 @@
 - 同一用户可同时持有多个积分账户独立池，余额互不影响
 - SDK 按 Client App 消费时，跨覆盖该应用的全部账户池按过期优先原子扣减
 - 应用越权、无可用池、余额不足时消费被明确拒绝，无超扣或串池
-- 订阅续费/取消/退款始终回到订阅绑定的账户池，不影响其他池
+- 订阅续费/取消/退款按该订阅的发放记录定位账户池回收，不影响其他池
 - 注册/免费定期积分按 `points_distribution_rules` 路由到目标账户（可多账户扇出）；主动发放按显式账户入账
 - 用户余额页按账户分组展示并提供合计；交易历史显示账户并可按账户筛选
 - 管理员可管理积分账户目录并查看按账户维度的租户积分数据；用户仅能查看自身数据
@@ -174,9 +174,9 @@
 
 ## 7. 已确认决策
 
-- 引入积分账户作为积分池组织单位，是对原单钱包模型的**替换**（重构取代），非并存
+- 积分账户是积分的唯一组织单位，无并存的单钱包模型
 - 多 Client App 的含义是"按应用限定消费范围"（积分账户覆盖集），即只有积分账户覆盖的 Client App 才能消费该池
-- 不考虑兼容性，采用破坏性重建（移除单钱包唯一约束，建立池维度），不做正式历史数据回填
+- 不考虑兼容性，不做存量数据回填（项目未上线前提）
 - Mapping 不再强制归属单一账户；账户绑定在每条分发规则上，无积分发放的 Mapping 可配置 0 条规则
 - 消费沿用"过期时间优先"规则，泛化为跨覆盖该应用的全部账户池分摊
 

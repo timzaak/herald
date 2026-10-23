@@ -72,7 +72,7 @@ pub struct Config {
 
 ```toml
 [dependencies]
-herald-sdk = "0.5"
+herald-sdk = "0.6"
 ```
 
 TypeScript backend? The [Node.js SDK](#7-nodejs-sdk-typescript) section covers the npm package of the same name; it mirrors this crate method for method.
@@ -1155,7 +1155,7 @@ try {
 
 Auth is Bearer tokens, not a shared cookie. Herald sets no cookie in the browser, so Herald and your service do **not** need to share a host or root domain. The browser only ever talks to your own backend (same-origin), and your backend calls Herald over HTTP (server-to-server, via `base_url`). Because the browser never calls Herald directly in this BFF pattern, CORS between the browser and Herald is not a concern.
 
-Three deployment patterns still apply, now chosen for operational simplicity rather than cookie sharing:
+Three deployment patterns apply, chosen for operational simplicity:
 
 - **Same host, different ports** (`127.0.0.1:3000` for your backend, `127.0.0.1:8080` for Herald) -- easiest for development
 - **Reverse proxy** (Caddy or Nginx routes `/api/auth/*` and `/api/admin/*` to your backend, and your backend reaches Herald internally) -- recommended for production, keeps one public origin

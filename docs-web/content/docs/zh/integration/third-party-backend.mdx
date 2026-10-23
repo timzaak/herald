@@ -74,7 +74,7 @@ pub struct Config {
 
 ```toml
 [dependencies]
-herald-sdk = "0.5"
+herald-sdk = "0.6"
 ```
 
 后端是 TypeScript？看下面的 [Node.js SDK](#7-nodejs-sdk-typescript) 一节，npm 上有同名包，方法和这个 crate 一一对应。
@@ -1157,11 +1157,11 @@ try {
 
 认证用的是 Bearer token，不是共享 Cookie。Herald 不在浏览器里设置任何 Cookie，所以 Herald 和你的服务**不需要**共享主机或根域名。浏览器只跟你自己的后端（同源）通信，你的后端通过 HTTP（服务端到服务端，走 `base_url`）调用 Herald。因为在这种 BFF 模式下浏览器从不直接调 Herald，浏览器到 Herald 之间的 CORS 不需要关心。
 
-三种部署方式依然适用，但现在是为了运维简单而选，不是为了共享 Cookie：
+三种部署方式均适用，按运维简单来选：
 
 - 同主机不同端口（你的后端 `127.0.0.1:3000`，Herald `127.0.0.1:8080`）——开发环境最方便
 - 反向代理统一入口（Caddy 或 Nginx 把 `/api/auth/*`、`/api/admin/*` 转发到你的后端，后端内部访问 Herald）——生产环境推荐，对外只有一个源
-- 不同源（Herald 在 `auth.example.com`，你的应用在 `app.example.com`）——现在不需要配 Cookie Domain 就能用了，因为没有 Cookie 跨边界
+- 不同源（Herald 在 `auth.example.com`，你的应用在 `app.example.com`）——无需共享 Cookie Domain，因为没有 Cookie 跨边界
 
 只有当浏览器直接调 Herald 时（也就是自建 UI、自己托管登录页对接 Herald API 的场景），浏览器到 Herald 的 CORS 才需要关心。那是另一种集成形态，见 [White-label / 自定义用户 UI](/docs/zh/customization/branding)。
 

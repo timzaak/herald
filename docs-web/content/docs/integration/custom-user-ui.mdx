@@ -15,7 +15,7 @@ This is **not** the right path if you only want to put your logo and colors on H
 
 ## What problem it solves
 
-Herald used to ship as one hosted frontend. The hosted pages are still available (and brandable via White-label), but Herald now also exposes the full user-facing API surface. An integrator can therefore build the whole end-user journey on their own origin — own routes, own design system, own copy, own analytics — and authenticate directly against Herald.
+Herald ships a hosted frontend (white-label-able via White-label) and also exposes the full user-facing API surface. An integrator can build the whole end-user journey on their own origin — own routes, own design system, own copy, own analytics — and authenticate directly against Herald.
 
 Login issues a browser-held Bearer token. There is **no `Set-Cookie` anywhere** on this path, so the integrator's frontend does not need to share a domain with Herald. The browser stores the tokens client-side and attaches them as a Bearer header on every call. Cross-origin access is governed by a per-Client-App origin allowlist configured by the Realm Admin.
 

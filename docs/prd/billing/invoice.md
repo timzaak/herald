@@ -89,7 +89,7 @@
 - **Realm 系统** — 发票属于 Realm 级别
 - **Account 系统** — 开票对象关联 Account
 - **现有角色与权限系统** — 管理端使用 `billing.view` / `billing.manage` 权限控制，用户端复用登录用户身份判断
-- **Subscription 系统**（部分实现）— Invoice 可选关联 Subscription
+- **Subscription 系统** — Invoice 可选关联 Subscription
 - **Payment Attempt 系统** — Invoice 可选关联 Payment Attempt
 
 ---
@@ -132,7 +132,7 @@
 
   > 矩阵注：manual_only 列的「全部允许」仅指自研（provider=manual）发票。外部来源发票无论 invoice_policy 为何都不可经 Herald 操作（见下文「外部发票不可操作」，两条约束并存时取更强一侧的只读约束），策略不放宽该只读约束。
 
-- **invoice_policy 默认值**：Realm 未显式配置（无配置行或配置行被禁用）时默认按 provider_first 处理；各 provider 的外部发票能力开关缺省视为启用——合起来等价于策略机制上线前的既有行为
+- **invoice_policy 默认值**：Realm 未显式配置（无配置行或配置行被禁用）时默认按 provider_first 处理；各 provider 的外部发票能力开关缺省视为启用
 - **Creem MoR 约束**：Creem 交易的发票必须由 Creem 管理；无论 invoice_policy 设置如何，Herald 不得为 Creem 交易创建 manual 发票
 - **Stripe 发票同步触发**：通过 Stripe webhook 被动同步，处理 `invoice.*` 生命周期事件——状态投影（invoice.created / invoice.finalized / invoice.paid / invoice.voided）与支付生命周期（invoice.payment_succeeded / invoice.payment_action_required / invoice.payment_failed），另经 payment_intent.succeeded / payment_intent.payment_failed 补充交易支付结果；Herald 不主动调用 Stripe Invoice API 创建发票
 - **Stripe 一次性购买发票同步触发**：通过 Stripe `checkout.session.completed`（mode=payment）事件 inline 创建外部发票记录；使用 checkout session 上的 Stripe invoice ID（`in_...`，由 Checkout 在启用 invoice_creation 时自动创建）作为 external_invoice_id，payment_intent（`pi_...`）作为 external_order_id；status 直接为 paid
@@ -140,7 +140,7 @@
 - **Stripe 发票状态映射**：Stripe `draft` → Herald `draft`，Stripe `open` → Herald `issued`，Stripe `paid` → Herald `paid`，Stripe `void` → Herald `void`，Stripe `uncollectible` → Herald `void`（Stripe 原始状态保留在 `external_status`）
 - **Creem 税务数据同步**：Creem 交易支付成功后同步交易金额、税额、税区等税务信息作为发票记录
 - **Provider 切换兼容**：Realm 从 manual_only 切到 provider_first 时，已有 manual 发票保持 provider='manual' 不变，策略切换只影响新发票的路由决策
-- **发票编号规则**：外部 provider 发票的本地编号由 Herald 合成为 `EXT-{PROVIDER}-{外部发票ID或订单ID}`（不采用 provider 自身分配的编号作为本地编号），自研发票继续使用 INV-{YEAR}-{SEQ:04} 格式
+- **发票编号规则**：外部 provider 发票的本地编号由 Herald 合成为 `EXT-{PROVIDER}-{外部发票ID或订单ID}`（不采用 provider 自身分配的编号作为本地编号），自研发票使用 INV-{YEAR}-{SEQ:04} 格式
 - **Webhook 幂等性**：复用现有 payment_event 表的 external_event_id 唯一约束，重复 webhook 更新而非创建
 - **外部发票不可操作**：provider != 'manual' 的发票禁止通过 Herald API 执行创建、编辑、开具、作废、标记已付操作
 - **权限复用**：管理端继续使用 `billing.view` / `billing.manage` 权限控制，不新增发票细粒度权限
@@ -210,7 +210,7 @@
 - **接口能力范围**：发票 CRUD、销售方信息配置、发票开具/作废/标记已付、用户申请、PDF 下载与 provider 筛选位于 api-billing；`invoice_policy` 及 provider 外部发票能力开关的写入复用通用 Realm Config API（`/api/configs`，realm 由 admin 会话钉定），api-billing 只读取并执行策略
 - **访问控制原则**：发票管理端接口通过 `billing.view` / `billing.manage` 权限检查控制（`require_billing_permission` 辅助函数实现）；用户端接口复用登录用户身份判断；Realm Admin 可管理本 Realm 所有发票；Regular User 只能查询和申请自己的发票；销售方信息配置需 `billing.manage`。通用 Realm Config 中的发票策略读取/写入分别使用 `settings.view` / `settings.manage`
 - **租户/Realm 数据边界**：发票按 Realm 隔离；发票编号在 realm + 年范围内唯一；发票策略配置按 Realm 独立；provider 能力开关按 Realm + Provider 独立
-- **兼容性要求**：现有 invoice API 响应向后兼容（新增字段可选，默认 provider='manual'）；自研发票的全部 API 行为不变
+- **兼容性要求**：invoice API 响应中的 provider 等外部发票相关字段可选，默认 provider='manual'；自研发票的全部 API 行为不变
 
 **前端 / 交互边界:**
 - **管理后台**（Realm Admin）：
@@ -246,13 +246,12 @@
 - 发票来源跟随实际收款 payment_provider，而非跟随产品或 Realm 全局选择
 - Stripe 发票同步通过 webhook 被动驱动，Herald 不主动调用 Stripe Invoice API 创建发票
 - Stripe 一次性购买发票通过 checkout.session.completed（mode=payment）事件 inline 同步，与 Creem 模式一致
-- 外部发票本地编号由 Herald 合成为 EXT-{PROVIDER}-{外部发票/订单ID}，不采用 provider 分配编号；自研发票继续 INV-{YEAR}-{SEQ:04}
+- 外部发票本地编号由 Herald 合成为 EXT-{PROVIDER}-{外部发票/订单ID}，不采用 provider 分配编号；自研发票使用 INV-{YEAR}-{SEQ:04}
 
 ---
 
 ## 8. 参考资料
 
 - 用户故事来源见 §1 表格
-- 技术预研：`.ai/tech-research/invoice_fallback.md`
 - 相关 PRD：`docs/prd/billing/subscription.md`
 - 相关 PRD：`docs/prd/billing/stripe-payment.md`

@@ -46,7 +46,7 @@
 
 ### 2.1 包含功能
 
-集成方可在自家前端（无自家后端）跨域自建**终端用户的全套 UI**，覆盖未认证身份流程与登录后完整个人中心。Herald 自有前端变为可选参考实现，不再是唯一前端。
+集成方可在自家前端（无自家后端）跨域自建**终端用户的全套 UI**，覆盖未认证身份流程与登录后完整个人中心。Herald 自有前端是可选参考实现之一。
 
 **未认证身份流程（公开端点跨域开放）**：
 
@@ -61,14 +61,14 @@
 - **登出**：吊销当前浏览器 token 及其 refresh token 家族。
 - **积分/交易**：查看当前用户积分余额（按账户分组）、交易历史。
 - **充值/购买**：查看购买选项（套餐/价目）、发起购买、轮询支付状态；支付最终确认由支付提供商页面承接。
-- **发票/订阅**：查看发票列表/详情、申请开票、查看我的订阅、自助取消订阅（调用 Provider 取消接口，本地状态经 webhook 回调更新；管理端不再直接取消）。
+- **发票/订阅**：查看发票列表/详情、申请开票、查看我的订阅、自助取消订阅（调用 Provider 取消接口，本地状态经 webhook 回调更新；管理端不直接取消）。
 
 **跨域基础设施**：
 
 - **双轨浏览器凭证类**：浏览器 token 分两类——`FirstParty`（Herald 自有前端，经 Authorization Code + PKCE 换取，执行完整 RBAC）与 `CustomUserUi`（集成方自建 UI，经 `/login` 直接签发，受用户自服务权限上限约束）。两者均为用户绑定、可吊销、旋转 refresh token 续期；公开 `clientId` 或 Origin 单独都不能把受限 token 提升为 FirstParty。
-- **Bearer 鉴权分支**：身份解析接受 `Authorization: Bearer`，按凭证类产出身份与上下文；不再依赖 cookie session。
+- **Bearer 鉴权分支**：身份解析接受 `Authorization: Bearer`，按凭证类产出身份与上下文；不依赖 cookie session。
 - **浏览器凭证权限上限**：`CustomUserUi` token 只获得明确归类的用户自服务权限，管理员能力和未知能力默认拒绝。该上限由授权层执行，不依赖 URL 前缀。CORS 不参与权限判定。
-- **per-Client App 允许 origin**：Client App 新增允许 origin 白名单，按请求 Origin 动态放行跨域；精确匹配。
+- **per-Client App 允许 origin**：Client App 具有允许 origin 白名单，按请求 Origin 动态放行跨域；精确匹配。
 - **per-Client App 身份流程回跳**：Client App 配置邮箱验证与密码重置的预登记回跳目标；邮件中的服务端状态绑定 Realm、Client App 和流程类型。
 - **Passkey RP 隔离**：获准的 Client App HTTPS origin 使用其 host 作为 WebAuthn RP ID，凭证按 RP 保存、查询和验证；既有 Passkey 继续归属原 Herald RP，不跨 RP 复用。
 - **统一重新认证**：高危操作消费短时、单次、绑定用户/Client App/目标操作的重新认证结果；可使用账户已绑定的密码、TOTP 或要求用户验证的 Passkey 完成。
@@ -77,7 +77,7 @@
 
 ### 2.2 不包含功能 (Out of Scope)
 
-- **跨域会话 cookie**：浏览器 token 不走 cookie，规避 CSRF。身份解析不再读取 cookie。
+- **跨域会话 cookie**：浏览器 token 不走 cookie，规避 CSRF。身份解析不读取 cookie。
 - **管理员能力对 CustomUserUi 开放**：`CustomUserUi` token 的权限上限不包含管理员能力；管理员 dashboard、RBAC、Realm 配置和用户管理等仍需 `FirstParty` 凭证。此边界不依赖 URL 前缀。
 - **OAuth PKCE 作为自建 UI 登录入口**：集成方自建 UI 的登录入口经 `/login` 签发 `CustomUserUi` token。OAuth Authorization Code + PKCE 链路用于签发 `FirstParty` token（Herald 自有前端），不作为自建 UI 的登录入口；两类凭证不混用。
 - **publishable key 独立标识用户**：浏览器 token 必须用户绑定，不存在匿名 publishable 凭证。
@@ -86,7 +86,7 @@
 - **服务端静默滑动续期**：业界标准用旋转 refresh token。
 - **隐藏 iframe silent auth**：依赖第三方 cookie。
 - **JWT 本地校验（首期）**：首期用不透明 session token + Redis；JWT 形态为后续可选增强。
-- **官方 JS/浏览器 SDK**：原「本轮不交付」（D-SCOPE-03）已由 [js-sdk PRD](/docs/prd/integration/js-sdk.md) 取代（DEC-js-sdk-003）；官方 JS 浏览器 SDK 现作为独立能力交付，封装认证生命周期子集。
+- **官方 JS/浏览器 SDK**：官方 JS SDK 由 [js-sdk PRD](/docs/prd/integration/js-sdk.md) 承载，非本 PRD 范围。
 - **头像编辑能力**：本轮只复用现有昵称编辑，不新增头像上传或编辑。
 - **refresh token 浏览器集成契约**：refresh token 的浏览器存储位置、多标签页并发、网络失败恢复与重试规则由后续集成文档承接；服务端旋转、复用检测、绝对上限和吊销在 Scope 内。
 
@@ -95,10 +95,10 @@
 - 复用现有 `/login`（含二因素）、`/register`、`/reset_password`、`/verify_email` 端点；这些已是公开端点，跨域开放仅需 CORS 放行 + 身份流程回跳配置。
 - 复用现有 Authorization Code + PKCE `/token` 端点签发 `FirstParty` token。
 - 复用现有用户资料、认证器管理、积分、购买、发票和订阅自服务能力；是否允许由用户自服务权限决定，不以路由前缀分类。
-- 复用现有身份解析与鉴权链路（新增 Bearer 分支与凭证类判定）。
+- 复用现有身份解析与鉴权链路（Bearer 分支与凭证类判定）。
 - 复用现有 Client App 实体与自定义域名 host→realm 映射基础设施。
-- 依赖现有 CORS 能力（从单 origin 改 per-Client App 动态谓词）。
-- 依赖 Client App 配置扩展、Passkey RP 归属迁移和统一重新认证能力。
+- 依赖现有 CORS 能力（per-Client App 动态谓词）。
+- 依赖 Client App 配置扩展、Passkey RP 归属隔离和统一重新认证能力。
 
 ---
 
@@ -172,32 +172,32 @@
 > 端点清单、参数 schema、状态码矩阵与迁移细节不在 PRD 承载范围，下沉到技术设计。
 
 **前端 / 交互边界:**
-- **页面入口**：集成方在自家前端自建全套用户 UI（可使用官方 [JS 浏览器 SDK](/docs/prd/integration/js-sdk.md) 封装认证生命周期，或用标准 `fetch` + `Authorization: Bearer` 自行实现）；页面布局与交互由集成方决定，Herald 不托管这些页面。Herald 自有前端变为可选参考实现。
+- **页面入口**：集成方在自家前端自建全套用户 UI（可使用官方 [JS 浏览器 SDK](/docs/prd/integration/js-sdk.md) 封装认证生命周期，或用标准 `fetch` + `Authorization: Bearer` 自行实现）；页面布局与交互由集成方决定，Herald 不托管这些页面。Herald 自有前端是可选参考实现。
 - **未认证流程入口**：注册/登录/找回密码页面由集成方自建，直接调 Herald 公开端点；登录成功返回 `CustomUserUi` token set。
 - **登录后入口**：个人中心（资料/安全/积分/充值/发票/订阅）由集成方自建，用浏览器 token 跨域调用。
 - **状态反馈**：token 失效时引导重新登录；origin 未配置、权限不足、Passkey RP 不匹配或需要重新认证时返回可区分的错误；注销账号不可逆需明确确认。
-- **Herald 自有前端**：经 Authorization Code + PKCE 换取 `FirstParty` token，access token 内存持有、refresh token 与 PKCE 状态持久化、启动时刷新恢复、统一 client 注入 Bearer、单次 401 静默刷新、token-only 登出。作为可选参考实现保留。
+- **Herald 自有前端**：经 Authorization Code + PKCE 换取 `FirstParty` token，access token 内存持有、refresh token 与 PKCE 状态持久化、启动时刷新恢复、统一 client 注入 Bearer、单次 401 静默刷新、token-only 登出，是可选参考实现。
 
-> 官方 JS 浏览器 SDK 已作为独立能力交付，见 [js-sdk PRD](/docs/prd/integration/js-sdk.md)（原「本轮不交付官方 JS SDK」由 DEC-js-sdk-003 取代）。
+> 官方 JS 浏览器 SDK 由 [js-sdk PRD](/docs/prd/integration/js-sdk.md) 承载。
 
 ---
 
 ## 7. 已确认决策
 
-- **D-SEC-01（安全姿态）**：选定"跨域 + 浏览器持有用户 token"主路线。token 明确进入集成方前端，身份解析不再依赖 cookie；传输与凭证模型类比业界标准（浏览器持 token + Bearer + 不走跨域 cookie + 旋转 refresh token）。
+- **D-SEC-01（安全姿态）**：选定"跨域 + 浏览器持有用户 token"主路线。token 明确进入集成方前端，身份解析不依赖 cookie；传输与凭证模型类比业界标准（浏览器持 token + Bearer + 不走跨域 cookie + 旋转 refresh token）。
 - **D-CRED-01（双轨凭证类）**：浏览器 token 分 `FirstParty` 与 `CustomUserUi` 两类。`FirstParty` 由内置保留 Client App（数据库内部标记，不进入 Ext API DTO；Admin API 仅只读回显该标记供管理员识别内置应用，不接受写入——服务端判定用 `is_builtin_first_party_client` 而非该标志）经 Authorization Code + PKCE 换取，执行完整 RBAC；`CustomUserUi` 由 `/login` 直接签发，受用户自服务权限上限约束。普通 Client App 即便完成 PKCE 也不升级为 FirstParty。判定在服务端 fail-closed，不接受请求体声明凭证类。
 - **D-SCOPE-FULL（用户自服务权限全覆盖）**：`CustomUserUi` token 获得完整用户自服务权限集合，含经重新认证的高危写；管理员能力和未知能力默认拒绝。授权依据是主体、Realm、凭证用途与权限上限，不是路径。即使 token 所属用户拥有管理员角色，`CustomUserUi` 凭证也不能调用管理员能力。
 - **D-LOGIN-01（登录链路）**：集成方自建 UI 登录入口经 `/login` 签发 `CustomUserUi` token，跨域场景不设 cookie；二因素流程同步支持。OAuth Authorization Code + PKCE 链路用于签发 `FirstParty` token（Herald 自有前端），不作为自建 UI 的登录入口；普通 Client App 经 PKCE 换码获得的是 `CustomUserUi` 类浏览器 token（权限上限与 `/login` 签发一致），不升级为 FirstParty。
 - **D-TOK-01（生命周期 = 旋转 refresh token）**：短时效 access token（内存）+ 旋转 refresh token（每次刷新换发新 RT、旧 RT 作废）+ 复用检测（旧 RT 再用吊销整个家族）+ RT 绝对有效上限。
-- **D-TOK-02（吊销）**：浏览器 token 变体支持即时吊销。OAuth PRD §2.2 原"Token 撤销（当前不支持）"对浏览器 token 变体不再成立（见 `docs/prd/auth/oauth.md` §2.2 修订），server-side token 维持原状。
-- **D-PROTECT-01（身份端点防护，Client App 级 Turnstile）**：未认证身份端点跨域开放后，人机验证（Turnstile）按当前请求绑定的 Client App 的 Turnstile 配置执行（Turnstile 配置在 Client App 级，不再由 Realm 承载，见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §7）；维持 IP/identifier 限流，不新增 client 维度限流。
+- **D-TOK-02（吊销）**：浏览器 token 变体支持即时吊销；server-side token 不支持撤销（见 `docs/prd/auth/oauth.md` §2.2）。
+- **D-PROTECT-01（身份端点防护，Client App 级 Turnstile）**：未认证身份端点跨域开放后，人机验证（Turnstile）按当前请求绑定的 Client App 的 Turnstile 配置执行（Turnstile 配置在 Client App 级，见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §7）；维持 IP/identifier 限流，不新增 client 维度限流。
 - **D-AUTHZ-01（权限边界）**：CORS 不是授权机制。`CustomUserUi` token 只获得用户自服务权限上限，管理员与未知能力默认拒绝；新增能力必须显式归类。
 - **D-PASSKEY-01（RP 隔离）**：获准 Client App HTTPS origin 使用自身 host 作为 RP ID，credential 按 RP 隔离；既有 credential 继续归属原 Herald RP。
 - **D-REAUTH-01（高危操作确认）**：改密码、绑定或移除 TOTP/Passkey、注销账号必须先完成短时单次重新认证；可使用已绑定密码、TOTP 或要求用户验证的 Passkey。仅重命名 Passkey 不要求重新认证。
 - **D-RETURN-01（安全回跳）**：邮箱验证与密码恢复绑定 Client App，只使用预登记回跳目标（未登记时回退 Realm 公共 URL）；不接受任意 URL。
 - **D-CLIENT-01（禁用联动）**：Client App 禁用后拒绝其新身份流程并吊销其浏览器 token 家族，不影响其他 Client App。
 - **D-RESP-01（责任边界）**：token 进入前端后，XSS 防护与 token 存储策略由集成方前端负责；Herald 通过权限上限、短时效 access token、旋转 refresh token、复用检测和吊销限制爆炸半径。refresh token 的浏览器存储、并发和失败恢复契约由后续集成文档承接。
-- **D-SCOPE-03（不交付官方 JS SDK）**：原决策「本轮不交付官方 JS SDK；集成方用标准 `fetch` + `Authorization: Bearer`」**已由 DEC-js-sdk-003 取代**。官方 JS 浏览器 SDK 已作为独立能力交付，封装认证生命周期子集，见 [js-sdk PRD](/docs/prd/integration/js-sdk.md)。
+- **D-SCOPE-03（官方 JS SDK）**：官方 JS SDK 由 [js-sdk PRD](/docs/prd/integration/js-sdk.md) 承载，非本 PRD 范围。
 
 ---
 

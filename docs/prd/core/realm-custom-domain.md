@@ -51,9 +51,9 @@
 
 > 自定义域名和主域名属于不同 origin，当前各自恢复会话；域名解析不等于跨域登录状态共享。
 
-> **已交付更新**：按自定义域名生成的链接已覆盖 OAuth 回调与全部身份邮件/设备码链接面——`realm_public_origin_for_oauth` 优先返回生效的自定义域名，authorize/callback 的默认 `redirect_uri` 按其拼接；注册验证邮件链接、邮箱验证、更换邮箱、找回/重置密码与设备码授权页链接（`realm_public_url_parts`/`realm_public_url`）同样优先落在生效的自定义域名上。OAuth 回调 URL 属 IdP 注册的安全敏感字段，已从未来范围移出。
+> **按自定义域名生成的链接**：覆盖 OAuth 回调与全部身份邮件/设备码链接面——`realm_public_origin_for_oauth` 优先返回生效的自定义域名，authorize/callback 的默认 `redirect_uri` 按其拼接；注册验证邮件链接、邮箱验证、更换邮箱、找回/重置密码与设备码授权页链接（`realm_public_url_parts`/`realm_public_url`）同样优先落在生效的自定义域名上。
 >
-> **已交付的 lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve` 是一个公开、无认证的查询端点，仅以请求自身的 `Host` 头（去端口后按域名规范化规则归一）为查表键——不存在 `?host=` 覆盖参数（已移除：任意 host→realm 探测只能走共享密钥保护的 Caddy ask 端点），Host 头缺失或未命中返回 404。展示状态的自报告路径受信：仅当请求的套接字对端属于部署配置的 `trusted_proxies`（操作者声明的 TLS 终接 ingress）且其转发的 `X-Forwarded-Proto: https` 时，才顺带将映射的 `cname_verified` / `tls_ready` 展示状态置为 true（直连或未受信对端伪造的转发头不生效；此为 tls_ready 置位的唯一途径，不影响授权判定与路由）。响应体按 Host 选择（租户维度），固定携带 `Cache-Control: no-store` 与 `Vary: Host`，防止 URL 键控的共享缓存跨 Host 回放他租户配置。供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig；它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
+> **lookup helper（区别于上述框架层路由改写）**：`GET /api/public-config/custom-domain/resolve` 是一个公开、无认证的查询端点，仅以请求自身的 `Host` 头（去端口后按域名规范化规则归一）为查表键——不存在 `?host=` 覆盖参数（任意 host→realm 探测只能走共享密钥保护的 Caddy ask 端点），Host 头缺失或未命中返回 404。展示状态的自报告路径受信：仅当请求的套接字对端属于部署配置的 `trusted_proxies`（操作者声明的 TLS 终接 ingress）且其转发的 `X-Forwarded-Proto: https` 时，才顺带将映射的 `cname_verified` / `tls_ready` 展示状态置为 true（直连或未受信对端伪造的转发头不生效；此为 tls_ready 置位的唯一途径，不影响授权判定与路由）。响应体按 Host 选择（租户维度），固定携带 `Cache-Control: no-store` 与 `Vary: Host`，防止 URL 键控的共享缓存跨 Host 回放他租户配置。供前端 SPA 在自定义域名入口处查表确定目标 realmId + publicConfig；它不属于上述「框架层 host→realm 路由改写」未来范围，而是为其预留的映射基础的可读出口。
 
 ### 2.4 依赖项
 
@@ -141,13 +141,8 @@
 
 **与既有设计文档的关系:**
 
-- **与 passkey 设计文档的冲突（已按自定义域名侧落地）**：passkey 设计文档假设「单一部署统一域名，所有 Realm 共享 RP」与自定义域名的 per-realm RP 需求直接冲突。当前 passkey RP 按请求 Origin 与域映射（custom_domain_mapping / client_app allowed_origins）派生 per-realm / per-app RP ID，并校验其归属 realm；canonical 与自定义域凭证不互通，单一域名假设不再成立。此为显式冲突标记，不静默合并。
-- host→realm 路由解析在上一版实现后曾被回退（根因：框架层面改写层在路由匹配之后执行，无法改写 URI）。该重建属技术实现，当前列为未来范围，不在本期已发布能力中。
-
-**与 Decision Brief 的关系:**
-
-- Decision Brief 中的 Possible Expansions / Open Questions（跨域会话共享、TLS 运维面板）在本 PRD §2.2 / §2.3 中明确列为 Out of Scope 或未来范围，未作为已确认决策写入。
-- ACME 每域 TLS 管道在 Decision Brief 阶段为「阻塞 Proceed」的 Open Question，经技术预研确认可行（有条件：反代层授权查询 + 无新库）后已转为 §7 已确认决策。
+- **与 passkey 的 RP 边界**：passkey RP 按请求 Origin 与域映射（custom_domain_mapping / client_app allowed_origins）派生 per-realm / per-app RP ID，并校验其归属 realm；canonical 与自定义域凭证不互通。
+- host→realm 路由解析属技术实现，当前属未来范围（框架层面改写层在路由匹配之后执行，无法改写 URI）。
 
 ---
 

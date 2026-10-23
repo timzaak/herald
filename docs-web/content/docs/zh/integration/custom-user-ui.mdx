@@ -15,7 +15,7 @@ description: "集成方可以在自己的 origin 上自建整套终端用户前�
 
 ## 解决什么问题
 
-Herald 过去只交付一套托管前端。这套托管页面仍然存在（并可通过 White-label 做品牌化），但 Herald 现在还暴露了完整的面向用户的 API 面。因此集成方可以在自己的 origin 上构建完整的终端用户旅程——自有路由、自有设计系统、自有文案、自有埋点——并直接向 Herald 认证。
+Herald 交付一套托管前端（可通过 White-label 做品牌化），同时也暴露完整的面向用户的 API 面。集成方可以在自己的 origin 上构建完整的终端用户旅程——自有路由、自有设计系统、自有文案、自有埋点——并直接向 Herald 认证。
 
 登录会签发一个浏览器持有的 Bearer token。这条路径上**完全没有 `Set-Cookie`**，所以集成方的前端不需要与 Herald 共享域名。浏览器在客户端存储 token，并在每次调用时以 Bearer 头附上。跨域访问由 Realm 管理员按 Client App 配置的 origin 允许清单治理。
 

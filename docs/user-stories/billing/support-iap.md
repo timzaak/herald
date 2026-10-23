@@ -1,7 +1,7 @@
 # App Store / Google Play 内购(IAP) 用户故事
 
 > 角色定义以 `docs/user-stories/_roles.md` 为准。
-> 复用的已发布用户故事（不重复创建）：
+> 复用的既有用户故事（不重复创建）：
 > - 通用支付尝试生命周期：`docs/user-stories/billing/payment-attempt.md`（US-PA-001~004）
 > - 通用支付平台配置：`docs/user-stories/billing/payment-provider.md`（US-PV-001~005）
 > - 集成方前端充值/购买（移动 App 接入基线）：`docs/user-stories/integration/custom-user-ui.md`（US-CUI-008）

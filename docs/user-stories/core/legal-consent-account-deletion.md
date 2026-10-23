@@ -1,6 +1,6 @@
 # 合规适配（用户协议 / 隐私政策 / 账户注销）用户故事
 
-> 角色定义以目标项目中的 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md) 为准。
+> 角色定义见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)。
 
 ---
 

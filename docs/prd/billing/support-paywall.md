@@ -24,7 +24,7 @@
 
 ### 2.1 包含功能
 
-- **W1 — one-time 履约一致性修复**：允许 billing_type=one_time 的 entitlement mapping 不配积分（纯权益型），履约时记录支付成功、不报错、不发积分，行为与 recurring 容错对齐
+- **W1 — one-time 纯权益履约**：允许 billing_type=one_time 的 entitlement mapping 不配积分（纯权益型），履约时记录支付成功、不报错、不发积分，行为与 recurring 容错对齐
 - **M1 — role 授予横切维度**：entitlement mapping 新增「支付成功后授予哪些 role」配置（支持为同一映射配置多个 role，一对多绑定），与 billing_type、points 策略三者正交叠加
 - **M2 — 支付成功自动授权**：支付成功 webhook 触发自动授予映射配置的 role（一次性=永久解锁不设过期；订阅=周期内有效）
 - **M3 — 一次性永久权益一人一次**：仅当「one_time + 授予 role」组合时，购买前检查是否已成功购买或已拥有该 role，防重复与防并发双购
@@ -68,9 +68,8 @@
 - 不裂变 billing_type 枚举，不新增商品类型，不引入「积分包 vs 权益包」之类新名词
 
 **履约一致性规则**：
-- one-time 映射未配置积分分发规则（`points_distribution_rules`，trigger=`topup`；原标量 `points_per_period` 等字段已移除，见 subscription.md）时，履约不报错、不发积分、记录支付尝试成功
+- one-time 映射未配置积分分发规则（`points_distribution_rules`，trigger=`topup`）时，履约不报错、不发积分、记录支付尝试成功
 - 该行为与 recurring 未配积分时跳过发放的容错一致
-- 此规则为独立修复，与主体 role 授予能力正交
 
 **role 授予规则**：
 - role 来自用户在 Herald 自定义的角色/权限（复用现有 RBAC），不新建权限空间、不引入 `entitlement.*` 新权限格式
@@ -119,7 +118,7 @@
 - **手工授予（manual）** — Realm Admin 手工授予，不受支付 webhook 影响
 
 **异常场景**：
-- one-time 不配积分的纯权益履约：修复前会报 500，修复后应记录成功、不发积分
+- one-time 不配积分的纯权益履约：记录成功、不发积分
 - 并发双购 one_time+role：须保证至多一个成功（唯一约束/购买前检查）
 - webhook 丢失/重复/乱序导致撤销：补偿框架介入，最终一致，不得永久漏撤（M4 风险核心；WeChat 渠道因无退款信号源除外，见 §4.1 渠道边界）
 - 撤销时用户已无该 role（如管理员已手工删除）：幂等跳过，不报错

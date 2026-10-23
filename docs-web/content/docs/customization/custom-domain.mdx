@@ -56,9 +56,9 @@ The admin console shows a status panel that tracks:
 
 These update as the reverse proxy runs the ACME challenge. Allow time for DNS propagation after you create the CNAME record.
 
-## Routing today
+## Routing
 
-Realm routing is still driven by the `{realmId}` path segment, exactly as before. The custom-domain configuration and the certificate-authorization gate are the foundation for host-based routing; follow later releases for serving the full auth flow directly on the custom domain.
+Realm routing is driven by the `{realmId}` path segment. The custom domain serves the full auth/manage/user tree directly — the realm is resolved from the hostname.
 
 ## Related docs
 

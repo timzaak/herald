@@ -5,7 +5,7 @@ description: "接入方的 iOS App 用 ASAuthorizationAppleIDProvider 拿到 App
 
 接入方的 iOS App 用苹果系统原生 SDK（`ASAuthorizationAppleIDProvider`）在 App 内拉起系统授权弹窗，拿到 Apple 签发的 `identityToken`（JWT），POST 给 Herald 校验。全程不离开 App，不走浏览器重定向。Herald 只校验凭证、不调 Apple token 端点、不接触 `client_secret`。
 
-这是纯后端能力。Herald 自己没有 iOS App，iOS 端由接入方实现。Herald Web 控制台也没有改动——复用现有的 Apple Provider 配置（Client ID、启用状态）。
+这是纯后端能力。Herald 自己没有 iOS App，iOS 端由接入方实现。Herald Web 控制台复用现有的 Apple Provider 配置（Client ID、启用状态）。
 
 ## 给谁看
 
@@ -13,7 +13,7 @@ description: "接入方的 iOS App 用 ASAuthorizationAppleIDProvider 拿到 App
 
 ## 解决什么问题
 
-Apple 登录此前只有 web 跳转路径（OAuth Authorization Code redirect）：用户得离开 App、跳浏览器、再回到 App。体验割裂，而且 web redirect 路径依赖 `client_secret`——它是用 Apple 私钥签发的 JWT，有运行时签发和每 6 个月续签的运维负担。
+Apple 登录支持两条路径。web 跳转路径（OAuth Authorization Code redirect）需要用户离开 App、跳浏览器、再回到 App，体验割裂，而且该路径依赖 `client_secret`——它是用 Apple 私钥签发的 JWT，有运行时签发和每 6 个月续签的运维负担。
 
 native 路径绕开这两件事。iOS App 用系统 SDK 直接拿到 `identityToken`，Herald 在服务端用 Apple JWKS 公钥校验签名、签发者、受众、有效期，确认用户身份后签发会话。App 永远不接触 Apple 私钥，Herald 也不调 Apple token 端点、不用 `client_secret`。
 
@@ -118,7 +118,7 @@ JWKS 不可达返回 503 而不是 401：401 会把上游故障错误地归咎�
 
 ## 和其它登录路径的关系
 
-- **Apple web 跳转登录**（已上线）：两个入口共存，关联同一个 Apple 用户。web redirect 的 `client_secret` 自动签发缺陷独立，native 路径不依赖它也不修它。
+- **Apple web 跳转登录**：两个入口共存，关联同一个 Apple 用户。web 跳转路径自身存在一个 `client_secret` 自动签发缺陷，与 native 路径无关。
 - **Google One Tap**：架构同构（JWT 凭证 → 服务端校验 → 双分支签发）。差别是 Apple 不要求 `email_verified == true` 才放行，而是用占位邮箱策略兜底；以及 Apple `iss` 是单值 `https://appleid.apple.com`。
 - **其它 Provider**（GitHub、Facebook、WeChat 等）：共存，互不影响。
 

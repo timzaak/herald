@@ -67,7 +67,7 @@ url = "https://your-domain.com"
 secret = "替换成你的 JWT 密钥"
 
 [custom_domain]
-# 必填，服务启动时会校验非占位值（backend/api/src/lib.rs:164）
+# 必填，服务启动时会校验非占位值（backend/api/src/lib.rs:169）
 # 用上面 openssl rand -hex 32 生成的值
 ask_key = "替换成你的自定义域名密钥"
 cname_target = "custom.your-domain.com"
@@ -80,10 +80,10 @@ cname_target = "custom.your-domain.com"
 `.env` 给 herald 容器注入环境变量。生产模式下这几项必填，少一个服务都起不来：
 
 ```bash
-# 镜像地址。pin 版本可保证部署可复现，比如 ghcr.io/timzaak/herald:0.4.1
+# 镜像地址。pin 版本可保证部署可复现，比如 ghcr.io/timzaak/herald:0.6.8
 HERALD_IMAGE=ghcr.io/timzaak/herald:latest
 
-# 生产模式下 ADMIN_PASSWORD 必填，否则启动直接 bail（backend/core/src/admin/user.rs:62）
+# 生产模式下 ADMIN_PASSWORD 必填，否则启动直接 bail（backend/core/src/admin/user.rs:63）
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=替换成你的管理员密码
 ADMIN_REALM_ID=admin
@@ -136,7 +136,7 @@ curl http://localhost:3000/health
 返回类似下面的 JSON 就说明后端、数据库、Redis 都通了：
 
 ```json
-{"status":"healthy","database":true,"redis":true,"version":"0.4.1","uptime":45,"timestamp":"..."}
+{"status":"healthy","database":true,"redis":true,"version":"0.6.8","uptime":45,"timestamp":"..."}
 ```
 
 浏览器打开 `https://your-domain.com`（加了 Caddy 的话）或 `http://你的服务器IP:3000`（没加的话），用 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 登录管理后台。
@@ -218,12 +218,6 @@ docker compose up -d herald
 
 出问题就回滚。把 `.env` 里的 `HERALD_IMAGE` 改回旧版本 tag，再 `docker compose up -d herald`。
 
-### v0.6.4 的迁移基线重置
-
-v0.6.4 重置了数据库迁移基线：原 0004–0011 迁移被折叠进重写的 0001–0003，0004/0005 两个编号后来被新内容重新占用。Herald 启动时会用二进制内嵌的迁移校验和（`sqlx::migrate!`）比对已应用的迁移，因此最后由 v0.6.3 或更早版本启动过的数据库会在新版本启动时迁移校验失败——跨越这次重置没有原地升级路径。
-
-如果你在 v0.6.3 或更早版本：先备份数据，删除并重建数据库（例如删除 PostgreSQL volume，或执行 `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`），再启动新版本让它从零执行迁移。Redis 可以保留。已经在 v0.6.4 或更新版本上的部署按上面的步骤正常升级。
-
 ## 备份与恢复
 
 App 本身无状态。持久化数据只有 PostgreSQL：
@@ -242,7 +236,7 @@ Redis 是缓存和会话，丢了不严重，App 会自动重建。Volume `pgdat
 
 项目用 GitHub Actions 自动构建镜像，流程在 `.github/workflows/cd.yml`。
 
-推一个 `v` 开头的 tag 触发（比如 `git tag v0.4.1 && git push origin v0.4.1`）。流程做四件事：在 amd64 和 arm64 上分别构建、合并多架构 manifest、推送到 `ghcr.io/timzaak/herald:<tag>` 和 `ghcr.io/timzaak/herald:latest`、创建 GitHub Release。
+推一个 `v` 开头的 tag 触发（比如 `git tag v0.6.8 && git push origin v0.6.8`）。流程做四件事：在 amd64 和 arm64 上分别构建、合并多架构 manifest、推送到 `ghcr.io/timzaak/herald:<tag>` 和 `ghcr.io/timzaak/herald:latest`、创建 GitHub Release。
 
 Dockerfile 用五阶段构建（`cargo-chef` 缓存 Rust 依赖 → 后端 release → 前端 build 含 OpenAPI 生成 → alpine 运行时）。最终镜像非 root 用户运行，内置每 30 秒一次的 `/health` 健康检查。本地构建：
 

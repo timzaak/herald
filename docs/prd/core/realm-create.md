@@ -72,7 +72,7 @@
 
 - **自助注册**：无需任何平台权限，公开端点在开关开启时可访问；后端不根据请求是否同时携带既有会话改变该端点行为，前端只向访客展示入口。
 - **访问新 realm**：注册者开通后仅可访问其新 realm，访问其他 realm 资源被拒绝（沿用 `docs/prd/core/realm.md` 的 realm 隔离原则）。
-- **平台开关控制**：需要 Admin Realm 管理员对本 Realm 的设置管理权限（`settings.manage`）。平台开关作为 admin realm 的 `realm_config` 行承载，开关的查询与更新复用既有 Realm Settings 配置管理端点（见 `.ai/design/realm-create.md` §4.2.1/§4.5）；该端点读取按 `settings.view`、写入按 `settings.manage` 授权（与 realm-settings.md §4.1 的分工一致）。仅 admin realm 持有该开关配置行，因此实际可操作者仍限于 Admin Realm 管理员。非 admin realm 写入 `platform_signup` 类型配置行的请求被显式 400 拒绝（该开关仅由 signup 流程从 admin realm 读取，其他 realm 的同类型配置行只会是无效脏数据，因此在 API 边界拒绝）。
+- **平台开关控制**：需要 Admin Realm 管理员对本 Realm 的设置管理权限（`settings.manage`）。平台开关作为 admin realm 的 `realm_config` 行承载，开关的查询与更新复用既有 Realm Settings 配置管理端点；该端点读取按 `settings.view`、写入按 `settings.manage` 授权（与 realm-settings.md §4.1 的分工一致）。仅 admin realm 持有该开关配置行，因此实际可操作者仍限于 Admin Realm 管理员。非 admin realm 写入 `platform_signup` 类型配置行的请求被显式 400 拒绝（该开关仅由 signup 流程从 admin realm 读取，其他 realm 的同类型配置行只会是无效脏数据，因此在 API 边界拒绝）。
 
 **平台开关**
 
@@ -153,18 +153,18 @@
 - **DEC-realm-create-003 · 初始化复用**（repository-fact + agent）：复用既有 realm 初始化机制（RBAC 默认角色/权限/策略、`admin-web-console`、`admin-api-client`、`registration.enabled=false`、Normal 状态管理员），不新建并行开通路径。理由：`docs/prd/core/realm.md` §4.1 已定义稳定初始化规则；最小改动。落点：§2.1、§4.1。重开条件：初始化规则在正式 PRD 中变更。
 - **DEC-realm-create-004 · 单次注册范围**（agent）：一次注册对应一个新 realm，注册者即该 realm 的 realm-admin；平台级"一个账号拥有多个 realm"不在本 PRD 范围。理由：最简可审阅模型；多 realm 归属需要平台账号层，超出本轮"注册即开通"意图。落点：§2.2、§4.1。重开条件：用户要求支持单账号多 realm 或跨 realm 所有者。
 - **DEC-realm-create-005 · 用户故事新建**（agent）：新建独立用户故事（actor：SaaS 自助注册访客），不复用 `US-AR-001`（手动内部开通，actor 为 Admin Realm 管理员，入口与流程不同）。理由：两者 actor、入口、前置权限与验收目标不同，不合并冲突模式。落点：§1。重开条件：用户确认两者应合并为同一旅程。
-- **DEC-realm-create-006 · 邮箱验证行为**（repository-fact + agent）：新 realm 管理员账号沿用既有行为——创建即 Normal（已验证），注册后可立即进入新 realm，不引入**账户级**后置验证门禁。理由：与既有 `docs/prd/core/realm.md` §4.1 行为一致。落点：§4.1、§4.2。原「不做邮箱验证门禁」表述已被取代——前置邮箱验证由 DEC-realm-create-015 承载（2026-10-10 重开），账户侧「创建即 Normal」不变。
+- **DEC-realm-create-006 · 邮箱验证行为**（repository-fact + agent）：新 realm 管理员账号沿用既有行为——创建即 Normal（已验证），注册后可立即进入新 realm，不引入**账户级**后置验证门禁。理由：与既有 `docs/prd/core/realm.md` §4.1 行为一致。落点：§4.1、§4.2。前置邮箱验证由 DEC-realm-create-015 承载，账户侧「创建即 Normal」不变。
 - **DEC-realm-create-007 · IP 注册限额**（user）：同一 IP 每 24 小时最多自助注册开通 2 个 realm，超出后注册被拒绝并提示限额。理由：用户明确要求（安全防滥用）；防止刷号抢占 realm 标识。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户调整限额阈值或窗口。
 - **DEC-realm-create-008 · Turnstile 人机验证**（user + repository-fact）：自助注册页面启用 Cloudflare Turnstile 人机验证，条件是 admin realm 侧绑定的 Client App 的 Turnstile 已开启（未开启时不强制）。理由：用户明确要求"有 cloudflare 验证码如果 admin realm 开启了的话"；仓库事实——Turnstile 配置归属 Client App 级（`docs/prd/integration/client-app.md` §4.1 D-PROTECT-01），非 realm 级独立开关。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户要求 Turnstile 与 Client App 解耦、作为独立 realm 级开关。
-- **DEC-realm-create-009 · 平台开关必备**（user）：自助开通整体为一个平台开关（Admin Realm 管理员可开启/关闭），关闭后访客无法自助注册；该开关从 P1 提升为本 PRD 必备能力。理由：用户明确要求"这个功能要是一个开关"。落点：§1、§4.1、§5。重开条件：用户要求移除开关或调整其层级。
-- **DEC-realm-create-010 · 后端 policy 旁路**（agent，实现层）：新增 `RealmService::create_realm_self_service(request, audit_ctx)`（不调用 `can_create_realm` policy gate），由 signup handler 自行保证前置校验（开关 + Turnstile + IP 限额）；既有 admin/ext 两条 `create_realm` 鉴权不变，共享抽出后的私有 `create_realm_inner`。理由：最小改动；不污染既有鉴权路径；显式命名"公开开通"新语义；备选方案（系统 Identity 特权、复用 admin 鉴权）扩散面大。落点：设计/实现层（`.ai/design/realm-create.md` §4.1/§5.1）。重开条件：需要在非公开端点也绕过 policy，或既有 create_realm 鉴权语义变更。
+- **DEC-realm-create-009 · 平台开关必备**（user）：自助开通整体为一个平台开关（Admin Realm 管理员可开启/关闭），关闭后访客无法自助注册；该开关为本 PRD 必备能力。理由：用户明确要求"这个功能要是一个开关"。落点：§1、§4.1、§5。重开条件：用户要求移除开关或调整其层级。
+- **DEC-realm-create-010 · 后端 policy 旁路**（agent，实现层）：新增 `RealmService::create_realm_self_service(request, audit_ctx)`（不调用 `can_create_realm` policy gate），由 signup handler 自行保证前置校验（开关 + Turnstile + IP 限额）；既有 admin/ext 两条 `create_realm` 鉴权不变，共享抽出后的私有 `create_realm_inner`。理由：最小改动；不污染既有鉴权路径；显式命名"公开开通"新语义；备选方案（系统 Identity 特权、复用 admin 鉴权）扩散面大。落点：设计/实现层。重开条件：需要在非公开端点也绕过 policy，或既有 create_realm 鉴权语义变更。
 - **DEC-realm-create-011 · 限流计数口径**（agent，实现层）：同 IP 24h 限流计数口径为"进入开通阶段的尝试计数"（在通过校验与 Turnstile 后、调用 create_realm 前执行 `rate_limit_hit`，失败不回退），满足验收"同 IP 第 3 次 429"。理由：复用既有 `rate_limit_hit`（先 INCR 再判断）；避免预检+成功后记录两段式复杂度。落点：§4.2、设计层。重开条件：用户要求仅计成功开通，或线上反馈失败请求误耗配额。
 - **DEC-realm-create-012 · 会话目标 realm**（repository-fact + agent，实现层）：signup 成功后签发**新 realm** 的 `admin-web-console` first-party token（`create_first_party_token_family`），而非 admin realm 的 token；响应携带 `realmId`/`realmName` 供前端切换路由上下文。理由：US-SR-002 要求"立即进入新 realm 管理控制台"；create_realm 已在新 realm 创建 first-party admin-web-console 与 Normal 管理员，签发无传播延迟。落点：§5、设计层。重开条件：用户要求签发 admin realm token 或要求额外登录步骤。
 - **DEC-realm-create-013 · 开关存储**（agent，实现层）：平台开关存于 admin realm 的 `realm_config`（新增 `ConfigType::PlatformSignup`，`config_key="enabled"`，`config_value="true"/"false"`），不新建表；读取缺失按 `false`（fail-closed）。理由：`realm_config` 是 realm 级配置唯一存储；admin realm 是平台级配置自然归属。落点：§4.1、设计层。重开条件：用户要求独立平台配置表或独立开关服务。
 - **DEC-realm-create-014 · 冲突状态码**（repository-fact + agent，实现层）：realmSlug 已占用时 signup 返回 400（沿用既有 realm 仓库 `CoreError::BadRequest` 与 admin `create_realm` 的 400 约定），而非设计稿理想化的 409。理由：signup 复用同一 `create_realm` 仓库路径；仅为 signup 单独改 409 会分裂两个调用方。落点：设计层。重开条件：用户要求 realmSlug 冲突统一为 409（届时需同时改仓库返回并同步 admin/ext 路径）。
 - **DEC-realm-create-015 · 自助开通前置邮箱验证**（user，2026-10-10）：当 admin realm 的注册邮箱验证要求开启且其邮件服务已配置时，自助开通在 realm 创建前要求访客以一次性 6 位验证码证明邮箱所有权（前置验证）；任一条件不满足则不强制（fail-open，入口不被锁死）。验证要求复用 admin realm 的 `registration` / `require_email_verification` 配置键（与“注册进 admin realm”的验证要求同键联动，不设独立键）；验证码 30 分钟有效、单次消费、重发 newest-wins、与提交邮箱绑定，无效情形统一同一错误提示；验证码发送端点独立限流（1 次 / 120 秒，每 IP 与每邮箱）且无人机验证（与既有 verify_email 触发端点同姿态）；验证消费时序在人机验证与 IP 限额之后、开通之前（失败不烧码）。理由：用户明确要求“是否验证跟随主 admin realm 的账号注册验证配置”；采用前置而非照搬注册的后置验证，避免新 realm 无邮件通道的跨 realm 混搭与未验证悬空 realm。落点：§2.1、§4.1、§4.2、§5、§6。重开条件：用户要求独立开关键、调整码形态 / TTL / 限流取值，或改回后置验证模型。
 
-**问题记录**（原账本 Resolved / Deferred Questions）：
+**问题记录**：
 
 - `Q-realm-create-003`（延期）：平台自助开通开关的默认值（默认开启/关闭）属运营决策，不改变功能存在性与验收目标。须在 t-run 前决议。
 
@@ -176,5 +176,4 @@
 - 既有 Realm Settings PRD：`docs/prd/core/realm-settings.md`（平台开关以 realm_config 形式管理，遵循 realm-settings 的配置管理能力边界）
 - Client App PRD：`docs/prd/integration/client-app.md`（Turnstile 配置归属 Client App 级，见 §4.1 D-PROTECT-01）
 - 角色定义：`docs/user-stories/_roles.md`
-- 技术设计：`.ai/design/realm-create.md`
 - 用户故事来源见 §1 表格

@@ -50,7 +50,7 @@
 - **订阅自动续费**：由支付平台处理，Herald 不负责
 - **套餐的功能（features）和配额（quotas）管理**：采用简化模型，由第三方应用自行管理
 - **支付方式管理**：不在首版范围
-- **计费统计和报表**：已独立立项为 [billing-statistics](billing-statistics.md)（管理端支付统计与积分消耗统计，固定 7/30 天窗口）；报表导出与更深度分析仍不在范围
+- **计费统计和报表**：由 [billing-statistics](billing-statistics.md) 承载（管理端支付统计与积分消耗统计，固定 7/30 天窗口）；报表导出与更深度分析仍不在范围
 - **通知系统**：邮件/短信通知不在首版范围
 - **支付事件历史**：支付事件由支付平台处理，Herald 不负责记录
 - **导出历史记录**：属于 P2 功能，暂不实现
@@ -59,7 +59,7 @@
 
 **相关边界说明**：
 - 退款功能：支付平台处理金额退款，Herald 处理积分回收（详见 `docs/prd/billing/points.md`）
-- 订阅管理：即使前后端订阅管理功能未完整实现，积分系统仍需定义订阅变更的积分处理规则（详见 `docs/prd/billing/points.md`）
+- 订阅管理：订阅变更的积分处理规则见 `docs/prd/billing/points.md`
 
 ### 2.3 依赖项
 
@@ -170,14 +170,14 @@
 
 **One-time 购买规则**：
 - 购买成功后发放 topup_credit，不创建 subscription 记录
-- 发放数量与有效期由 mapping 的积分分发规则（`points_distribution_rules`，trigger=`topup`）决定；原标量积分策略字段（`points_per_period`、`grant_on_subscribe` 等）已移除
+- 发放数量与有效期由 mapping 的积分分发规则（`points_distribution_rules`，trigger=`topup`）决定；积分策略由规则集合表达（见 multi-wallet-grant-rules.md），无标量积分策略字段
 - 用户购买页列出 enabled 且 billing_type=one_time 的 entitlement mappings
 - 没有启用的 one-time mapping 时不显示购买入口
 - 促销策略由支付平台管理（Stripe Coupons/Promotion Codes、Creem Discount Codes），Herald 不在本地实现促销逻辑
 - 购买记录基于支付尝试记录和积分交易记录查询
 
 **积分充值联动规则**：
-- 积分充值由 mapping 的积分分发规则（`points_distribution_rules`）按触发器驱动：首次订阅 `subscription_initial`、续费 `subscription_renewal`、升级 `subscription_upgrade`、一次性购买 `topup`（原 `points_on_subscribe` / `renewal_enabled` / `points_on_renewal` / `max_accumulation` 标量字段已移除，规则模型见 `docs/prd/billing/multi-wallet-grant-rules.md`）
+- 积分充值由 mapping 的积分分发规则（`points_distribution_rules`）按触发器驱动：首次订阅 `subscription_initial`、续费 `subscription_renewal`、升级 `subscription_upgrade`、一次性购买 `topup`（积分策略由规则集合表达，无标量积分策略字段，规则模型见 `docs/prd/billing/multi-wallet-grant-rules.md`）
 - 充值操作与数据库事务绑定，使用乐观锁防止并发问题
 - 充值失败不影响订阅状态
 

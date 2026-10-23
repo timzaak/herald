@@ -67,7 +67,7 @@
 - **测试邮件**：保存配置后可通过 "Send Test Email" 验证配置正确性，速率限制 3 次/60 秒
 - **Registration 键名统一**：注册开关使用 `config_key = "enabled"`，创建 Realm、查询注册状态和 public config 均使用同一键名。
 
-> **计划中功能**：以下功能在 PRD 中曾提及但当前代码无实现，移至未来扩展：
+> **计划中功能**：以下功能当前代码无实现，属未来扩展：
 > - 密码策略配置（最小长度、大小写、数字、特殊字符要求）：`password_min_length`、`require_uppercase`、`require_lowercase`、`require_numbers`、`require_special_chars` 在 ConfigType::Registration 的代码注释中明确声明为 NOT consumed by any reader——密码规则由用户服务执行，不经该配置类型配置（前端密码强度规则为硬编码常量，不从 Realm Config 读取）；实际被读取的 Registration 键仅为 `enabled`、`require_email_verification`、`allowed_domains`、`block_disposable_domains`
 > - `default_user_status`（Registration 配置中新用户默认状态，取值范围 0-3）：当前代码中无此字段，未来可能作为 Registration 类型的 config_key 新增
 
@@ -111,8 +111,8 @@
 - OAuth 配置使用独立系统管理，不纳入 Realm Config 存储结构
 - 邮件服务配置纳入 Realm Config 管理，使用 `email` 配置类型
 - Settings 页面使用多 Tab 布局而非分组卡片布局
-- 支付提供商配置（Creem/Stripe）已迁移到独立的 Payment Providers 页面管理，不再通过 Realm Config 管理。Realm Config 中的 creem/stripe 配置类型仅用于遗留兼容，新功能应在 Payment Providers 页面操作
-- 人机验证（Turnstile）配置已下放到 Client App 级别（每个 Client App 配置自己的 Turnstile site_key/secret_key 与启用开关），不再作为 Realm 级配置管理。Realm Config 中的 `turnstile` 配置类型仅保留遗留兼容，新的人机验证配置入口在 Client App（见 [docs/prd/integration/client-app.md](../integration/client-app.md)）
+- 支付提供商配置（Creem/Stripe）在独立的 Payment Providers 页面管理，不通过 Realm Config 管理。Realm Config 中的 creem/stripe 配置类型仅用于遗留兼容，新功能应在 Payment Providers 页面操作
+- 人机验证（Turnstile）配置归属 Client App 级别（每个 Client App 配置自己的 Turnstile site_key/secret_key 与启用开关），不作为 Realm 级配置管理。Realm Config 中的 `turnstile` 配置类型仅保留遗留兼容，新的人机验证配置入口在 Client App（见 [docs/prd/integration/client-app.md](../integration/client-app.md)）
 
 ---
 

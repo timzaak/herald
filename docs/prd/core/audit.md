@@ -41,7 +41,7 @@
 - 审计日志的保留策略和自动清理（后续扩展）
 - 实时审计告警和通知
 - 审计日志的不可篡改保证（如区块链存证）
-- 计费相关操作的审计（分层事实标准，经 wechat-support.md §4.1 局部修订）：支付 Provider 的配置变更（Stripe/Creem/WeChat/IAP）与 WeChat 支付回调（含重放拒绝 `payment.replay`）进入统一审计；Stripe/IAP/Creem 的支付操作事件维持独立追踪表（`payment_event` 等），可从现有数据推导操作者，不纳入统一审计；IAP 的凭证提交与平台通知兑付记入统一审计（`iap.receipt_submit` / `iap.notification`）
+- 计费相关操作的审计（分层事实标准）：支付 Provider 的配置变更（Stripe/Creem/WeChat/IAP）与 WeChat 支付回调（含重放拒绝 `payment.replay`）进入统一审计；Stripe/IAP/Creem 的支付操作事件维持独立追踪表（`payment_event` 等），可从现有数据推导操作者，不纳入统一审计；IAP 的凭证提交与平台通知兑付记入统一审计（`iap.receipt_submit` / `iap.notification`）
 - 发票操作的审计：发票状态变更历史由发票模块自行记录，含操作者信息
 
 ### 2.3 依赖项
@@ -104,7 +104,7 @@
 ## 7. 已确认决策
 
 - 审计事件采用统一模型，覆盖七类事件（用户管理、RBAC 变更、Realm 管理、认证、计费、OAuth、合规）
-- 计费和发票的业务操作审计由各自模块独立记录，不纳入统一审计模型；**已被局部修订**：支付 Provider 配置变更、支付 webhook/重放、IAP 凭证与生命周期通知进入统一审计模型（见 §2.2 修订及 `docs/prd/billing/wechat-support.md` §4.1，涵盖 Stripe/WeChat/Creem/IAP 的 `payment_config.*`、`payment.webhook`、`payment.replay`、`iap.*` 动作）
+- 支付 Provider 配置变更、支付 webhook/重放、IAP 凭证与生命周期通知纳入统一审计模型（见 §2.2 及 `docs/prd/billing/wechat-support.md` §4.1，涵盖 Stripe/WeChat/Creem/IAP 的 `payment_config.*`、`payment.webhook`、`payment.replay`、`iap.*` 动作）；其余计费和发票的业务操作审计由各自模块独立记录，不纳入统一审计模型
 
 ---
 

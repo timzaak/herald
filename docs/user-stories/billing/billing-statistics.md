@@ -2,7 +2,7 @@
 
 > 角色定义见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)
 
-与既有已发布故事的关系：US-BS-001 承接 US-PV-005（支付平台使用统计）中"笔数/成功率/金额"的平台汇总视角并移入统一统计页；US-BS-002 补齐 US-PO-007（免费用户积分统计）未覆盖的通用积分**消耗**视角。US-PV-005 的 Active Subs / Avg Payment Time 与 US-PO-007 的发放/转化统计不在本文件范围。
+与既有故事的关系：US-BS-001 覆盖 US-PV-005（支付平台使用统计）中"笔数/成功率/金额"的平台汇总视角（位于统一统计页）；US-BS-002 覆盖 US-PO-007（免费用户积分统计）未覆盖的通用积分**消耗**视角。US-PV-005 的 Active Subs / Avg Payment Time 与 US-PO-007 的发放/转化统计不在本文件范围。
 
 ## 用户故事
 

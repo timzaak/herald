@@ -67,7 +67,7 @@ url = "https://your-domain.com"
 secret = "replace-with-your-jwt-secret"
 
 [custom_domain]
-# Required — a startup guard rejects the placeholder (backend/api/src/lib.rs:164).
+# Required — a startup guard rejects the placeholder (backend/api/src/lib.rs:169).
 # Use the value from `openssl rand -hex 32` above.
 ask_key = "replace-with-your-custom-domain-key"
 cname_target = "custom.your-domain.com"
@@ -80,10 +80,10 @@ Leave the database and Redis addresses at their defaults (`db:5432`, `redis:6379
 `.env` injects env vars into the herald container. In production these are all required — the service will not start if any is missing:
 
 ```bash
-# Image to run. Pin a version for reproducible deploys, e.g. ghcr.io/timzaak/herald:0.4.1
+# Image to run. Pin a version for reproducible deploys, e.g. ghcr.io/timzaak/herald:0.6.8
 HERALD_IMAGE=ghcr.io/timzaak/herald:latest
 
-# ADMIN_PASSWORD is required in production or startup bails (backend/core/src/admin/user.rs:62).
+# ADMIN_PASSWORD is required in production or startup bails (backend/core/src/admin/user.rs:63).
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=replace-with-your-admin-password
 ADMIN_REALM_ID=admin
@@ -136,7 +136,7 @@ curl http://localhost:3000/health
 A JSON response like this means the backend, database, and Redis are all wired up:
 
 ```json
-{"status":"healthy","database":true,"redis":true,"version":"0.4.1","uptime":45,"timestamp":"..."}
+{"status":"healthy","database":true,"redis":true,"version":"0.6.8","uptime":45,"timestamp":"..."}
 ```
 
 Open `https://your-domain.com` (with Caddy) or `http://YOUR-SERVER-IP:3000` (without) in a browser and sign in to the admin console with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
@@ -219,12 +219,6 @@ docker compose up -d herald
 
 To roll back, set `HERALD_IMAGE` in `.env` back to the old version tag and run `docker compose up -d herald` again.
 
-### Migration baseline reset in v0.6.4
-
-v0.6.4 reset the database migration baseline: the former migrations 0004–0011 were folded into a rewritten 0001–0003, and the 0004/0005 numbers were later reused for new content. Herald validates applied migrations against the checksums embedded in the binary (`sqlx::migrate!`), so a database last started by v0.6.3 or earlier fails migration validation on boot — there is no in-place upgrade path across the reset.
-
-If you are on v0.6.3 or earlier: back up your data, drop and recreate the database (for example remove the PostgreSQL volume, or run `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`), and start the new version so migrations run from scratch. Redis can be kept. Deployments already on v0.6.4 or later upgrade normally with the steps above.
-
 ## Backup and restore
 
 The app itself is stateless. The only persistent data is PostgreSQL:
@@ -243,7 +237,7 @@ Redis holds cache and sessions; losing it is not serious — the app rebuilds th
 
 The project builds images automatically with GitHub Actions, defined in `.github/workflows/cd.yml`.
 
-Pushing a `v`-prefixed tag triggers it (e.g. `git tag v0.4.1 && git push origin v0.4.1`). The pipeline does four things: builds on amd64 and arm64, merges a multi-arch manifest, pushes `ghcr.io/timzaak/herald:<tag>` and `ghcr.io/timzaak/herald:latest`, and creates a GitHub Release.
+Pushing a `v`-prefixed tag triggers it (e.g. `git tag v0.6.8 && git push origin v0.6.8`). The pipeline does four things: builds on amd64 and arm64, merges a multi-arch manifest, pushes `ghcr.io/timzaak/herald:<tag>` and `ghcr.io/timzaak/herald:latest`, and creates a GitHub Release.
 
 The Dockerfile is a five-stage build (`cargo-chef` to cache Rust deps → backend release → frontend build with OpenAPI generation → alpine runtime). The final image runs as a non-root user with a built-in `/health` check every 30 seconds. To build locally:
 

@@ -1,6 +1,6 @@
 # Herald 用户故事
 
-本目录包含 Herald 系统的用户故事，遵循用户故事编写规范（已迁移至外部 skills 仓库）。
+本目录包含 Herald 系统的用户故事，遵循用户故事编写规范。
 
 ---
 
@@ -47,8 +47,8 @@ docs/user-stories/
 
 1. **更新** [`_roles.md`](_roles.md) 中的角色定义
 2. **同步代码实现**：
-   - 前端：`frontend/src/auth.tsx` 的 `UserRole` 枚举
-   - 后端：`api/src/application/http/admin/middleware.rs` 的权限校验逻辑
+   - 前端：frontend/src/lib/auth-service.ts 的角色获取逻辑
+   - 后端：backend/api-admin/src/admin/middleware.rs 的权限校验逻辑
 3. **在用户故事中引用**：使用新的角色定义
 
 ### 新增用户故事

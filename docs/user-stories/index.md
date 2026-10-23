@@ -27,7 +27,7 @@
 
 - 上面的能力包用于产品评审、端到端验收和排期，是默认阅读入口。
 - 下方 US-ID 索引用于定位单个可验收目标，不作为产品目录重复维护。
-- 物理目录 `core / auth / billing / integration` 只表示代码与文档归属，不再逐文件展开成第二套导航。
+- 物理目录 `core / auth / billing / integration` 只表示代码与文档归属，不作为第二套导航展开。
 
 ## 用户故事 ID 索引（追踪视图）
 
@@ -160,7 +160,6 @@
 | US-FU-001 | 注册时获得初始积分 | Free User | P0 | [billing/points-free-user](billing/points-free-user.md#故事-1注册时获得初始积分-us-fu-001) |
 | US-FU-002 | 定期自动获得免费积分 | Free User | P0 | [billing/points-free-user](billing/points-free-user.md#故事-2定期自动获得免费积分-us-fu-002) |
 | US-FU-003 | 升级到付费套餐时保留注册初始积分 | Free User | P1 | [billing/points-free-user](billing/points-free-user.md#故事-3升级到付费套餐时保留注册初始积分-us-fu-003) |
-| US-FU-004 | 按时获得每期免费积分（不受分发延迟影响） | Free User | P0 | [billing/points-free-user](billing/points-free-user.md#故事-4按时获得每期免费积分不受分发延迟影响-us-fu-004) |
 | US-FU-005 | 免费周期积分改为滚动窗口配额 | Regular User | P0 | [billing/points-free-user.md](billing/points-free-user.md#故事-5免费周期积分改为滚动窗口配额-us-fu-005) |
 | US-PV-001 | 配置支付平台（Creem/Stripe） | Realm Admin | P0 | [billing/payment-provider](billing/payment-provider.md#故事-1配置支付平台-us-pv-001) |
 | US-PV-002 | 查看支付平台配置 | Realm Admin | P0 | [billing/payment-provider](billing/payment-provider.md#故事-2查看支付平台配置-us-pv-002) |
@@ -172,7 +171,6 @@
 | US-PU-006 | 购买积分包 | Regular User | P0 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-1购买积分包-us-pu-006) |
 | US-PU-007 | 查看积分包购买记录 | Regular User | P1 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-2查看积分包购买记录-us-pu-007) |
 | US-PU-008 | 积分包与订阅购买的区别 | Regular User | P1 | [billing/points-package-purchase](billing/points-package-purchase.md#故事-3理解积分包与订阅购买的区别-us-pu-008) |
-| US-PU-009 | 按时使用本期积分（不受分发延迟影响） | Regular User | P0 | [billing/points-user](billing/points-user.md#故事-4按时使用本期积分不受分发延迟影响-us-pu-009) |
 | US-PU-010 | 滚动窗口额度与充值余额的可用性体验 | Regular User | P0 | [billing/points-user.md](billing/points-user.md#故事-5滚动窗口额度与充值余额的可用性体验-us-pu-010) |
 | US-PA-001 | 创建支付尝试（订阅或积分包） | System | P0 | [billing/payment-attempt](billing/payment-attempt.md#故事-1创建支付尝试订阅或积分包-us-pa-001) |
 | US-PA-002 | 查询支付尝试状态 | System | P0 | [billing/payment-attempt](billing/payment-attempt.md#故事-2查询支付尝试状态-us-pa-002) |

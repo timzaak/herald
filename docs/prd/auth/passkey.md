@@ -115,7 +115,7 @@
 
 **API / 集成边界:**
 - 接口能力范围：Passkey 注册 challenge 生成与完成、Passkey 认证 challenge 生成与完成、用户已注册 Passkey 列表查询/重命名/删除、Realm 级别 Passkey 开关与策略配置（Passkey 启用率统计查询为 US-PK-010，P2，本期未实现）；另有匿名公开状态端点返回 Realm `passkey` 配置的 `{ enabled, forceEnabled }`（登录页据此在调用任何 Passkey 端点前决定是否渲染 Passkey 入口，避免以 404 试探发现禁用）。
-- 访问控制：Realm Admin 可操作 Realm 级别 Passkey 配置和统计；Regular User 仅可操作自身 Passkey 设置；Passkey 注册和管理操作需在已认证 Session 内进行；Passkey 注册（发起/完成）与删除必须先完成独立重新认证并消费单次 reauth 票据（实现严于本 PRD 原文，属既定安全行为），仅重命名不要求重新认证；Passkey 登录为未认证接口，需应用速率限制。
+- 访问控制：Realm Admin 可操作 Realm 级别 Passkey 配置和统计；Regular User 仅可操作自身 Passkey 设置；Passkey 注册和管理操作需在已认证 Session 内进行；Passkey 注册（发起/完成）与删除必须先完成独立重新认证并消费单次 reauth 票据，仅重命名不要求重新认证；Passkey 登录为未认证接口，需应用速率限制。
 - 数据边界：Passkey credential 数据按 realm 隔离；credential ID 在 `(realm, user, rp_id, credential_id)` 组合内唯一；响应中不返回公钥等敏感元数据。
 - **登录二因素探测的失败语义**：密码/LDAP/邮箱验证码登录对"是否需要 passkey 第二因素"的探测，仅在部署配置类失败（RP 环境变量未设、查找故障）时容错为不提供 passkey；由请求 Origin 头触发的解析失败（未映射来源）失败关闭——用户在 realm 内持有任意 passkey 即要求完成仪式（仪式本身会拒绝该未配置来源），攻击者不能凭伪造 Origin 头让密码登录跳过第二因素。
 - 安全约束：验证 origin 与 RP_ID 必须匹配当前 Client App、有效自定义域名或部署默认配置；第一因素与第二因素均按本次目标 Client App 限定 RP 解析；签名计数器递增校验防止 credential 克隆。

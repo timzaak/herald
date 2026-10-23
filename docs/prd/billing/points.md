@@ -28,19 +28,17 @@
 | US-PU-002 | 查看我的交易历史 | P1 | `docs/user-stories/billing/points-user.md` |
 | US-PU-005 | 积分过期通知 | P1 | `docs/user-stories/billing/points-user.md` |
 | US-PU-003 | 筛选交易记录 | P2 | `docs/user-stories/billing/points-user.md` |
-| US-PU-009 | 按时使用本期积分（不受分发延迟影响）——由 US-PU-010 取代 | P0 | `docs/user-stories/billing/points-user.md` |
 | US-PU-010 | 滚动窗口额度与充值余额的可用性体验 | P0 | `docs/user-stories/billing/points-user.md` |
 | US-FU-001 | 注册时获得初始积分（永久有效） | P0 | `docs/user-stories/billing/points-free-user.md` |
 | US-FU-002 | 定期自动获得免费积分（支持 once/daily/weekly/monthly） | P0 | `docs/user-stories/billing/points-free-user.md` |
 | US-FU-003 | 升级到付费套餐时保留注册初始积分 | P1 | `docs/user-stories/billing/points-free-user.md` |
-| US-FU-004 | 按时获得每期免费积分（不受分发延迟影响）——由 US-FU-005 取代 | P0 | `docs/user-stories/billing/points-free-user.md` |
-| US-FU-005 | 免费周期积分改为滚动窗口配额 | P0 | `docs/user-stories/billing/points-free-user.md` |
+| US-FU-005 | 免费周期积分为滚动窗口配额 | P0 | `docs/user-stories/billing/points-free-user.md` |
 | US-PU-006 | 购买积分包 | P0 | `docs/user-stories/billing/points-package-purchase.md` |
 | US-PU-007 | 查看积分包购买记录 | P1 | `docs/user-stories/billing/points-package-purchase.md` |
 | US-PU-008 | 理解积分包与订阅购买的区别 | P1 | `docs/user-stories/billing/points-package-purchase.md` |
 | US-TP-017 | 通过 SDK 发放积分 | P0 | `docs/user-stories/integration/sdk.md` |
 
-> 注：本地积分包管理（US-PP-001~005）和促销积分包（US-PP-006, US-PP-016~018）已由支付平台产品管理 + Entitlement 映射取代。
+> 注：本地积分包管理（US-PP-001~005）与促销积分包（US-PP-006, US-PP-016~018）不实现，商品与积分策略由支付平台产品管理 + Entitlement 映射承载。
 
 ---
 
@@ -48,8 +46,8 @@
 
 ### 2.1 包含功能
 
-- **积分池组织单位**：积分池按积分账户组织，每个用户对每个持有的积分账户拥有独立积分池（`user × bucket`），已替换单一钱包模型；积分账户目录、覆盖集、归属、跨池消费与履约路由的完整规则见 `docs/prd/billing/credit-bucket.md`。本 PRD 描述积分类型、过期、消费优先级、退款回收等积分核心规则，其"池归属"维度以积分账户为准
-- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放不再各自只把一次触发路由到单一账户和一组积分策略，而是由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。订阅/免费周期规则的发放策略可选 fixed 周期积分或滚动窗口 quota（`DEC-multi-wallet-grant-rules-011`）；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力。详见 `docs/prd/billing/multi-wallet-grant-rules.md` §4/§7
+- **积分池组织单位**：积分池按积分账户组织，每个用户对每个持有的积分账户拥有独立积分池（`user × bucket`），无单一钱包模型；积分账户目录、覆盖集、归属、跨池消费与履约路由的完整规则见 `docs/prd/billing/credit-bucket.md`。本 PRD 描述积分类型、过期、消费优先级、退款回收等积分核心规则，其"池归属"维度以积分账户为准
+- **积分分发规则（`points_distribution_rules`）**：注册、免费周期、订阅等自动发放由统一的 `points_distribution_rules` 承载。一次触发可命中多条规则，每条规则指定一个目标积分账户和发放策略（fixed 周期积分 **或** 滚动窗口 quota），向多个账户扇出发放。订阅/免费周期规则的发放策略可选 fixed 周期积分或滚动窗口 quota（`DEC-multi-wallet-grant-rules-011`）；本文其余"滑动窗口配额"描述指的是 quota 策略本身的能力。详见 `docs/prd/billing/multi-wallet-grant-rules.md` §4/§7
 - 积分账户管理（创建、查询）
 - 积分余额查询
 - 积分消耗/扣除（SDK API）
@@ -59,9 +57,9 @@
 - 前端积分管理页面
 - 前端积分充值页面
 - 积分 SDK（供第三方应用调用消耗积分）
-- 积分类型分治：充值/注册/发放积分保持池子模型；订阅/免费周期积分采用 usage-based 滑动窗口配额模型
+- 积分类型分治：充值/注册/发放积分保持池子模型；订阅/免费周期积分由分发规则选择 fixed 周期积分或滚动窗口 quota 策略（`DEC-multi-wallet-grant-rules-011`）
 - 多时间窗滚动配额：同一权益可叠加多个时间窗（如 5 小时/周/月）的额度上限，可用额度取各窗口剩余最小值
-- 懒发放（限 quota 滑动窗口策略）：订阅/免费周期的 quota 额度不再后台全表预发，按用户访问/消费时刻实时计算；新用户首访即得，不活跃用户零后台开销。fixed 周期积分策略（DEC-multi-wallet-grant-rules-011 引入）不在此列——由后台 worker 按 `NextGrantTime` 排期预发，扫描与写入不看用户活跃状态
+- 懒发放（限 quota 滑动窗口策略）：订阅/免费周期的 quota 额度无后台全表预发，按用户访问/消费时刻实时计算；新用户首访即得，不活跃用户零后台开销。fixed 周期积分策略（DEC-multi-wallet-grant-rules-011 引入）不在此列——由后台 worker 按 `NextGrantTime` 排期预发，扫描与写入不看用户活跃状态
 - 混合消费协调：单次消费在事务内先用窗口额度，超额原子转充值/注册/发放池，不足整体拒绝
 - 配额权益授予与撤销：订阅激活/续费授予配额权益，取消/退款/升级撤销配额权益；已消费量随窗口滚动自然释放，不反向调整
 - 积分有效期管理：支持充值/注册/发放积分的过期时间配置（永久有效/N天有效）
@@ -80,7 +78,7 @@
 - 积分等级/会员系统（首版不实现积分等级体系）
 - 积分商城（商城系统不在本次实现范围内）
 - 免费用户间积分转账（免费积分仅供个人使用）
-- 本地积分包管理（已由支付平台产品管理 + Entitlement 映射取代）
+- 本地积分包管理（不实现，商品与积分策略由支付平台产品管理 + Entitlement 映射承载）
 - 折扣码/优惠码系统
 - 充值积分（topup_credit）、注册积分（registration_credit）、发放积分（granted_credit）模型变更
 - 独立用量账本：窗口用量复用既有消费流水聚合
@@ -113,8 +111,8 @@
 
 | 积分类型 | 计费模型 | 说明 |
 |---|---|---|
-| subscription_credit（订阅积分） | usage-based 滑动窗口配额 | 可用额度按消费时刻实时计算，不预写整期额度 |
-| free_periodic_credit（免费周期积分） | usage-based 滑动窗口配额 | 可用额度按消费时刻实时计算，不累积 |
+| subscription_credit（订阅积分） | fixed 周期积分或滚动窗口 quota，由分发规则策略决定（`DEC-multi-wallet-grant-rules-011`） | fixed 按期发放积分；quota 额度按消费时刻实时计算，不预写整期额度 |
+| free_periodic_credit（免费周期积分） | fixed 周期积分（支持排期）或滚动窗口 quota | fixed 按期发放（可排期）；quota 额度按消费时刻实时计算，不累积 |
 | topup_credit（充值积分） | 池子模型 | 用户主动购买获得，长期有效（除非产品配置特殊规则），可用于所有消费场景 |
 | registration_credit（注册初始积分） | 池子模型（永久有效） | 用户注册时自动获得，升级到付费套餐后保留，每个用户只能获得一次 |
 | granted_credit（发放积分） | 池子模型 | 由管理员或 SDK 主动发放获得，可配置有效期，遵循基于过期时间的消费优先级规则 |
@@ -130,10 +128,10 @@
 **懒发放正确性边界**：
 - 可用额度计算**不依赖后台 job**：用量来自 append-only 的不可变消费流水，任意时刻重算结果一致
 - 后台 job 仅做周期锚点推进与配额权益过期清理，**不做正确性兜底**；即使后台调度未运行，读路径仍能正确计算窗口额度
-- 后台调度**不再**对订阅/免费周期积分执行全表预发
+- 后台调度对订阅/免费周期积分采用懒发放，无全表预发
 
-**配额权益授予与撤销（取代发/收 ledger 行）**：
-- 订阅激活/续费：**授予**配额权益（记录权益生效区间与周期锚点），不再逐期写 ledger
+**配额权益授予与撤销**：
+- 订阅激活/续费：**授予**配额权益（记录权益生效区间与周期锚点），不逐期写 ledger
 - 订阅取消（周期结束/立即）/退款：**撤销**配额权益；已消费量随窗口滚动自然释放，**不反向调整**消费流水、不补扣
 - 订阅升级：撤销旧套餐配额权益、授予新套餐配额权益
 - 免费周期：注册/加入时**授予**配额权益；升级到付费套餐时**撤销**免费配额权益
@@ -219,16 +217,16 @@
 - 所有事件处理需保证幂等性
 
 **积分过期机制**：
-- subscription_credit / free_periodic_credit：额度随滚动窗口滑出自然释放，不再单独设置 per-period expires_at
+- subscription_credit / free_periodic_credit：额度随滚动窗口滑出自然释放，不设置 per-period expires_at
 - topup_credit：默认长期有效（expires_at 为 null），产品可配置有效期（可选）
 - registration_credit：永久有效
 - granted_credit：按配置有效期过期
 - 用户可查看即将过期的池子类型积分
 
 **Product 兼容约束**：
-- 本地 Product/Plan 已废弃，不作为积分配置对象
+- 无本地 Product/Plan，不作为积分配置对象
 - 当前正式配置对象是 `entitlement_key`
-- 积分策略字段保存在 provider entitlement mapping 上，除历史池子字段外新增多时间窗滚动配额配置
+- 积分策略字段保存在 provider entitlement mapping 上，池子字段与多时间窗滚动配额配置并存
 - Realm 默认配置保存免费周期的多时间窗滚动配额配置
 - Product 级默认规则、按 Client App 差异化规则、规则优先级覆盖等不在当前范围
 
@@ -327,9 +325,9 @@
 - 计费模型分治：subscription_credit / free_periodic_credit 的发放由 `points_distribution_rules` 承载，策略可选 fixed 周期积分或滚动窗口 quota（`DEC-multi-wallet-grant-rules-011`）；topup_credit / registration_credit / granted_credit 维持池子模型不变
 - 积分消费优先级采用过期时间优先策略（池子类型），窗口额度优先于池子扣减
 - 免费用户积分系统独立于订阅系统，不需要创建 $0 订阅记录
-- 当前正式配置对象是 `entitlement_key`，不再使用 Plan 级配置
-- 懒发放：取消后台全表预发，可用额度在读/消费路径按需计算
-- 订阅生命周期回收语义从"回收 ledger 行"改为"撤销配额权益"，已消费量不反向调整
+- 当前正式配置对象是 `entitlement_key`，不使用 Plan 级配置
+- 懒发放：无后台全表预发，可用额度在读/消费路径按需计算
+- 订阅生命周期回收语义为"撤销配额权益"，已消费量不反向调整
 - 配额（quota）定义归属发放规则的 owner（entitlement mapping / realm registration），不挂积分账户
 - 窗口用量复用既有消费流水聚合，不另建独立用量账本
 - 积分补偿使用现有 grant_points_internal 方法，无需新增 API（补偿路径定位为内部调用；当前尚无调用方，见 §4.2 部分失败条目的现状标注）
@@ -345,4 +343,3 @@
 - 用户故事来源见 §1 表格；另有用户故事：`docs/user-stories/billing/credit-bucket.md`
 - 相关 PRD：`docs/prd/billing/subscription.md`
 - 相关 PRD：`docs/prd/billing/credit-bucket.md`
-- 需求来源：`.ai/future/points_plus.md`

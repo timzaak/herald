@@ -15,7 +15,7 @@ Wallets are a funding source, not a payment channel. A purchase paid with Apple 
 
 There are two distinct surfaces:
 
-- **Web (hosted checkout)**: buyers are redirected to the Stripe Hosted Checkout or Creem hosted page, exactly as today. When the wallet is enabled on the account side and the buyer's browser qualifies, the wallet button appears on that page by itself. Herald never renders wallet buttons in its own UI.
+- **Web (hosted checkout)**: buyers are redirected to the Stripe Hosted Checkout or Creem hosted page. When the wallet is enabled on the account side and the buyer's browser qualifies, the wallet button appears on that page by itself. Herald never renders wallet buttons in its own UI.
 - **Mobile app (PaymentIntent flow)**: instead of a redirect, the app declares `flow: "payment_intent"` when creating the payment attempt and receives a real Stripe `clientSecret` (`pi_..._secret_...`). The app's native wallet SDK — PassKit on iOS, Google Pay on Android — uses that secret to confirm the payment inside the app. Fulfillment still happens through the webhook when Stripe reports the intent succeeded.
 
 Two boundary rules hold in both cases. The `clientSecret` is returned only on the attempt-creation response, only to the attempt owner — never on the status endpoint. And the Stripe publishable key (`pk_...`) is exposed through the provider list so the mobile Stripe SDK can initialize; the secret key and webhook secret are never exposed anywhere.
@@ -62,7 +62,7 @@ The response's `paymentContext` carries `clientSecret` and no `stripeCheckoutUrl
 }
 ```
 
-Omitting `flow` (or sending `"hosted"`) gives the redirect behavior unchanged — existing clients keep working without any change.
+Omitting `flow` (or sending `"hosted"`) defaults to the hosted redirect; no client change is needed.
 
 To confirm the payment, the app needs the Stripe publishable key. Fetch it from the provider list:
 

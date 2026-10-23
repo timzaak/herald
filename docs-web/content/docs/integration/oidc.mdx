@@ -5,7 +5,7 @@ description: "Connect Grafana, Vault, or any standard OIDC client to your Herald
 
 Herald speaks OpenID Connect on top of its existing OAuth 2.0 Authorization Code + PKCE flow. Off-the-shelf OIDC clients — Grafana, Vault, and anything else that asks for an issuer URL — can sign users in with their Herald accounts without an Herald SDK or private API knowledge.
 
-The identity layer is minimal by design: OIDC Discovery, a JWKS endpoint publishing RS256 public keys, an `id_token` issued alongside the access token, and a userinfo endpoint. There is no separate scope/consent system. The only scope with OIDC semantics is the literal `openid` token, and requests that omit it behave exactly as before.
+The identity layer is minimal by design: OIDC Discovery, a JWKS endpoint publishing RS256 public keys, an `id_token` issued alongside the access token, and a userinfo endpoint. There is no separate scope/consent system. The only scope with OIDC semantics is the literal `openid` token, and requests that omit it follow the standard OAuth flow (no `id_token` is issued).
 
 ## 1. The Issuer URL
 
@@ -39,12 +39,12 @@ New to Client Apps and redirect whitelists? The [third-party integration guide](
 
 ## 3. The Login Flow
 
-The flow is the standard OIDC Authorization Code + PKCE sequence; only the `openid` scope (and optionally a `nonce`) is new:
+The flow is the standard OIDC Authorization Code + PKCE sequence; the only addition is the `openid` scope (and optionally a `nonce`):
 
 1. The client sends the user to `{issuer}/authorize` with `response_type=code`, `scope=openid ...`, `code_challenge`/`code_challenge_method=S256`, `state`, and optionally `nonce`.
 2. The user signs in on the regular Herald login page — password, TOTP, passkey, LDAP, and any consent gate behave exactly as for any other login.
 3. Herald redirects back to the registered redirect URI with the authorization code.
-4. The client exchanges the code at `{issuer}/token` with its `code_verifier`. The token endpoint accepts both `application/x-www-form-urlencoded` (the RFC 6749 form every standard OIDC client uses) and JSON, so Grafana-style clients and existing Herald integrations work unchanged. When the scope contains `openid`, the response gains an `id_token` field next to the existing `access_token`. Without `openid`, the response is byte-for-byte what it was before this layer existed.
+4. The client exchanges the code at `{issuer}/token` with its `code_verifier`. The token endpoint accepts both `application/x-www-form-urlencoded` (the RFC 6749 form every standard OIDC client uses) and JSON, so Grafana-style clients and existing Herald integrations work unchanged. When the scope contains `openid`, the response gains an `id_token` field next to the existing `access_token`. Without `openid`, no `id_token` is issued; the token response is the standard OAuth one.
 
 The `nonce` echoes back inside the id_token; send one and check it to bind the token to your request.
 
@@ -112,5 +112,5 @@ The response reports the new `kid`, the overlap deadline, and the retired key id
 
 ## 8. Scope Semantics and Audit
 
-- Only the exact, case-sensitive scope token `openid` enables the identity layer. `OPENID`, `OpenID`, or omitting the scope produce the pre-OIDC behavior — no id_token, identical token responses.
+- Only the exact, case-sensitive scope token `openid` enables the identity layer. `OPENID`, `OpenID`, or omitting the scope produce the same result: no `id_token`, and the standard OAuth token response.
 - Every id_token issuance writes an audit event (`oidc.id_token_issue`); every rotation writes `oidc.signing_key_rotate`.

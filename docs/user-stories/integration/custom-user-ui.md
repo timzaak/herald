@@ -429,5 +429,5 @@ Then Herald 返回当前登录用户的订阅信息
 
 ### 相关文档
 - PRD：[docs/prd/integration/custom-user-ui.md](/docs/prd/integration/custom-user-ui.md)
-- 冲突承接用户故事：[docs/user-stories/auth/third-party-app.md](/docs/user-stories/auth/third-party-app.md)（US-TP-015/016）
-- 冲突承接 PRD：[docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)（§2.2 Token 撤销）
+- 边界约定用户故事：[docs/user-stories/auth/third-party-app.md](/docs/user-stories/auth/third-party-app.md)（US-TP-015/016）
+- 边界约定 PRD：[docs/prd/auth/oauth.md](/docs/prd/auth/oauth.md)（§2.2 Token 撤销）

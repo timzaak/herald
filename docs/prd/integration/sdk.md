@@ -22,13 +22,13 @@
 
 ### 2.1 包含功能
 
-- SDK 新增 Realm 管理方法：创建、查询列表、查询详情
-- SDK 新增用户管理方法：创建、查询列表、查询详情
-- SDK 新增 Client App 管理方法：创建、查询列表、查询详情
+- SDK 提供 Realm 管理方法：创建、查询列表、查询详情
+- SDK 提供用户管理方法：创建、查询列表、查询详情
+- SDK 提供 Client App 管理方法：创建、查询列表、查询详情
 - SDK 积分发放方法：向指定用户显式发放积分，必须指定目标 Credit Bucket（`bucketId` 必填，缺失或非法返回 400 `grant_bucket_required`）；发放原因 `reason` 必填且非空（审计字段），有效期可设（缺省为永久有效）；数量为 1 ~ 1,000,000
-- 后端 api-ext 模块新增对应的外部 API 端点
+- 后端 api-ext 模块提供对应的外部 API 端点
 - SDK 方法保持与现有风格一致：基于 reqwest、使用 API Key 认证、统一的错误处理
-- 新增资源管理端点要求 API Key Principal 具备对应 RBAC 权限
+- 资源管理端点要求 API Key Principal 具备对应 RBAC 权限
 
 ### 2.2 不包含功能 (Out of Scope)
 
@@ -85,19 +85,19 @@
 ## 5. 验收目标
 
 - 4 个用户故事的全部验收场景通过
-- SDK 新增方法与现有方法风格一致（方法命名、错误处理、参数模式）
-- 所有新增 ext 端点遵循 Realm 隔离原则：目标用户与 Client App 操作只能作用于 API Key 所属 Realm；Realm 列表按 4.1 的平台视图例外过滤
-- 所有新增资源管理端点要求 API Key Principal 具备对应权限
+- SDK 方法与既有方法风格一致（方法命名、错误处理、参数模式）
+- 所有 ext 端点遵循 Realm 隔离原则：目标用户与 Client App 操作只能作用于 API Key 所属 Realm；Realm 列表按 4.1 的平台视图例外过滤
+- 所有资源管理端点要求 API Key Principal 具备对应权限
 - Realm 创建需额外校验 API Key Principal 属于 admin realm 且具备 `realm.manage`
 
 ---
 
 ## 6. 边界与约束
 
-**适用性**: API 边界适用；前端/交互约束不适用（本次变更仅涉及 SDK 和后端 ext API，无前端页面变更）
+**适用性**: API 边界适用；前端/交互约束不适用（本 PRD 仅涉及 SDK 和后端 ext API，无前端页面变更）
 
 **API / 集成边界:**
-- 所有新增端点使用现有 API Key 认证机制
+- 所有 ext 端点使用现有 API Key 认证机制
 - 分页参数：用户列表 `page`（1-based，默认 1）、`page_size`（默认 20，最大 100）；Realm 列表与 Client App 列表：当前无分页，返回全量数据
 - 接口能力边界：
   - Realm：创建（返回 Realm ID 和基本信息）、列表、详情（需对应权限；创建还需 admin realm `realm.manage` 权限）
@@ -105,7 +105,7 @@
   - Client App：创建（返回 Client ID 和 Secret，client_secret 仅创建时返回）、列表（返回字段：id、client_id、name、enabled、created_at）、详情（返回字段：id、client_id、client_secret（仅创建时返回）、name、description、redirect_uris、enabled、created_at）（需对应权限，限本 Realm，无跨 Realm 例外）
   - 积分交易查询单笔（`get_transaction_ext`）：ext 端点，已注册到 OpenAPI 文档；另有按 external ref 查单笔交易的 ext 端点，能力定义归 points PRD（见 `docs/prd/billing/points.md` §4.1 查询与展示），不在此重复
 
-**前端 / 交互边界:** 不适用——本次变更仅涉及 SDK 和后端 ext API，无前端页面变更。
+**前端 / 交互边界:** 不适用——本 PRD 仅涉及 SDK 和后端 ext API，无前端页面变更。
 
 ---
 
@@ -119,7 +119,7 @@
 
 ## 8. 参考资料
 
-- 相关 PRD：`docs/prd/auth/oauth.md`（现有 ext API）
+- 相关 PRD：`docs/prd/auth/oauth.md`
 - 相关 PRD：`docs/prd/core/realm.md`（Realm 管理）
 - 相关 PRD：`docs/prd/core/users.md`（用户管理）
 - 相关 PRD：`docs/prd/integration/client-app.md`（Client App 管理）

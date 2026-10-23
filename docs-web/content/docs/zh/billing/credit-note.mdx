@@ -80,7 +80,7 @@ Stripe 可能重复发送事件，也可能先发送 `credit_note.voided` 再发
 
 ### 补偿 Job
 
-`backend/worker/src/jobs/webhook_compensation_job.rs` 已把 `credit_note.created` 和 `credit_note.voided` 纳入 Stripe 事件补偿清单。当 webhook 缺失时，Job 会从 Stripe Events API 拉取近期事件并补处理。
+`backend/worker/src/jobs/webhook_compensation_job.rs` 将 `credit_note.created` 和 `credit_note.voided` 纳入 Stripe 事件补偿清单。当 webhook 缺失时，Job 会从 Stripe Events API 拉取近期事件并补处理。
 
 ## Manual Credit Note 记录退款
 
@@ -117,7 +117,7 @@ Invoice cannot be voided while it has active refund credit notes
 
 ### 管理员视角
 
-发票列表新增 **Refunded** 列。当 `amountRefunded > 0` 且 `provider` 是 stripe 或 manual 时，显示来源色 chip（Stripe 为 teal，Manual 为 cyan）。`provider = creem` 的行显示 em dash。
+发票列表显示 **Refunded** 列。当 `amountRefunded > 0` 且 `provider` 是 stripe 或 manual 时，显示来源色 chip（Stripe 为 teal，Manual 为 cyan）。`provider = creem` 的行显示 em dash。
 
 发票详情页在费用汇总下方展示：
 
@@ -152,8 +152,7 @@ voided 的 Credit Note 整行带删除线，但 `Voided` Badge 保持可读。
 
 ## 相关文档
 
-- `docs/prd/billing/notes.md` — Credit Note 产品需求
 - `docs/user-stories/billing/invoice-fallback.md` — US-IF-007 ~ US-IF-011
 - [发票主流程](/docs/zh/billing/invoice)
 - [Stripe 支付与 Webhook](/docs/zh/billing/stripe-payment)
-- `docs/prd/billing/webhook-compensation.md` — Webhook 补偿机制
+- `docs/user-stories/billing/webhook-compensation.md` — Webhook 补偿机制

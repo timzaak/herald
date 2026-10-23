@@ -367,7 +367,7 @@ And 拥有 "user-admin" 角色的用户无法再管理用户资源
 
 **优先级**: P0
 
-> **边界说明（按 [docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md) §4.1 编目边界改写）**：商品与价格生命周期由支付平台管理；Herald **不维护本地 Product/Plan**，不提供本地创建套餐（Create Plan）、套餐删除、升降级或 Client App 套餐分配能力。原「本地 Create Plan / Assign 到 Client App」场景与 PRD 冲突，已改写为现行能力：套餐选项 = Provider 商品同步 + Herald 侧 Entitlement 映射配置。
+> **边界说明（按 [docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md) §4.1 编目边界）**：商品与价格生命周期由支付平台管理；Herald **不维护本地 Product/Plan**，不提供本地创建套餐（Create Plan）、套餐删除、升降级或 Client App 套餐分配能力。套餐选项 = Provider 商品同步 + Herald 侧 Entitlement 映射配置。
 
 **【用户故事】**
 **作为**：Realm Admin（详见 [docs/user-stories/_roles.md](/docs/user-stories/_roles.md)）

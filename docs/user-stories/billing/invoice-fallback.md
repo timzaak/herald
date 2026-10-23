@@ -633,5 +633,3 @@ And 返回错误以触发 Stripe 重投递
 
 - **PRD**: `docs/prd/billing/invoice.md` - Invoice 发票管理 PRD（含 Provider 发票同步）
 - **PRD**: `docs/prd/billing/invoice.md` - Invoice PRD（含 Provider Fallback 与 Credit Note）
-- **技术预研**: `.ai/tech-research/invoice_fallback.md`
-- **需求文档**: `.ai/future/invoice_fallback.md`

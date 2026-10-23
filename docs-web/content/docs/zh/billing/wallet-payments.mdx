@@ -15,7 +15,7 @@ description: "在既有 Stripe 与 Creem 收款链路上启用 Google Pay 和 Ap
 
 有两种互不相同的支付面：
 
-- **Web（托管收银台）**：买家照旧跳转 Stripe Hosted Checkout 或 Creem 托管页。账号侧启用钱包且买家浏览器符合条件时，钱包按钮自行出现在该页面上。Herald 自己的界面永远不渲染钱包按钮。
+- **Web（托管收银台）**：买家跳转 Stripe Hosted Checkout 或 Creem 托管页。账号侧启用钱包且买家浏览器符合条件时，钱包按钮自行出现在该页面上。Herald 自己的界面永远不渲染钱包按钮。
 - **移动 App（PaymentIntent 流）**：应用在创建支付尝试时声明 `flow: "payment_intent"`，拿到真实的 Stripe `clientSecret`（`pi_..._secret_...`）。应用内的原生钱包 SDK——iOS 的 PassKit、Android 的 Google Pay——用这个密钥在应用内确认支付。Stripe 上报支付意图成功后，履约仍然走 webhook。
 
 两种场景下有两条边界规则。`clientSecret` 只在创建支付尝试的响应里、只返回给尝试所有者——状态查询接口永不返回。Stripe publishable key（`pk_...`）通过支付平台配置列表暴露，供移动端 Stripe SDK 初始化；secret key 和 webhook secret 在任何地方都不暴露。
@@ -62,7 +62,7 @@ Authorization: Bearer <带购买 scope 的浏览器 token>
 }
 ```
 
-不传 `flow`（或传 `"hosted"`）得到的跳转行为与从前完全一致——存量客户端无需任何改动。
+不传 `flow`（或传 `"hosted"`）默认走托管跳转；客户端无需改动。
 
 确认支付时，应用需要 Stripe publishable key。从支付平台配置列表获取：
 

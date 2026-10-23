@@ -33,7 +33,7 @@
 - 浏览器 token 生命周期配置（browser_refresh_absolute_ttl_seconds：refresh token 绝对有效上限，默认 2,592,000 秒/30 天，合法区间 86,400–7,776,000 秒）
 - 浏览器 token 会话模型（短时效 access token + 旋转 refresh token + 复用检测吊销 + 绝对上限）
 - 应用外观配置（icon_url）
-- Client App 级人机验证（Turnstile）配置（启用开关、site_key、secret_key）——人机验证配置归属 Client App 级，不再由 Realm 承载（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §7）
+- Client App 级人机验证（Turnstile）配置（启用开关、site_key、secret_key）——人机验证配置归属 Client App 级（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §7）
 - Client Secret 重新生成
 - Client App 快速切换（启用/禁用）
 - Client App 作为 API Key 的作用域边界：绑定到该 App 的 API Key 可随 App 禁用而失效
@@ -122,7 +122,7 @@
 
 - **client_id 格式**：仅允许 ASCII 字母数字、连字符（`-`）和下划线（`_`），3-36 字符
 - **ext API 自动生成 client_id**：ext API 创建 Client App 时使用 UUID v7 自动生成 client_id，不允许自定义；admin API 允许自定义 client_id
-- **人机验证配置归属 Client App 级（D-PROTECT-01）**：Turnstile 配置（启用开关、site_key、secret_key）归属 Client App 级，不再由 Realm 承载；未认证身份端点的人机验证按当前请求绑定的 Client App 的配置执行。该决策与 Realm Settings PRD、自建用户 UI PRD 的 Turnstile 表述同步（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §8、[docs/prd/integration/custom-user-ui.md](custom-user-ui.md) D-PROTECT-01）
+- **人机验证配置归属 Client App 级（D-PROTECT-01）**：Turnstile 配置（启用开关、site_key、secret_key）归属 Client App 级；未认证身份端点的人机验证按当前请求绑定的 Client App 的配置执行。该决策与 Realm Settings PRD、自建用户 UI PRD 的 Turnstile 表述同步（见 [docs/prd/core/realm-settings.md](../core/realm-settings.md) §7、[docs/prd/integration/custom-user-ui.md](custom-user-ui.md) D-PROTECT-01）
 
 ---
 

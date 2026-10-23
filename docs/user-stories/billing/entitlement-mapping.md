@@ -108,7 +108,7 @@ Then 系统提示："No payment providers configured. Please configure a payment
 **【用户故事】**
 **作为**：System
 **我希望**：通过支付方 webhook metadata（而非本地 Product/Plan）将外部订阅映射到 Herald 订阅投影
-**从而**：在移除本地 Product/Plan 后仍能正确处理订阅事件
+**从而**：不依赖本地 Product/Plan 即可正确处理订阅事件
 
 **【验收标准】**
 
@@ -164,7 +164,7 @@ And 订阅投影状态不变
 **【用户故事】**
 **作为**：System
 **我希望**：在订阅事件发生时基于 entitlement_key 查询和应用积分策略
-**从而**：在移除 plan_id 后仍能正确发放、续期和回收积分
+**从而**：不依赖 plan_id 即可正确发放、续期和回收积分
 
 **【验收标准】**
 
@@ -582,4 +582,3 @@ And 若该 Creem 产品响应不含 billing_period 字段，则按空（"—"）
 - **PRD**: [docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md) - 订阅计费 PRD（含 Entitlement 映射、Metadata 契约）
 - **PRD**: [docs/prd/billing/points.md](/docs/prd/billing/points.md) - 积分系统 PRD
 - **PRD**: [docs/prd/billing/subscription.md](/docs/prd/billing/subscription.md) - 订阅计费 PRD（含多价格、产品同步、产品名/价格单位/metadata/计费周期）
-- **需求来源**: Product and Subscription Local Model Reduction — 移除本地 Product/Plan 商业目录，将目录和订阅生命周期交给支付方

@@ -1,16 +1,24 @@
 #!/usr/bin/env python
 """Release script for the Herald monorepo.
 
-Bumps every version site in this repository, refreshes lockfiles, validates,
+Bumps the version sites in this repository, refreshes lockfiles, validates,
 then creates the release commit and v-prefixed tag and pushes them.
 
 Version sites (keep in sync with the repository layout):
   - backend/Cargo.toml        [workspace.package] version (inherited by all backend crates)
-  - sdk/rust/Cargo.toml       [package] version (standalone crate, DEC-js-sdk-017)
   - frontend/package.json
   - demo/package.json
+  - sdk/rust/Cargo.toml       [package] version (standalone crate, DEC-js-sdk-017)
   - sdk/web/package.json      npm herald-auth-web
   - sdk/node/package.json     npm herald-sdk
+
+The three SDK sites bump conditionally: an SDK's version advances only when
+that SDK has something to publish. sdk/rust and sdk/node publish when their
+sources changed since the previous release tag; sdk/web also publishes when
+the backend OpenAPI spec changed, because its typed client is regenerated
+from that spec at publish time. The last-published spec is tracked in
+sdk/web/.spec-hash; a missing hash file counts as a change so bootstrapping
+errs toward one extra publish, never a missed one.
 
 Lockfile refresh:
   - backend/Cargo.lock + sdk/rust/Cargo.lock  via `cargo check` (validation side effect)
@@ -19,20 +27,26 @@ Lockfile refresh:
 Usage:
   python scripts/release.py            # recommend next version, exit (or --yes to accept)
   python scripts/release.py 0.6.0      # release 0.6.0
-  python scripts/release.py --dry-run  # preflight + resolved version only
+  python scripts/release.py --dry-run  # preflight, resolved version and SDK publish decisions
   python scripts/release.py --no-push  # commit + tag locally, do not push
 
 SDK publishes to npm/crates.io run automatically: pushing the tag triggers
-the CD pipeline (cd.yml), which calls publish-web-sdk.yml / publish-node-sdk.yml
-/ publish-sdk.yml (also available manually via workflow_dispatch for re-runs).
+the CD pipeline (cd.yml), which compares each SDK's version with the previous
+release tag and skips the publish job when the version did not change — so an
+SDK without changes emits no empty release on npm/crates.io and its version
+stays behind the project version until it changes again. The publish
+workflows (publish-sdk.yml / publish-node-sdk.yml / publish-web-sdk.yml)
+remain available manually via workflow_dispatch for re-runs.
 """
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,11 +68,16 @@ NPM_PACKAGES = {
     "sdk/node": [],
 }
 
+# Hash of the OpenAPI spec the last web SDK publish was generated from; the
+# release script updates it whenever it bumps the web SDK version.
+WEB_SPEC_HASH_FILE = REPO_ROOT / "sdk" / "web" / ".spec-hash"
+
 RELEASE_PATHS = [
     "backend/Cargo.toml",
     "backend/Cargo.lock",
     "sdk/rust/Cargo.toml",
     "sdk/rust/Cargo.lock",
+    "sdk/web/.spec-hash",
     *[f"{name}/package.json" for name in NPM_PACKAGES],
     *[f"{name}/package-lock.json" for name in NPM_PACKAGES],
 ]
@@ -179,6 +198,105 @@ def display_path(path: Path) -> str:
         return str(path)
 
 
+def previous_release_tag(tags: list[str], current_version: str) -> str | None:
+    """Highest semver tag strictly below the releasing version."""
+    current = Semver.parse(current_version)
+    current_key = (current.major, current.minor, current.patch)
+    best_tag: str | None = None
+    best_key: tuple[int, int, int] | None = None
+    for tag in tags:
+        try:
+            version = Semver.parse(tag)
+        except ValueError:
+            continue
+        key = (version.major, version.minor, version.patch)
+        if key >= current_key:
+            continue
+        if best_key is None or key > best_key:
+            best_tag, best_key = tag, key
+    return best_tag
+
+
+def sources_changed_since(previous_tag: str | None, paths: list[str]) -> bool:
+    """True when `paths` have committed changes after `previous_tag`.
+
+    Runs before this release's bump is committed, so the previous release's
+    own version bump sits inside the previous tag's tree and never counts as
+    a change.
+    """
+    if previous_tag is None:
+        return True
+    result = git("diff", "--quiet", previous_tag, "HEAD", "--", *paths)
+    return result.returncode != 0
+
+
+def current_openapi_surface_hash() -> str:
+    """Hash of the API surface the web SDK's typed client is generated from.
+
+    Exports the spec exactly the way publish-web-sdk.yml regenerates the
+    client at publish time. The spec's info.version embeds the backend crate
+    version and therefore changes with every project release; it is dropped
+    before hashing so a version bump alone never looks like an API change.
+    Sorting keys on top makes the hash independent of serialization order.
+    """
+    cargo = require_executable("cargo")
+    with tempfile.TemporaryDirectory(prefix="herald-release-") as tmp:
+        spec_path = Path(tmp) / "openapi.json"
+        result = run_cmd(
+            [
+                cargo,
+                "run",
+                "--manifest-path",
+                str(REPO_ROOT / "backend" / "app" / "Cargo.toml"),
+                "--bin",
+                "herald-app",
+                "--",
+                "--export-openapi",
+                str(spec_path),
+            ],
+            REPO_ROOT,
+        )
+        ensure_success(result, "OpenAPI spec export failed; cannot decide the web SDK bump.")
+        data = json.loads(spec_path.read_text(encoding="utf-8"))
+    data.setdefault("info", {}).pop("version", None)
+    normalized = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def decide_sdk_bumps(previous_tag: str | None) -> tuple[dict[str, tuple[bool, str]], str]:
+    """Decide per SDK whether this release publishes it (and bumps its version).
+
+    rust/node: their own sources must have changed since the previous release.
+    web: sources changed, OR the backend OpenAPI spec changed since the last
+    web publish (sdk/web/.spec-hash); the spec export needs a backend build.
+    """
+    decisions: dict[str, tuple[bool, str]] = {}
+    for label in ("sdk/rust", "sdk/node"):
+        if sources_changed_since(previous_tag, [label]):
+            decisions[label] = (True, f"sources changed since {previous_tag or 'first release'}")
+        else:
+            decisions[label] = (False, f"no source changes since {previous_tag}")
+
+    spec_hash = current_openapi_surface_hash()
+    published_hash = (
+        WEB_SPEC_HASH_FILE.read_text(encoding="utf-8").strip()
+        if WEB_SPEC_HASH_FILE.is_file()
+        else ""
+    )
+    source_changed = sources_changed_since(previous_tag, ["sdk/web"])
+    spec_changed = published_hash != spec_hash  # missing file => hash mismatch => publish
+    if source_changed:
+        decisions["sdk/web"] = (True, f"sources changed since {previous_tag or 'first release'}")
+    elif spec_changed:
+        if published_hash:
+            decisions["sdk/web"] = (True, "backend API spec changed since the last web SDK publish")
+        else:
+            decisions["sdk/web"] = (True, f"first run of spec tracking ({display_path(WEB_SPEC_HASH_FILE)} missing)")
+    else:
+        decisions["sdk/web"] = (False, f"sources and API spec unchanged since {previous_tag}")
+    return decisions, spec_hash
+
+
 def update_cargo_version(path: Path, version: str, section: str) -> FileChange:
     """Replace the first `version = "..."` inside the given TOML section."""
     if not path.is_file():
@@ -218,15 +336,18 @@ def update_package_json(path: Path, version: str) -> FileChange:
     return FileChange(path, before, version)
 
 
-def update_version_files(version: str) -> list[FileChange]:
+def update_version_files(version: str, sdk_decisions: dict[str, tuple[bool, str]]) -> list[FileChange]:
     changes = [
         update_cargo_version(CARGO_WORKSPACE_MANIFEST, version, "[workspace.package]"),
-        update_cargo_version(CARGO_SDK_MANIFEST, version, "[package]"),
         update_package_json(REPO_ROOT / "frontend" / "package.json", version),
         update_package_json(REPO_ROOT / "demo" / "package.json", version),
-        update_package_json(REPO_ROOT / "sdk" / "web" / "package.json", version),
-        update_package_json(REPO_ROOT / "sdk" / "node" / "package.json", version),
     ]
+    if sdk_decisions["sdk/rust"][0]:
+        changes.append(update_cargo_version(CARGO_SDK_MANIFEST, version, "[package]"))
+    if sdk_decisions["sdk/node"][0]:
+        changes.append(update_package_json(REPO_ROOT / "sdk" / "node" / "package.json", version))
+    if sdk_decisions["sdk/web"][0]:
+        changes.append(update_package_json(REPO_ROOT / "sdk" / "web" / "package.json", version))
     return changes
 
 
@@ -315,7 +436,7 @@ def main() -> int:
     parser.add_argument("version", nargs="?", help="Target version, X.Y.Z or vX.Y.Z. Final tag is always vX.Y.Z.")
     parser.add_argument("--yes", action="store_true", help="Accept the auto-recommended version when version is omitted.")
     parser.add_argument("--no-push", action="store_true", help="Create the release commit and tag locally without pushing.")
-    parser.add_argument("--dry-run", action="store_true", help="Run preflight checks and print the resolved version without editing files.")
+    parser.add_argument("--dry-run", action="store_true", help="Preflight, resolved version and SDK publish decisions, without editing files (still exports the OpenAPI spec, which builds the backend once).")
     args = parser.parse_args()
 
     try:
@@ -329,14 +450,25 @@ def main() -> int:
         print(f"Release version: {version}")
         release_tag = f"v{version}"
         print(f"Release tag: {release_tag}")
+
+        previous_tag = previous_release_tag(tags, version)
+        print(f"Previous release tag: {previous_tag or '<none, first release>'}")
+        sdk_decisions, spec_hash = decide_sdk_bumps(previous_tag)
+        for label, (bump, reason) in sdk_decisions.items():
+            action = "publish (bump)" if bump else "skip (hold version)"
+            print(f"{label}: {action} — {reason}")
+
         if args.dry_run:
             return 0
 
-        changes = update_version_files(version)
+        changes = update_version_files(version, sdk_decisions)
         for change in changes:
             rel_path = change.path.relative_to(REPO_ROOT)
             before = change.before if change.before is not None else "<missing>"
             print(f"Updated {rel_path}: {before} -> {change.after}")
+        if sdk_decisions["sdk/web"][0]:
+            WEB_SPEC_HASH_FILE.write_text(f"{spec_hash}\n", encoding="utf-8")
+            print(f"Recorded published API spec hash in {display_path(WEB_SPEC_HASH_FILE)}")
 
         refresh_npm_locks()
         validate()

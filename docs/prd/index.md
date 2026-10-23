@@ -36,8 +36,6 @@ docs/
     └── integration/       # 集成相关用户故事
 ```
 
-**草稿层与工作层分层说明**：`.ai/` 目录是本地工作层（被 .gitignore 忽略，随仓库发布不可见）——PRD §8 中引用的技术设计（`.ai/design/`）与技术预研（`.ai/tech-research/`）属于该层，不随仓库发布。决策记录收录于各 PRD §7（DEC/Q 编号在仓库内可直接对账）。
-
 ## PRD 文档列表
 
 ### Core 核心功能
@@ -68,7 +66,7 @@ docs/
 | [email-otp-login.md](auth/email-otp-login.md) | 邮箱验证码登录（含未注册邮箱自动注册） | Regular User, Realm Admin |
 | [google-one-tap.md](auth/google-one-tap.md) | Google One Tap 登录（第三方页面无跳转 Google 登录） | Regular User, Third-Party App |
 | [support-mobile-apple-login.md](auth/support-mobile-apple-login.md) | 苹果手机 App native 登录（iOS App 内无跳转 Apple 登录） | Regular User, Third-Party App |
-| [support-discord.md](auth/support-discord.md) | Discord 登录（第 5 个通用跳转式 OAuth Provider） | Realm Admin, Regular User |
+| [support-discord.md](auth/support-discord.md) | Discord 登录（通用跳转式 OAuth Provider） | Realm Admin, Regular User |
 | [support-ldap.md](auth/support-ldap.md) | LDAP 企业目录登录（企业账号密码 + 首登自动建号） | Realm Admin, Regular User |
 | [totp.md](auth/totp.md) | TOTP 二次认证 | TOTP User, Realm Admin |
 | [passkey.md](auth/passkey.md) | Passkey 认证（无密码第一因素 + 第二因素） | Regular User, Realm Admin |

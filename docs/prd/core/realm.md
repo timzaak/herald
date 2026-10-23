@@ -111,7 +111,7 @@
 - 管理员用户状态自动设为 Normal（已验证），可立即登录
 - 自动初始化默认 RBAC：角色定义（`realm-admin`、`user`）、权限定义、角色权限关联和 RBAC 策略
 - 如果任何步骤失败（注册配置、客户端创建、RBAC 初始化、管理员用户创建等），创建失败返回错误，已创建的部分数据可能残留（已知限制，Realm 不支持删除）
-- 详细默认角色和权限说明请参考 `docs/prd/core/permissions.md`
+- 详细默认角色和权限说明请参考 `docs/prd/auth/permissions.md`
 
 ### 4.2 关键状态与异常
 
@@ -165,7 +165,7 @@
 
 ## 8. 参考资料
 
-- 相关 PRD：`docs/prd/core/realm-settings.md`、`docs/prd/core/users.md`、`docs/prd/core/permissions.md`
+- 相关 PRD：`docs/prd/core/realm-settings.md`、`docs/prd/core/users.md`、`docs/prd/auth/permissions.md`
 - 相关 PRD：`docs/prd/integration/client-app.md`（包含双 ID 系统详细说明）
 - 相关 PRD：`docs/prd/auth/oauth.md`
 - 用户故事来源见 §1 表格

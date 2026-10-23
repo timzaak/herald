@@ -20,7 +20,7 @@
 | US-PA-003 | 处理支付成功后的履约 | P0 | `docs/user-stories/billing/payment-attempt.md` |
 | US-PA-004 | 关闭过期的支付尝试 | P1 | `docs/user-stories/billing/payment-attempt.md` |
 | US-PV-001 | 配置支付平台（Creem/Stripe） | P0 | `docs/user-stories/billing/payment-provider.md` |
-| US-PV-002 | 查看支付平台配置（Stripe 条目现包含非密钥 publishable key） | P0 | `docs/user-stories/billing/payment-provider.md` |
+| US-PV-002 | 查看支付平台配置（Stripe 条目包含非密钥 publishable key） | P0 | `docs/user-stories/billing/payment-provider.md` |
 | US-CUI-008 | 集成方前端完成充值/购买（移动 App 通过浏览器 token 走同一旅程） | P0 | `docs/user-stories/integration/custom-user-ui.md` |
 
 > 一次性支付 / 订阅支付 / Webhook 履约 —— 由既有 Stripe 用户故事覆盖（`docs/prd/billing/stripe-payment.md` 与相关用户故事）。
@@ -151,13 +151,12 @@
 
 ## 7. 已确认决策
 
-- 无独立入账决策：钱包支付作为既有 Stripe/Creem 支付链路的扩展交付，取舍随 [stripe-payment.md](stripe-payment.md) 与 [subscription.md](subscription.md) 基线承载（工程取舍记录见技术预研，参考资料 §8）。
+- 无独立入账决策：钱包支付建立在 Stripe/Creem 支付链路上，取舍随 [stripe-payment.md](stripe-payment.md) 与 [subscription.md](subscription.md) 基线承载。
 
 ---
 
 ## 8. 参考资料
 
-- 技术预研：`.ai/tech-research/support-googlepay-applepay.md`
 - 相关 PRD：`docs/prd/billing/stripe-payment.md`（Stripe 支付，钱包场景的承载基线）
 - 相关 PRD：`docs/prd/billing/subscription.md`（订阅计费，含 One-time 购买规则与支付尝试状态机）
 - 相关 PRD：`docs/prd/billing/points.md`（积分系统）
