@@ -10,15 +10,14 @@ import { RootProvider } from "fumadocs-ui/provider/tanstack";
 import RWikiChatWidget from "@/components/rwiki-chat-widget";
 import SearchDialog from "@/components/search";
 import { i18n } from "@/lib/i18n";
+import { homeTitles, seoMeta, siteDescriptions } from "@/lib/seo";
 import appCss from "@/styles/app.css?url";
 
 const GA_ID = "G-G6EGB7SXZV";
 
 const { provider } = defineI18nUI(i18n, {
-  translations: {
-    en: { displayName: "English", search: "Search Docs" },
-    zh: { displayName: "中文", search: "搜索文档" },
-  },
+  en: { displayName: "English", search: "Search Docs" },
+  zh: { displayName: "中文", search: "搜索文档" },
 });
 
 function useLocale() {
@@ -35,6 +34,10 @@ function useLocale() {
 
 export const Route = createRootRoute({
   head: () => ({
+    // Site-wide defaults (also the only meta the "/" SPA shell ever gets).
+    // Leaf routes override every key via seoMeta(); TanStack Router keeps the
+    // deepest match per name/property. No canonical here — links are appended
+    // across matches, so only leaf routes may emit one.
     meta: [
       {
         charSet: "utf-8",
@@ -43,16 +46,23 @@ export const Route = createRootRoute({
         name: "viewport",
         content: "width=device-width, initial-scale=1",
       },
-      {
-        title: "Herald",
-      },
+      ...seoMeta({
+        title: homeTitles.en,
+        description: siteDescriptions.en,
+        path: "/",
+      }),
       // Google Search Console verification — replace content with your actual token
       // {
       //   name: "google-site-verification",
       //   content: "YOUR_VERIFICATION_TOKEN",
       // },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/icon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+    ],
     scripts: [
       {
         src: `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`,

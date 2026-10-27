@@ -1,6 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PrivacyPage } from "@/components/privacy-page";
 import { i18n } from "@/lib/i18n";
+import { legalDescriptions, seoHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/$lang/privacy")({
   component: Page,
@@ -11,6 +12,14 @@ export const Route = createFileRoute("/$lang/privacy")({
       throw notFound();
     }
   },
+  head: ({ params }) =>
+    seoHead({
+      title:
+        params.lang === "zh" ? "隐私政策 — Herald" : "Privacy Policy — Herald",
+      description: legalDescriptions[params.lang].privacy,
+      path: `/${params.lang}/privacy`,
+      locale: params.lang,
+    }),
 });
 
 function Page() {

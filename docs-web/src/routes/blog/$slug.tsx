@@ -9,6 +9,7 @@ import { Suspense } from "react";
 import { useMDXComponents } from "@/components/mdx";
 import { formatPostDate } from "@/lib/blog";
 import { baseOptions, footerLabels, SiteFooter } from "@/lib/layout.shared";
+import { blogDescription, seoHead } from "@/lib/seo";
 import { blogSource } from "@/lib/source";
 
 export const Route = createFileRoute("/blog/$slug")({
@@ -18,16 +19,28 @@ export const Route = createFileRoute("/blog/$slug")({
     await clientLoader.preload(data.path);
     return data;
   },
+  // After `loader` — see the note in $lang/docs/$.tsx about TS circular
+  // inference when head precedes loader.
+  head: ({ params, loaderData }) =>
+    loaderData
+      ? seoHead({
+          title: `${loaderData.title} — Herald`,
+          description: loaderData.description ?? blogDescription,
+          path: `/blog/${params.slug}`,
+        })
+      : {},
 });
 
 const loader = createServerFn({ method: "GET" })
-  .inputValidator((input: { slug: string }) => input)
+  .validator((input: { slug: string }) => input)
   .middleware([staticFunctionMiddleware])
   .handler(async ({ data: { slug } }) => {
     const page = blogSource.getPage([slug]);
     if (!page) throw notFound();
     return {
       path: page.path,
+      title: page.data.title,
+      description: page.data.description,
     };
   });
 

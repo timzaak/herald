@@ -22,6 +22,7 @@ import { ClientAPIPage } from "@/components/api-page";
 import { useMDXComponents } from "@/components/mdx";
 import { i18n } from "@/lib/i18n";
 import { baseOptions, footerLabels, SiteFooter } from "@/lib/layout.shared";
+import { seoHead, siteDescriptions } from "@/lib/seo";
 import { gitConfig } from "@/lib/shared";
 import { slugsToMarkdownPath, source } from "@/lib/source";
 
@@ -44,12 +45,27 @@ export const Route = createFileRoute("/$lang/docs/$")({
     }
     return data;
   },
+  // Kept after `loader` so TS resolves TLoaderFn before typing head's ctx —
+  // declaring head first breaks the circular inference and types loaderData
+  // as `never`.
+  head: ({ loaderData }) =>
+    loaderData
+      ? seoHead({
+          title: `${loaderData.title} — Herald ${
+            loaderData.locale === "zh" ? "文档" : "Docs"
+          }`,
+          description:
+            loaderData.description ?? siteDescriptions[loaderData.locale],
+          path: loaderData.url,
+          locale: loaderData.locale,
+        })
+      : {},
 });
 
 const loader = createServerFn({
   method: "GET",
 })
-  .inputValidator((input: { locale: string; slugs: string[] }) => input)
+  .validator((input: { locale: string; slugs: string[] }) => input)
   .middleware([staticFunctionMiddleware])
   .handler(async ({ data: { locale, slugs } }) => {
     // `/docs/openapi` has no index page (fumadocs-openapi generates one page
@@ -73,15 +89,19 @@ const loader = createServerFn({
         type: "openapi" as const,
         title: page.data.title,
         description: page.data.description,
+        url: page.url,
         locale,
         pageTree,
-        props: await page.data.getClientAPIPageProps(),
+        props: await page.data.getOpenAPIPageProps(),
       };
     }
 
     return {
       type: "docs" as const,
       path: page.path,
+      url: page.url,
+      title: page.data.title,
+      description: page.data.description,
       locale,
       markdownUrl: slugsToMarkdownPath(page.slugs, locale).url,
       pageTree,

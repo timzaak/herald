@@ -1,6 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { TermsPage } from "@/components/terms-page";
 import { i18n } from "@/lib/i18n";
+import { legalDescriptions, seoHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/$lang/terms")({
   component: Page,
@@ -11,6 +12,16 @@ export const Route = createFileRoute("/$lang/terms")({
       throw notFound();
     }
   },
+  head: ({ params }) =>
+    seoHead({
+      title:
+        params.lang === "zh"
+          ? "服务条款 — Herald"
+          : "Terms of Service — Herald",
+      description: legalDescriptions[params.lang].terms,
+      path: `/${params.lang}/terms`,
+      locale: params.lang,
+    }),
 });
 
 function Page() {
