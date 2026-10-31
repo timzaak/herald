@@ -86,7 +86,7 @@ describe('grantPointsSchema', () => {
       const result = grantPointsSchema.safeParse(input)
       expect(result.success).toBe(false)
       if (!result.success) {
-        // The observable error carries the "必选目标 Bucket" business
+        // The observable error carries the "必选目标积分账户" business
         // semantics via points.validation_bucket_required, not a generic
         // zod message.
         const bucketIssue = result.error.issues.find((i) => i.path[0] === 'bucketId')

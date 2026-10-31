@@ -15,6 +15,7 @@ import type {
 import { UserPointsPage } from '../UserPointsPage'
 import { server } from '@/test/mocks/server'
 import { renderWithProviders } from '@/test/utils/render'
+import { m } from '@/paraglide/messages'
 
 // ============================================================================
 // Contract pin (FE-T04 / FE-D04 / FE-D03)
@@ -39,8 +40,8 @@ import { renderWithProviders } from '@/test/utils/render'
 //   - Pool card big number:       `points-balance-total-{bucketId}` == `spendableFromPool`
 //   - Transaction table:          `transaction-history-table`,
 //                                 `transaction-bucket-{index}`
-//   - Bucket Select:              combobox named "Bucket"; options derived
-//                                 from the wallets response `items[*].name`
+//   - Bucket Select:              combobox named by `points.filter_bucket_label`;
+//                                 options derived from the wallets response `items[*].name`
 //
 // Backend identity (BE-D08): `bucketTotal` === `spendableFromQuota` +
 // `spendableFromPool`. The fixtures below honour that identity so the
@@ -384,8 +385,11 @@ describe('UserPointsPage — quota dashboard + pool cards (MSW integration)', ()
 
       // Bucket Select options come from wallet rows.
       // The bucket Select's accessible name comes from `points.filter_bucket_label`
-      // (now "Account"); match the current copy rather than a stale literal.
-      const bucketSelect = screen.getByRole('combobox', { name: /^account$/i })
+      // — derive the expected label from the message so copy changes don't
+      // silently break this test.
+      const bucketSelect = screen.getByRole('combobox', {
+        name: new RegExp(`^${m['points.filter_bucket_label']()}$`, 'i'),
+      })
       await user.click(bucketSelect)
       expect(screen.getByRole('option', { name: 'Subscription Bucket' })).toBeInTheDocument()
       expect(screen.getByRole('option', { name: 'Topup Bucket' })).toBeInTheDocument()

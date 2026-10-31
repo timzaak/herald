@@ -197,7 +197,7 @@
 | 操作 | 需要权限 | 说明 |
 |------|---------|------|
 | 查看 Entitlement 映射 | `billing.view` | Realm Admin |
-| 触发 Provider 同步 | `points.manage` | Realm Admin；同步会创建未配置的 draft mapping（enabled=false，不绑定 credit bucket，积分分发规则由管理员后续经映射管理端点配置），故门控在 points.manage（domain 层另校验 billing.manage） |
+| 触发 Provider 同步 | `points.manage` | Realm Admin；同步会创建未配置的 draft mapping（enabled=false，不绑定积分账户，积分分发规则由管理员后续经映射管理端点配置），故门控在 points.manage（domain 层另校验 billing.manage） |
 | 更新/禁用映射（single PATCH） | `billing.manage`（写 credit 字段时附加 `points.manage`） | Realm Admin；batch 更新路径同为 `billing.manage` 无条件 + credit 字段附加 `points.manage` |
 | 批量更新映射（batch PATCH/PUT） | `billing.manage`（+ credit 字段附加 `points.manage`） | Realm Admin；batch 端点仅承载更新（查看走列表/详情 GET，`billing.view`） |
 | 查看订阅投影 | `billing.view` | Realm Admin |

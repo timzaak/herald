@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Herald">
+  <rect width="64" height="64" rx="8" fill="#070707"/>
+  <g fill="#F8F8F8">
+    <path d="M16 8H48L50.5 10.5 41 20H20V41L10.5 50.5 8 48V16Z"/>
+    <path d="M16 8H48L50.5 10.5 41 20H20V41L10.5 50.5 8 48V16Z" transform="rotate(180 32 32)"/>
+  </g>
+</svg>

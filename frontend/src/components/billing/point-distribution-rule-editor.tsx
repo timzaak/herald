@@ -11,7 +11,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { InfoTooltip } from '@/components/shared/info-tooltip'
 import { MultiWindowQuotaEditor } from '@/components/billing/MultiWindowQuotaEditor'
+import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 import type { BucketResponse } from '@/lib/api-generated'
 import type { PointDistributionRuleFormData } from '@/lib/schemas/billing-forms'
 import type { PointRuleTriggerOption } from '@/components/billing/provider-product-info'
@@ -42,6 +44,12 @@ interface PointDistributionRuleEditorProps {
   triggers: PointRuleTriggerOption[]
   allowQuota: boolean
   allowPeriod?: boolean
+  /**
+   * Hide the validity-days input and keep fixed grants permanent
+   * (validityDays = 0). Required for registration-triggered rules: the backend
+   * rejects expiring registration grants (`RegistrationMustBePermanent`).
+   */
+  requirePermanent?: boolean
   disabled?: boolean
   emptyText?: string
 }
@@ -61,11 +69,14 @@ function quotaGrantModeFields() {
   }
 }
 
-function newRule(trigger: string): PointDistributionRuleFormData {
+function newRule(trigger: string, allowPeriod: boolean): PointDistributionRuleFormData {
   return {
     bucketId: '',
     triggerSources: trigger ? [trigger] : [],
     ...fixedGrantModeFields(),
+    // A free-periodic fixed rule without a period is rejected by the backend
+    // (`FreePeriodicRequiresGrantPeriod`), so seed the displayed default.
+    ...(allowPeriod ? { grantPeriodType: 'once' } : {}),
     enabled: true,
     displayOrder: 0,
   }
@@ -78,9 +89,11 @@ export function PointDistributionRuleEditor({
   triggers,
   allowQuota,
   allowPeriod = false,
+  requirePermanent = false,
   disabled = false,
   emptyText = m['points.rule_editor_empty'](),
 }: PointDistributionRuleEditorProps) {
+  const realmContext = useResolvedRealmContext()
   const updateRule = (index: number, next: PointDistributionRuleFormData) => {
     onChange(value.map((rule, i) => (i === index ? next : rule)))
   }
@@ -140,7 +153,24 @@ export function PointDistributionRuleEditor({
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>{m['points.rule_editor_target_account']()}</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label>{m['points.rule_editor_target_account']()}</Label>
+                  <InfoTooltip
+                    label={m['points.rule_editor_target_account_hint']()}
+                    testId="point-rule-bucket-hint"
+                    iconClassName="h-3.5 w-3.5"
+                    contentClassName="max-w-64 space-y-1"
+                  >
+                    <p>{m['points.rule_editor_target_account_hint']()}</p>
+                    <a
+                      href={realmPath(realmContext, '/manage/billing/credit-buckets')}
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                      data-testid="point-rule-bucket-hint-link"
+                    >
+                      {m['points.rule_editor_target_account_hint_link']()}
+                    </a>
+                  </InfoTooltip>
+                </div>
                 <Select
                   value={rule.bucketId}
                   onValueChange={(bucketId) => updateRule(index, { ...rule, bucketId })}
@@ -172,7 +202,18 @@ export function PointDistributionRuleEditor({
                     if (grantMode === 'quota') {
                       updateRule(index, { ...rule, ...quotaGrantModeFields() })
                     } else {
-                      updateRule(index, { ...rule, ...fixedGrantModeFields() })
+                      updateRule(index, {
+                        ...rule,
+                        ...fixedGrantModeFields(),
+                        // Same seed as newRule: loaded quota rules carry no
+                        // period and the period Select below already displays
+                        // 'once' for null — without this the payload stays
+                        // null while the admin sees "Once", and the backend
+                        // rejects the whole save (FreePeriodicRequiresGrantPeriod).
+                        ...(allowPeriod && rule.grantPeriodType == null
+                          ? { grantPeriodType: 'once' as const }
+                          : {}),
+                      })
                     }
                   }}
                   disabled={disabled || !allowQuota}
@@ -241,25 +282,27 @@ export function PointDistributionRuleEditor({
                     data-testid={`point-rule-amount-${key}`}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`point-rule-validity-${key}`}>
-                    {m['points.rule_editor_validity_days']()}
-                  </Label>
-                  <Input
-                    id={`point-rule-validity-${key}`}
-                    type="number"
-                    min={0}
-                    value={rule.validityDays ?? 0}
-                    onChange={(event) =>
-                      updateRule(index, {
-                        ...rule,
-                        validityDays: Number.parseInt(event.target.value || '0', 10),
-                      })
-                    }
-                    disabled={disabled}
-                    data-testid={`point-rule-validity-${key}`}
-                  />
-                </div>
+                {!requirePermanent && (
+                  <div className="space-y-2">
+                    <Label htmlFor={`point-rule-validity-${key}`}>
+                      {m['points.rule_editor_validity_days']()}
+                    </Label>
+                    <Input
+                      id={`point-rule-validity-${key}`}
+                      type="number"
+                      min={0}
+                      value={rule.validityDays ?? 0}
+                      onChange={(event) =>
+                        updateRule(index, {
+                          ...rule,
+                          validityDays: Number.parseInt(event.target.value || '0', 10),
+                        })
+                      }
+                      disabled={disabled}
+                      data-testid={`point-rule-validity-${key}`}
+                    />
+                  </div>
+                )}
                 {allowPeriod && (
                   <div className="space-y-2">
                     <Label>{m['points.rule_editor_grant_period']()}</Label>
@@ -305,7 +348,7 @@ export function PointDistributionRuleEditor({
           onChange([
             ...value,
             {
-              ...newRule(triggers[0]?.value ?? ''),
+              ...newRule(triggers[0]?.value ?? '', allowPeriod),
               displayOrder: value.length,
             },
           ])

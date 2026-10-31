@@ -141,6 +141,9 @@ export function EntitlementMappingsPage({ realmId }: EntitlementMappingsPageProp
     <div className="space-y-6" data-testid="entitlement-mappings-page">
       <PageHeader
         title={m['billing.entitlement_mappings_title']()}
+        // "Entitlement" is billing-domain jargon (Stripe/RevenueCat term);
+        // the tooltip defines it for admins who haven't worked with those.
+        titleTooltip={m['billing.entitlement_mappings_tooltip']()}
         subtitle={m['billing.entitlement_mappings_subtitle']()}
         headingTestId="entitlement-mappings-heading"
       />

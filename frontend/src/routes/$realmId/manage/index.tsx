@@ -1,12 +1,15 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { LayoutDashboard, Users, UserPlus, Activity } from 'lucide-react'
+import { GraduationCap, LayoutDashboard, Users, UserPlus, Activity } from 'lucide-react'
 import { dashboardStatsQueryOptions } from '@/data/query-options'
 import { StatsCard } from '@/components/dashboard/stats-card'
 import { AuthTrendChart } from '@/components/dashboard/auth-trend-chart'
-import { QuickNav } from '@/components/dashboard/quick-nav'
+import { RecentUsersTable } from '@/components/dashboard/recent-users-table'
+import { RecentAuditEventsTable } from '@/components/dashboard/recent-audit-events-table'
+import { RecentPointsTransactionsTable } from '@/components/dashboard/recent-points-transactions-table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { OnboardingTasksCard } from '@/components/onboarding/onboarding-tasks-card'
+import { Button } from '@/components/ui/button'
+import { useOnboardingUiStore } from '@/stores/onboarding-store'
 import { m } from '@/paraglide/messages'
 import { resolvedRealmFromPath } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
@@ -19,6 +22,7 @@ export function ManageDashboard() {
   const router = useRouter()
   const { realmId } = resolvedRealmFromPath(router.state.location.pathname)
   const { data, isLoading, isError, error, refetch } = useQuery(dashboardStatsQueryOptions(realmId))
+  const requestTourRestart = useOnboardingUiStore((state) => state.requestTourRestart)
 
   const userStats = data?.userStats
   const authTrend = data?.authTrend ?? []
@@ -33,6 +37,17 @@ export function ManageDashboard() {
           <h1 className="text-xl font-semibold tracking-tight">{m['dashboard.title']()}</h1>
           <p className="text-xs text-muted-foreground">{m['dashboard.subtitle']()}</p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto"
+          onClick={requestTourRestart}
+          aria-label={m['onboarding.tasks_restart_tour']()}
+          title={m['onboarding.tasks_restart_tour']()}
+          data-testid="dashboard-replay-tour-button"
+        >
+          <GraduationCap className="h-5 w-5" />
+        </Button>
       </div>
 
       {isError ? (
@@ -95,9 +110,13 @@ export function ManageDashboard() {
             <AuthTrendChart data={authTrend} testId="dashboard-auth-trend-chart" />
           )}
 
-          <QuickNav realmId={realmId} testId="dashboard-quick-nav" />
-
-          <OnboardingTasksCard realmId={realmId} />
+          <div className="grid gap-4 lg:grid-cols-2" data-testid="dashboard-recent-tables">
+            <RecentUsersTable realmId={realmId} />
+            <RecentAuditEventsTable realmId={realmId} />
+            <div className="lg:col-span-2">
+              <RecentPointsTransactionsTable realmId={realmId} />
+            </div>
+          </div>
         </>
       )}
     </div>

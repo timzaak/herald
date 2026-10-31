@@ -26,7 +26,7 @@ Developers who need to understand the design of Herald's billing module. It does
 
 A Credit Account is the unit of isolation for credits. A Realm can have multiple Credit Accounts, each with an independent balance that does not affect the others. It solves this problem: a single Realm may run several business lines at once — say, an AI chatbot app and an image-generation app — and their credits must be settled and consumed separately, never mixed. Each Credit Account covers a set of Client Apps; only covered Client Apps can spend credits from this pool.
 
-Payments grant into the Entitlement Mapping's bound account; registration and free-periodic credits are routed by the Realm's distribution rules. Balances are derived from a per-grant credit ledger and break down by the five credit types: top-up, subscription, registration, free-periodic, and granted. The full model — fields, constraints, the ledger, and the admin API — is covered in [Points Accounts](/docs/points/account); the spend side in [Points Consumption](/docs/points/consumption).
+Payments grant into the Entitlement Mapping's bound account; registration and free-periodic credits are routed by the Realm's distribution rules. Balances are derived from a per-grant credit ledger and break down by the five credit types: top-up, subscription, registration, free-periodic, and granted. The full model — fields, constraints, the ledger, and the admin API — is covered in [Credit Accounts](/docs/points/account); the spend side in [Points Consumption](/docs/points/consumption).
 
 ### Entitlement Mapping
 
@@ -107,7 +107,7 @@ Checkout creation validates this metadata; if any is missing, creation is reject
 
 The source of truth for the points policy is the local Entitlement Mapping in Herald, not the provider's metadata. Stripe's `Product.metadata` and `Price.metadata` flow in with product sync into the display info (Stripe only), read-only on the Herald side — Herald never writes back or edits them. Creem has no native metadata feature, so it must be configured manually in Herald.
 
-The policy is queried by `entitlement_key` and covers: first-subscription grant, renewal grant, cancellation clawback, refund clawback, and upgrade/downgrade handling. Grants and clawbacks both target the subscription's bound Credit Account pool, booked separately by credit type (see [Points Accounts](/docs/points/account)).
+The policy is queried by `entitlement_key` and covers: first-subscription grant, renewal grant, cancellation clawback, refund clawback, and upgrade/downgrade handling. Grants and clawbacks both target the subscription's bound Credit Account pool, booked separately by credit type (see [Credit Accounts](/docs/points/account)).
 
 Admins can modify the points policy in Herald. What they modify is Herald's business rules — nothing is written back to the provider.
 
@@ -178,7 +178,7 @@ Currency rides on the catalog itself: each Stripe Price carries its currency, an
 ## Related docs
 
 - [Paywall configuration guide](/docs/points/paywall) — granted roles on a mapping: payment grants, refunds revoke, and how your application checks the wall
-- [Points Accounts](/docs/points/account) — the Credit Account model: fields, coverage sets, credit types, and the ledger
+- [Credit Accounts](/docs/points/account) — the Credit Account model: fields, coverage sets, credit types, and the ledger
 - [Points Consumption](/docs/points/consumption) — the spend call, deduction order, transaction records, and clawback
 - [Credit Account user stories](https://github.com/timzaak/herald/blob/main/docs/user-stories/billing/credit-bucket.md) — acceptance scenarios for the Credit Account catalog, coverage sets, purchase-to-pool, cross-pool consumption, and the subscription lifecycle
 - [Stripe integration guide](/docs/billing/stripe-payment) — Stripe provider configuration and webhook handling

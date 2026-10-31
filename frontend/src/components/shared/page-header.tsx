@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
+import { InfoTooltip } from './info-tooltip'
 
 export interface PageHeaderProps {
   title: string
+  /** Optional explanation shown in a tooltip beside the title (e.g. term definitions). */
+  titleTooltip?: string
   subtitle?: string
   headingTestId?: string
   action?: {
@@ -20,6 +23,7 @@ export interface PageHeaderProps {
 
 export function PageHeader({
   title,
+  titleTooltip,
   subtitle,
   headingTestId,
   action,
@@ -28,12 +32,23 @@ export function PageHeader({
   return (
     <div className={`flex flex-wrap items-center justify-between gap-2 ${className}`}>
       <div>
-        <h1
-          className="text-xl font-semibold tracking-tight"
-          data-testid={headingTestId ?? `${title.toLowerCase()}-heading`}
-        >
-          {title}
-        </h1>
+        <div className="flex items-center gap-1.5">
+          <h1
+            className="text-xl font-semibold tracking-tight"
+            data-testid={headingTestId ?? `${title.toLowerCase()}-heading`}
+          >
+            {title}
+          </h1>
+          {titleTooltip && (
+            <InfoTooltip
+              label={titleTooltip}
+              testId="page-header-title-tooltip"
+              contentTestId="page-header-title-tooltip-content"
+            >
+              {titleTooltip}
+            </InfoTooltip>
+          )}
+        </div>
         {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action && action.show !== false && (

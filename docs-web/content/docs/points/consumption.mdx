@@ -1,9 +1,9 @@
 ---
 title: Points Consumption
-description: "Your backend spends credits with one atomic API call: POST /api/ext/points/{realmId}/consume. Herald routes the spend to the Points Accounts covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction."
+description: "Your backend spends credits with one atomic API call: POST /api/ext/points/{realmId}/consume. Herald routes the spend to the Credit Accounts covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction."
 ---
 
-Your backend spends credits with one atomic API call: `POST /api/ext/points/{realmId}/consume`. Herald routes the spend to the [Points Accounts](/docs/points/account) covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction.
+Your backend spends credits with one atomic API call: `POST /api/ext/points/{realmId}/consume`. Herald routes the spend to the [Credit Accounts](/docs/points/account) covering that Client App, deducts quota windows first and pool balances nearest-expiry-first, and either books every transaction or rolls the whole call back — there is never a partial deduction.
 
 ## Who this is for
 
@@ -88,7 +88,7 @@ Every leg of a consume is a row in `points_transactions` with a negative `amount
 
 ## Related docs
 
-- [Points Accounts](/docs/points/account) — the account model, credit types, and the ledger behind these balances
+- [Credit Accounts](/docs/points/account) — the account model, credit types, and the ledger behind these balances
 - [Points Quotas](/docs/points/quota) — configuring the rolling windows deducted first
 - [Paywall configuration](/docs/points/paywall) — payment-granted roles and points rules
 - [Third-party backend integration](/docs/integration/third-party-backend) — Client API Keys and the ext API surface

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Herald · 合契 Logo</title>
+    <link rel="icon" href="../docs-web/public/icon.svg" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #F8F8F8; color: #1B1B1B; font: 15px/1.7 system-ui, sans-serif; }
+      main { max-width: 960px; margin: auto; padding: 48px 24px; }
+      h1 { margin: 0 0 12px; font-size: 32px; letter-spacing: -.04em; }
+      h2 { margin: 0 0 24px; font-size: 16px; font-weight: 600; }
+      p { max-width: 640px; color: #585858; }
+      .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 32px 0; }
+      .card { padding: 28px; border: 1px solid #E4E4E4; border-radius: 8px; background: #FDFDFD; }
+      .hero { display: flex; align-items: center; gap: 24px; min-height: 128px; }
+      .hero strong { font-size: 24px; letter-spacing: -.04em; }
+      .hero span { display: block; font-size: 13px; color: #666666; }
+      .hero img, .hero svg { width: 96px; height: 96px; flex-shrink: 0; }
+      .surface { padding: 28px; margin-top: 16px; border-radius: 8px; border: 1px solid #E4E4E4; }
+      .dark { background: #1F1F1F; color: #E8E8E8; border-color: #303030; }
+      .sizes { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 40px; }
+      figure { margin: 0; min-width: 64px; }
+      .sample { height: 80px; display: flex; align-items: center; }
+      img { display: block; }
+      figcaption { margin-top: 12px; font: 12px/1.5 ui-monospace, monospace; color: #666666; }
+      .dark figcaption { color: #989898; }
+      .tab { display: inline-flex; gap: 8px; align-items: center; margin-top: 28px; padding: 8px 16px; border: 1px solid #E4E4E4; border-radius: 8px; background: #FDFDFD; font-size: 12px; }
+      .dark .tab { background: #303030; border-color: #585858; }
+      footer { margin-top: 28px; font-size: 13px; color: #666666; }
+      a { color: inherit; text-underline-offset: 3px; }
+      @media (max-width: 600px) { .comparison { grid-template-columns: 1fr; } .hero { gap: 16px; } .sizes { gap: 20px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Herald · 合契</h1>
+      <p>两段旋转对称的切角折带，围出一个共同的空间。身份、支付与权益衔接为整体，用一个克制的几何轮廓承载。</p>
+      <div class="comparison">
+        <section class="card">
+          <h2>原标志</h2>
+          <div class="hero">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="原 Herald 标志">
+              <rect x="2" y="2" width="60" height="60" rx="14" fill="#24272B"/>
+              <path d="M20 20 32 32 44 20M20 44 32 32 44 44" fill="none" stroke="#F68A17" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="12" y="12" width="14" height="14" rx="4" fill="#687B8E"/>
+              <rect x="38" y="12" width="14" height="14" rx="4" fill="#F6F3ED"/>
+              <rect x="12" y="38" width="14" height="14" rx="4" fill="#F6F3ED"/>
+              <rect x="38" y="38" width="14" height="14" rx="4" fill="#687B8E"/>
+              <rect x="25" y="25" width="14" height="14" rx="4" transform="rotate(45 32 32)" fill="#F68A17"/>
+            </svg>
+            <div><strong>Herald</strong><span>多节点 · 多色</span></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>新标志</h2>
+          <div class="hero">
+            <img src="../docs-web/public/icon.svg" width="96" height="96" alt="Herald 合契标志" />
+            <div><strong>Herald</strong><span>切角折带 · 墨与纸</span></div>
+          </div>
+        </section>
+      </div>
+      <section class="surface">
+        <h2>浅色背景 · 实际像素尺寸</h2>
+        <div class="sizes">
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="16" height="16" alt="16 像素标志" /></div><figcaption>16 × 16</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="24" height="24" alt="24 像素标志" /></div><figcaption>24 × 24</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="32" height="32" alt="32 像素标志" /></div><figcaption>32 × 32</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="64" height="64" alt="64 像素标志" /></div><figcaption>64 × 64</figcaption></figure>
+        </div>
+        <div class="tab"><img src="../docs-web/public/icon.svg" width="16" height="16" alt="" />Herald · 身份与计费</div>
+      </section>
+      <section class="surface dark">
+        <h2>深色背景 · 实际像素尺寸</h2>
+        <div class="sizes">
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="16" height="16" alt="16 像素标志" /></div><figcaption>16 × 16</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="24" height="24" alt="24 像素标志" /></div><figcaption>24 × 24</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="32" height="32" alt="32 像素标志" /></div><figcaption>32 × 32</figcaption></figure>
+          <figure><div class="sample"><img src="../docs-web/public/icon.svg" width="64" height="64" alt="64 像素标志" /></div><figcaption>64 × 64</figcaption></figure>
+        </div>
+        <div class="tab"><img src="../docs-web/public/icon.svg" width="16" height="16" alt="" />Herald · 身份与计费</div>
+      </section>
+      <footer>64 × 64 矢量网格 · 墨 #070707 · 纸 #F8F8F8 · <a href="../docs-web/public/icon.svg">SVG</a> · <a href="../docs-web/public/favicon.ico">ICO</a> · <a href="../docs-web/public/apple-touch-icon.png">Apple 图标</a></footer>
+    </main>
+  </body>
+</html>

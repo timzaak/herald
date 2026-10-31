@@ -73,10 +73,19 @@ export function RegistrationRulesPage() {
   )
   const [editedRules, setEditedRules] = useState<PointDistributionRuleFormData[] | null>(null)
   const rules = editedRules ?? initialRules
-  const registrationRules = rules.filter((rule) => rule.triggerSources.includes('registration'))
-  const freePeriodicRules = rules.filter((rule) =>
+
+  // Combined rules (both triggers on one rule) are legal server-side, but this
+  // page edits the two trigger groups independently — showing a combined rule
+  // in both cards would rewrite it to a single trigger and submit its id twice.
+  // Keep combined rules out of both cards and forward them untouched on save.
+  const isCombined = (rule: PointDistributionRuleFormData) =>
+    rule.triggerSources.includes('registration') &&
     rule.triggerSources.includes('free_periodic_grant')
-  )
+  const inGroup = (rule: PointDistributionRuleFormData, trigger: string) =>
+    rule.triggerSources.includes(trigger) && !isCombined(rule)
+  const registrationRules = rules.filter((rule) => inGroup(rule, 'registration'))
+  const freePeriodicRules = rules.filter((rule) => inGroup(rule, 'free_periodic_grant'))
+  const combinedCount = rules.filter(isCombined).length
 
   // Built per render so trigger labels honor the active locale.
   const registrationTriggers: PointRuleTriggerOption[] = [
@@ -91,7 +100,7 @@ export function RegistrationRulesPage() {
     next: PointDistributionRuleFormData[]
   ) => {
     setEditedRules([
-      ...rules.filter((rule) => !rule.triggerSources.includes(trigger)),
+      ...rules.filter((rule) => !inGroup(rule, trigger)),
       ...next.map((rule, index) => ({
         ...rule,
         triggerSources: [trigger],
@@ -141,47 +150,67 @@ export function RegistrationRulesPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{m['points.registration_rules_registration_card_title']()}</CardTitle>
-          <CardDescription>
-            {m['points.registration_rules_registration_card_description']()}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PointDistributionRuleEditor
-            value={registrationRules}
-            onChange={(next) => replaceGroup('registration', next)}
-            buckets={buckets}
-            triggers={registrationTriggers}
-            allowQuota={false}
-            disabled={!canManage || mutation.isPending}
-          />
-        </CardContent>
-      </Card>
+      {combinedCount > 0 && (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="registration-rules-combined-notice"
+        >
+          {m['points.registration_rules_combined_notice']({ count: combinedCount })}
+        </p>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{m['points.registration_rules_free_periodic_card_title']()}</CardTitle>
-          <CardDescription>
-            {m['points.registration_rules_free_periodic_card_description']()}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PointDistributionRuleEditor
-            value={freePeriodicRules}
-            onChange={(next) => replaceGroup('free_periodic_grant', next)}
-            buckets={buckets}
-            triggers={freePeriodicTriggers}
-            allowQuota
-            allowPeriod
-            disabled={!canManage || mutation.isPending}
-          />
-        </CardContent>
-      </Card>
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>{m['points.registration_rules_registration_card_title']()}</CardTitle>
+            <CardDescription>
+              {m['points.registration_rules_registration_card_description']()}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PointDistributionRuleEditor
+              value={registrationRules}
+              onChange={(next) => replaceGroup('registration', next)}
+              buckets={buckets}
+              triggers={registrationTriggers}
+              allowQuota={false}
+              requirePermanent
+              disabled={!canManage || mutation.isPending}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{m['points.registration_rules_free_periodic_card_title']()}</CardTitle>
+            <CardDescription>
+              {m['points.registration_rules_free_periodic_card_description']()}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PointDistributionRuleEditor
+              value={freePeriodicRules}
+              onChange={(next) => replaceGroup('free_periodic_grant', next)}
+              buckets={buckets}
+              triggers={freePeriodicTriggers}
+              allowQuota
+              allowPeriod
+              disabled={!canManage || mutation.isPending}
+            />
+          </CardContent>
+        </Card>
+      </div>
 
       {canManage && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {editedRules !== null && !mutation.isPending && (
+            <span
+              className="text-sm text-muted-foreground"
+              data-testid="registration-rules-unsaved"
+            >
+              {m['points.registration_rules_unsaved_changes']()}
+            </span>
+          )}
           <Button
             type="button"
             onClick={() => mutation.mutate()}

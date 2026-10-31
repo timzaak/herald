@@ -180,6 +180,24 @@ describe('EntitlementMappingsPage distribution rules', () => {
   })
 })
 
+describe('EntitlementMappingsPage header tooltip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // "Entitlement" is billing-domain jargon; the header must let an admin who
+  // has never worked with Stripe/RevenueCat learn what the term means here.
+  it('defines what an entitlement is next to the page title', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.hover(screen.getByTestId('page-header-title-tooltip'))
+    expect(await screen.findByTestId('page-header-title-tooltip-content')).toHaveTextContent(
+      /An entitlement is the benefit a user unlocks/
+    )
+  })
+})
+
 describe('EntitlementMappingsPage WeChat manual price', () => {
   beforeEach(() => {
     vi.clearAllMocks()

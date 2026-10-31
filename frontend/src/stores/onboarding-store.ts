@@ -1,9 +1,10 @@
 /**
  * Onboarding UI Store (Zustand)
  *
- * Cross-component UI state for the console onboarding guidance: the tasks
- * card's "replay tour" button lives in the dashboard page while the tour
- * runner lives in the layout, so the request travels through this store.
+ * Cross-component UI state for the console onboarding guidance: the
+ * dashboard header's "replay tour" button lives in the dashboard page while
+ * the tour runner lives in the layout, so the request travels through this
+ * store.
  * Pure request flag — no server data, not persisted.
  */
 
