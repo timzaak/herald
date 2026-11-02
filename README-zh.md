@@ -6,19 +6,19 @@
 [![CD Pipeline](https://github.com/timzaak/herald/actions/workflows/cd.yml/badge.svg)](https://github.com/timzaak/herald/actions/workflows/cd.yml)
 [![Release](https://img.shields.io/github/v/release/timzaak/herald)](https://github.com/timzaak/herald/releases/latest)
 
-**给 AI 产品用的认证、计费、积分和管理后台，放在一套开源代码库里。**
+**给 AI 产品做的一套开源认证、计费、积分和管理后台。**
 
-自己部署，所有租户的账号、支付和积分记录都存在你自己的 Postgres 里。把仓库交给 AI 编程工具，它拿到的是一套能跑的产品，不是空工程。Apache-2.0 许可证，不按用户数收费。
+自己部署，所有租户的账号、支付和积分记录都存在你自己的 Postgres 里。把仓库交给 AI 编程工具，它可以直接在能跑的产品上改，不用从空工程开始。许可证是 Apache-2.0，不按用户数收费。
 
 [官网](https://www.fornetcode.com/zh) · [在线演示](https://auth.fornetcode.com) · [快速开始](https://www.fornetcode.com/zh/docs/getting-started) · [Star on GitHub](https://github.com/timzaak/herald)
 
 ## 为什么用 Herald
 
-AI 创业团队总在撞同一堵墙：产品本体用 AI 工具几天就能做出来，之后用户看不见的部分要耗掉几周，账号、租户隔离、角色、订阅、用量积分、管理后台。这些要么全部从零写，要么拼接独立的认证、支付、计费服务，然后祈祷接线不出事。
+产品本体用 AI 工具几天就能做出来，用户看不见的部分要耗掉几周：账号、租户隔离、角色、订阅、用量积分、管理后台。这些要么从零写，要么拼接独立的认证、支付、计费服务。
 
-出事的总是接线。每家服务有自己的用户 ID、自己的 webhook、自己的重试规则。订阅续费成功但 webhook 丢了，用户付了钱却失去访问权，你从一封客服邮件里才知道这件事。
+拼接的服务各有一套用户 ID、webhook 和重试规则。订阅续费成功但 webhook 丢了，用户付了钱却失去访问权，你从一封客服邮件里才知道这件事。
 
-Herald 把身份、支付、权益和用量放进同一套代码，这些连接是你读得到、改得动的代码：
+身份、支付、权益和用量都在 Herald 里，它们之间的连接是你读得到、改得动的代码：
 
 - 用户购买后自动获得访问权和积分；
 - 退款或取消订阅后自动收回权益；
@@ -26,7 +26,7 @@ Herald 把身份、支付、权益和用量放进同一套代码，这些连接�
 
 如果你只需要登录加刷卡，托管的认证服务更省事。下面这些情况 Herald 才划算：需要租户级控制、按积分计价，或者要求用户数据放在自己的数据库里。
 
-## 开箱即用的能力
+## 包含的能力
 
 | 领域 | 已包含的能力 |
 |------|--------------|
@@ -37,9 +37,9 @@ Herald 把身份、支付、权益和用量放进同一套代码，这些连接�
 | **后台与运营** | 用户、角色、计费、积分、应用、租户设置、审计轨迹、账号生命周期管理 |
 | **产品定制** | 自定义域名、白标品牌、交易邮件、版本化用户协议、API 文档、SDK |
 
-这套底座为带付费墙、免费额度、付费套餐、按量使用或积分计价的 AI 产品而建。
+这些能力面向带付费墙、免费额度、付费套餐、按量使用或积分计价的 AI 产品。
 
-## 接入长什么样
+## 接入方式
 
 浏览器端用 `herald-auth-web` 处理注册、登录、双因素和静默刷新 token：
 
@@ -71,11 +71,11 @@ const check = await herald.checkPermission({
 const balance = await herald.getBalance('realm-id', 'user-id')
 ```
 
-浏览器 SDK 能从你的页面调用 API 之前，先把页面 origin 加到 Client App 的 `allowed_origins` 里，在 Herald 控制台改。
+在 Herald 控制台把页面 origin 加进 Client App 的 `allowed_origins`，浏览器 SDK 才能从你的页面调用 API。
 
 ## 先试一下
 
-在线版，零安装：打开 [auth.fornetcode.com](https://auth.fornetcode.com)，登录页点「开通自己的 Realm」。你会成为这个租户的管理员，用户和计费配置完全隔离，随便折腾不影响别人的数据。
+不用装任何东西：打开 [auth.fornetcode.com](https://auth.fornetcode.com)，登录页点「开通自己的 Realm」。你会成为这个租户的管理员，用户和计费配置完全隔离，随便折腾不影响别人的数据。
 
 本地运行需要 Python 3.12+、[uv](https://github.com/astral-sh/uv)、Docker、Cargo 和 npm：
 
@@ -87,9 +87,9 @@ uv run scripts/demo-start.py
 
 启动后前端在 http://localhost:3000，后端 API 在 http://localhost:8080。手动安装和后续配置见[快速开始文档](https://www.fornetcode.com/zh/docs/getting-started)。
 
-部署卡住，或在评估 Herald？发邮件到 [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com)，很乐意帮忙。
+部署卡住，或在评估 Herald？可以直接发邮件到 [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com)。
 
-## 为 AI 辅助迭代而设计
+## 面向 AI 辅助迭代
 
 这个仓库本来就打算让 AI 编程工具来改：
 
@@ -107,11 +107,11 @@ uv run scripts/demo-start.py
 
 ## 联系我们
 
-正在基于 Herald 构建产品？欢迎告诉我们你在做什么。
+在用 Herald 做产品？欢迎说说你在做什么。
 
 - 🐛 提交 [GitHub Issue](https://github.com/timzaak/herald/issues) 反馈 bug 与功能需求
 - ✉️ [zsy.evan@gmail.com](mailto:zsy.evan@gmail.com) 部署咨询、产品反馈，或聊聊你在做的东西
 
 ## 许可证
 
-Herald 采用 [Apache-2.0](LICENSE) 许可证。可以在商业产品里使用、修改和分发，开源项目不收按用户数计算的许可证费用。
+Herald 采用 [Apache-2.0](LICENSE) 许可证。可以在商业产品里使用、修改和分发，不按用户数收许可证费。
