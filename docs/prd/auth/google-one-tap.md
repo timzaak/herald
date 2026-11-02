@@ -32,10 +32,10 @@
   - 直接会话模式：One Tap 用于 Herald 自身前端登录时，Herald 直接建立 session
   - 授权码模式：One Tap 嵌入下游 OAuth Code+PKCE 流程时，Herald 签发授权码返回给第三方应用
 - **公开配置暴露 client_id**：Herald 公共配置接口（public-config）向第三方前端暴露该 Realm 全部已启用 OAuth Provider 的 client_id（有意泛化，client_id 本身非机密，secret 不暴露），其中 Google 项供前端初始化 One Tap SDK
+- **Herald 自身登录页嵌入 One Tap**：Herald 登录页在 Realm 已启用 Google Provider（且配置了 client_id）、且当前不是第三方 OAuth 下游登录时弹出 One Tap 浮层，走直接会话模式（token family 绑定所选第一方 Client App）；GIS 脚本加载失败或 Google 不展示浮层时静默降级，不影响密码 / OAuth 按钮等其他登录方式
 
 ### 2.2 不包含功能 (Out of Scope)
 
-- **Herald 自身登录页的 One Tap 集成**：本轮不在 Herald 自身登录页弹出 One Tap（后续可扩展）
 - **非 Google provider 的 One Tap**：不覆盖 Microsoft、Apple 等 provider 的类似无感登录
 - **Google Identity Services 的 FedCM 迁移**：使用经典 GIS SDK，不做 FedCM 适配
 - **管理员配置 One Tap 开关**：本轮不新增 per-realm 的 One Tap 启停配置，只要 Realm 启用了 Google Provider 即可使用 One Tap
@@ -54,7 +54,7 @@
 
 ### 4.1 业务规则
 
-- **触发位置**：One Tap 浮层在**第三方应用网站**上弹出，不在 Herald 登录页弹出
+- **触发位置**：One Tap 浮层可在两处弹出——**第三方应用网站**（由第三方自行嵌入 GIS SDK）与 **Herald 自身登录页**（内置入口，仅直接会话模式；当登录页承载第三方 OAuth 下游登录时不弹出）
 - **Provider 启用条件**：Realm 必须配置并启用 Google Provider，否则 Herald 拒绝 One Tap 凭证验证请求
 - **凭证验证严格性**：Herald 必须在服务端验证 Google ID Token 的签名（使用 Google JWKS 公钥）、issuer、audience（等于该 Realm 配置的 client_id）和 expiry，不得信任前端传来的任何明文用户信息；Google 凭证由 Herald 后端集中验证，第三方应用不接触 Google client_secret
 - **邮箱验证要求**：Google 返回的凭证中邮箱未验证时，Herald 拒绝创建用户或登录
@@ -84,13 +84,14 @@
 - 未注册用户通过 One Tap 自动创建 Herald 账号并登录成功（仅在 Realm 已开启自动注册时；未开启时返回 `409 conflict` 并引导至显式注册入口）
 - 已有 Herald 账号（邮箱一致）的用户通过 One Tap 登录时关联到已有账号，不产生重复账号
 - One Tap 在下游 Code+PKCE 场景中，验证通过后正确签发授权码，第三方应用可正常换取 token
+- Herald 自身登录页在 Realm 启用 Google Provider 时弹出 One Tap，一键登录后直接建立会话；第三方 OAuth 下游登录场景下不弹出；GIS 不可用时静默降级、其他登录方式不受影响
 - 未配置 Google Provider 的 Realm 返回明确错误
 
 ---
 
 ## 6. 边界与约束
 
-**适用性**: 适用（API 与前端/交互边界合并陈述；前端为第三方应用前端，非 Herald 自身前端）
+**适用性**: 适用（API 与前端/交互边界合并陈述；前端包含第三方应用前端与 Herald 自身登录页）
 
 **API / 集成边界:**
 - 新增一个 Google One Tap 认证端点，接收 Google ID Token 凭证，返回会话信息或下游授权码跳转地址（JSON 响应携带 `redirectUri` 字段，由第三方前端执行跳转，端点本身不发起 HTTP 重定向）；请求必须携带发起方 Herald Client App 的 `client_id`（必填，非空——直登模式签发的浏览器 token family 绑定到该 Client App，与 Apple 原生登录端点的约束一致）
@@ -101,7 +102,7 @@
 - 详细端点契约、参数 schema、状态码矩阵与错误模型不在 PRD 承载范围，下沉到技术设计
 
 **前端 / 交互边界:**
-- 页面入口：One Tap 由第三方应用在自身页面中初始化，非 Herald 控制渲染位置
+- 页面入口：第三方应用在自身页面中初始化 One Tap（渲染位置由第三方控制）；Herald 自身登录页亦内置 One Tap 入口（仅非下游第三方 OAuth 登录时显示）。浮层本身均由 Google SDK 渲染与定位
 - 初始化依赖：第三方前端需从 Herald 公共配置接口获取 Google client_id 来初始化 GIS SDK
 - 关键交互：用户看到 One Tap 浮层（由 Google SDK 渲染），点击浮层中的账号 → Google 在浏览器内签发 ID Token → 第三方前端将 Token 发送给 Herald 后端；验证成功 → 第三方前端根据返回结果（session，或携带授权码的 `redirectUri` 跳转地址——由前端自行导航完成下游授权码交接）完成登录
 - 状态反馈：验证失败 → 第三方前端显示错误提示（非敏感信息）；用户关闭浮层 → 浮层消失，不影响其他登录方式
@@ -112,7 +113,7 @@
 
 ## 7. 已确认决策
 
-- 触发位置：One Tap 在第三方应用网站上弹出，Herald 仅作为后端验证方（非 Herald 登录页）
+- 触发位置：One Tap 在第三方应用网站与 Herald 自身登录页均可弹出。初版决策为“仅第三方网站、Herald 仅作后端验证方”，后已扩展至 Herald 登录页（直接会话模式，复用同一端点，不新增配置开关）
 - Provider 配置复用：不新增 One Tap 专用配置开关，Realm 启用 Google Provider 即可使用 One Tap
 - 用户匹配策略：复用现有跳转式 Google 登录的三级匹配策略（open_id → email → 创建）
 - 双模式会话：支持直接 session 模式和下游授权码模式，与现有 SSO 架构一致
