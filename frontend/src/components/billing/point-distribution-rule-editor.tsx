@@ -237,27 +237,40 @@ export function PointDistributionRuleEditor({
 
             <fieldset className="space-y-2" data-testid="point-rule-trigger">
               <legend className="text-sm font-medium">{m['points.rule_editor_triggers']()}</legend>
-              <div className="flex flex-wrap gap-4">
-                {triggers.map((trigger) => {
-                  const checked = rule.triggerSources.includes(trigger.value)
-                  return (
-                    <label key={trigger.value} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={checked}
-                        disabled={disabled}
-                        onCheckedChange={(next) => {
-                          const triggerSources = next
-                            ? [...rule.triggerSources, trigger.value]
-                            : rule.triggerSources.filter((item) => item !== trigger.value)
-                          updateRule(index, { ...rule, triggerSources })
-                        }}
-                        data-testid={`point-rule-trigger-${trigger.value}`}
-                      />
-                      {trigger.label}
-                    </label>
-                  )
-                })}
-              </div>
+              {triggers.length === 1 ? (
+                // The page fixes the trigger for these rules (e.g. the
+                // registration-rules cards), so a checkbox would offer a choice
+                // that does not exist — show the trigger as static text. The
+                // testid matches the checkbox so demo selectors keep working.
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid={`point-rule-trigger-${triggers[0].value}`}
+                >
+                  {triggers[0].label}
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-4">
+                  {triggers.map((trigger) => {
+                    const checked = rule.triggerSources.includes(trigger.value)
+                    return (
+                      <label key={trigger.value} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={checked}
+                          disabled={disabled}
+                          onCheckedChange={(next) => {
+                            const triggerSources = next
+                              ? [...rule.triggerSources, trigger.value]
+                              : rule.triggerSources.filter((item) => item !== trigger.value)
+                            updateRule(index, { ...rule, triggerSources })
+                          }}
+                          data-testid={`point-rule-trigger-${trigger.value}`}
+                        />
+                        {trigger.label}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
             </fieldset>
 
             {rule.grantMode === 'fixed' ? (

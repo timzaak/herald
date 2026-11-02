@@ -264,7 +264,7 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
           ).toContainText(/每周|weekly/i)
           await expect(
             reloadedRule.locator(SELECTORS.pointRule.trigger('free_periodic_grant')),
-          ).toBeChecked()
+          ).toBeVisible()
           await demoLogger.testCode.log(
             '[Test] Free-periodic fixed rule persisted with its selected bucket',
           )

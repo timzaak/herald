@@ -16,6 +16,28 @@ const buckets = [
   },
 ]
 
+// The registration-rules cards hand the editor a single fixed trigger and
+// require permanent grants; the two registration tests below share this setup.
+const registrationEditorProps = {
+  value: [
+    {
+      id: 'rule-1',
+      bucketId: 'bucket-a',
+      triggerSources: ['registration'],
+      grantMode: 'fixed' as const,
+      pointsAmount: 50,
+      validityDays: 0,
+      quotaWindows: null,
+      enabled: true,
+    },
+  ],
+  onChange: () => {},
+  buckets,
+  triggers: [{ value: 'registration', label: 'Registration' }],
+  allowQuota: false,
+  requirePermanent: true,
+}
+
 describe('PointDistributionRuleEditor', () => {
   it('removes unsaved rules but explicitly disables persisted rules', async () => {
     const user = userEvent.setup()
@@ -156,15 +178,34 @@ describe('PointDistributionRuleEditor', () => {
   })
 
   it('hides the validity input when grants must be permanent', () => {
+    render(<PointDistributionRuleEditor {...registrationEditorProps} />)
+
+    // Registration grants must stay permanent (RegistrationMustBePermanent):
+    // the editor must not offer an expiry the backend would reject.
+    expect(screen.queryByTestId('point-rule-validity-rule-1')).not.toBeInTheDocument()
+  })
+
+  it('shows a fixed trigger as text instead of a checkbox when only one trigger exists', () => {
+    render(<PointDistributionRuleEditor {...registrationEditorProps} />)
+
+    // A single-trigger editor fixes the trigger for every rule; a checkbox
+    // would invite unchecking it and saving an invalid empty-triggerSources
+    // rule. The trigger must render as read-only text (same testid as the
+    // checkbox so demo selectors keep working).
+    expect(screen.getByTestId('point-rule-trigger-registration')).toHaveTextContent('Registration')
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('still offers checkboxes when multiple triggers are selectable', () => {
     render(
       <PointDistributionRuleEditor
         value={[
           {
             id: 'rule-1',
             bucketId: 'bucket-a',
-            triggerSources: ['registration'],
+            triggerSources: ['subscription_initial'],
             grantMode: 'fixed',
-            pointsAmount: 50,
+            pointsAmount: 100,
             validityDays: 0,
             quotaWindows: null,
             enabled: true,
@@ -172,14 +213,15 @@ describe('PointDistributionRuleEditor', () => {
         ]}
         onChange={() => {}}
         buckets={buckets}
-        triggers={[{ value: 'registration', label: 'Registration' }]}
+        triggers={[
+          { value: 'subscription_initial', label: 'Subscription initial' },
+          { value: 'subscription_renewal', label: 'Subscription renewal' },
+        ]}
         allowQuota={false}
-        requirePermanent
       />
     )
 
-    // Registration grants must stay permanent (RegistrationMustBePermanent):
-    // the editor must not offer an expiry the backend would reject.
-    expect(screen.queryByTestId('point-rule-validity-rule-1')).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Subscription initial' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Subscription renewal' })).not.toBeChecked()
   })
 })

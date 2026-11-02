@@ -2521,7 +2521,7 @@
     "registration_rules_registration_card_title": "注册",
     "registration_rules_registration_card_description": "新用户注册后发放的一次性固定积分。",
     "registration_rules_free_periodic_card_title": "免费周期发放",
-    "registration_rules_free_periodic_card_description": "固定周期积分或滚动额度的发放。",
+    "registration_rules_free_periodic_card_description": "固定周期积分或滚动额度的发放。用户付费订阅（首次订阅、续费或升级）后，免费周期发放将永久停止，订阅结束也不会恢复；一次性充值不影响免费周期发放。",
     "registration_rules_save_button": "保存规则",
     "registration_rules_unsaved_changes": "有未保存的修改",
     "registration_rules_combined_notice": "检测到 {count} 条组合规则（同时包含「注册赠送」与「免费周期发放」两种触发），本页不支持编辑此类规则，请通过 API 管理。",
