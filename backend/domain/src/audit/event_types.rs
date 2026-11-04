@@ -104,6 +104,21 @@ pub enum AuditAction {
     TotpConfigUpdate,
     #[serde(rename = "email_otp_config.update")]
     EmailOtpConfigUpdate,
+    /// Enable requires a configured SMS channel (fail-closed).
+    #[serde(rename = "phone_login_config.update")]
+    PhoneLoginConfigUpdate,
+    /// Details carry the masked phone only — never the raw number.
+    #[serde(rename = "phone.bind")]
+    PhoneBind,
+    /// Reauth ticket consumed.
+    #[serde(rename = "phone.unbind")]
+    PhoneUnbind,
+    /// Details carry the masked old phone and the acting operator.
+    #[serde(rename = "phone.admin_unbind")]
+    PhoneAdminUnbind,
+    /// Details carry masked old → new phones.
+    #[serde(rename = "phone.admin_rebind")]
+    PhoneAdminRebind,
     #[serde(rename = "passkey.register")]
     PasskeyRegister,
     #[serde(rename = "passkey.delete")]

@@ -28,6 +28,11 @@ pub struct LoginRequest {
     pub realm_id: String,
     pub email: Option<String>,    // Optional email login
     pub username: Option<String>, // Optional username login
+    /// Server-derived E.164 phone parsed from `username` when the realm
+    /// phone-login switch is on; `username` stays as fallback so pure-numeric
+    /// usernames still match exactly.
+    #[serde(default)]
+    pub phone: Option<String>,
     #[validate(length(min = 1))]
     pub password: String,
 }

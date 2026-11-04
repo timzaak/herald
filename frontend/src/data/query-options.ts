@@ -111,6 +111,8 @@ import type {
   UserSessionResponse,
   FeatureAvailabilityResponse as GeneratedFeatureAvailabilityResponse,
   UserFeatureAvailabilityResponse,
+  UserStatus,
+  TransactionType,
 } from '@/lib/api-generated'
 import type {
   HistoryFilters,
@@ -119,8 +121,6 @@ import type {
 } from '@/types/billing'
 import { TIME_CONSTANTS, QUERY_KEYS, QUERY_TIMING } from '@/lib/constants'
 import { client } from '@/lib/api-generated/client.gen'
-
-// ==================== Enhanced Error Handling ====================
 
 function handleApiErrorWithStatus(error: unknown): never {
   throw error instanceof ApiResponseError ? error : new ApiResponseError(error)
@@ -260,8 +260,6 @@ export const queryKeys = {
     [QUERY_KEYS.LEGAL_AGREEMENT, realmId, versionId] as const,
 }
 
-// ==================== Public Config ====================
-
 export const publicConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.publicConfig(realmId),
@@ -278,8 +276,6 @@ export const publicConfigQueryOptions = (realmId: string) =>
     refetchOnWindowFocus: true,
     gcTime: GC_TIME_10_MIN,
   })
-
-// ==================== Change Email Confirm ====================
 
 /**
  * One-shot confirm of an email change, fired by the confirm page the mailed
@@ -304,8 +300,6 @@ export const changeEmailConfirmQueryOptions = (realmId: string, code: string) =>
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
-
-// ==================== Realms ====================
 
 export const realmQueryOptions = (realmId: string) =>
   queryOptions({
@@ -387,8 +381,6 @@ export const realmsQueryOptions = (filters: {
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== Users ====================
-
 export const usersQueryOptions = (
   realmId: string,
   filters: {
@@ -407,9 +399,8 @@ export const usersQueryOptions = (
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
             email: filters.email,
-            // status is supported by backend but not yet in generated types
-            ...(filters.status ? { status: Number(filters.status) } : {}),
-          } as { page?: number; pageSize?: number; email?: string; status?: number },
+            status: filters.status as UserStatus | undefined,
+          },
         })
       ),
     retry: RETRY_COUNT,
@@ -434,8 +425,6 @@ export const adminUserQueryOptions = (realmId: string, userId: string) =>
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== Permissions ====================
-
 export const permissionsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.permissions(realmId),
@@ -454,8 +443,6 @@ export const permissionQueryOptions = (realmId: string, permissionId: string) =>
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
-
-// ==================== Roles ====================
 
 export const rolesQueryOptions = (realmId: string) =>
   queryOptions({
@@ -482,8 +469,6 @@ export const rolePermissionsQueryOptions = (realmId: string, roleId: string) =>
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })
-
-// ==================== User Roles ====================
 
 export const userRolesQueryOptions = () =>
   queryOptions({
@@ -523,8 +508,6 @@ export const userSessionsQueryOptions = (realmId: string, userId: string) =>
     staleTime: STALE_TIME_2_MIN,
   })
 
-// ==================== Client Apps ====================
-
 export const clientAppsQueryOptions = (
   realmId: string,
   filters: {
@@ -555,8 +538,6 @@ export const clientAppQueryOptions = (realmId: string, id: string) =>
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== OAuth Configurations ====================
-
 export const providerConfigsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.oauthConfigs(realmId),
@@ -582,8 +563,6 @@ export const providerConfigQueryOptions = (realmId: string, providerType: string
     staleTime: STALE_TIME_2_MIN,
     gcTime: GC_TIME_5_MIN,
   })
-
-// ==================== User Profile ====================
 
 export const profileQueryOptions = queryOptions({
   queryKey: queryKeys.profile(),
@@ -621,11 +600,6 @@ export const turnstileStatusQueryOptions = (
     staleTime: STALE_TIME_2_MIN,
   })
 
-// ==================== Email OTP Status (public) ====================
-//
-// Reads the Realm's OTP-login enablement flag
-// (`GET /api/auth/{realmId}/email-otp/status`). Public; consumed by the login
-// route to gate the "Email code" entry visibility.
 export const emailOtpStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.emailOtpStatus(realmId),
@@ -639,13 +613,6 @@ export const emailOtpStatusQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== Passkey Status (public) ====================
-//
-// Reads the Realm's Passkey enablement flag
-// (`GET /api/auth/{realmId}/passkey/status`). Public; consumed by the login
-// route to gate the passkey entry visibility BEFORE the PasskeyLoginForm is
-// mounted (so a realm with passkey disabled never fires the begin-options
-// probe request at all). Mirrors `emailOtpStatusQueryOptions`.
 export const passkeyStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.passkeyStatus(realmId),
@@ -659,12 +626,7 @@ export const passkeyStatusQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== LDAP Status (public) ====================
-//
-// Reads the Realm's corporate-directory login enablement flag
-// (`GET /api/auth/{realmId}/ldap/status`). Public; consumed by the login route
-// to gate the "corporate account" entry visibility. Fail-closed: the entry is
-// rendered only on an explicit `enabled === true` (missing/failed → hidden).
+// Fail-closed: the login entry renders only on an explicit `enabled === true`.
 export const ldapStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.ldapStatus(realmId),
@@ -678,15 +640,7 @@ export const ldapStatusQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== Signup Status (public) ====================
-//
-// Reads the platform self-service realm-signup enablement flag
-// (`GET /api/auth/{realmId}/signup/status`, admin realm only). Public; consumed
-// by the public signup route to gate the entry visibility (DEC-009). Missing
-// config → `enabled:false` (fail-closed, DEC-013). Mirrors
-// `emailOtpStatusQueryOptions`, except `staleTime: 0` so the entry is re-read
-// on every mount — the enablement flag is a fail-closed security gate and must
-// not be served from a stale cache when a visitor navigates to the page.
+// Fail-closed security gate: `staleTime: 0` so the enablement flag is never served stale.
 export const signupStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.signupStatus(realmId),
@@ -700,8 +654,6 @@ export const signupStatusQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== TOTP Status ====================
-
 export const totpStatusQueryOptions = queryOptions({
   queryKey: queryKeys.totpStatus(),
   queryFn: async () => {
@@ -714,10 +666,6 @@ export const totpStatusQueryOptions = queryOptions({
   gcTime: GC_TIME_5_MIN,
 })
 
-// ==================== Passkey Credentials (current user) ====================
-//
-// Lists the current user's registered Passkeys (`GET /api/user/passkey/credentials`).
-// The generated `ListPasskeysResponse` carries `credentials: PasskeyCredentialViewResponse[]`.
 export const passkeyListQueryOptions = queryOptions({
   queryKey: queryKeys.passkeyList(),
   queryFn: async () => {
@@ -730,10 +678,7 @@ export const passkeyListQueryOptions = queryOptions({
   gcTime: GC_TIME_5_MIN,
 })
 
-// ==================== Passkey Realm Config (admin) ====================
-//
-// Reads a realm's Passkey configuration (`GET /api/realms/{realmId}/config/passkey`).
-// Requires `settings.view`; used by the admin realm-security config page.
+// Requires the `settings.view` permission.
 export const passkeyRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.passkeyRealmConfig(realmId),
@@ -747,11 +692,7 @@ export const passkeyRealmConfigQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== Email-OTP Realm Config (admin) ====================
-//
-// Reads a realm's Email-OTP configuration (`GET /api/realms/{realmId}/config/email-otp`):
-// the login enablement flag and the auto-registration toggle. Requires
-// `settings.view`; used by the admin Settings → Security "Email code" tab.
+// Requires the `settings.view` permission.
 export const emailOtpRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.emailOtpRealmConfig(realmId),
@@ -765,12 +706,7 @@ export const emailOtpRealmConfigQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== LDAP Realm Config (admin) ====================
-//
-// Reads a realm's LDAP directory config rows (`GET /api/configs/ldap`,
-// the generic configs by-type list). Requires `settings.view`; consumed by the
-// Settings → LDAP tab. `bind_password` values are masked to null server-side;
-// only the row's existence matters (parsed into `hasBindPassword`).
+// Requires `settings.view`. `bind_password` is masked server-side; only row existence matters.
 export const ldapRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.ldapRealmConfig(realmId),
@@ -784,12 +720,7 @@ export const ldapRealmConfigQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== White-label Realm Config (admin) ====================
-//
-// Reads a realm's white-label management state
-// (`GET /api/realms/{realmId}/config/white-label`): the published config, an
-// optional draft, whether a previous version can be restored, and update
-// timestamps. Requires `settings.view`; consumed by the Settings white-label tab.
+// Requires the `settings.view` permission.
 export const whiteLabelRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.whiteLabelRealmConfig(realmId),
@@ -803,13 +734,7 @@ export const whiteLabelRealmConfigQueryOptions = (realmId: string) =>
     gcTime: GC_TIME_5_MIN,
   })
 
-// ==================== Custom-domain Realm Config (admin) ====================
-//
-// Reads a realm's custom-domain management state
-// (`GET /api/realms/{realmId}/config/custom-domain`): the published config, an
-// optional draft, whether a previous version can be restored, the CNAME target,
-// and the live CNAME/TLS status. Requires `settings.view`; consumed by the
-// Settings custom-domain tab.
+// Requires the `settings.view` permission.
 export const customDomainRealmConfigQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.customDomainRealmConfig(realmId),
@@ -822,8 +747,6 @@ export const customDomainRealmConfigQueryOptions = (realmId: string) =>
     staleTime: STALE_TIME_2_MIN,
     gcTime: GC_TIME_5_MIN,
   })
-
-// ==================== Subscriptions ====================
 
 export const subscriptionQueryOptions = (realmId: string, clientAppId: string) =>
   queryOptions({
@@ -863,8 +786,6 @@ export const userSubscriptionsQueryOptions = <TData>(
     staleTime: STALE_TIME_2_MIN,
     gcTime: GC_TIME_5_MIN,
   })
-
-// ==================== Subscription History ====================
 
 export async function getSubscriptionHistory(
   _realmId: string,
@@ -917,8 +838,6 @@ export const globalSubscriptionHistoryQueryOptions = (
     // so the list doesn't blank out between Apply Filters and the new data.
     placeholderData: keepPreviousData,
   })
-
-// ==================== Points ====================
 
 export const pointsWalletQueryOptions = (realmId: string, userId: string) =>
   queryOptions({
@@ -975,7 +894,7 @@ export const pointsTransactionsQueryOptions = (
 export const userPointsTransactionsQueryOptions = (filters: {
   clientAppId?: string
   subscriptionId?: string
-  transactionType?: string
+  transactionType?: TransactionType
   bucketId?: string
   startTime?: string
   endTime?: string
@@ -1003,8 +922,6 @@ export const userPointsWalletsQueryOptions = queryOptions({
   retry: RETRY_COUNT,
   staleTime: STALE_TIME_2_MIN,
 })
-
-// ==================== Registration Rules ====================
 
 export const registrationRulesQueryOptions = (realmId: string) =>
   queryOptions({
@@ -1037,8 +954,6 @@ export const updateRegistrationRulesMutation = async (
   }
 }
 
-// ==================== Purchase Options (price-granularity) ====================
-
 export const purchaseOptionsQueryOptions = (realmId: string, clientAppId: string) =>
   queryOptions({
     queryKey: queryKeys.purchaseOptions(realmId, clientAppId),
@@ -1056,8 +971,6 @@ export const purchaseOptionsQueryOptions = (realmId: string, clientAppId: string
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
-
-// ==================== Purchase History ====================
 
 export interface PurchaseHistoryFilters {
   page?: number
@@ -1138,8 +1051,6 @@ export const paymentProvidersQueryOptions = (realmId: string) =>
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== Audit ====================
-
 export const auditListQueryOptions = (
   realmId: string,
   filters: {
@@ -1180,8 +1091,6 @@ export const auditDetailQueryOptions = (realmId: string, eventId: string) =>
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== Dashboard ====================
-
 export const dashboardStatsQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.dashboardStats(realmId),
@@ -1194,10 +1103,7 @@ export const dashboardStatsQueryOptions = (realmId: string) =>
     staleTime: STALE_TIME_2_MIN,
   })
 
-// ==================== Billing Statistics ====================
-
-// The stats endpoints accept only 7 or 30 as the window (days) — anything
-// else answers 400, so the frontend narrows the API's plain number here.
+// The stats endpoints accept only 7 or 30 (days); anything else answers 400.
 export type StatisticsWindow = 7 | 30
 
 export const paymentStatsQueryOptions = (realmId: string, days: StatisticsWindow) =>
@@ -1224,8 +1130,6 @@ export const pointsConsumptionStatsQueryOptions = (realmId: string, days: Statis
     staleTime: STALE_TIME_2_MIN,
   })
 
-// ==================== Email Status ====================
-
 export const emailStatusQueryOptions = (realmId: string) =>
   queryOptions({
     queryKey: queryKeys.emailStatus(realmId),
@@ -1237,8 +1141,6 @@ export const emailStatusQueryOptions = (realmId: string) =>
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
-
-// ==================== API Keys ====================
 
 export const apiKeysQueryOptions = (
   realmId: string,
@@ -1270,8 +1172,6 @@ export const apiKeyQueryOptions = (realmId: string, id: string) =>
     staleTime: STALE_TIME_5_MIN,
   })
 
-// ==================== API Key Roles ====================
-
 export const adminApiKeyRolesQueryOptions = (realmId: string, apiKeyId: string) =>
   queryOptions({
     queryKey: queryKeys.apiKeyRoles(realmId, apiKeyId),
@@ -1301,8 +1201,6 @@ export const updateApiKeyRolesMutation = async (
     handleApiErrorWithStatus(error)
   }
 }
-
-// ==================== Entitlement Mappings ====================
 
 export interface EntitlementMappingFilters {
   paymentProvider?: string
@@ -1348,8 +1246,6 @@ export const entitlementMappingQueryOptions = (realmId: string, mappingId: strin
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
-
-// ==================== Admin Subscriptions ====================
 
 export interface SubscriptionFilters {
   entitlementKey?: string
@@ -1397,8 +1293,6 @@ export const subscriptionDetailQueryOptions = (realmId: string, subscriptionId: 
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
-
-// ==================== Credit Buckets ====================
 
 export const creditBucketsListQueryOptions = (realmId: string) =>
   queryOptions({
@@ -1453,8 +1347,6 @@ export const walletsByBucketQueryOptions = (realmId: string) =>
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_2_MIN,
   })
-
-// ==================== Legal / Consent / Account Deletion ====================
 
 /**
  * Convert agreement summaries (snake_case wire shape) into the camelCase

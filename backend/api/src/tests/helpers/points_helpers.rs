@@ -1518,6 +1518,7 @@ pub fn create_test_identity(user_id: Uuid, realm_id: &str) -> Identity {
         password_hash: None,
         provider_ids: Vec::new(),
         status: herald_core::domain::user::entities::UserStatus::Normal,
+        phone: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };

@@ -39,7 +39,12 @@ import { PageHeader } from '@/components/shared'
 import { InvoiceStatusBadge } from '@/components/billing/invoices/invoice-status-badge'
 import { RefundAmountChip } from '@/components/billing/invoices/refund-amount-chip'
 import { ListPagination } from '@/components/shared'
-import type { InvoiceResponse } from '@/lib/api-generated'
+import type {
+  InvoiceResponse,
+  InvoiceStatus,
+  InvoiceSource,
+  InvoiceProvider,
+} from '@/lib/api-generated'
 import { formatDate } from '@/lib/date-utils'
 import { invoiceListQueryOptions } from '@/data/invoice-query-options'
 import { featureAvailabilityQueryOptions } from '@/data/query-options'
@@ -57,12 +62,12 @@ import { m } from '@/paraglide/messages'
 import { realmPath, useResolvedRealmContext } from '@/lib/realm-routing'
 
 interface InvoiceFilters {
-  status?: string
-  source?: string
+  status?: InvoiceStatus
+  source?: InvoiceSource
   dateFrom?: string
   dateTo?: string
   search?: string
-  provider?: string
+  provider?: InvoiceProvider
   attribution?: string
 }
 
@@ -114,7 +119,7 @@ function createInvoiceColumns(
       accessorKey: 'source',
       header: m['billing.invoice_source'](),
       cell: ({ row }) => {
-        const source = row.getValue('source') as string
+        const source = row.original.source
         return <Badge variant="outline">{getInvoiceSourceLabel(source)}</Badge>
       },
     },
@@ -149,7 +154,7 @@ function createInvoiceColumns(
     {
       accessorKey: 'status',
       header: m['common.status'](),
-      cell: ({ row }) => <InvoiceStatusBadge status={row.getValue('status') as string} />,
+      cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
     },
     {
       accessorKey: 'total',
@@ -337,7 +342,10 @@ function FilterBar({
       <Select
         value={filters.status ?? 'all'}
         onValueChange={(value) =>
-          onFiltersChange({ ...filters, status: value === 'all' ? undefined : value })
+          onFiltersChange({
+            ...filters,
+            status: value === 'all' ? undefined : (value as InvoiceStatus),
+          })
         }
       >
         <SelectTrigger className="w-[160px]" data-testid="invoice-status-filter">
@@ -355,7 +363,10 @@ function FilterBar({
       <Select
         value={filters.source ?? 'all'}
         onValueChange={(value) =>
-          onFiltersChange({ ...filters, source: value === 'all' ? undefined : value })
+          onFiltersChange({
+            ...filters,
+            source: value === 'all' ? undefined : (value as InvoiceSource),
+          })
         }
       >
         <SelectTrigger className="w-[160px]" data-testid="invoice-source-filter">
@@ -373,7 +384,10 @@ function FilterBar({
       <Select
         value={filters.provider ?? 'all'}
         onValueChange={(value) =>
-          onFiltersChange({ ...filters, provider: value === 'all' ? undefined : value })
+          onFiltersChange({
+            ...filters,
+            provider: value === 'all' ? undefined : (value as InvoiceProvider),
+          })
         }
       >
         <SelectTrigger className="w-[160px]" data-testid="invoice-provider-filter">

@@ -2027,7 +2027,7 @@ async fn handle_subscription_lifecycle_status(
         payload.client_app_id,
         entitlement_key.clone(),
         external_product_id,
-        status.clone(),
+        status,
         payload.current_period_start,
         payload.current_period_end,
         cancel_at_period_end,

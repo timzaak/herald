@@ -1,13 +1,3 @@
-// =============================================================================
-// Authorization Utilities
-// =============================================================================
-//
-// Shared authorization helper functions to reduce code duplication across
-// HTTP handlers. These utilities provide consistent authorization checks
-// with proper error handling and logging.
-//
-// =============================================================================
-
 use crate::application::http::server::api_entities::ApiError;
 use crate::application::http::state::AppState;
 use herald_core::domain::audit::{
@@ -420,6 +410,7 @@ mod tests {
             status: herald_core::domain::user::entities::UserStatus::Normal,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            phone: None,
         }
     }
 

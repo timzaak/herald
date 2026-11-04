@@ -19,7 +19,7 @@ use herald_api_base::application::http::server::api_entities::{
 };
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{CredentialScope, Identity, TokenCredentialContext};
-use herald_core::domain::points::entities::{CreditType, PointsWallet, WalletStatus};
+use herald_core::domain::points::entities::{CreditType, PointsWallet};
 use herald_core::domain::points::ports::{PointsRepository, WalletFilters};
 
 /// Map a derived `(CreditType, amount)` slice into the 5-field
@@ -128,7 +128,7 @@ fn wallet_to_response(
         total_paid_granted: account.total_recharged,
         total_recharged: account.total_recharged,
         total_consumed: account.total_consumed,
-        status: account.status.as_str().to_string(),
+        status: account.status,
         created_at: account.created_at.to_rfc3339(),
         updated_at: account.updated_at.to_rfc3339(),
         unit: POINTS_UNIT.to_string(),
@@ -344,7 +344,7 @@ pub async fn list_wallets(
         // caller; managers keep None for the realm-wide (cross-user) view.
         user_id: None,
         bucket_id: bucket_filter,
-        status: query.status,
+        status: query.status.map(|s| s.as_str().to_string()),
         search: query.search,
         page: query.page,
         page_size: query.page_size,
@@ -409,7 +409,7 @@ pub async fn list_user_wallets(
     let filters = WalletFilters {
         user_id: Some(user_id),
         bucket_id,
-        status: query.status,
+        status: query.status.map(|s| s.as_str().to_string()),
         search: None,
         page: query.page,
         page_size: query.page_size,
@@ -505,10 +505,7 @@ pub async fn update_wallet_status(
     Json(request): Json<UpdateWalletStatusRequest>,
 ) -> Result<Json<PointsWalletResponse>, ApiError> {
     let realm_id = identity.realm_id();
-    let status = request
-        .status
-        .parse::<WalletStatus>()
-        .map_err(ApiError::from)?;
+    let status = request.status;
     let wallet = state
         .points_service
         .update_wallet_status(identity, &realm_id, user_id, bucket_id, status)

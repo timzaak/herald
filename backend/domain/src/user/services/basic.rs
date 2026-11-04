@@ -137,6 +137,7 @@ where
         page_size: u64,
         email: Option<String>,
         status: Option<i16>,
+        phone: Option<String>,
     ) -> Result<(Vec<User>, i64), CoreError> {
         // Policy check
         ensure_policy(
@@ -152,7 +153,7 @@ where
         }
 
         self.user_repository
-            .list_users(&realm_id, page, page_size, email, status)
+            .list_users(&realm_id, page, page_size, email, status, phone)
             .await
     }
 
@@ -268,12 +269,12 @@ where
         fields(db.system = "postgres", db.operation = "user_login")
     )]
     async fn login(&self, request: LoginRequest) -> Result<User, CoreError> {
-        // Use get_user_by_email_or_username to handle both email and username
         let lookup = self
             .user_repository
-            .get_user_by_email_or_username(
+            .get_user_by_login_identifier(
                 &request.realm_id,
                 request.email.clone(),
+                request.phone.clone(),
                 request.username.clone(),
             )
             .await?;
@@ -547,6 +548,7 @@ mod tests {
             password_hash: Some("existing-hash".to_string()),
             provider_ids: vec![],
             status: UserStatus::Normal,
+            phone: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

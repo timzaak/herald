@@ -163,7 +163,7 @@ impl<R: PaymentAttemptRepository> PaymentAttemptService<R> {
             ));
         }
 
-        let original_status = attempt.status.clone();
+        let original_status = attempt.status;
 
         // Update status to Cancelled
         attempt.status = target_status;
@@ -198,7 +198,7 @@ impl<R: PaymentAttemptRepository> PaymentAttemptService<R> {
             ));
         }
 
-        let original_status = attempt.status.clone();
+        let original_status = attempt.status;
 
         // Update status to Succeeded
         attempt.status = target_status;
@@ -235,7 +235,7 @@ impl<R: PaymentAttemptRepository> PaymentAttemptService<R> {
             ));
         }
 
-        let original_status = attempt.status.clone();
+        let original_status = attempt.status;
 
         // Update status to Failed
         attempt.status = target_status;
@@ -272,7 +272,7 @@ impl<R: PaymentAttemptRepository> PaymentAttemptService<R> {
             ));
         }
 
-        let original_status = attempt.status.clone();
+        let original_status = attempt.status;
 
         attempt.status = PaymentAttemptStatus::Failed;
         attempt.provider_status = Some(provider_status);
@@ -322,7 +322,7 @@ impl<R: PaymentAttemptRepository> PaymentAttemptService<R> {
                 continue;
             }
 
-            let original_status = attempt.status.clone();
+            let original_status = attempt.status;
             let attempt_id = attempt.id;
             attempt.status = target_status;
             attempt.updated_at = chrono::Utc::now();
@@ -467,7 +467,7 @@ mod tests {
             }
 
             // Mirror production SQL: only update status + provider fields
-            existing.status = attempt.status.clone();
+            existing.status = attempt.status;
             existing.provider_reference = attempt.provider_reference.clone();
             existing.provider_status = attempt.provider_status.clone();
             existing.completed_at = attempt.completed_at;

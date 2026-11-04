@@ -4,6 +4,9 @@ use axum::{
     extract::{Query, State},
     http::HeaderMap,
 };
+use herald_api_base::application::http::auth::util::{
+    load_phone_login_settings, mask_phone, normalize_phone,
+};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::common::pagination;
 use herald_api_base::application::http::server::api_entities::PageResponse;
@@ -11,11 +14,11 @@ use herald_api_base::application::http::server::api_entities::{ApiError, ApiResu
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::user::UserService;
+use herald_core::domain::user::UserStatus;
 use sqlx::Row;
 
 /// List users by realm_id with pagination
 ///
-/// **MIGRATED**: Now uses Extension<Identity> for authentication
 /// Realm boundary check is enforced in Service layer
 #[utoipa::path(
     get,
@@ -27,6 +30,7 @@ use sqlx::Row;
         ("page" = Option<i32>, Query, description = "Page number (0-based)"),
         ("pageSize" = Option<i32>, Query, description = "Page size"),
         ("email" = Option<String>, Query, description = "Filter users by email (partial match)"),
+        ("status" = Option<UserStatus>, Query, description = "Filter by user status"),
     ),
     responses(
         (status = 200, description = "List of users", body = PageResponse<UserResponse>),
@@ -42,12 +46,6 @@ pub async fn list_users(
     Query(query): Query<ListUsersQuery>,
     _headers: HeaderMap,
 ) -> Result<ApiResult<PageResponse<UserResponse>>, ApiError> {
-    if query
-        .status
-        .is_some_and(|status| !(0..=3).contains(&status))
-    {
-        return Err(ApiError::bad_request("status must be between 0 and 3"));
-    }
     let admin = AdminIdentity::require(identity, "user management")?;
     let realm_id = admin.realm_id().to_string();
     admin
@@ -68,6 +66,19 @@ pub async fn list_users(
     }
     .normalize();
 
+    // Phone search is an exact match on the normalized form: the input is
+    // normalized with the realm's default country code.
+    let phone_filter = match query.phone.as_deref() {
+        Some(raw) if !raw.trim().is_empty() => {
+            let settings = load_phone_login_settings(&state, &realm_id).await?;
+            Some(
+                normalize_phone(raw, &settings.default_country_code)
+                    .ok_or_else(|| ApiError::bad_request("Invalid phone number"))?,
+            )
+        }
+        _ => None,
+    };
+
     // Call user service directly (Policy and Realm checks already done above)
     let user_service = state.service.user_service();
     let (users, total_count) = user_service
@@ -77,7 +88,8 @@ pub async fn list_users(
             norm.page as u64,
             norm.page_size as u64,
             query.email,
-            query.status,
+            query.status.map(i16::from),
+            phone_filter,
         )
         .await
         .map_err(|e| {
@@ -119,7 +131,8 @@ pub async fn list_users(
                 realm_id: user.realm_id,
                 email: user.email,
                 nickname,
-                status: user.status as i16,
+                status: user.status,
+                phone_masked: user.phone.as_deref().and_then(mask_phone),
                 created_at: user.created_at.to_rfc3339(),
             }
         })

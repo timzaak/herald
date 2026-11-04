@@ -26,7 +26,7 @@ pub struct PointsWalletResponse {
     /// Deprecated compatibility alias for total_paid_granted.
     pub total_recharged: i64,
     pub total_consumed: i64,
-    pub status: String,
+    pub status: herald_core::domain::points::entities::WalletStatus,
     pub created_at: String,
     pub updated_at: String,
     pub unit: String,
@@ -44,7 +44,7 @@ pub struct PointsWalletResponse {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateWalletStatusRequest {
     /// active, frozen, or closed.
-    pub status: String,
+    pub status: herald_core::domain::points::entities::WalletStatus,
 }
 
 /// Per-credit-type balances (`balancesByType` / `byCreditType`).
@@ -229,7 +229,7 @@ pub struct PointsTransactionResponse {
     pub realm_id: String,
     /// Credit Bucket the transaction landed in.
     pub bucket_id: Option<Uuid>,
-    pub transaction_type: String,
+    pub transaction_type: herald_core::domain::points::entities::TransactionType,
     pub amount: i64,
     pub balance_after: i64,
     pub description: Option<String>,
@@ -274,7 +274,7 @@ pub struct ConsumePointsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ListTransactionsQuery {
     pub user_id: Option<String>,
-    pub transaction_type: Option<String>,
+    pub transaction_type: Option<herald_core::domain::points::entities::TransactionType>,
     pub client_app_id: Option<String>,
     pub subscription_id: Option<String>,
     pub external_ref_id: Option<String>,
@@ -291,7 +291,7 @@ pub struct ListTransactionsQuery {
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserTransactionsQuery {
-    pub transaction_type: Option<String>,
+    pub transaction_type: Option<herald_core::domain::points::entities::TransactionType>,
     pub client_app_id: Option<String>,
     pub subscription_id: Option<String>,
     pub external_ref_id: Option<String>,
@@ -306,7 +306,7 @@ pub struct UserTransactionsQuery {
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWalletsQuery {
-    pub status: Option<String>,
+    pub status: Option<herald_core::domain::points::entities::WalletStatus>,
     pub search: Option<String>,
     /// Filter by Credit Bucket. Applied at the handler because
     /// `WalletFilters` does not yet carry `bucket_id`.
@@ -319,7 +319,7 @@ pub struct ListWalletsQuery {
 #[derive(Debug, Clone, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWalletsQuery {
-    pub status: Option<String>,
+    pub status: Option<herald_core::domain::points::entities::WalletStatus>,
     pub bucket_id: Option<String>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,

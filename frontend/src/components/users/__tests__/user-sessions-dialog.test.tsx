@@ -45,7 +45,7 @@ function makeUser(overrides: Partial<UserResponse> = {}): UserResponse {
     id: 'u1',
     email: 'alice@example.com',
     realmId: 'r1',
-    status: 1,
+    status: 'normal',
     createdAt: '2026-07-01T09:00:00Z',
     ...overrides,
   }

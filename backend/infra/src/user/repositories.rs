@@ -20,6 +20,23 @@ pub struct PostgresUserRepository {
     db: Arc<DatabaseConnection>,
 }
 
+/// Detect the `account_realm_id_phone_index` unique violation (SQLSTATE
+/// 23505) behind `set_user_phone`. Detection mirrors the legal repository's
+/// helper (sea-orm 1.1 surfaces it as Query/Exec wrapping the sqlx error).
+fn is_phone_unique_violation(err: &sea_orm::DbErr) -> bool {
+    let runtime = match err {
+        sea_orm::DbErr::Query(r) | sea_orm::DbErr::Exec(r) | sea_orm::DbErr::Conn(r) => r,
+        _ => return false,
+    };
+    match runtime {
+        sea_orm::RuntimeErr::SqlxError(sqlx::error::Error::Database(db)) => db
+            .try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+            .map(|pg| pg.code() == "23505")
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 impl PostgresUserRepository {
     pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
@@ -52,6 +69,7 @@ impl PostgresUserRepository {
             password_hash: model.password.clone(),
             provider_ids: model.provider_ids.clone(),
             status: UserStatus::from(model.status),
+            phone: model.phone.clone(),
             created_at: model.created_at.into(),
             updated_at: model.updated_at.into(),
         }
@@ -84,6 +102,7 @@ impl UserRepository for PostgresUserRepository {
             email: sea_orm::Set(request.email),
             username: sea_orm::Set(None), // Explicitly set username to None
             password: sea_orm::Set(password_hash),
+            phone: sea_orm::Set(None),
             provider_ids: sea_orm::Set(request.provider_ids.unwrap_or_default()),
             status: sea_orm::Set(UserStatus::WaitVerified.into()),
             deleted_original_email_hash: sea_orm::Set(None),
@@ -129,27 +148,95 @@ impl UserRepository for PostgresUserRepository {
         Ok(Self::to_domain_user(&result, None))
     }
 
-    async fn get_user_by_email_or_username(
+    async fn get_user_by_login_identifier(
         &self,
         realm_id: &str,
         email: Option<String>,
+        phone: Option<String>,
         username: Option<String>,
     ) -> Result<Option<(Uuid, Option<String>, i16)>, CoreError> {
-        let mut query = account::Entity::find().filter(account::Column::RealmId.eq(realm_id));
-
-        // Add email or username filter
-        if let Some(email) = email {
-            query = query.filter(account::Column::Email.eq(email));
-        } else if let Some(username) = username {
-            query = query.filter(account::Column::Username.eq(username));
-        } else {
-            // Neither email nor username provided
+        use sea_orm::{ConnectionTrait, Statement};
+        if email.is_none() && phone.is_none() && username.is_none() {
             return Ok(None);
         }
+        // Ordered email → phone → username priority in a single SQL round
+        // trip. Deleted(3) rows are excluded — for
+        // those the password is already NULL (anonymization), so the visible
+        // behavior (burn + NotFound) is unchanged while the phone branch
+        // never resurrects an anonymized identifier.
+        let row = self
+            .db
+            .query_one(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                r#"
+                SELECT id, password, status FROM account
+                WHERE realm_id = $1 AND status <> 3
+                  AND (($2::text IS NOT NULL AND email = $2)
+                    OR ($3::text IS NOT NULL AND phone = $3)
+                    OR ($4::text IS NOT NULL AND username = $4))
+                ORDER BY CASE WHEN $2::text IS NOT NULL AND email = $2 THEN 1
+                              WHEN $3::text IS NOT NULL AND phone = $3 THEN 2
+                              ELSE 3 END
+                LIMIT 1
+                "#,
+                [realm_id.into(), email.into(), phone.into(), username.into()],
+            ))
+            .await?;
+        row.map(|r| {
+            let id: Uuid = r.try_get("", "id")?;
+            let password: Option<String> = r.try_get("", "password")?;
+            let status: i16 = r.try_get("", "status")?;
+            Ok((id, password, status))
+        })
+        .transpose()
+    }
 
-        let result = query.one(&*self.db).await?;
+    async fn get_user_by_phone(
+        &self,
+        realm_id: &str,
+        phone: &str,
+    ) -> Result<Option<User>, CoreError> {
+        let result = account::Entity::find()
+            .filter(account::Column::RealmId.eq(realm_id))
+            .filter(account::Column::Phone.eq(phone))
+            .one(&*self.db)
+            .await?;
 
-        Ok(result.map(|model| (model.id, model.password, model.status)))
+        Ok(result.map(|model| Self::to_domain_user(&model, None)))
+    }
+
+    async fn set_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        phone: Option<String>,
+    ) -> Result<(), CoreError> {
+        // Single-statement write (same shape as the admin repository's
+        // `update_user_phone`): no read-back — callers needing the prior
+        // binding read it before calling.
+        let update = account::ActiveModel {
+            phone: sea_orm::Set(phone),
+            updated_at: sea_orm::Set(chrono::Utc::now().into()),
+            ..Default::default()
+        };
+        let result = account::Entity::update_many()
+            .set(update)
+            .filter(account::Column::RealmId.eq(realm_id))
+            .filter(account::Column::Id.eq(user_id))
+            .exec(&*self.db)
+            .await;
+
+        match result {
+            Ok(res) if res.rows_affected == 0 => Err(CoreError::NotFound),
+            Ok(_) => Ok(()),
+            // Final-consistency guard behind the handler-side 409 pre-check:
+            // two concurrent binds of the same normalized phone race past the
+            // pre-check and the partial unique index serializes them here.
+            Err(e) if is_phone_unique_violation(&e) => Err(CoreError::Conflict(
+                "Phone number is already in use".to_string(),
+            )),
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn find_deleted_user_by_email_hash(
@@ -209,6 +296,7 @@ impl UserRepository for PostgresUserRepository {
         page_size: u64,
         email: Option<String>,
         status: Option<i16>,
+        phone: Option<String>,
     ) -> Result<(Vec<User>, i64), CoreError> {
         let page = page.max(1);
         let page_size = page_size.min(100);
@@ -222,6 +310,12 @@ impl UserRepository for PostgresUserRepository {
         }
         if let Some(status) = status {
             query = query.filter(account::Column::Status.eq(status));
+        }
+        // Phone search is an exact match on the normalized E.164 form (the
+        // caller normalizes the input); unlike email there is no partial
+        // match because masked prefixes would be worthless discriminators.
+        if let Some(phone_filter) = phone {
+            query = query.filter(account::Column::Phone.eq(phone_filter));
         }
 
         let total = query.clone().count(&*self.db).await?;
@@ -338,6 +432,10 @@ impl UserRepository for PostgresUserRepository {
         acc_model.email = Set(anonymized_email);
         acc_model.password = Set(None);
         acc_model.username = Set(None);
+        // Phone login has no registration path, so
+        // unlike email no restore-hash is needed: NULL fully retires the
+        // identifier from every login entrance.
+        acc_model.phone = Set(None);
         acc_model.provider_ids = Set(Vec::new());
         acc_model.deleted_original_email_hash = Set(Some(email_hash));
         acc_model.updated_at = Set(now.into());

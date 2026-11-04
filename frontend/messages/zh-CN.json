@@ -803,7 +803,8 @@
     "all": "全部",
     "wait_verified": "待验证",
     "normal": "正常",
-    "forbidden": "禁止"
+    "forbidden": "禁止",
+    "deleted": "已删除"
   },
   "client_apps": {
     "page_title": "客户端应用",
@@ -1492,6 +1493,7 @@
     "invoice_source_all": "全部来源",
     "invoice_source_manual": "手动",
     "invoice_source_application": "应用",
+    "invoice_source_external": "外部同步",
     "invoice_search_placeholder": "搜索发票...",
     "invoice_detail_title": "发票 {number}",
     "invoice_detail_description": "发票详情和状态历史",
@@ -1781,6 +1783,7 @@
     "subscription_change_timeline": "变更时间线",
     "subscription_billing_period": "计费周期",
     "subscription_status_label_active": "活跃",
+    "subscription_status_label_pending": "待处理",
     "subscription_status_label_trialing": "试用中",
     "subscription_status_label_past_due": "逾期未付",
     "subscription_status_label_canceled": "已取消",

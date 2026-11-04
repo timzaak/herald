@@ -179,7 +179,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
     ) -> Result<PaymentAttempt, CoreError> {
         let now = chrono::Utc::now();
         let expires_at = now + chrono::Duration::hours(2);
-        let trigger = Self::trigger_for_billing_type(input.billing_type.clone());
+        let trigger = Self::trigger_for_billing_type(input.billing_type);
 
         // Atomically write the attempt row AND its rule/bucket snapshot in one
         // transaction. The snapshot is the contract for first fulfillment: a
@@ -382,7 +382,7 @@ impl PaymentAttemptRepository for PostgresPaymentAttemptRepository {
         attempt: PaymentAttempt,
         expected_status: PaymentAttemptStatus,
     ) -> Result<PaymentAttempt, CoreError> {
-        let target_status = attempt.status.clone();
+        let target_status = attempt.status;
         let result = sqlx::query(
             "UPDATE payment_attempts
              SET status = $1,

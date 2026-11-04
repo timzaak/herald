@@ -7,10 +7,6 @@ use crate::user::{
 use std::future::Future;
 use uuid::Uuid;
 
-// ============================================================================
-// Repository Ports (Traits)
-// ============================================================================
-
 #[cfg_attr(test, mockall::automock)]
 pub trait UserRepository: Send + Sync {
     fn create_user(
@@ -27,12 +23,33 @@ pub trait UserRepository: Send + Sync {
         email: &str,
     ) -> impl Future<Output = Result<User, CoreError>> + Send;
 
-    fn get_user_by_email_or_username(
+    /// Ordered login-identifier lookup: email → phone → username in one
+    /// prioritized SQL query. `phone` is the server-derived E.164 form; the
+    /// raw `username` stays as fallback so pure-numeric usernames still match.
+    fn get_user_by_login_identifier(
         &self,
         realm_id: &str,
         email: Option<String>,
+        phone: Option<String>,
         username: Option<String>,
     ) -> impl Future<Output = Result<Option<(Uuid, Option<String>, i16)>, CoreError>> + Send;
+
+    /// Look up a user by bound E.164 phone within a realm; `Ok(None)` when
+    /// no account in the realm holds that phone.
+    fn get_user_by_phone(
+        &self,
+        realm_id: &str,
+        phone: &str,
+    ) -> impl Future<Output = Result<Option<User>, CoreError>> + Send;
+
+    /// Set (bind/rebind) or clear (unbind) a user's phone; a same-realm
+    /// duplicate (partial unique index) maps to `CoreError::Conflict`.
+    fn set_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        phone: Option<String>,
+    ) -> impl Future<Output = Result<(), CoreError>> + Send;
 
     fn change_password(
         &self,
@@ -54,6 +71,7 @@ pub trait UserRepository: Send + Sync {
         page_size: u64,
         email: Option<String>,
         status: Option<i16>,
+        phone: Option<String>,
     ) -> impl Future<Output = Result<(Vec<User>, i64), CoreError>> + Send;
 
     fn update_user(
@@ -98,7 +116,9 @@ pub trait UserRepository: Send + Sync {
     ///   - `account`: `status = 4` (Deleted),
     ///     `email = "deleted+{id}@anonymized.local"` (derived from the account
     ///     id so it is unique within `(realm_id, email)`), `password = NULL`,
-    ///     `username = NULL`, `provider_ids = '{}'`,
+    ///     `username = NULL`, `phone = NULL` (NULL fully retires the
+    ///     identifier — no registration path, no restore hash needed),
+    ///     `provider_ids = '{}'`,
     ///     `deleted_original_email_hash = SHA-256(original_email)`.
     ///   - `profile`: `nickname = NULL` (no-op if the optional profile row is
     ///     absent — 0 rows affected is not an error).
@@ -153,10 +173,6 @@ pub trait UserVerificationRepository: Send + Sync {
     ) -> impl Future<Output = Result<(), CoreError>> + Send;
 }
 
-// ============================================================================
-// Service Ports (Traits)
-// ============================================================================
-
 #[cfg_attr(test, mockall::automock)]
 pub trait UserService: Send + Sync {
     fn create_user(
@@ -179,6 +195,7 @@ pub trait UserService: Send + Sync {
         page_size: u64,
         email: Option<String>,
         status: Option<i16>,
+        phone: Option<String>,
     ) -> impl Future<Output = Result<(Vec<User>, i64), CoreError>> + Send;
 
     fn update_user(

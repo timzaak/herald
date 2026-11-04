@@ -26,6 +26,42 @@ pub const OTP_SEND_EMAIL_RATE_LIMIT: (i64, usize) = (2, 60);
 pub const OTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
 pub const OTP_VERIFY_EMAIL_RATE_LIMIT: (i64, usize) = (5, 60);
 
+/// Max attempts before an SMS code is invalidated; snapshotted into the
+/// stored OTP payload at write time.
+pub const SMS_OTP_MAX_ATTEMPTS: i64 = 5;
+/// TTL (seconds) of a stored SMS OTP code, shared by the login, bind and
+/// admin-rebind code families.
+pub const SMS_OTP_CODE_TTL_SECONDS: u64 = 300;
+// Rate limits: (max_requests, window_seconds). SMS has direct monetary cost,
+// so send budgets are tighter than the email family.
+/// Per-IP login-code send; tighter than email (10,60) because each request
+/// can mint a paid SMS.
+pub const SMS_OTP_SEND_IP_RATE_LIMIT: (i64, usize) = (5, 60);
+/// Per-phone login-code send; doubles as the unified per-(realm, phone)
+/// budget applied to `unified_sms_budget_key` across ALL send paths — the
+/// platform-level monetary cost bound.
+pub const SMS_OTP_SEND_PHONE_RATE_LIMIT: (i64, usize) = (1, 60);
+/// Verify has no monetary cost, so it matches the email family.
+pub const SMS_OTP_VERIFY_IP_RATE_LIMIT: (i64, usize) = (10, 60);
+pub const SMS_OTP_VERIFY_PHONE_RATE_LIMIT: (i64, usize) = (5, 60);
+pub const SMS_BIND_SEND_IP_RATE_LIMIT: (i64, usize) = (5, 60);
+pub const SMS_BIND_CONFIRM_IP_RATE_LIMIT: (i64, usize) = (10, 60);
+pub const SMS_ADMIN_REBIND_SEND_IP_RATE_LIMIT: (i64, usize) = (5, 60);
+/// Confirm paths need a per-request throttle beyond the attempt counter;
+/// without one, code guessing is bounded only by the resend budget.
+pub const SMS_ADMIN_REBIND_CONFIRM_IP_RATE_LIMIT: (i64, usize) = (10, 60);
+/// Admin test-SMS budget. Email test is 3/60; SMS has direct cost → 1/60.
+pub const SMS_TEST_SEND_USER_RATE_LIMIT: (i64, usize) = (1, 60);
+/// Applied before parsing: the raw value lands in Redis rate-limit keys, so
+/// unbounded input is a keyspace-DoS vector.
+pub const PHONE_INPUT_MAX_LEN: usize = 32;
+
+/// Shared by ALL send paths: an inline `format!` drifting from this format
+/// silently splits the platform-level cost bound.
+pub fn unified_sms_budget_key(realm_id: &str, e164: &str) -> String {
+    format!("rl:sms:send:realm:{realm_id}:phone:{e164}")
+}
+
 // --- Rate limits: (max_requests, window_seconds) ---
 /// Per-IP ceiling for the login entrances (password / LDAP / passkey).
 /// Matches the 30/min family of the other unauthenticated entrances
@@ -221,6 +257,40 @@ mod tests {
         assert_eq!(REGISTER_IP_RATE_LIMIT, (10, 60));
         assert_eq!(OTP_SEND_IP_RATE_LIMIT, (10, 60));
         assert_eq!(PASSKEY_USER_RATE_LIMIT, (5, 60));
+    }
+
+    // WHY: every SMS send has direct monetary cost — budgets are tighter
+    // than email, and the per-(realm, phone) limit is the platform-level
+    // cost bound. Loosening any reopens SMS-bombing / billing exposure
+    // with no failing test.
+    #[test]
+    fn sms_rate_limits_keep_reviewed_thresholds() {
+        assert_eq!(SMS_OTP_SEND_IP_RATE_LIMIT, (5, 60));
+        // The per-phone limit doubles as the unified cross-path budget.
+        assert_eq!(SMS_OTP_SEND_PHONE_RATE_LIMIT, (1, 60));
+        assert_eq!(SMS_OTP_MAX_ATTEMPTS, 5);
+        assert_eq!(SMS_OTP_CODE_TTL_SECONDS, 300);
+        assert_eq!(SMS_TEST_SEND_USER_RATE_LIMIT, (1, 60));
+        assert_eq!(SMS_BIND_SEND_IP_RATE_LIMIT, (5, 60));
+        assert_eq!(SMS_BIND_CONFIRM_IP_RATE_LIMIT, (10, 60));
+        assert_eq!(SMS_ADMIN_REBIND_SEND_IP_RATE_LIMIT, (5, 60));
+        assert_eq!(SMS_ADMIN_REBIND_CONFIRM_IP_RATE_LIMIT, (10, 60));
+        assert_eq!(PHONE_INPUT_MAX_LEN, 32);
+    }
+
+    // WHY: the unified budget only holds while every send path addresses the
+    // SAME key — this format is the contract across four handlers in three
+    // crates; a change must be conscious, not a silent budget split.
+    #[test]
+    fn unified_sms_budget_key_is_realm_and_phone_scoped() {
+        assert_eq!(
+            unified_sms_budget_key("r1", "+8613800138000"),
+            "rl:sms:send:realm:r1:phone:+8613800138000"
+        );
+        assert_ne!(
+            unified_sms_budget_key("r1", "+8613800138000"),
+            unified_sms_budget_key("r2", "+8613800138000")
+        );
     }
 
     // WHY: the id_token TTL and the key retention window are protocol-facing

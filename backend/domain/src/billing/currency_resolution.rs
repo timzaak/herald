@@ -120,7 +120,7 @@ pub fn resolve_price_row(
                 payment_provider: m.payment_provider.clone(),
                 currency: wanted,
                 amount,
-                billing_type: m.billing_type.clone(),
+                billing_type: m.billing_type,
                 billing_period: m.billing_period.clone(),
                 external_price_id: m.external_price_id.clone(),
             })

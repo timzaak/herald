@@ -34,6 +34,9 @@ pub enum CredentialScope {
     DeleteAccount,
     TotpManage,
     PasskeyManage,
+    /// Deliberately not granted to CustomUserUi (third-party portal)
+    /// credentials: phone management is first-party-browser-session-only.
+    PhoneManage,
     Logout,
     PointsRead,
     PointsTransactionsRead,
@@ -308,6 +311,7 @@ mod tests {
             status: crate::user::entities::UserStatus::Normal,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            phone: None,
         };
 
         let identity = Identity::User(user);

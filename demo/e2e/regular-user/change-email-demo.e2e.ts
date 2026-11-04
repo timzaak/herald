@@ -138,7 +138,7 @@ test.describe('[Regular User] Change Email Demo Tests', () => {
         email,
         password: USER_PASSWORD,
         nickname: email.split('@')[0],
-        status: 1, // Active
+        status: 'normal', // Active
         roleIds: [],
       },
     })

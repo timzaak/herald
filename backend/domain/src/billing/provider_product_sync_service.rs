@@ -215,7 +215,7 @@ where
                         .billing_type
                         .as_deref()
                         .and_then(|s: &str| s.parse().ok())
-                        .or_else(|| existing.as_ref().and_then(|m| m.billing_type.clone())),
+                        .or_else(|| existing.as_ref().and_then(|m| m.billing_type)),
                     billing_period: price.billing_period.clone(),
                     // Provider product sync never carries a service-period
                     // length (non_renewing duration is an admin-configured

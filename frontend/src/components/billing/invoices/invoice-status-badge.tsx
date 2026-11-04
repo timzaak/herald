@@ -1,3 +1,4 @@
+import type { InvoiceStatus } from '@/lib/api-generated'
 import { Badge } from '@/components/ui/badge'
 import {
   getInvoiceStatusLabel,
@@ -7,7 +8,7 @@ import {
 } from '@/lib/invoice-utils'
 
 interface InvoiceStatusBadgeProps {
-  status: string
+  status: InvoiceStatus
   provider?: string
 }
 
@@ -30,7 +31,7 @@ export function InvoiceStatusBadge({ status, provider }: InvoiceStatusBadgeProps
   return statusBadgeEl
 }
 
-function getStatusBadge(status: string, label: string) {
+function getStatusBadge(status: InvoiceStatus, label: string) {
   if (status === 'paid') {
     return (
       <Badge className="border-transparent bg-success text-white shadow hover:bg-success/80">

@@ -36,7 +36,7 @@ function makeRow(overrides: Partial<UserResponse> = {}): UserResponse {
     id: 'u-1',
     email: 'alice@example.com',
     nickname: 'Alice',
-    status: 1,
+    status: 'normal',
     realmId: 'r1',
     createdAt: '2026-07-01T09:00:00Z',
     ...overrides,

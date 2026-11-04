@@ -270,7 +270,7 @@ async function ensureTargetUser(
       email,
       password,
       nickname: email.split('@')[0],
-      status: 1, // Normal
+      status: 'normal',
       roleIds: [roleId],
     },
     headers: { 'content-type': 'application/json' },

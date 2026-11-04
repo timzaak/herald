@@ -3,6 +3,7 @@ pub mod delete;
 pub mod get;
 pub mod list;
 pub mod permissions;
+pub mod phone;
 pub mod reset_password;
 pub mod roles;
 pub mod sessions;
@@ -20,6 +21,9 @@ pub use create::__path_create_user;
 pub use delete::__path_delete_user;
 pub use get::__path_get_user;
 pub use list::__path_list_users;
+pub use phone::__path_admin_user_phone_rebind_confirm;
+pub use phone::__path_admin_user_phone_rebind_send;
+pub use phone::__path_admin_user_phone_unbind;
 pub use reset_password::__path_reset_user_password;
 pub use sessions::__path_list_user_sessions;
 pub use sessions::__path_revoke_all_user_sessions;
@@ -60,5 +64,15 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{userId}/sessions/{familyId}",
             delete(sessions::revoke_user_session),
+        )
+        // Phone disposition (phone login, US-PL-005)
+        .route("/{userId}/phone", delete(phone::admin_user_phone_unbind))
+        .route(
+            "/{userId}/phone/rebind/send",
+            post(phone::admin_user_phone_rebind_send),
+        )
+        .route(
+            "/{userId}/phone/rebind/confirm",
+            post(phone::admin_user_phone_rebind_confirm),
         )
 }

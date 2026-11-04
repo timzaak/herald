@@ -86,7 +86,7 @@ impl std::str::FromStr for PurchasableTarget {
 ///
 /// Note: `Succeeded -> Failed` is allowed ONLY via `mark_failed_for_async_recovery` for async payment
 /// recovery (eager strategy). The general `can_transition_to` method does NOT allow this transition.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum PaymentAttemptStatus {
     Pending,

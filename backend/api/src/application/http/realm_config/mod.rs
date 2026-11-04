@@ -17,9 +17,12 @@ use validator::Validate;
 use crate::application::http::server::api_entities::{ApiError, ErrorResponse};
 use crate::application::http::state::AppState;
 use herald_api_base::application::http::auth::util::is_email_configured;
-use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::auth::util::{
+    ClientIp, is_phone_login_enabled, is_sms_configured, load_phone_login_settings,
+    map_sms_send_error, mask_phone, normalize_phone, user_agent_from_headers,
+};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
-use herald_api_base::application::http::rate_limit::rate_limit_hit_forced;
+use herald_api_base::application::http::rate_limit::{rate_limit_hit, rate_limit_hit_forced};
 use herald_core::domain::authorization::PermissionService;
 use herald_core::domain::billing::ACCESS_GRANTING_SUBSCRIPTION_STATUSES_SQL;
 use herald_core::domain::realm::ADMIN_REALM_ID;
@@ -27,7 +30,11 @@ use herald_core::domain::realm_config::{
     BatchUpsertRealmConfigRequest, ConfigType, RealmConfig, RealmConfigService,
     UpsertRealmConfigRequest,
 };
+use herald_core::domain::security_constants::{
+    SMS_OTP_SEND_PHONE_RATE_LIMIT, SMS_TEST_SEND_USER_RATE_LIMIT, unified_sms_budget_key,
+};
 use herald_core::third::email::EmailService;
+use herald_core::third::sms::SmsService;
 
 fn parse_config_type(value: String) -> Result<ConfigType, ApiError> {
     ConfigType::try_from_str(&value).map_err(ApiError::bad_request)
@@ -60,6 +67,17 @@ fn reject_white_label_config(config_type: &ConfigType) -> Result<(), ApiError> {
     if matches!(config_type, ConfigType::WhiteLabel) {
         return Err(ApiError::bad_request(
             "white_label configuration must be managed through the white-label endpoints",
+        ));
+    }
+    Ok(())
+}
+
+/// A `phone_login` row written here would bypass the dedicated phone-login
+/// endpoint's write-time gates (fail-closed enable, country-code validation).
+fn reject_phone_login_config(config_type: &ConfigType) -> Result<(), ApiError> {
+    if matches!(config_type, ConfigType::PhoneLogin) {
+        return Err(ApiError::bad_request(
+            "phone_login configuration must be managed through the phone-login endpoint",
         ));
     }
     Ok(())
@@ -114,15 +132,15 @@ fn is_empty_secret_to_preserve(
         // LDAP service-account password: an empty submit preserves the
         // stored secret, same admin-edit UX as the payment providers.
         ConfigType::Ldap => config_key == "bind_password",
+        ConfigType::Sms => matches!(config_key, "aliyun_access_key_secret" | "twilio_auth_token"),
         _ => false,
     };
     if !is_preservable_secret {
         return None;
     }
     match config_type {
-        // LDAP is not a payment provider; its own config_type string is the
-        // reload key for preserving the stored secret row.
-        ConfigType::Ldap => Some(config_type.as_static_str()),
+        // LDAP/SMS are not payment providers; their own config_type string is the reload key.
+        ConfigType::Ldap | ConfigType::Sms => Some(config_type.as_static_str()),
         _ => provider_string_for_config_type(config_type),
     }
 }
@@ -143,7 +161,8 @@ fn provider_string_for_config_type(config_type: &ConfigType) -> Option<&'static 
 
 /// Provider endpoint overrides exist for local wiremock-based tests only.
 /// Accepting one from a tenant in production would turn payment operations
-/// and reconciliation workers into an authenticated SSRF primitive.
+/// and reconciliation workers into an authenticated SSRF primitive. The SMS
+/// channel carries the same SSRF hazard, so it joins the production ban.
 fn reject_production_provider_base_url(
     app_env: &str,
     config_type: &ConfigType,
@@ -158,10 +177,11 @@ fn reject_production_provider_base_url(
                 | ConfigType::Apple
                 | ConfigType::Google
                 | ConfigType::Wechat
+                | ConfigType::Sms
         )
     {
         return Err(ApiError::bad_request(
-            "Payment provider base_url overrides are disabled in production",
+            "Provider base_url overrides are disabled in production",
         ));
     }
     Ok(())
@@ -184,6 +204,7 @@ fn is_sensitive_config_key(config_type: &ConfigType, config_key: &str) -> bool {
         ConfigType::Wechat => matches!(config_key, "private_key" | "v3_key"),
         ConfigType::Turnstile => config_key == "secret_key",
         ConfigType::Email => matches!(config_key, "resend_api_key" | "smtp_password"),
+        ConfigType::Sms => matches!(config_key, "aliyun_access_key_secret" | "twilio_auth_token"),
         // LDAP service-account password is always masked on read, even if a
         // caller clears the client-side is_secret flag.
         ConfigType::Ldap => config_key == "bind_password",
@@ -246,6 +267,25 @@ async fn validate_email_verification_prerequisite(
     Ok(())
 }
 
+/// Reject unknown SMS `provider` values: the channel would read as
+/// configured while every send fails at dispatch.
+fn validate_sms_config_row(
+    config_type: &ConfigType,
+    config_key: &str,
+    config_value: &str,
+) -> Result<(), ApiError> {
+    if *config_type != ConfigType::Sms || config_key != "provider" {
+        return Ok(());
+    }
+    if matches!(config_value, "aliyun" | "twilio") {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "SMS provider must be 'aliyun' or 'twilio'",
+        ))
+    }
+}
+
 /// Block deletion of a payment provider's configuration while that provider
 /// has active subscriptions in the realm.
 ///
@@ -257,6 +297,14 @@ async fn ensure_provider_config_deletable(
     realm_id: &str,
     config_type: &ConfigType,
 ) -> Result<(), ApiError> {
+    // Deleting the SMS channel under a live phone-login switch would
+    // dead-end every send; the PUT gate only blocks the reverse order.
+    if *config_type == ConfigType::Sms && is_phone_login_enabled(state, realm_id).await? {
+        return Err(ApiError::bad_request(
+            "Cannot delete SMS configuration while phone login is enabled".to_string(),
+        ));
+    }
+
     let Some(provider) = provider_string_for_config_type(config_type) else {
         // Non-payment config type: no active-subscription guard applies.
         return Ok(());
@@ -447,6 +495,28 @@ pub struct EmailTestRequest {
 pub struct EmailTestResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SmsStatusResponse {
+    pub configured: bool,
+    pub provider: Option<String>,
+    pub missing_fields: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct SmsTestRequest {
+    #[validate(length(min = 1, max = 32))]
+    pub phone: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SmsTestResponse {
+    pub message: String,
+    pub masked_phone: String,
 }
 
 fn to_response(config: RealmConfig) -> RealmConfigResponse {
@@ -670,6 +740,7 @@ pub async fn upsert_realm_config(
     reject_non_admin_platform_signup(&realm_id, &config_type)?;
     reject_custom_domain_config(&config_type)?;
     reject_white_label_config(&config_type)?;
+    reject_phone_login_config(&config_type)?;
     reject_production_provider_base_url(&state.app_env, &config_type, &payload.config_key)?;
     if let Some(provider_type) =
         is_empty_secret_to_preserve(&config_type, &payload.config_key, &payload.config_value)
@@ -717,6 +788,11 @@ pub async fn upsert_realm_config(
     // LDAP settings row: shape/encryption-channel validation before persisting
     // (admin surface, so field-specific 400 messages are intended).
     validate_ldap_settings_row(
+        &request.config_type,
+        &request.config_key,
+        &request.config_value,
+    )?;
+    validate_sms_config_row(
         &request.config_type,
         &request.config_key,
         &request.config_value,
@@ -822,6 +898,7 @@ pub async fn batch_upsert_realm_configs(
         reject_non_admin_platform_signup(&realm_id, &config_type)?;
         reject_custom_domain_config(&config_type)?;
         reject_white_label_config(&config_type)?;
+        reject_phone_login_config(&config_type)?;
         reject_production_provider_base_url(&state.app_env, &config_type, &r.config_key)?;
         if let Some(provider_type) =
             is_empty_secret_to_preserve(&config_type, &r.config_key, &r.config_value)
@@ -871,6 +948,7 @@ pub async fn batch_upsert_realm_configs(
     // (same rules as the single upsert path).
     for r in &requests {
         validate_ldap_settings_row(&r.config_type, &r.config_key, &r.config_value)?;
+        validate_sms_config_row(&r.config_type, &r.config_key, &r.config_value)?;
     }
 
     for (index, req) in requests.iter().enumerate() {
@@ -1214,6 +1292,117 @@ pub async fn email_test(
     }
 }
 
+/// Mirrors `email_status`: reports the selected provider and missing required
+/// fields; drives the console's fail-closed switch state.
+#[utoipa::path(
+    get,
+    path = "/api/configs/sms/status",
+    operation_id = "sms_status",
+    tag = "realm_config",
+    responses(
+        (status = 200, description = "SMS configuration status", body = SmsStatusResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Server error", body = ErrorResponse)
+    )
+)]
+pub async fn sms_status(
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+) -> Result<Json<SmsStatusResponse>, ApiError> {
+    let admin = AdminIdentity::require(identity, "sms status")?;
+    admin.require_permission(&state, "settings", "view").await?;
+    let realm_id = admin.realm_id().to_string();
+
+    let status = SmsService::config_status(&state.pool, &realm_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to check SMS config: {e}");
+            ApiError::internal("Failed to check SMS config")
+        })?;
+
+    Ok(Json(SmsStatusResponse {
+        configured: status.configured,
+        provider: status.provider,
+        missing_fields: status.missing_fields,
+    }))
+}
+
+/// Sends a real login-path code (no cheaper empty test template: SMS has
+/// direct monetary cost); budget 1/min per admin plus the unified
+/// per-(realm, phone) cap.
+#[utoipa::path(
+    post,
+    path = "/api/configs/sms/test",
+    operation_id = "sms_test",
+    tag = "realm_config",
+    request_body = SmsTestRequest,
+    responses(
+        (status = 200, description = "Test SMS sent", body = SmsTestResponse),
+        (status = 400, description = "SMS channel not configured / invalid phone", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 429, description = "Too many requests", body = ErrorResponse),
+        (status = 500, description = "Server error", body = ErrorResponse),
+        (status = 502, description = "SMS upstream send failed", body = ErrorResponse)
+    )
+)]
+pub async fn sms_test(
+    State(state): State<AppState>,
+    Extension(identity): Extension<Identity>,
+    ClientIp(_ip): ClientIp,
+    Json(payload): Json<SmsTestRequest>,
+) -> Result<Json<SmsTestResponse>, ApiError> {
+    let admin = AdminIdentity::require(identity, "sms test")?;
+    admin
+        .require_permission(&state, "settings", "manage")
+        .await?;
+    let realm_id = admin.realm_id().to_string();
+
+    payload
+        .validate()
+        .map_err(|e| ApiError::bad_request(format!("Invalid phone: {e}")))?;
+
+    let settings = load_phone_login_settings(&state, &realm_id).await?;
+    let e164 = normalize_phone(&payload.phone, &settings.default_country_code)
+        .ok_or_else(|| ApiError::bad_request("Invalid phone number"))?;
+
+    if !is_sms_configured(&state, &realm_id).await? {
+        return Err(ApiError::bad_request(
+            "SMS channel is not configured for this realm".to_string(),
+        ));
+    }
+
+    // Forced limiter sits after validation so a free 400 does not burn the
+    // admin's 1/min test budget.
+    rate_limit_hit_forced(
+        &state,
+        format!("rl:sms:test:{realm_id}:{}", admin.user_id_string()),
+        SMS_TEST_SEND_USER_RATE_LIMIT.0,
+        SMS_TEST_SEND_USER_RATE_LIMIT.1,
+    )
+    .await?;
+
+    // The test path shares the unified per-(realm, phone) monetary cost bound.
+    rate_limit_hit(
+        &state,
+        unified_sms_budget_key(&realm_id, &e164),
+        SMS_OTP_SEND_PHONE_RATE_LIMIT.0,
+        SMS_OTP_SEND_PHONE_RATE_LIMIT.1,
+    )
+    .await?;
+
+    let code = herald_core::third::sms::generate_sms_code();
+    SmsService::send_otp(&state.pool, &realm_id, &e164, &code)
+        .await
+        .map_err(map_sms_send_error)?;
+
+    Ok(Json(SmsTestResponse {
+        message: "Test SMS sent".to_string(),
+        masked_phone: mask_phone(&e164).unwrap_or_else(|| "****".to_string()),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1271,6 +1460,7 @@ mod tests {
             ConfigType::Apple,
             ConfigType::Google,
             ConfigType::Wechat,
+            ConfigType::Sms,
         ] {
             assert!(
                 reject_production_provider_base_url("production", &provider, "base_url").is_err()

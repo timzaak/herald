@@ -89,10 +89,7 @@ function createInvoiceColumns(
       accessorKey: 'status',
       header: m['common.status'](),
       cell: ({ row }) => (
-        <InvoiceStatusBadge
-          status={row.getValue('status') as string}
-          provider={row.original.provider}
-        />
+        <InvoiceStatusBadge status={row.original.status} provider={row.original.provider} />
       ),
     },
     {

@@ -1,6 +1,3 @@
-// =============================================================================
-// Admin User Terminal-State / Cross-Realm Protection Scenario Tests
-// =============================================================================
 //
 // End-to-end HTTP scenario tests for the admin user-management guards:
 //   PUT  /api/users/{userId}                 (edit)
@@ -25,7 +22,6 @@
 //     with the ext user-creation and self-service change-email faces
 //     (users.md §4.1: 邮箱冲突返回 409).
 //
-// =============================================================================
 
 use crate::tests::helpers::*;
 use crate::tests::response_json;
@@ -38,10 +34,6 @@ use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
-
-// =============================================================================
-// Local helpers
-// =============================================================================
 
 /// Seed an account row directly with the given status (0..=3), bypassing the
 /// admin update endpoint. Self-delete is the only legal producer of status=3
@@ -158,17 +150,11 @@ async fn post_create_user(
     app.oneshot(req).await.unwrap()
 }
 
-// =============================================================================
-// Deleted(3) terminal state — admin edit guard
-// =============================================================================
-
-/// ============================================================================
 /// WHY: users.md §4.2 marks Deleted(3) as the anonymizing terminal state
 ///      (不可恢复). Before the guard, PUT could flip a Deleted tombstone back
 ///      to Normal(1)/Forbidden(2) or edit its nickname — breaking the state
 ///      machine invariant and the compliance record. Both edit shapes must be
 ///      refused with 409 and the stored status must stay 3.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_deleted_user_returns_409_and_tombstone_unchanged(ctx: &mut TestContext) {
@@ -183,7 +169,7 @@ async fn test_update_deleted_user_returns_409_and_tombstone_unchanged(ctx: &mut 
         ctx,
         &admin_token,
         user_id,
-        json!({ "status": 1, "nickname": "revived" }),
+        json!({ "status": "normal", "nickname": "revived" }),
     )
     .await;
     assert_eq!(
@@ -215,11 +201,9 @@ async fn test_update_deleted_user_returns_409_and_tombstone_unchanged(ctx: &mut 
     );
 }
 
-/// ============================================================================
 /// WHY: the Deleted guard is a terminal-state guard, not a blanket edit ban —
 ///      routine admin edits of Normal(1) users (enable/disable, nickname) are
 ///      the module's primary function and must keep working.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_normal_user_returns_200(ctx: &mut TestContext) {
@@ -245,12 +229,10 @@ async fn test_update_normal_user_returns_200(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// WHY: an admin password reset writes a fresh credential hash onto the
 ///      account row. On a Deleted tombstone (whose own credentials were
 ///      destroyed by anonymization) that is the strongest revival vector —
 ///      the account would become login-capable again.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_reset_password_deleted_user_returns_409(ctx: &mut TestContext) {
@@ -276,11 +258,9 @@ async fn test_reset_password_deleted_user_returns_409(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// WHY: role assignment (users-module PUT replace) rewrites the target's
 ///      user_roles rows. On a Deleted tombstone that mutates the compliance
 ///      record and dresses the shell with privileges.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_roles_deleted_user_returns_409(ctx: &mut TestContext) {
@@ -308,18 +288,12 @@ async fn test_update_roles_deleted_user_returns_409(ctx: &mut TestContext) {
     assert_eq!(assigned, 0, "no role row may be written for a Deleted user");
 }
 
-// =============================================================================
-// Cross-realm GET — id-oracle convention
-// =============================================================================
-
-/// ============================================================================
 /// WHY: the module's require_target_user_in_realm helper deliberately returns
 ///      UserNotFound for a wrong-realm target so a foreign id is
 ///      indistinguishable from a missing one (no id oracle). GET used to map
 ///      the same case to 403, leaking "this id exists in another realm". It
 ///      must 404 like its sibling write paths; an in-realm target must keep
 ///      returning 200 with the full detail payload.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_get_user_cross_realm_returns_404_in_realm_returns_200(ctx: &mut TestContext) {
@@ -342,14 +316,13 @@ async fn test_get_user_cross_realm_returns_404_in_realm_returns_200(ctx: &mut Te
     assert_eq!(resp.status(), StatusCode::OK, "in-realm GET must succeed");
     let body: serde_json::Value = response_json(resp).await;
     assert_eq!(body["email"].as_str(), Some(local_email.as_str()));
-    assert_eq!(body["status"].as_i64(), Some(1));
+    assert_eq!(body["status"].as_str(), Some("normal"));
     assert!(
         body["providerIds"].is_array(),
         "in-realm detail payload must still include providerIds"
     );
 }
 
-/// ============================================================================
 /// WHY: PUT roles' error mapping dropped UserNotFound into the catch-all 500
 ///      arm, so a missing or cross-realm target id — the exact id-oracle case
 ///      every sibling face maps to 404 and this endpoint's own OpenAPI
@@ -357,7 +330,6 @@ async fn test_get_user_cross_realm_returns_404_in_realm_returns_200(ctx: &mut Te
 ///      client addressing error is wrong on both ends: it breaks the uniform
 ///      404 convention (no id oracle across realms) and pollutes 5xx
 ///      monitoring with a 4xx-class condition.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_roles_missing_or_cross_realm_user_returns_404(ctx: &mut TestContext) {
@@ -385,17 +357,11 @@ async fn test_update_roles_missing_or_cross_realm_user_returns_404(ctx: &mut Tes
     );
 }
 
-// =============================================================================
-// Duplicate email on admin create — 409 unification
-// =============================================================================
-
-/// ============================================================================
 /// WHY: the same duplicate-email condition used to be a 400 on the admin
 ///      face while the ext face and self-service change-email already
 ///      returned 409 (users.md §4.1). One condition, one code: the second
 ///      create must 409 so API consumers can distinguish "conflict with an
 ///      existing account" from "malformed request".
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_create_user_duplicate_email_returns_409(ctx: &mut TestContext) {

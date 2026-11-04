@@ -27,10 +27,6 @@ use uuid::Uuid;
 
 use crate::authz::{require_principal_permission, require_realm_membership};
 
-// ============================================================================
-// Request DTOs
-// ============================================================================
-
 /// Request body for creating a user via the ext API
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -60,10 +56,6 @@ pub struct ListUsersExtQuery {
     pub page_size: Option<u64>,
 }
 
-// ============================================================================
-// Response DTOs
-// ============================================================================
-
 /// User info returned in responses
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +63,7 @@ pub struct UserInfoResponse {
     pub id: String,
     pub email: String,
     pub nickname: Option<String>,
-    pub status: i32,
+    pub status: herald_core::domain::user::UserStatus,
     pub created_at: String,
 }
 
@@ -84,10 +76,6 @@ pub struct UserListResponse {
     pub page_size: u64,
     pub total: i64,
 }
-
-// ============================================================================
-// Handlers
-// ============================================================================
 
 /// Create a new user in a realm
 ///
@@ -252,7 +240,15 @@ pub async fn list_users(
     match state
         .service
         .user_service()
-        .list_users(identity, realm_id.clone(), page, page_size, None, None)
+        .list_users(
+            identity,
+            realm_id.clone(),
+            page,
+            page_size,
+            None,
+            None,
+            None,
+        )
         .await
     {
         Ok((users, total)) => {
@@ -358,10 +354,6 @@ pub async fn get_user(
     }
 }
 
-// ============================================================================
-// Mappers
-// ============================================================================
-
 /// Map AdminUser (from admin service) to UserInfoResponse
 fn admin_user_to_response(
     user: herald_core::domain::user::admin_dtos::AdminUser,
@@ -370,7 +362,7 @@ fn admin_user_to_response(
         id: user.id.to_string(),
         email: user.email,
         nickname: user.nickname,
-        status: user.status,
+        status: herald_core::domain::user::UserStatus::from(user.status),
         created_at: user.created_at,
     }
 }
@@ -381,7 +373,7 @@ fn user_to_response(user: herald_core::domain::user::entities::User) -> UserInfo
         id: user.id.to_string(),
         email: user.email,
         nickname: user.nickname,
-        status: i16::from(user.status) as i32,
+        status: user.status,
         created_at: user.created_at.to_rfc3339(),
     }
 }

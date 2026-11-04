@@ -176,7 +176,7 @@ export function CreateEntitlementMappingPage({
       paymentProvider: v.paymentProvider,
       externalProductId: v.externalProductId,
       entitlementKey: v.entitlementKey,
-      billingType: v.billingType,
+      billingType: v.billingType as 'recurring' | 'one_time' | 'non_renewing',
       // externalPriceId: optional; only catalog providers (Stripe/Creem) show it.
       externalPriceId: v.externalPriceId ? v.externalPriceId : null,
       billingPeriod: isRecurring ? (v.billingPeriod ?? null) : null,

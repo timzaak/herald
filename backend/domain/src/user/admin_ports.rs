@@ -20,10 +20,6 @@ type ApiKeyRoleSummaries = Vec<(String, Vec<(Uuid, String)>)>;
 use crate::audit::AuditContext;
 use crate::authentication::Identity;
 
-// ============================================================================
-// Payment-driven role grant outcomes
-// ============================================================================
-
 /// Outcome of an idempotent payment-driven role grant.
 ///
 /// Used by `UserRoleRepository::grant_role_by_payment`. The existence check is
@@ -50,10 +46,6 @@ pub enum RevokeRoleOutcome {
     /// No matching payment-granted rows existed for this `source_id`.
     NotFound,
 }
-
-// ============================================================================
-// Repository Ports
-// ============================================================================
 
 /// Repository for admin user operations
 pub trait AdminUserRepository: Send + Sync {
@@ -105,6 +97,23 @@ pub trait AdminUserRepository: Send + Sync {
         user_id: Uuid,
         password_hash: &str,
     ) -> impl Future<Output = UserAdminResult<bool>> + Send;
+
+    /// The user's bound E.164 phone (`None` = unbound); realm scoping is
+    /// enforced by the caller's target checks.
+    fn get_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> impl Future<Output = UserAdminResult<Option<String>>> + Send;
+
+    /// Set or clear the user's phone; a same-realm duplicate (partial unique
+    /// index) maps to [`UserAdminError::DuplicatePhone`].
+    fn update_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        phone: Option<&str>,
+    ) -> impl Future<Output = UserAdminResult<()>> + Send;
 }
 
 /// Repository for user role operations
@@ -283,10 +292,6 @@ pub trait RolePolicyRepository: Send + Sync {
     ) -> impl Future<Output = UserAdminResult<bool>> + Send;
 }
 
-// ============================================================================
-// Service Ports
-// ============================================================================
-
 /// Service for admin user management
 pub trait AdminUserService: Send + Sync {
     /// Create a new user with roles
@@ -347,6 +352,29 @@ pub trait AdminUserService: Send + Sync {
         realm_id: &str,
         user_id: Uuid,
     ) -> impl Future<Output = UserAdminResult<String>> + Send;
+
+    /// Admin-side phone unbind — not gated by the realm phone-login switch.
+    /// Audits `phone.admin_unbind` with the masked old number; no bound phone
+    /// ⇒ [`UserAdminError::InvalidOperation`].
+    fn unbind_user_phone(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> impl Future<Output = UserAdminResult<()>> + Send;
+
+    /// Write the already-SMS-verified new phone (pending state lives with the
+    /// handler) and audit `phone.admin_rebind` (masked old → new); concurrent
+    /// same-phone binds ⇒ [`UserAdminError::DuplicatePhone`].
+    fn rebind_user_phone(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        user_id: Uuid,
+        new_phone: &str,
+    ) -> impl Future<Output = UserAdminResult<()>> + Send;
 }
 
 /// Service for role assignment

@@ -32,13 +32,9 @@ pub struct SubscriptionResponse {
     /// Whether the app has an active subscription
     pub has_subscription: bool,
 
-    /// Subscription status
-    /// - "active": Subscription is active and paid
-    /// - "canceled": Subscription was canceled but still active until period end
-    /// - "expired": Subscription has expired
-    /// - "trialing": Free trial period
-    /// - "none": No subscription
-    pub status: String,
+    /// Subscription status; absent when `has_subscription == false`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<herald_core::domain::billing::entities::SubscriptionStatus>,
 
     /// Entitlement key for the subscription
     pub entitlement_key: String,
@@ -47,10 +43,11 @@ pub struct SubscriptionResponse {
     pub payment_provider: String,
 
     /// Billing type snapshot (`"recurring"` / `"non_renewing"`) when a
-    /// subscription exists; empty string when `has_subscription == false`.
+    /// subscription exists; absent when `has_subscription == false`.
     /// Lets third-party SDKs distinguish non-renewing subscriptions from
     /// `billingType`.
-    pub billing_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_type: Option<herald_core::domain::billing::entities::BillingType>,
 }
 
 /// Get subscription status for a client app
@@ -158,10 +155,10 @@ pub async fn get_subscription(
             SubscriptionResponse {
                 client_app_id: client_app_id.to_string(),
                 has_subscription: true,
-                status: sub.status.as_str().to_string(),
+                status: Some(sub.status),
                 entitlement_key: sub.entitlement_key.clone(),
                 payment_provider: sub.payment_provider.clone(),
-                billing_type: sub.billing_type.as_str().to_string(),
+                billing_type: Some(sub.billing_type),
             }
         }
         None => {
@@ -173,10 +170,10 @@ pub async fn get_subscription(
             SubscriptionResponse {
                 client_app_id: client_app_id.to_string(),
                 has_subscription: false,
-                status: "none".to_string(),
+                status: None,
                 entitlement_key: String::new(),
                 payment_provider: String::new(),
-                billing_type: String::new(),
+                billing_type: None,
             }
         }
     };

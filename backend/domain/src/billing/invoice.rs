@@ -11,11 +11,7 @@ use crate::common::entities::app_errors::CoreError;
 /// in the domain layer. The string must contain a valid decimal representation.
 pub type DecimalStr = String;
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum InvoiceStatus {
     Draft,
@@ -60,7 +56,7 @@ impl std::str::FromStr for InvoiceStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum InvoiceSource {
     AdminManual,
@@ -95,7 +91,7 @@ impl std::str::FromStr for InvoiceSource {
 }
 
 /// Invoice source provider — distinguishes self-managed from externally-synced invoices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum InvoiceProvider {
     Manual,
@@ -135,7 +131,7 @@ impl std::str::FromStr for InvoiceProvider {
 }
 
 /// Mode for discount / tax / shipping adjustments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AdjustmentMode {
     Fixed,
@@ -160,7 +156,7 @@ impl AdjustmentMode {
 }
 
 /// Who performed a history event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ActorType {
     User,
@@ -177,8 +173,10 @@ impl ActorType {
 }
 
 /// Invoice history event type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+// snake_case (not lowercase) so multi-word variants match as_str()/wire
+// ("credit_note_created", "credit_note_voided").
+#[serde(rename_all = "snake_case")]
 pub enum InvoiceEventType {
     Created,
     Updated,
@@ -206,10 +204,6 @@ impl InvoiceEventType {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Core entities
-// ---------------------------------------------------------------------------
 
 /// Seller configuration at realm level. Auto-fills seller fields on invoice creation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,10 +327,6 @@ pub struct InvoiceNumberCounter {
     pub updated_at: DateTime<Utc>,
 }
 
-// ---------------------------------------------------------------------------
-// Composite view types
-// ---------------------------------------------------------------------------
-
 /// Full invoice detail including line items and history, used for detail views and PDF generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoiceDetail {
@@ -370,10 +360,6 @@ pub struct InvoiceSummary {
     pub external_hosted_url: Option<String>,
     pub external_pdf_url: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Input / command types
-// ---------------------------------------------------------------------------
 
 /// Input for creating a new invoice (draft).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -561,10 +547,6 @@ pub struct ExternalInvoiceData {
     /// prior behavior via upsert COALESCE.
     pub payment_attempt_id: Option<Uuid>,
 }
-
-// ---------------------------------------------------------------------------
-// Traits (ports)
-// ---------------------------------------------------------------------------
 
 /// Repository for invoice persistence operations.
 #[allow(clippy::manual_async_fn)]

@@ -61,7 +61,7 @@ export function EditUserDialog({
     defaultValues: {
       email: user.email,
       nickname: user.nickname ?? '',
-      status: user.status,
+      status: user.status === 'normal' || user.status === 'forbidden' ? user.status : undefined,
     },
     onSubmit: async ({ value }) => {
       await mutate(value)
@@ -74,7 +74,7 @@ export function EditUserDialog({
       form.reset({
         email: user.email,
         nickname: user.nickname ?? '',
-        status: user.status,
+        status: user.status === 'normal' || user.status === 'forbidden' ? user.status : undefined,
       })
     }
   }, [form, open, user])
@@ -122,7 +122,7 @@ export function EditUserDialog({
                   <Label htmlFor="status">{m['users.form_status']()}</Label>
                   <Select
                     value={String(field.state.value ?? '')}
-                    onValueChange={(value) => field.handleChange(Number(value))}
+                    onValueChange={(value) => field.handleChange(value as 'normal' | 'forbidden')}
                     data-testid="user-edit-status-select"
                   >
                     <SelectTrigger>

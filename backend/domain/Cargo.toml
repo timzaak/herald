@@ -26,6 +26,9 @@ url = { workspace = true }
 base32 = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }
+# E.164 phone normalization/masking (phone login). Same 0.3-line lock note as
+# the workspace declaration.
+phonenumber = { workspace = true }
 mockall = { workspace = true }
 utoipa = { workspace = true, features = ["uuid", "chrono"] }
 validator = { workspace = true, features = ["derive"] }

@@ -11,6 +11,7 @@ pub mod crud;
 pub mod custom_domain_config;
 pub mod email_otp_config;
 pub mod passkey_config;
+pub mod phone_login_config;
 pub mod totp_config;
 pub mod validators;
 pub mod white_label_config;
@@ -88,6 +89,15 @@ pub fn realm_router() -> Router<AppState> {
         .route(
             "/{realmId}/config/email-otp",
             axum::routing::get(email_otp_config::handle_get_realm_email_otp_config),
+        )
+        // Phone-login switch routes (fail-closed enable gate)
+        .route(
+            "/{realmId}/config/phone-login",
+            axum::routing::put(phone_login_config::handle_update_realm_phone_login_config),
+        )
+        .route(
+            "/{realmId}/config/phone-login",
+            axum::routing::get(phone_login_config::handle_get_realm_phone_login_config),
         )
         // White-label configuration routes
         .route(

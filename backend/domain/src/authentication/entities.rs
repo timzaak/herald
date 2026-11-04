@@ -124,6 +124,9 @@ pub enum TargetOperation {
     BindAuthenticator,
     RemoveAuthenticator,
     DeleteAccount,
+    /// Reauth ticket at the send step; SMS code at the confirm step.
+    ChangePhone,
+    RemovePhone,
 }
 
 impl TargetOperation {
@@ -134,6 +137,8 @@ impl TargetOperation {
             Self::BindAuthenticator => "bind_authenticator",
             Self::RemoveAuthenticator => "remove_authenticator",
             Self::DeleteAccount => "delete_account",
+            Self::ChangePhone => "change_phone",
+            Self::RemovePhone => "remove_phone",
         }
     }
 }

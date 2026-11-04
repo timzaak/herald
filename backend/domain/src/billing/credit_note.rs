@@ -8,12 +8,8 @@ use uuid::Uuid;
 use crate::billing::invoice::ActorType;
 use crate::common::entities::app_errors::CoreError;
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
 /// Source of a credit note — Stripe (externally synced) or Manual (admin-created).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CreditNoteSource {
     Stripe,
@@ -61,7 +57,7 @@ impl std::str::FromStr for CreditNoteSource {
 /// - `Voided`: reversed; the refund amount was added back to `amount_remaining`.
 ///
 /// Stripe voids a credit note via `credit_note.voided` events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CreditNoteStatus {
     Active,
@@ -94,10 +90,6 @@ impl std::str::FromStr for CreditNoteStatus {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Core entities
-// ---------------------------------------------------------------------------
-
 /// Credit note entity — persisted in the `credit_note` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreditNote {
@@ -119,10 +111,6 @@ pub struct CreditNote {
     pub created_at: DateTime<Utc>,
 }
 
-// ---------------------------------------------------------------------------
-// Input / command types
-// ---------------------------------------------------------------------------
-
 /// Input for creating a new credit note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewCreditNote {
@@ -136,10 +124,6 @@ pub struct NewCreditNote {
     pub memo: Option<String>,
     pub created_by_user_id: Option<Uuid>,
 }
-
-// ---------------------------------------------------------------------------
-// Traits (ports)
-// ---------------------------------------------------------------------------
 
 /// Repository for credit note persistence operations.
 #[allow(clippy::manual_async_fn)]

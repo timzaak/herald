@@ -1,3 +1,4 @@
+use crate::admin::admin_users::phone::read_pending_rebind_phone;
 use crate::admin::admin_users::types::{ErrorResponse, UserDetailResponse};
 use axum::{
     Extension,
@@ -5,6 +6,7 @@ use axum::{
     http::HeaderMap,
 };
 use chrono::{DateTime, Utc};
+use herald_api_base::application::http::auth::util::mask_phone;
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
@@ -103,18 +105,21 @@ pub async fn get_user(
     // Detail columns not carried by the AdminUser DTO. The realm predicate
     // mirrors the service-level lookup above so the row can never come from
     // another realm.
-    let (provider_ids, updated_at): (Vec<Uuid>, DateTime<Utc>) = sqlx::query_as(
-        "SELECT provider_ids, updated_at FROM account WHERE id = $1 AND realm_id = $2",
-    )
-    .bind(target_user_id)
-    .bind(&realm_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch user detail columns: {e}");
-        ApiError::internal("Failed to fetch user details")
-    })?
-    .ok_or_else(|| ApiError::not_found("User not found"))?;
+    let (provider_ids, phone, updated_at): (Vec<Uuid>, Option<String>, DateTime<Utc>) =
+        sqlx::query_as(
+            "SELECT provider_ids, phone, updated_at FROM account WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(target_user_id)
+        .bind(&realm_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch user detail columns: {e}");
+            ApiError::internal("Failed to fetch user details")
+        })?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+
+    let pending_phone_masked = read_pending_rebind_phone(&state, &realm_id, target_user_id).await;
 
     // Map to UserDetailResponse
     Ok(ApiResult::ok(UserDetailResponse {
@@ -122,8 +127,10 @@ pub async fn get_user(
         realm_id: admin_user.realm_id,
         email: admin_user.email,
         nickname: admin_user.nickname,
-        status: admin_user.status as i16,
+        status: herald_core::domain::user::UserStatus::from(admin_user.status),
         provider_ids,
+        phone_masked: phone.as_deref().and_then(mask_phone),
+        pending_phone_masked,
         created_at: admin_user.created_at,
         updated_at: updated_at.to_rfc3339(),
     }))

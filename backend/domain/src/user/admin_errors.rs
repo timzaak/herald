@@ -25,6 +25,15 @@ pub enum UserAdminError {
     #[error("User is deleted: {0}")]
     UserDeleted(String),
 
+    /// Operation not applicable in the target's current state (e.g. unbinding
+    /// an unbound phone) — a client-visible 400, not an internal inconsistency.
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
+    /// Phone already bound to another account in the realm — state conflict, 409.
+    #[error("Duplicate phone: {0}")]
+    DuplicatePhone(String),
+
     #[error("Database error: {0}")]
     DatabaseError(String),
 
@@ -53,6 +62,9 @@ impl From<UserAdminError> for CoreError {
             // state conflict — same convention as self_delete's already-deleted
             // rejection (CoreError::Conflict → 409).
             UserAdminError::UserDeleted(msg) => CoreError::Conflict(msg),
+            UserAdminError::InvalidOperation(msg) => CoreError::BadRequest(msg),
+            // Phone conflicts mirror DuplicateEmail: state conflict → 409.
+            UserAdminError::DuplicatePhone(msg) => CoreError::Conflict(msg),
             UserAdminError::DatabaseError(msg) => CoreError::InternalServerError(msg),
             UserAdminError::InternalError(msg) => CoreError::InternalServerError(msg),
         }

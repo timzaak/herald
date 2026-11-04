@@ -352,11 +352,11 @@ billing_repo_test!(test_repository_subscription_all_statuses, |repo| {
         let realm_id = format!("test_status_{}", i);
         let sub = SubscriptionBuilder::new()
             .with_realm_id(realm_id)
-            .with_status(status.clone())
+            .with_status(*status)
             .build();
 
         let created = repo.create_subscription(sub).await.unwrap();
-        assert_subscription_status(&created, status.clone());
+        assert_subscription_status(&created, *status);
     }
 });
 

@@ -111,7 +111,7 @@ pub struct AllocationDetail {
     pub bucket_id: String,
     pub wallet_id: String,
     pub ledger_id: String,
-    pub credit_type: String,
+    pub credit_type: herald_core::domain::points::entities::CreditType,
     pub allocated_amount: i64,
 }
 
@@ -1139,10 +1139,6 @@ pub async fn grant_points_ext(
     Json(response).into_response()
 }
 
-// =============================================================================
-// Consume / grant helpers
-// =============================================================================
-
 /// Map a repository consumption-allocation view (allocation + ledger credit
 /// type) to the SDK response `AllocationDetail`.
 fn allocation_view_to_detail(view: ConsumptionAllocationView) -> AllocationDetail {
@@ -1154,7 +1150,7 @@ fn allocation_view_to_detail(view: ConsumptionAllocationView) -> AllocationDetai
             .map(|w| w.to_string())
             .unwrap_or_default(),
         ledger_id: view.allocation.ledger_id.to_string(),
-        credit_type: view.credit_type.to_string(),
+        credit_type: view.credit_type,
         allocated_amount: view.allocation.allocated_amount,
     }
 }
@@ -1287,7 +1283,7 @@ pub struct ExtTransactionResponse {
     pub transaction_id: String,
     pub wallet_id: String,
     pub user_id: String,
-    pub transaction_type: String,
+    pub transaction_type: herald_core::domain::points::entities::TransactionType,
     pub amount: i64,
     pub balance_after: i64,
     pub description: Option<String>,
@@ -1310,7 +1306,7 @@ fn transaction_to_response(
         transaction_id: transaction.id.to_string(),
         wallet_id: transaction.wallet_id.to_string(),
         user_id: transaction.user_id.to_string(),
-        transaction_type: transaction.transaction_type.to_string(),
+        transaction_type: transaction.transaction_type,
         amount: transaction.amount,
         balance_after: transaction.balance_after,
         description: transaction.description.clone(),

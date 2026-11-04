@@ -1,12 +1,8 @@
-// =============================================================================
-// Billing Test Helpers
-// =============================================================================
 //
 // Shared helpers for billing-related API tests.
 // Adapted for product_reduce: subscription uses entitlement_key instead of
 // plan_id/tier/billing_period; Product/Plan helpers removed.
 //
-// =============================================================================
 
 #![allow(dead_code)]
 
@@ -15,9 +11,7 @@ use herald_core::domain::authentication::Identity;
 use herald_core::domain::user::entities::{User, UserStatus};
 use uuid::Uuid;
 
-/// ============================================================================
 /// Billing Test Setup Helpers
-/// ============================================================================
 ///
 /// Setup admin session for billing tests
 pub async fn setup_billing_admin_session(ctx: &mut TestContext, email: &str) -> String {
@@ -30,9 +24,7 @@ pub async fn setup_billing_admin_session(ctx: &mut TestContext, email: &str) -> 
     admin_token
 }
 
-/// ============================================================================
 /// Entitlement Mapping Test Data Creation Helpers
-/// ============================================================================
 ///
 /// Create a test entitlement mapping via direct SQL insertion.
 ///
@@ -140,25 +132,14 @@ pub(crate) async fn ensure_test_bucket_for_realm(pool: &sqlx::PgPool, realm_id: 
     row.get::<Uuid, _>("id")
 }
 
-/// Create a test entitlement mapping at **price granularity** via direct SQL
-/// insertion (`provider_entitlement_mappings` moved from product to price key).
+/// Create a test entitlement mapping at **price granularity** via direct SQL.
 ///
-/// Binds `external_price_id` and `enabled`. Grant configuration (target bucket,
-/// points policy) is NOT set here: since the distribution-rules refactor that
-/// lives on `points_distribution_rule` rows owned by the mapping, not on the
-/// mapping itself. The resolver / checkout / batch-lock callers only need a
-/// mapping row to disambiguate by `(provider, product, price)` — they do not
-/// exercise grant semantics — so a bare mapping row is the correct seed
-/// (Rule 2: don't invent rules that aren't needed).
+/// Binds `external_price_id` and `enabled`. Grant configuration is NOT set
+/// here: it lives on `points_distribution_rule` rows owned by the mapping.
 ///
 /// `points_per_period`, `grant_on_subscribe` and `bucket_id` are accepted for
-/// call-site stability but are VESTIGIAL: the columns they used to populate
-/// were removed from `provider_entitlement_mappings` when grant config moved to
-/// distribution rules. They are intentionally ignored (bound to `_` below) so
-/// existing callers compile unchanged; do not pass values expecting them to
-/// take effect.
-///
-/// Returns the mapping ID.
+/// call-site stability but intentionally ignored (grant config moved to
+/// distribution rules); do not pass values expecting them to take effect.
 #[allow(clippy::too_many_arguments)]
 pub async fn setup_test_price_mapping(
     ctx: &mut TestContext,
@@ -301,6 +282,7 @@ pub fn build_admin_identity(ctx: &TestContext, user_id: Uuid) -> Identity {
         password_hash: None,
         provider_ids: vec![],
         status: UserStatus::Normal,
+        phone: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     })
@@ -395,9 +377,7 @@ pub async fn delete_subscriptions_by_client_app(ctx: &mut TestContext, client_ap
         .unwrap();
 }
 
-/// ============================================================================
 /// Client App Creation Helper
-/// ============================================================================
 ///
 /// JSON payload for creating a basic client app
 pub fn client_app_create_json(client_id: &str, name: &str, redirect_uris: &[&str]) -> String {

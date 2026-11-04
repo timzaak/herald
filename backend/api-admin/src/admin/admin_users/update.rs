@@ -5,12 +5,15 @@ use axum::{
     http::HeaderMap,
 };
 use axum_valid::Valid;
-use herald_api_base::application::http::auth::util::{ClientIp, user_agent_from_headers};
+use herald_api_base::application::http::auth::util::{
+    ClientIp, mask_phone, user_agent_from_headers,
+};
 use herald_api_base::application::http::common::auth_utils::AdminIdentity;
 use herald_api_base::application::http::server::api_entities::{ApiError, ApiResult};
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::Identity;
+use herald_core::domain::user::UserStatus;
 use herald_core::domain::user::{
     AdminUserService, admin_dtos::UpdateUserAdminRequest, admin_errors::UserAdminError,
 };
@@ -57,10 +60,17 @@ pub async fn update_user(
         "Updating user"
     );
 
-    // Build UpdateUserAdminRequest (convert i16 to i32 for status)
+    // PRD users.md §2.1: admin writes cover 启用/禁用 only — reject the
+    // self-service and terminal states.
+    if let Some(status) = &payload.status
+        && !matches!(status, UserStatus::Normal | UserStatus::Forbidden)
+    {
+        return Err(ApiError::bad_request("status must be normal or forbidden"));
+    }
+
     let request = UpdateUserAdminRequest {
         nickname: payload.nickname,
-        status: payload.status.map(|s| s as i32),
+        status: payload.status.map(i16::from).map(i32::from),
     };
 
     // Get admin_user_service
@@ -138,13 +148,27 @@ pub async fn update_user(
             }
         })?;
 
-    // Convert to UserResponse (convert i32 to i16 for status)
+    // Update touches no phone column, but the response must still reflect
+    // the existing binding.
+    let phone: Option<String> =
+        sqlx::query_scalar("SELECT phone FROM account WHERE id = $1 AND realm_id = $2")
+            .bind(target_user_id)
+            .bind(&realm_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to fetch user phone for update response: {e}");
+                ApiError::internal("Failed to update user")
+            })?
+            .flatten();
+
     let response = UserResponse {
         id: admin_user.id,
         realm_id: admin_user.realm_id,
         email: admin_user.email,
         nickname: admin_user.nickname,
-        status: admin_user.status as i16,
+        status: UserStatus::from(admin_user.status),
+        phone_masked: phone.as_deref().and_then(mask_phone),
         created_at: admin_user.created_at,
     };
 

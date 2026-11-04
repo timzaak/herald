@@ -75,7 +75,7 @@ const adminUser = {
   id: '01a0cd7f-9686-74e3-a656-2d5f98752b14',
   email: 'admin@fornetcode.com',
   nickname: 'Admin',
-  status: 1,
+  status: 'normal',
   createdAt: '2026-09-23T09:01:26.021Z',
 }
 

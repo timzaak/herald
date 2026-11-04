@@ -10,6 +10,7 @@ use herald_api_base::application::http::state::AppState;
 use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::user::AdminUserService;
+use herald_core::domain::user::UserStatus;
 use herald_core::domain::user::admin_dtos::CreateUserWithRolesRequest;
 use herald_core::domain::user::admin_errors::UserAdminError;
 
@@ -61,12 +62,19 @@ pub async fn create_user(
         return Err(ApiError::bad_request("Password length invalid"));
     }
 
-    // 2. Build CreateUserWithRolesRequest (convert i16 to i32 for status)
+    // PRD users.md §2.1: admin writes cover 启用/禁用 only — reject the
+    // self-service and terminal states.
+    if let Some(status) = &payload.status
+        && !matches!(status, UserStatus::Normal | UserStatus::Forbidden)
+    {
+        return Err(ApiError::bad_request("status must be normal or forbidden"));
+    }
+
     let request = CreateUserWithRolesRequest {
         email: normalized_email.clone(),
         password: payload.password.clone(),
         nickname: payload.nickname.clone(),
-        status: payload.status.map(|s| s as i32),
+        status: payload.status.map(i16::from).map(i32::from),
         role_ids: payload.role_ids.clone(),
     };
 
@@ -140,18 +148,19 @@ pub async fn create_user(
                 );
                 ApiError::internal(msg)
             }
-            // Unreachable in practice (create inserts a fresh row), listed to
-            // keep the match exhaustive alongside the new variant.
+            // Unreachable in practice; listed to keep the match exhaustive.
             UserAdminError::UserDeleted(msg) => ApiError::conflict(msg),
+            UserAdminError::InvalidOperation(msg) => ApiError::bad_request(msg),
+            UserAdminError::DuplicatePhone(msg) => ApiError::conflict(msg),
         })?;
 
-    // 5. Convert to UserResponse (convert i32 to i16 for status)
     let response = UserResponse {
         id: admin_user.id,
         realm_id: admin_user.realm_id,
         email: admin_user.email,
         nickname: admin_user.nickname,
-        status: admin_user.status as i16,
+        status: UserStatus::from(admin_user.status),
+        phone_masked: None,
         created_at: admin_user.created_at,
     };
 

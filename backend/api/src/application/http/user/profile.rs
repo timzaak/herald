@@ -17,19 +17,18 @@ use herald_core::domain::authentication::{
     BrowserTokenService, CredentialScope, Identity, TargetOperation, TokenCredentialContext,
 };
 use herald_core::domain::security_constants::DEFAULT_BCRYPT_COST;
+use herald_core::domain::user::UserStatus;
 use herald_core::domain::user::entities::Profile;
 use herald_core::domain::user::ports::UserRepository;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use herald_core::infrastructure::user::repositories::PostgresUserRepository;
-
-// ==================== Request/Response Types ====================
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UserProfile {
     pub id: Uuid,
     pub email: String,
     pub nickname: Option<String>,
-    pub status: i16,
+    pub status: UserStatus,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
@@ -37,8 +36,6 @@ pub struct UpdateProfileRequest {
     #[validate(length(max = 50))]
     pub nickname: Option<String>,
 }
-
-// ==================== Handler Functions ====================
 
 /// Get current user profile
 #[utoipa::path(
@@ -82,7 +79,7 @@ pub async fn get_profile(
         id: user.id,
         email: user.email,
         nickname,
-        status: user.status.into(),
+        status: user.status,
     }))
 }
 
@@ -166,7 +163,7 @@ pub async fn update_profile(
         id: user.id,
         email: user.email,
         nickname,
-        status: user.status.into(),
+        status: user.status,
     }))
 }
 

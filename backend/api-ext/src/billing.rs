@@ -28,7 +28,7 @@ use herald_api_base::application::http::state::AppState;
 pub struct SubscriptionDetail {
     pub id: String,
     pub client_app_id: Option<String>,
-    pub status: String,
+    pub status: herald_core::domain::billing::entities::SubscriptionStatus,
     pub entitlement_key: String,
     pub payment_provider: String,
     /// Provider price id bound to this subscription.
@@ -38,7 +38,7 @@ pub struct SubscriptionDetail {
     pub external_price_id: Option<String>,
     /// Billing type snapshot (`"recurring"` / `"non_renewing"`). Lets
     /// third-party SDKs distinguish non-renewing subscriptions from recurring
-    pub billing_type: String,
+    pub billing_type: herald_core::domain::billing::entities::BillingType,
     /// Currency of the subscribed price row, resolved from the realm's
     /// entitlement mapping (`provider_product_info.currency`). `None` when no
     /// mapping row matches the subscription's provider/price.
@@ -182,11 +182,11 @@ pub async fn get_subscription(
     let response = SubscriptionDetail {
         id: subscription.id.to_string(),
         client_app_id: Some(client_app_id.clone()),
-        status: subscription.status.as_str().to_string(),
+        status: subscription.status,
         entitlement_key: subscription.entitlement_key,
         payment_provider: subscription.payment_provider,
         external_price_id: subscription.external_price_id,
-        billing_type: subscription.billing_type.as_str().to_string(),
+        billing_type: subscription.billing_type,
         currency,
         current_period_start: subscription.current_period_start.map(|dt| dt.to_rfc3339()),
         current_period_end: subscription.current_period_end.map(|dt| dt.to_rfc3339()),
@@ -199,7 +199,7 @@ pub async fn get_subscription(
     tracing::info!(
         client_app_id = %client_app_id,
         subscription_id = %subscription.id,
-        status = %response.status,
+        status = %response.status.as_str(),
         "Subscription retrieved successfully"
     );
 
@@ -356,7 +356,7 @@ pub struct EntitlementPriceView {
     pub currency: String,
     /// Price amount in minor units (cents).
     pub amount: i64,
-    pub billing_type: Option<String>,
+    pub billing_type: Option<herald_core::domain::billing::entities::BillingType>,
     pub billing_period: Option<String>,
     pub external_price_id: Option<String>,
 }
@@ -369,7 +369,7 @@ pub struct ResolveDefaultPriceParams {
     /// ISO 4217 currency code (e.g. "USD"); reserved codes rejected
     pub currency: String,
     /// Optional narrowing filter: `recurring` | `one_time` | `non_renewing`
-    pub billing_type: Option<String>,
+    pub billing_type: Option<herald_core::domain::billing::entities::BillingType>,
     /// Optional narrowing filter: billing period (e.g. `month` / `year`)
     pub billing_period: Option<String>,
 }
@@ -501,13 +501,7 @@ pub async fn resolve_default_price(
         return ApiError::bad_request(e.to_string()).into_response();
     }
 
-    let billing_type = match params.billing_type.as_deref() {
-        None => None,
-        Some(raw) => match raw.parse::<herald_core::domain::billing::BillingType>() {
-            Ok(bt) => Some(bt),
-            Err(e) => return ApiError::bad_request(e.to_string()).into_response(),
-        },
-    };
+    let billing_type = params.billing_type;
 
     let mappings = match state
         .billing_repository
@@ -547,7 +541,7 @@ pub async fn resolve_default_price(
         payment_provider: row.payment_provider,
         currency: row.currency,
         amount: row.amount,
-        billing_type: row.billing_type.map(|t| t.as_str().to_string()),
+        billing_type: row.billing_type,
         billing_period: row.billing_period,
         external_price_id: row.external_price_id,
     })

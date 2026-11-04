@@ -60,7 +60,7 @@ pub struct PermissionCheckResponse {
 pub struct SubscriptionDetail {
     pub id: String,
     pub client_app_id: Option<String>,
-    pub status: String,
+    pub status: SubscriptionStatus,
     pub entitlement_key: String,
     pub payment_provider: String,
     /// Provider price id bound to this subscription.
@@ -125,7 +125,7 @@ pub struct AllocationDetail {
     pub bucket_id: String,
     pub wallet_id: String,
     pub ledger_id: String,
-    pub credit_type: String,
+    pub credit_type: CreditType,
     pub allocated_amount: i64,
 }
 
@@ -181,7 +181,7 @@ pub struct TransactionDetail {
     pub transaction_id: String,
     pub wallet_id: String,
     pub user_id: String,
-    pub transaction_type: String,
+    pub transaction_type: PointsTransactionType,
     pub amount: i64,
     pub balance_after: i64,
     pub description: Option<String>,
@@ -318,6 +318,73 @@ pub struct RealmItem {
     pub updated_at: String,
 }
 
+// Wire enums: serde snake_case names must match the Herald API (api.json).
+
+/// User account status (`wait_verified` | `normal` | `forbidden` | `deleted`).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UserStatus {
+    WaitVerified,
+    Normal,
+    Forbidden,
+    Deleted,
+}
+
+/// Subscription lifecycle status (Creem-aligned states).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionStatus {
+    Active,
+    Canceled,
+    Expired,
+    Incomplete,
+    Paused,
+    Trialing,
+    PastDue,
+    ScheduledCancel,
+    Dispute,
+    Pending,
+}
+
+/// Entitlement mapping billing type.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingType {
+    Recurring,
+    OneTime,
+    NonRenewing,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PointsTransactionType {
+    Recharge,
+    Consume,
+    SubscriptionGrant,
+    SubscriptionRenewal,
+    SubscriptionUpgrade,
+    SubscriptionDowngrade,
+    RegistrationGrant,
+    FreePeriodicGrant,
+    RefundRevoke,
+    ExpireRevoke,
+    CancelRevoke,
+    Expiration,
+    Refund,
+    Grant,
+}
+
+/// Points credit type.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CreditType {
+    TopupCredit,
+    SubscriptionCredit,
+    RegistrationCredit,
+    FreePeriodicCredit,
+    GrantedCredit,
+}
+
 // User types
 
 /// Request body for creating a user
@@ -336,7 +403,7 @@ pub struct UserInfo {
     pub id: String,
     pub email: String,
     pub nickname: Option<String>,
-    pub status: i32,
+    pub status: UserStatus,
     pub created_at: String,
 }
 
@@ -1451,7 +1518,7 @@ mod tests {
             result
         );
         let subscription = result.unwrap();
-        assert_eq!(subscription.status, "active");
+        assert_eq!(subscription.status, SubscriptionStatus::Active);
         assert_eq!(subscription.entitlement_key, "basic-plan");
 
         server.verify().await;
@@ -1670,7 +1737,7 @@ mod tests {
             "id": "user-001",
             "email": "test@example.com",
             "nickname": "testuser",
-            "status": 1,
+            "status": "normal",
             "createdAt": "2025-01-01T00:00:00Z"
         });
 
@@ -1712,14 +1779,14 @@ mod tests {
                     "id": "user-001",
                     "email": "a@example.com",
                     "nickname": null,
-                    "status": 1,
+                    "status": "normal",
                     "createdAt": "2025-01-01T00:00:00Z"
                 },
                 {
                     "id": "user-002",
                     "email": "b@example.com",
                     "nickname": "bob",
-                    "status": 1,
+                    "status": "normal",
                     "createdAt": "2025-02-01T00:00:00Z"
                 }
             ],
@@ -1758,7 +1825,7 @@ mod tests {
             "id": "user-001",
             "email": "test@example.com",
             "nickname": "testuser",
-            "status": 1,
+            "status": "normal",
             "createdAt": "2025-01-01T00:00:00Z"
         });
 
@@ -2165,7 +2232,7 @@ mod tests {
             result
         );
         let tx = result.unwrap();
-        assert_eq!(tx.transaction_type, "consume");
+        assert_eq!(tx.transaction_type, PointsTransactionType::Consume);
         assert_eq!(tx.amount, 100);
         assert_eq!(tx.balance_after, 400);
         assert_eq!(tx.client_app_id, Some("app-001".to_string()));

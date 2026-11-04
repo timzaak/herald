@@ -22,7 +22,7 @@
  *              `[data-slot="select-trigger"]` (see selectUserStatus below).
  *       :162  submit button          = `user-edit-submit-button`
  *       :129  onValueChange={(value) => field.handleChange(Number(value))}
- *             → option values are numeric status codes as strings.
+ *             → option values are the UserStatus wire names.
  *   - frontend/src/components/ui/select.tsx (SelectItem)
  *       `data-value={props.value}` is rendered on each Radix SelectPrimitive.Item,
  *       so a status option can be chosen locale-INDEPENDENTLY via
@@ -59,9 +59,9 @@ const ADMIN_REALM = 'admin'
 const FORBIDDEN_USER_EMAIL = 'forbidden-test@demo.com'
 const FORBIDDEN_USER_PASSWORD = 'TestPass123!'
 
-/** UserStatus numeric codes (backend/domain/src/user/entities.rs:36-42). */
-const STATUS_NORMAL = '1' as const
-const STATUS_FORBIDDEN = '2' as const
+/** UserStatus serde wire names (backend/domain/src/user/entities.rs). */
+const STATUS_NORMAL = 'normal' as const
+const STATUS_FORBIDDEN = 'forbidden' as const
 
 // ─── Backend base URL (local copy — the sibling sessions demo does not export backendBaseUrl) ───
 //
@@ -328,7 +328,7 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
 // ─── Local helpers ───────────────────────────────────────────────────────────
 
 /**
- * Drive the edit-user dialog's status Select to a given numeric status code.
+ * Drive the edit-user dialog's status Select to a given UserStatus wire name.
  *
  * Trigger location note: edit-user-dialog.tsx:130 passes
  * `data-testid="user-edit-status-select"` to the shadcn `Select` wrapper — but
@@ -340,14 +340,14 @@ test.describe('[US-RA-021] Forbidden status linkage revokes all sessions', () =>
  *
  * Option selection stays locale-independent: `select.tsx`'s `SelectItem`
  * renders `data-value={props.value}` (ui/select.tsx:141), and the status
- * options' values are the numeric status codes as strings
+ * options' values are the UserStatus wire names
  * (lib/constants/user.ts getUserStatusOptions). Click the trigger, wait for
  * the `[data-slot="select-content"]` listbox, click the option by value.
  *
  * MUST be called after `usersPage.clickEditUser(email)` has opened the dialog.
  *
  * @param usersPage  The admin UsersPage POM (dialog must be open).
- * @param statusCode Numeric status code as a string ("1"=Normal, "2"=Forbidden).
+ * @param statusCode UserStatus wire name ("normal" | "forbidden").
  */
 async function selectUserStatus(
   usersPage: { page: import('@playwright/test').Page },

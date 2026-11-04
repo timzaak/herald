@@ -31,14 +31,16 @@ export const createUserSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   nickname: z.string().min(2).max(50).optional(),
-  status: z.number().int().min(0).max(2).optional(),
+  // Admin writes toggle enable/disable only (backend rejects the other
+  // UserStatus variants on this endpoint).
+  status: z.enum(['normal', 'forbidden']).optional(),
   roleIds: z.array(z.string()).min(1, { error: () => m['auth.role_required']() }),
 })
 
 export const updateUserSchema = z.object({
   email: emailSchema,
   nickname: z.string().min(2).max(50).optional(),
-  status: z.number().int().min(0).max(2).optional(),
+  status: z.enum(['normal', 'forbidden']).optional(),
 })
 
 export const changePasswordSchema = z

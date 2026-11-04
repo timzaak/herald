@@ -74,13 +74,7 @@ pub async fn list_transactions(
         _ => None,
     };
 
-    let transaction_type = match query.transaction_type {
-        Some(s) => Some(
-            s.parse::<herald_core::domain::points::TransactionType>()
-                .map_err(|_| ApiError::bad_request(format!("Invalid transaction_type: {}", s)))?,
-        ),
-        None => None,
-    };
+    let transaction_type = query.transaction_type;
 
     let start_time = match query.start_time {
         Some(s) => Some(
@@ -145,7 +139,7 @@ pub async fn list_transactions(
                     user_id: transaction.user_id,
                     realm_id: transaction.realm_id,
                     bucket_id: Some(transaction.bucket_id),
-                    transaction_type: transaction.transaction_type.as_str().to_string(),
+                    transaction_type: transaction.transaction_type,
                     amount: transaction.amount,
                     balance_after: transaction.balance_after,
                     description: transaction.description,
@@ -214,13 +208,7 @@ pub async fn list_user_transactions(
             })
             .transpose()
     };
-    let transaction_type = query
-        .transaction_type
-        .map(|s| {
-            s.parse()
-                .map_err(|_| ApiError::bad_request(format!("Invalid transaction_type: {s}")))
-        })
-        .transpose()?;
+    let transaction_type = query.transaction_type;
     let parse_time = |value: Option<String>, name: &str| {
         value
             .map(|s| {
@@ -256,7 +244,7 @@ pub async fn list_user_transactions(
             user_id: transaction.user_id,
             realm_id: transaction.realm_id,
             bucket_id: Some(transaction.bucket_id),
-            transaction_type: transaction.transaction_type.as_str().to_string(),
+            transaction_type: transaction.transaction_type,
             amount: transaction.amount,
             balance_after: transaction.balance_after,
             description: transaction.description,

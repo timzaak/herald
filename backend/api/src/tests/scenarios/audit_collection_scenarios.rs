@@ -1,19 +1,3 @@
-// =============================================================================
-// Audit Event Collection Scenario Tests
-// =============================================================================
-//
-// Tests that verify audit events are actually recorded in the database when
-// core business operations are performed. These are end-to-end collection
-// tests -- perform the operation, then check the audit_events table.
-//
-// User Stories covered:
-// - Core operations (user CRUD, realm create, login/logout) produce audit events
-//
-// Reference: Integration tests verifying audit events are recorded
-// Design: .ai/design/audit.md
-//
-// =============================================================================
-
 use crate::tests::helpers::*;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
 use axum::{
@@ -24,10 +8,6 @@ use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
-
-// =============================================================================
-// Helper: query audit events from the database
-// =============================================================================
 
 /// Count audit events for a realm with a given action.
 async fn count_audit_events_by_action(pool: &sqlx::PgPool, realm_id: &str, action: &str) -> i64 {
@@ -67,17 +47,8 @@ async fn fetch_audit_events_raw(
     .expect("Failed to query audit_events")
 }
 
-// =============================================================================
-// Scenario 1: User create produces audit event
-// =============================================================================
-
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: User create via admin API records user.create audit event
-///
-/// Given an admin with users.manage permission,
-/// When creating a user via POST /api/users,
-/// Then an audit event with action=user.create is recorded in the database
-/// and target_id matches the newly created user's ID.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
@@ -106,7 +77,7 @@ async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
     let create_payload = json!({
         "email": new_email,
         "password": "Password123!",
-        "status": 1,
+        "status": "normal",
         "roleIds": [user_role_id]
     });
 
@@ -148,7 +119,6 @@ async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
     assert_eq!(event.1, "user.create", "Action should be user.create");
     assert_eq!(event.5, "success", "Result should be success");
 
-    // The target_id should match the newly created user
     assert_eq!(
         event.3, created_user_id,
         "target_id should match the created user's ID"
@@ -163,10 +133,6 @@ async fn test_scenario_user_create_produces_audit_event(ctx: &mut TestContext) {
         after
     );
 }
-
-// =============================================================================
-// Scenario 2: User update produces audit event
-// =============================================================================
 
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: User update via admin API records user.update audit event
@@ -236,10 +202,6 @@ async fn test_scenario_user_update_produces_audit_event(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// Scenario 3: User delete produces audit event
-// =============================================================================
-
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: User delete via admin API records user.delete audit event
 ///
@@ -306,10 +268,6 @@ async fn test_scenario_user_delete_produces_audit_event(ctx: &mut TestContext) {
         "target_id should match the deleted user's ID"
     );
 }
-
-// =============================================================================
-// Scenario 4: Realm create produces audit events
-// =============================================================================
 
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: Realm creation records realm.create and realm.rbac_init audit events
@@ -393,10 +351,6 @@ async fn test_scenario_realm_create_produces_audit_events(ctx: &mut TestContext)
     );
 }
 
-// =============================================================================
-// Scenario 5: Login success produces audit event
-// =============================================================================
-
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: Successful login records auth.login audit event
 ///
@@ -464,10 +418,6 @@ async fn test_scenario_login_success_produces_audit_event(ctx: &mut TestContext)
         "target_name should identify the logged-in user for audit display"
     );
 }
-
-// =============================================================================
-// Scenario 6: Login failure produces audit event
-// =============================================================================
 
 /// User Story: docs/user-stories/14-audit-user-stories.md
 /// Covers: Failed login records auth.login_failed audit event

@@ -921,7 +921,7 @@ async fn sync_stripe_subscription_with_history_in_txn(
             entitlement_key,
             external_price_id,
             provider_metadata: None,
-            status: status.clone(),
+            status,
             current_period_start,
             current_period_end,
             cancel_at_period_end,
@@ -1972,7 +1972,7 @@ async fn handle_subscription_created(
         entitlement_key.clone(),
         payload.external_product_id.clone(),
         external_price_id,
-        payload.status.clone(),
+        payload.status,
         payload.current_period_start,
         payload.current_period_end,
         payload.cancel_at_period_end,
@@ -2126,7 +2126,7 @@ async fn handle_subscription_updated(
                 current_entitlement_key.clone(),
                 payload.external_product_id.clone(),
                 external_price_id,
-                payload.status.clone(),
+                payload.status,
                 payload.current_period_start,
                 payload.current_period_end,
                 payload.cancel_at_period_end,
@@ -2190,7 +2190,7 @@ async fn handle_subscription_updated(
             current_entitlement_key.clone(),
             payload.external_product_id.clone(),
             external_price_id,
-            payload.status.clone(),
+            payload.status,
             payload.current_period_start,
             payload.current_period_end,
             payload.cancel_at_period_end,
@@ -2250,7 +2250,7 @@ async fn handle_subscription_updated(
             current_entitlement_key.clone(),
             payload.external_product_id.clone(),
             external_price_id,
-            payload.status.clone(),
+            payload.status,
             payload.current_period_start,
             payload.current_period_end,
             payload.cancel_at_period_end,
@@ -2371,7 +2371,7 @@ async fn handle_subscription_status_change(
         entitlement_key.clone(),
         external_product_id,
         external_price_id,
-        status.clone(),
+        status,
         current_period_start,
         current_period_end,
         cancel_at_period_end,
@@ -3375,7 +3375,7 @@ async fn handle_charge_dispute_closed(
                 dispute_status = %dispute_status,
                 "Stripe dispute closed with non-terminal status — not reactivating"
             );
-            existing.status.clone()
+            existing.status
         }
     };
 
@@ -3392,7 +3392,7 @@ async fn handle_charge_dispute_closed(
             entitlement_key: existing.entitlement_key.clone(),
             external_price_id: existing.external_price_id.clone(),
             provider_metadata: existing.provider_metadata.clone(),
-            status: target_status.clone(),
+            status: target_status,
             current_period_start: existing.current_period_start,
             current_period_end: existing.current_period_end,
             cancel_at_period_end: existing.cancel_at_period_end,

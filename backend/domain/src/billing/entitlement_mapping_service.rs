@@ -217,7 +217,7 @@ where
                 realm_id,
                 DistributionRuleOwner::EntitlementMapping(uuid::Uuid::nil()),
             );
-            validate_rule_for_owner(&resolved, Some(billing_type.clone()))?;
+            validate_rule_for_owner(&resolved, Some(billing_type))?;
         }
         let mapping = EntitlementMapping {
             id: uuid::Uuid::now_v7(),

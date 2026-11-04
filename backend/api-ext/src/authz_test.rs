@@ -19,6 +19,7 @@ fn identity_in_realm(realm_id: &str) -> Identity {
         password_hash: None,
         provider_ids: vec![],
         status: UserStatus::Normal,
+        phone: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     })

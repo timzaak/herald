@@ -19,3 +19,4 @@ uuid = { workspace = true }
 sqlx = { workspace = true }
 sea-orm = { workspace = true }
 chrono = { workspace = true }
+redis = { workspace = true }

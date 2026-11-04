@@ -1,6 +1,4 @@
-// =============================================================================
 // Realm Admin Creation - Unit Tests
-// =============================================================================
 //
 // 测试创建 Realm 时自动创建管理员的功能
 //
@@ -9,7 +7,6 @@
 // - 边界场景: 不指定管理员
 // - 回滚场景: 用户创建失败、角色分配失败
 //
-// =============================================================================
 
 #[cfg(test)]
 mod realm_admin_tests {
@@ -32,9 +29,7 @@ mod realm_admin_tests {
     use mockall::predicate::eq;
     use std::sync::{Arc, Mutex};
 
-    // =========================================================================
     // Test Fixtures
-    // =========================================================================
 
     fn realm_fixture() -> Realm {
         Realm {
@@ -56,6 +51,7 @@ mod realm_admin_tests {
             password_hash: Some("$2a$12$dummy_password_hash".to_string()),
             provider_ids: vec![],
             status: UserStatus::Normal,
+            phone: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -184,15 +180,11 @@ mod realm_admin_tests {
         }
     }
 
-    // =========================================================================
     // Scenario 1: Normal - Create Realm with Admin User
-    // =========================================================================
 
     #[tokio::test]
     async fn test_unit_create_realm_with_admin_user_success() {
-        // =====================================================================
         // Given: Mock repositories return successful responses
-        // =====================================================================
         let mut mock_realm_repo = MockRealmRepository::new();
         let mut mock_user_service = MockUserService::new();
         let mut mock_role_repo = MockRoleRepository::new();
@@ -295,9 +287,7 @@ mod realm_admin_tests {
             Arc::new(mock_audit_repo()),
         ));
 
-        // =====================================================================
         // When: Create realm with admin user
-        // =====================================================================
         let result = realm_service
             .create_realm(
                 identity_fixture(),
@@ -314,9 +304,7 @@ mod realm_admin_tests {
             )
             .await;
 
-        // =====================================================================
         // Then: Realm creation succeeds
-        // =====================================================================
         assert!(result.is_ok());
         let realm = result.unwrap();
         assert_eq!(realm.id, "test-realm");
@@ -333,9 +321,7 @@ mod realm_admin_tests {
         );
     }
 
-    // =========================================================================
     // Scenario 1b: Self-service provisioning bypasses the permission gate
-    // =========================================================================
 
     /// `create_realm_self_service` must succeed even when the realm policy
     /// denies every permission. The policy gate belongs only to the
@@ -442,15 +428,11 @@ mod realm_admin_tests {
         );
     }
 
-    // =========================================================================
     // Scenario 2: Rollback - User Creation Failure
-    // =========================================================================
 
     #[tokio::test]
     async fn test_unit_create_realm_rollback_on_user_creation_failure() {
-        // =====================================================================
         // Given: User creation fails
-        // =====================================================================
         let mut mock_realm_repo = MockRealmRepository::new();
         let mut mock_user_service = MockUserService::new();
         let mut mock_client_repo = MockClientRepository::new();
@@ -523,9 +505,7 @@ mod realm_admin_tests {
             Arc::new(mock_audit_repo()),
         ));
 
-        // =====================================================================
         // When: Create realm with admin user, but user creation fails
-        // =====================================================================
         let result = realm_service
             .create_realm(
                 identity_fixture(),
@@ -542,9 +522,7 @@ mod realm_admin_tests {
             )
             .await;
 
-        // =====================================================================
         // Then: Realm creation fails, rollback is called, original error is returned
-        // =====================================================================
         assert!(result.is_err());
         // The error should be the original BadRequest error, not wrapped in InternalServerError
         match result {
@@ -555,15 +533,11 @@ mod realm_admin_tests {
         }
     }
 
-    // =========================================================================
     // Scenario 3: Rollback - Role Not Found
-    // =========================================================================
 
     #[tokio::test]
     async fn test_unit_create_realm_rollback_on_role_not_found() {
-        // =====================================================================
         // Given: realm-admin role not found (abnormal case)
-        // =====================================================================
         let mut mock_realm_repo = MockRealmRepository::new();
         let mut mock_user_service = MockUserService::new();
         let mut mock_role_repo = MockRoleRepository::new();
@@ -645,9 +619,7 @@ mod realm_admin_tests {
             Arc::new(mock_audit_repo()),
         ));
 
-        // =====================================================================
         // When: Create realm with admin user, but role is not found
-        // =====================================================================
         let result = realm_service
             .create_realm(
                 identity_fixture(),
@@ -664,9 +636,7 @@ mod realm_admin_tests {
             )
             .await;
 
-        // =====================================================================
         // Then: Realm creation fails, rollback is called
-        // =====================================================================
         assert!(result.is_err());
         match result {
             Err(CoreError::InternalServerError(msg)) => {

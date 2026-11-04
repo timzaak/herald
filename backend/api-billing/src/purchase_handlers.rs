@@ -26,10 +26,6 @@ use crate::handlers::require_billing_permission;
 use crate::payment_email::formal_payment_email;
 use crate::provider_common_types::validate_payment_provider_value;
 
-// ============================================================================
-// Types
-// ============================================================================
-
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePaymentAttemptRequest {
@@ -72,7 +68,7 @@ pub struct CreatePaymentAttemptResponse {
     pub target_id: Uuid,
     pub amount: i64,
     pub currency: String,
-    pub status: String,
+    pub status: herald_core::domain::payment_attempt::entities::PaymentAttemptStatus,
     pub expires_at: String,
     pub payment_context: PaymentContextResponse,
     pub created_at: String,
@@ -111,7 +107,7 @@ pub struct AlreadyOwnedErrorResponse {
 #[serde(rename_all = "camelCase")]
 pub struct PaymentAttemptStatusResponse {
     pub id: Uuid,
-    pub status: String,
+    pub status: herald_core::domain::payment_attempt::entities::PaymentAttemptStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_status: Option<String>,
     pub target_type: String,
@@ -188,7 +184,7 @@ pub struct PurchaseHistoryItem {
     pub amount: i64,
     pub currency: String,
     pub payment_provider: String,
-    pub status: String,
+    pub status: herald_core::domain::payment_attempt::entities::PaymentAttemptStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
     pub created_at: String,
@@ -207,10 +203,6 @@ pub struct FulfillPaymentRequest {
     pub provider_transaction_id: String,
     pub completed_at: String,
 }
-
-// ============================================================================
-// Validation Functions
-// ============================================================================
 
 fn validate_purchasable_target(target_type: &str) -> Result<(), validator::ValidationError> {
     if matches!(target_type, "entitlement_mapping") {
@@ -233,10 +225,6 @@ fn validate_payment_flow(flow: &str) -> Result<(), validator::ValidationError> {
 
 // `validate_payment_provider_value` (provider_common_types) covers the
 // payment_provider whitelist; the IAP-query-path rationale is documented there.
-
-// ============================================================================
-// Conversion Helpers
-// ============================================================================
 
 /// Map a purchase-path `CoreError` to an `ApiError`.
 ///
@@ -299,10 +287,6 @@ fn fulfillment_result_to_response(result: FulfillmentResult) -> FulfillPaymentRe
         granted_at: result.granted_at.to_rfc3339(),
     }
 }
-
-// ============================================================================
-// Handlers
-// ============================================================================
 
 #[utoipa::path(
     post,
@@ -368,7 +352,7 @@ pub async fn create_payment_attempt(
         target_id: created.attempt.target_id,
         amount: created.attempt.amount,
         currency: created.attempt.currency,
-        status: created.attempt.status.to_string(),
+        status: created.attempt.status,
         expires_at: created.attempt.expires_at.to_rfc3339(),
         payment_context: payment_context_to_response(created.context),
         created_at: created.attempt.created_at.to_rfc3339(),
@@ -416,7 +400,7 @@ pub async fn get_payment_attempt_status(
 
     let response = PaymentAttemptStatusResponse {
         id: attempt.id,
-        status: attempt.status.to_string(),
+        status: attempt.status,
         provider_status: attempt.provider_status,
         target_type: attempt.target_type.to_string(),
         target_id: attempt.target_id,
@@ -471,7 +455,7 @@ pub async fn cancel_payment_attempt(
 
     let response = PaymentAttemptStatusResponse {
         id: attempt.id,
-        status: attempt.status.to_string(),
+        status: attempt.status,
         provider_status: attempt.provider_status,
         target_type: attempt.target_type.to_string(),
         target_id: attempt.target_id,
@@ -616,20 +600,25 @@ async fn purchase_history_response(
 
     let items: Vec<PurchaseHistoryItem> = rows
         .into_iter()
-        .map(|row| PurchaseHistoryItem {
-            attempt_id: row.attempt_id,
-            user_id: row.user_id,
-            target_mapping_id: row.target_mapping_id,
-            product_name: row.product_name,
-            points: row.points,
-            amount: row.amount,
-            currency: row.currency,
-            payment_provider: row.payment_provider,
-            status: row.status,
-            completed_at: row.completed_at.map(|dt| dt.to_rfc3339()),
-            created_at: row.created_at.to_rfc3339(),
+        .map(|row| {
+            let status = row.status.parse().map_err(|e| {
+                ApiError::internal(format!("Invalid payment attempt status in history: {e}"))
+            })?;
+            Ok(PurchaseHistoryItem {
+                attempt_id: row.attempt_id,
+                user_id: row.user_id,
+                target_mapping_id: row.target_mapping_id,
+                product_name: row.product_name,
+                points: row.points,
+                amount: row.amount,
+                currency: row.currency,
+                payment_provider: row.payment_provider,
+                status,
+                completed_at: row.completed_at.map(|dt| dt.to_rfc3339()),
+                created_at: row.created_at.to_rfc3339(),
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, ApiError>>()?;
 
     Ok(Json(PurchaseHistoryResponse { items, total }))
 }

@@ -81,10 +81,6 @@ const ABANDONED_PENDING_STATUS: &str = "abandoned_pending";
 /// costs the user a bounded wait before resubmission recovery unlocks.
 const IAP_DEDUP_LEASE_STALE_SECS: i64 = 60;
 
-// ============================================================================
-// DTOs
-// ============================================================================
-
 /// Mobile App submits this after the store purchase completes.
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema, validator::Validate)]
 #[serde(rename_all = "camelCase")]
@@ -103,13 +99,22 @@ pub struct IapReceiptRequest {
     pub target_id: Uuid,
 }
 
+/// Coarse-grained verdict derived from `PaymentAttemptStatus`: `RequiresAction`
+/// folds into `pending`; `Failed`/`Cancelled`/`Expired` all read as `failed`.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum IapReceiptStatus {
+    Succeeded,
+    Pending,
+    Failed,
+}
+
 /// Stripe/Creem branded `PaymentContext`.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IapReceiptResponse {
     pub attempt_id: Uuid,
-    /// `"succeeded"` / `"pending"` / `"failed"`.
-    pub status: String,
+    pub status: IapReceiptStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entitlement_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -138,9 +143,6 @@ fn validate_iap_target_type(target_type: &str) -> Result<(), validator::Validati
         Err(validator::ValidationError::new("invalid_target_type"))
     }
 }
-
-// ============================================================================
-// ============================================================================
 
 /// Loaded Apple credentials for a realm.
 struct AppleCredentials {
@@ -510,9 +512,6 @@ async fn promote_pending_apple_event(
     }
     Ok(true)
 }
-
-// ============================================================================
-// ============================================================================
 
 #[utoipa::path(
     post,
@@ -986,7 +985,7 @@ pub async fn submit_iap_receipt(
                         "IAP receipt fulfilled but marking payment_event processed failed - retry sweep will re-run and replay"
                     );
                 }
-                "succeeded"
+                IapReceiptStatus::Succeeded
             }
             Err(e) => {
                 // The attempt was already marked Succeeded inside
@@ -1021,7 +1020,7 @@ pub async fn submit_iap_receipt(
                     error = %e,
                     "IAP fulfillment failed -- attempt rolled back to Failed"
                 );
-                "failed"
+                IapReceiptStatus::Failed
             }
         };
 
@@ -1043,19 +1042,19 @@ pub async fn submit_iap_receipt(
 
         Ok(Json(IapReceiptResponse {
             attempt_id: attempt.id,
-            status: status.to_string(),
+            status,
             entitlement_key: Some(resolved.entitlement_key.clone()),
             billing_type: Some(billing_type_str),
             // Verification failures return 422 before this point; the only
             // failure reachable here is the fulfillment rollback above, whose
             // recorded provider_status is "fulfillment_failed".
-            failure_reason: (status == "failed").then(|| FULFILLMENT_FAILED_STATUS.to_string()),
+            failure_reason: (status == IapReceiptStatus::Failed).then(|| FULFILLMENT_FAILED_STATUS.to_string()),
         }))
     }
     .await;
 
     let release_lease = match &result {
-        Ok(Json(response)) => response.status == "failed",
+        Ok(Json(response)) => response.status == IapReceiptStatus::Failed,
         Err(_) => true,
     };
     if release_lease
@@ -1191,19 +1190,21 @@ async fn iap_response_for_existing_event(
             )
         })?;
     let status = match attempt.status {
-        PaymentAttemptStatus::Succeeded => "succeeded",
-        PaymentAttemptStatus::Pending | PaymentAttemptStatus::RequiresAction => "pending",
+        PaymentAttemptStatus::Succeeded => IapReceiptStatus::Succeeded,
+        PaymentAttemptStatus::Pending | PaymentAttemptStatus::RequiresAction => {
+            IapReceiptStatus::Pending
+        }
         PaymentAttemptStatus::Failed
         | PaymentAttemptStatus::Cancelled
-        | PaymentAttemptStatus::Expired => "failed",
+        | PaymentAttemptStatus::Expired => IapReceiptStatus::Failed,
     };
 
     Ok(IapReceiptResponse {
         attempt_id: attempt.id,
-        status: status.to_string(),
+        status,
         entitlement_key,
         billing_type: None,
-        failure_reason: (status == "failed").then(|| {
+        failure_reason: (status == IapReceiptStatus::Failed).then(|| {
             attempt
                 .provider_status
                 .unwrap_or_else(|| "payment_failed".to_string())
@@ -1373,9 +1374,6 @@ async fn resolve_iap_dedup_conflict(
     }
 }
 
-// ============================================================================
-// ============================================================================
-
 #[utoipa::path(
     post,
     path = "/api/third/pay/{realmId}/apple/webhooks",
@@ -1462,7 +1460,7 @@ pub async fn process_apple_notification_decoded(
     let resolved = resolve_entitlement_mapping(state, realm_id, "apple", &product_id, None, None)
         .await
         .map_err(|e| CoreError::BadRequest(e.to_string()))?;
-    let billing_type = resolved.mapping.billing_type.clone().ok_or_else(|| {
+    let billing_type = resolved.mapping.billing_type.ok_or_else(|| {
         CoreError::BadRequest(format!(
             "apple mapping '{}' has no billing_type",
             resolved.mapping.id
@@ -2817,9 +2815,6 @@ async fn process_apple_renewal_status_change(
     Ok(())
 }
 
-// ============================================================================
-// ============================================================================
-//
 // The signatures below are the frozen contract that `compensation.rs` (via
 // `WebhookEventProcessorImpl::reprocess_event`) and the worker
 // skeleton with the full "lookup + replay" implementation; the argument list
@@ -2903,7 +2898,7 @@ pub async fn reprocess_apple_event(
     let resolved = resolve_entitlement_mapping(&state, &realm_id, "apple", product_id, None, None)
         .await
         .map_err(|e| CoreError::BadRequest(e.to_string()))?;
-    let billing_type = resolved.mapping.billing_type.clone().ok_or_else(|| {
+    let billing_type = resolved.mapping.billing_type.ok_or_else(|| {
         CoreError::BadRequest(format!(
             "apple mapping '{}' has no billing_type",
             resolved.mapping.id
@@ -3118,7 +3113,7 @@ pub async fn reprocess_google_event(
             let resolved =
                 resolve_entitlement_mapping(&state, &realm_id, "google", &product_id, None, None)
                     .await?;
-            let route = match resolved.mapping.billing_type.clone() {
+            let route = match resolved.mapping.billing_type {
                 Some(BillingType::OneTime) => GoogleReplayRoute::OneTime,
                 Some(BillingType::NonRenewing) => GoogleReplayRoute::NonRenewing {
                     entitlement_key: resolved.entitlement_key.clone(),
@@ -3518,10 +3513,6 @@ async fn reprocess_google_recurring_sync(
     Ok(())
 }
 
-// ============================================================================
-// Error mapping helpers
-// ============================================================================
-
 fn iap_error_to_api_error(e: IapError) -> ApiError {
     match e {
         IapError::NotConfigured { .. } => ApiError::not_found(e.to_string()),
@@ -3584,10 +3575,6 @@ fn google_one_time_ack_action(is_consumable_points_pack: bool) -> GoogleOneTimeA
         GoogleOneTimeAckAction::Acknowledge
     }
 }
-
-// =============================================================================
-// Unit Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

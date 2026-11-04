@@ -5,6 +5,7 @@ pub mod admin_entities;
 pub mod admin_errors;
 pub mod admin_ports;
 pub mod entities;
+pub mod phone;
 pub mod policies;
 pub mod ports;
 pub mod services;

@@ -1,6 +1,3 @@
-// =============================================================================
-// User Sessions Management Scenario Tests
-// =============================================================================
 //
 // End-to-end HTTP scenario tests for the admin session management endpoints:
 //   GET    /api/users/{userId}/sessions
@@ -14,7 +11,6 @@
 //     cross-user / 404 / concurrent no-op)
 //   - US-RA-021 (Forbidden linkage revocation)
 //
-// =============================================================================
 
 use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
@@ -32,10 +28,6 @@ use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
-
-// =============================================================================
-// Local helpers
-// =============================================================================
 
 /// Seed a Normal (status=1) user with a bcrypt password, username, provider_ids
 /// and a profile nickname, plus the consent records required to pass the login
@@ -296,18 +288,17 @@ async fn revoke_all_sessions(
     app.oneshot(req).await.unwrap()
 }
 
-/// PUT `/api/users/{userId}` with `{"status": <i16>}`. Forbidden=2,
-/// Normal=1. Mirrors `user_list_scenarios.rs` PUT pattern and
-/// `types.rs::UserUpdateRequest.status: Option<i16>`.
+/// PUT `/api/users/{userId}` with `{"status": <str>}` — serde wire names of
+/// `UserStatus` ("wait_verified"/"normal"/"forbidden"/"deleted").
 async fn update_user_status(
     ctx: &TestContext,
     admin_token: &str,
     _realm_id: &str,
     user_id: Uuid,
-    status_i16: i16,
+    status: &str,
 ) -> axum::response::Response {
     let app = ctx.create_unified_test_router();
-    let payload = json!({ "status": status_i16 });
+    let payload = json!({ "status": status });
     let req = Request::builder()
         .method("PUT")
         .uri(format!("/api/users/{}", user_id))
@@ -332,14 +323,8 @@ async fn protected_endpoint_status(ctx: &TestContext, token: &str) -> StatusCode
     app.oneshot(req).await.unwrap().status()
 }
 
-// =============================================================================
-// US-RA-020 — list scenarios
-// =============================================================================
-
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list returns 200 + [] when the user has no sessions
-/// ============================================================================
+///list returns 200 + [] when the user has no sessions
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_user_sessions_list_empty_when_no_sessions(ctx: &mut TestContext) {
@@ -360,11 +345,9 @@ async fn test_user_sessions_list_empty_when_no_sessions(ctx: &mut TestContext) {
     assert!(arr.is_empty(), "session list should be empty");
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list returns active sessions with metadata fields;
+///list returns active sessions with metadata fields;
 ///         meta index (UA/IP/createdAt) populated from login/create_family.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_user_sessions_list_returns_active_sessions(ctx: &mut TestContext) {
@@ -425,11 +408,9 @@ async fn test_user_sessions_list_returns_active_sessions(ctx: &mut TestContext) 
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list count decreases by one after revoking a single
+///list count decreases by one after revoking a single
 ///         family, and the revoked family no longer appears.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_user_sessions_list_decreases_after_revoke_one(ctx: &mut TestContext) {
@@ -481,10 +462,8 @@ async fn test_user_sessions_list_decreases_after_revoke_one(ctx: &mut TestContex
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list is empty after revoking all sessions.
-/// ============================================================================
+///list is empty after revoking all sessions.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_user_sessions_list_empty_after_revoke_all(ctx: &mut TestContext) {
@@ -521,9 +500,8 @@ async fn test_user_sessions_list_empty_after_revoke_all(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 / §5.1 — legacy families without a metadata index
+///legacy families without a metadata index
 ///         surface UA/IP/createdAt as null while remaining in the list.
 ///
 /// NOTE: this is marked `#[ignore]` because constructing a family record
@@ -533,7 +511,6 @@ async fn test_user_sessions_list_empty_after_revoke_all(ctx: &mut TestContext) {
 /// `list_user_sessions_handles_missing_meta_for_legacy_families` (see
 /// `backend/infra/src/authentication/mod.rs`). Leaving the test in place as a
 /// scenario-level marker; runner does not need to execute it.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 #[ignore]
@@ -556,14 +533,8 @@ async fn test_user_sessions_list_handles_missing_meta_as_null(ctx: &mut TestCont
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
-// =============================================================================
-// US-RA-020 — revoke scenarios
-// =============================================================================
-
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke single returns 204 No Content.
-/// ============================================================================
+///revoke single returns 204 No Content.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_user_session_returns_204(ctx: &mut TestContext) {
@@ -593,10 +564,8 @@ async fn test_revoke_user_session_returns_204(ctx: &mut TestContext) {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke all returns 200 with revokedCount == N.
-/// ============================================================================
+///revoke all returns 200 with revokedCount == N.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_all_sessions_returns_revoked_count(ctx: &mut TestContext) {
@@ -631,11 +600,9 @@ async fn test_revoke_all_sessions_returns_revoked_count(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 / §4.5 — revoke single takes effect immediately: the
+///revoke single takes effect immediately: the
 ///         revoked user token is rejected with 401 on the next request.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_user_session_revoked_token_fails_next_request(ctx: &mut TestContext) {
@@ -670,10 +637,8 @@ async fn test_revoke_user_session_revoked_token_fails_next_request(ctx: &mut Tes
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke all invalidates every active token.
-/// ============================================================================
+///revoke all invalidates every active token.
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_all_sessions_all_tokens_fail(ctx: &mut TestContext) {
@@ -716,15 +681,9 @@ async fn test_revoke_all_sessions_all_tokens_fail(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// US-RA-020 — permission / realm / cross-user scenarios
-// =============================================================================
-
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list requires users.view; an admin without it is
+///list requires users.view; an admin without it is
 ///         rejected with 403.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_list_sessions_forbidden_without_users_view(ctx: &mut TestContext) {
@@ -750,11 +709,9 @@ async fn test_list_sessions_forbidden_without_users_view(ctx: &mut TestContext) 
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke single requires users.manage; users.view
+///revoke single requires users.manage; users.view
 ///         alone does not imply manage (403).
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_one_forbidden_without_users_manage(ctx: &mut TestContext) {
@@ -788,11 +745,9 @@ async fn test_revoke_one_forbidden_without_users_manage(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke all requires users.manage; users.view alone
+///revoke all requires users.manage; users.view alone
 ///         does not imply manage (403).
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_all_forbidden_without_users_manage(ctx: &mut TestContext) {
@@ -817,14 +772,12 @@ async fn test_revoke_all_forbidden_without_users_manage(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 / §4.5 — the list is realm-bound via the session
+///the list is realm-bound via the session
 ///         token: there is no realm path segment left, so an admin can only
 ///         ever address sessions inside the caller's own realm. Listing the
 ///         own realm's user must succeed (the cross-realm request is
 ///         unrepresentable rather than rejected).
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_list_sessions_cross_realm_returns_403(ctx: &mut TestContext) {
@@ -843,10 +796,8 @@ async fn test_list_sessions_cross_realm_returns_403(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 / §4.5 — revoke single is realm-bound (403).
-/// ============================================================================
+///revoke single is realm-bound (403).
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_one_cross_realm_returns_403(ctx: &mut TestContext) {
@@ -869,11 +820,9 @@ async fn test_revoke_one_cross_realm_returns_403(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — list returns 404 when the target user does not
+///list returns 404 when the target user does not
 ///         exist in the realm.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_list_sessions_target_user_not_found_returns_404(ctx: &mut TestContext) {
@@ -891,11 +840,9 @@ async fn test_list_sessions_target_user_not_found_returns_404(ctx: &mut TestCont
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoke single returns 404 when the target user
+///revoke single returns 404 when the target user
 ///         does not exist in the realm (checked before family ownership).
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_one_target_user_not_found_returns_404(ctx: &mut TestContext) {
@@ -914,12 +861,10 @@ async fn test_revoke_one_target_user_not_found_returns_404(ctx: &mut TestContext
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — revoking another user's family under this user's
+///revoking another user's family under this user's
 ///         path returns 404 (no cross-user leak). User A owns familyIdA;
 ///         admin revokes familyIdA under user B's path -> 404.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_one_cross_user_family_returns_404(ctx: &mut TestContext) {
@@ -956,15 +901,13 @@ async fn test_revoke_one_cross_user_family_returns_404(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-020
-/// Covers: Design §4.2.2 — concurrent/no-op revoke of a non-existent family
+///concurrent/no-op revoke of a non-existent family
 ///         returns 204 (successful empty operation). If the implementation
 ///         instead returns 404, that is a production-vs-design semantics
 ///         conflict and the runner must stop and report
 ///         `requires_test_semantics_change`; this assertion is written per the
 ///         design's 204 semantics.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_revoke_one_nonexistent_family_returns_204(ctx: &mut TestContext) {
@@ -1014,15 +957,9 @@ async fn test_revoke_one_nonexistent_family_returns_204(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// US-RA-021 — Forbidden linkage scenarios
-// =============================================================================
-
-/// ============================================================================
 /// User Story: US-RA-021
-/// Covers: Design §5.3 — setting a user's status to Forbidden revokes their
+///setting a user's status to Forbidden revokes their
 ///         sessions; the user's token is rejected with 401 on the next request.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_user_to_forbidden_revokes_sessions(ctx: &mut TestContext) {
@@ -1039,7 +976,7 @@ async fn test_update_user_to_forbidden_revokes_sessions(ctx: &mut TestContext) {
     );
 
     // PUT status=2 (Forbidden) triggers session revocation.
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "forbidden").await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     assert_eq!(
@@ -1049,11 +986,9 @@ async fn test_update_user_to_forbidden_revokes_sessions(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-021
-/// Covers: Design §5.3 — setting status to Forbidden revokes ALL of the user's
+///setting status to Forbidden revokes ALL of the user's
 ///         sessions, not just one.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_user_to_forbidden_revokes_all_sessions(ctx: &mut TestContext) {
@@ -1081,7 +1016,7 @@ async fn test_update_user_to_forbidden_revokes_all_sessions(ctx: &mut TestContex
         StatusCode::OK
     );
 
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "forbidden").await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     assert_eq!(
@@ -1096,11 +1031,9 @@ async fn test_update_user_to_forbidden_revokes_all_sessions(ctx: &mut TestContex
     );
 }
 
-/// ============================================================================
 /// User Story: US-RA-021
-/// Covers: Design §5.3 — a status change to Normal (non-Forbidden target) does
+///a status change to Normal (non-Forbidden target) does
 ///         NOT revoke the user's sessions; the token remains valid.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_user_to_normal_does_not_revoke(ctx: &mut TestContext) {
@@ -1117,7 +1050,7 @@ async fn test_update_user_to_normal_does_not_revoke(ctx: &mut TestContext) {
     );
 
     // PUT status=1 (Normal) — target is non-Forbidden, so no revocation.
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 1).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "normal").await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     assert_eq!(
@@ -1127,11 +1060,9 @@ async fn test_update_user_to_normal_does_not_revoke(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// User Story: docs/user-stories/core/realm-admin.md - US-RA-021
 /// Covers: re-saving Forbidden retries revocation so an earlier failed
 ///         revocation cannot leave a token family alive indefinitely.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_update_user_keep_forbidden_retries_revoke(ctx: &mut TestContext) {
@@ -1168,7 +1099,7 @@ async fn test_update_user_keep_forbidden_retries_revoke(ctx: &mut TestContext) {
     );
 
     // PUT status=2 retries revocation even without a status transition.
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "forbidden").await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     assert!(
@@ -1181,14 +1112,12 @@ async fn test_update_user_keep_forbidden_retries_revoke(ctx: &mut TestContext) {
     );
 }
 
-/// ============================================================================
 /// PRD core/users.md §4.1 状态写入边界 — admin create/update may only write
 /// the enable/disable pair Normal(1)/Forbidden(2). WaitVerified(0) belongs to
 /// the self-service email-verification flow and Deleted(3) to the
 /// anonymizing self-deletion pipeline; a hand-written Deleted would produce a
 /// non-anonymized "Deleted" account, bypassing subscription cancellation and
 /// credential cleanup.
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_admin_user_status_write_restricted_to_enable_disable(ctx: &mut TestContext) {
@@ -1199,18 +1128,18 @@ async fn test_admin_user_status_write_restricted_to_enable_disable(ctx: &mut Tes
 
     let (user_id, _email) = seed_normal_user_with_password(ctx, &realm_id, "PW-Bnd1!").await;
 
-    // Update path: Deleted(3) and WaitVerified(0) are rejected with 400.
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 3).await;
+    // Update path: Deleted and WaitVerified are rejected with 400.
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "deleted").await;
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "admin update must refuse hand-writing Deleted(3)"
+        "admin update must refuse hand-writing deleted"
     );
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 0).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "wait_verified").await;
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
-        "admin update must refuse hand-writing WaitVerified(0)"
+        "admin update must refuse hand-writing wait_verified"
     );
 
     // The account row itself must be untouched by the rejected writes.
@@ -1222,13 +1151,13 @@ async fn test_admin_user_status_write_restricted_to_enable_disable(ctx: &mut Tes
     assert_eq!(status, 1, "rejected writes must not change the status");
 
     // The enable/disable pair keeps flowing through.
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 2).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "forbidden").await;
     assert_eq!(resp.status(), StatusCode::OK);
-    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, 1).await;
+    let resp = update_user_status(ctx, &admin_token, &realm_id, user_id, "normal").await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     // Create path: same boundary.
-    for bad_status in [0i16, 3i16] {
+    for bad_status in ["wait_verified", "deleted"] {
         let app = ctx.create_unified_test_router();
         let payload = json!({
             "email": format!("status-boundary-create-{bad_status}@test.com"),

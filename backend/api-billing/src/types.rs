@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use herald_core::domain::billing::entities::{BillingType, SubscriptionStatus};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -103,7 +104,7 @@ pub struct EntitlementMappingResponse {
     pub external_price_id: Option<String>,
     pub entitlement_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_type: Option<String>,
+    pub billing_type: Option<BillingType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_period: Option<String>,
     /// Non-renewing service-period length (days). Present only for
@@ -206,8 +207,7 @@ pub struct CreateEntitlementMappingRequest {
     pub external_price_id: Option<String>,
     pub entitlement_key: String,
     /// `"recurring"` / `"one_time"` / `"non_renewing"`.
-    #[validate(custom(function = "validate_create_billing_type"))]
-    pub billing_type: String,
+    pub billing_type: BillingType,
     /// Required when `billing_type == "recurring"`; must be empty for
     /// `"non_renewing"` (mutually exclusive billing semantics).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -239,14 +239,6 @@ pub struct CreateEntitlementMappingRequest {
 
 fn default_true() -> bool {
     true
-}
-
-fn validate_create_billing_type(billing_type: &str) -> Result<(), validator::ValidationError> {
-    if matches!(billing_type, "recurring" | "one_time" | "non_renewing") {
-        Ok(())
-    } else {
-        Err(validator::ValidationError::new("invalid_billing_type"))
-    }
 }
 
 /// Request to sync provider products
@@ -308,10 +300,10 @@ pub struct SubscriptionDetailResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_price_id: Option<String>,
     pub payment_provider: String,
-    pub status: String,
+    pub status: SubscriptionStatus,
     /// Billing type snapshot (`"recurring"` / `"non_renewing"`). Lets the
     /// admin subscription view distinguish non-renewing subscriptions and hide
-    pub billing_type: String,
+    pub billing_type: BillingType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_period_start: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,10 +330,10 @@ pub struct SubscriptionListItemResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_price_id: Option<String>,
     pub payment_provider: String,
-    pub status: String,
+    pub status: SubscriptionStatus,
     /// Billing type snapshot (`"recurring"` / `"non_renewing"`). Lets the
     /// admin subscription list distinguish non-renewing subscriptions and hide
-    pub billing_type: String,
+    pub billing_type: BillingType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_period_start: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -367,7 +359,7 @@ pub struct SubscriptionListQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entitlement_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<SubscriptionStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,7 +412,7 @@ pub struct QuotaWindowInput {
 pub struct PriceMappingUpdate {
     pub mapping_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_type: Option<String>,
+    pub billing_type: Option<BillingType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     /// `None` ⟺ leave the existing rule set untouched; `Some(rules)` ⟺ upsert
@@ -471,7 +463,7 @@ pub struct PurchaseOptionView {
     pub entitlement_key: String,
     /// `recurring` | `one_time`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_type: Option<String>,
+    pub billing_type: Option<BillingType>,
     /// `month` / `year` / …
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_period: Option<String>,

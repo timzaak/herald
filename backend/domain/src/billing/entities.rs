@@ -41,8 +41,10 @@ pub struct Subscription {
 }
 
 /// Subscription status - Creem official states
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+// snake_case (not lowercase) so multi-word variants match as_str()/wire
+// ("past_due", "scheduled_cancel").
+#[serde(rename_all = "snake_case")]
 pub enum SubscriptionStatus {
     // Creem official states
     Active,          // Subscription active, normally billed - has access
@@ -244,7 +246,7 @@ impl EntitlementMapping {
 }
 
 /// Billing type enum for entitlement mappings
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingType {
     Recurring,

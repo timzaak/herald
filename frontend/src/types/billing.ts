@@ -21,17 +21,9 @@ export type SubscriptionHistoryEventType =
   | 'payment_failed'
   | 'invoice_created'
 
-// Subscription status
-export type SubscriptionStatus =
-  | 'active'
-  | 'trialing'
-  | 'past_due'
-  | 'canceled'
-  | 'incomplete'
-  | 'expired'
-  | 'paused'
-  | 'disputed'
-  | 'scheduled_cancel'
+// Re-exported from the generated OpenAPI types so the vocabulary cannot drift from the backend enum.
+export type { SubscriptionStatus } from '@/lib/api-generated'
+import type { SubscriptionStatus } from '@/lib/api-generated'
 
 // Subscription history event
 export interface SubscriptionHistoryEvent {
@@ -75,10 +67,10 @@ export interface UserInfo {
   email: string
 }
 
-// Subscription summary in history
+// `status` may be absent: history outlives its subscription row.
 export interface SubscriptionSummary {
   id: string
-  status: SubscriptionStatus
+  status?: SubscriptionStatus
   entitlementKey?: string
 }
 
@@ -155,13 +147,14 @@ export function getEventTypeLabels(): Readonly<Record<SubscriptionHistoryEventTy
 
 const statusKeyMap: Record<SubscriptionStatus, string> = {
   active: 'billing.subscription_status_label_active',
+  pending: 'billing.subscription_status_label_pending',
   trialing: 'billing.subscription_status_label_trialing',
   past_due: 'billing.subscription_status_label_past_due',
   canceled: 'billing.subscription_status_label_canceled',
   incomplete: 'billing.subscription_status_label_incomplete',
   expired: 'billing.subscription_status_label_expired',
   paused: 'billing.subscription_status_label_paused',
-  disputed: 'billing.subscription_status_label_disputed',
+  dispute: 'billing.subscription_status_label_disputed',
   scheduled_cancel: 'billing.subscription_status_label_scheduled_cancel',
 }
 
@@ -188,7 +181,7 @@ export function getStatusBadgeVariant(
     case 'trialing':
       return 'default'
     case 'past_due':
-    case 'disputed':
+    case 'dispute':
     case 'paused':
       return 'destructive'
     default:
@@ -203,7 +196,7 @@ export function getStatusBadgeVariant(
  */
 const statusMessageKeyMap: Partial<Record<SubscriptionStatus, string>> = {
   past_due: 'billing.subscription_status_message_past_due',
-  disputed: 'billing.subscription_status_message_disputed',
+  dispute: 'billing.subscription_status_message_disputed',
   scheduled_cancel: 'billing.subscription_status_message_scheduled_cancel',
   paused: 'billing.subscription_status_message_paused',
 }

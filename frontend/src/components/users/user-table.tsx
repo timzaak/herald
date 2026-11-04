@@ -71,7 +71,7 @@ function createUserColumns(
       accessorKey: 'status',
       header: m['users.table_status'](),
       cell: ({ row }) => {
-        const status = row.getValue('status') as number
+        const status = row.original.status
         return (
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${USER_STATUS_COLORS[status]}`}

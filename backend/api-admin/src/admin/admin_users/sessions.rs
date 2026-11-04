@@ -14,23 +14,11 @@ use herald_core::domain::audit::{
     ActorType, AuditAction, AuditCategory, AuditEventRepository, AuditResult, AuditTargetType,
     NewAuditEvent,
 };
-use herald_core::domain::authentication::identity::CredentialClass;
 use herald_core::domain::authentication::{BrowserTokenService, Identity};
 use herald_core::domain::user::AdminUserService;
 use herald_core::domain::user::admin_errors::UserAdminError;
 use herald_core::infrastructure::authentication::RedisBrowserTokenService;
 use uuid::Uuid;
-
-/// Map a `CredentialClass` enum to its wire string form. Mirrors the enum's
-/// `#[serde(rename_all = "snake_case")]` serialization so the DTO `String`
-/// field matches the canonical representation.
-fn credential_class_to_string(c: CredentialClass) -> &'static str {
-    match c {
-        CredentialClass::FirstParty => "first_party",
-        CredentialClass::CustomUserUi => "custom_user_ui",
-        CredentialClass::Mcp => "mcp",
-    }
-}
 
 /// Helper: confirm the target user exists in this realm via the admin user
 /// service. Returns `Ok(())` if found, otherwise maps the service error to an
@@ -150,7 +138,7 @@ pub async fn list_user_sessions(
             family_id: s.family_id,
             client_app_id: s.client_app_id,
             client_app_name: s.client_app_name,
-            credential_class: credential_class_to_string(s.credential_class).to_string(),
+            credential_class: s.credential_class,
             user_agent: s.user_agent,
             client_ip: s.client_ip,
             created_at: s.created_at.map(|dt| dt.to_rfc3339()),

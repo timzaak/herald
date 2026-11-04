@@ -4,15 +4,12 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 use validator::Validate;
 
-use herald_core::domain::billing::credit_note::CreditNote;
+use herald_core::domain::billing::credit_note::{CreditNote, CreditNoteSource, CreditNoteStatus};
 use herald_core::domain::billing::invoice::{
-    AdjustmentMode, AttributionFilter, InvoiceDetail, InvoiceHistory, InvoiceLineItem,
-    InvoiceListFilters, InvoiceProvider, InvoiceSellerConfig, InvoiceSource, InvoiceStatus,
+    ActorType, AdjustmentMode, AttributionFilter, InvoiceDetail, InvoiceEventType, InvoiceHistory,
+    InvoiceLineItem, InvoiceListFilters, InvoiceProvider, InvoiceSellerConfig, InvoiceSource,
+    InvoiceStatus,
 };
-
-// ---------------------------------------------------------------------------
-// Seller Config
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -59,10 +56,6 @@ impl From<InvoiceSellerConfig> for SellerConfigResponse {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Line Item
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct LineItemRequest {
@@ -106,18 +99,14 @@ impl From<InvoiceLineItem> for InvoiceLineItemResponse {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Invoice History
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceHistoryResponse {
     pub id: Uuid,
     pub invoice_id: Uuid,
-    pub event_type: String,
+    pub event_type: InvoiceEventType,
     pub actor_user_id: Option<Uuid>,
-    pub actor_type: String,
+    pub actor_type: ActorType,
     pub changes: serde_json::Value,
     pub created_at: String,
 }
@@ -127,18 +116,14 @@ impl From<InvoiceHistory> for InvoiceHistoryResponse {
         Self {
             id: h.id,
             invoice_id: h.invoice_id,
-            event_type: h.event_type.as_str().to_string(),
+            event_type: h.event_type,
             actor_user_id: h.actor_user_id,
-            actor_type: h.actor_type.as_str().to_string(),
+            actor_type: h.actor_type,
             changes: h.changes,
             created_at: h.created_at.to_rfc3339(),
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Apply Invoice (user-facing)
-// ---------------------------------------------------------------------------
 
 /// Per-resource invoice apply-eligibility (read-only, context-level).
 ///
@@ -196,10 +181,6 @@ pub struct ApplyInvoiceRequest {
     pub notes: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Create Invoice (admin)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateInvoiceRequest {
@@ -242,15 +223,15 @@ pub struct CreateInvoiceRequest {
 
     // Adjustments
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub discount_mode: Option<String>,
+    pub discount_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discount_value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tax_mode: Option<String>,
+    pub tax_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tax_value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub shipping_mode: Option<String>,
+    pub shipping_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_value: Option<String>,
 
@@ -260,10 +241,6 @@ pub struct CreateInvoiceRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Update Invoice (draft only)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -294,15 +271,15 @@ pub struct UpdateInvoiceRequest {
     pub line_items: Option<Vec<LineItemRequest>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub discount_mode: Option<String>,
+    pub discount_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discount_value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tax_mode: Option<String>,
+    pub tax_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tax_value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub shipping_mode: Option<String>,
+    pub shipping_mode: Option<AdjustmentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_value: Option<String>,
 
@@ -313,10 +290,6 @@ pub struct UpdateInvoiceRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Status action requests
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -340,19 +313,15 @@ pub struct MarkPaidRequest {
     pub paid_at: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// List query params
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceListQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<InvoiceStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    pub source: Option<InvoiceSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
+    pub provider: Option<InvoiceProvider>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -381,18 +350,9 @@ fn default_page_size() -> Option<u64> {
 impl InvoiceListQuery {
     pub fn to_filters(&self) -> InvoiceListFilters {
         InvoiceListFilters {
-            status: self
-                .status
-                .as_deref()
-                .and_then(|s| s.parse::<InvoiceStatus>().ok()),
-            source: self
-                .source
-                .as_deref()
-                .and_then(|s| s.parse::<InvoiceSource>().ok()),
-            provider: self
-                .provider
-                .as_deref()
-                .and_then(|s| s.parse::<InvoiceProvider>().ok()),
+            status: self.status,
+            source: self.source,
+            provider: self.provider,
             // Set later by the read-path policy filter, never from the query.
             external_only: false,
             search: self.search.clone(),
@@ -408,25 +368,21 @@ impl InvoiceListQuery {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Invoice Response (summary for list views)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceResponse {
     pub id: Uuid,
     pub invoice_number: String,
-    pub source: String,
+    pub source: InvoiceSource,
     pub account_id: Option<Uuid>,
     pub subscription_id: Option<Uuid>,
     pub payment_attempt_id: Option<Uuid>,
-    pub status: String,
+    pub status: InvoiceStatus,
     pub currency: String,
     pub total: i64,
     pub billing_name: Option<String>,
     pub due_date: Option<NaiveDate>,
-    pub provider: String,
+    pub provider: InvoiceProvider,
     pub payment_provider: Option<String>,
     pub external_invoice_id: Option<String>,
     pub external_hosted_url: Option<String>,
@@ -435,25 +391,21 @@ pub struct InvoiceResponse {
     pub created_at: String,
 }
 
-// ---------------------------------------------------------------------------
-// Invoice Detail Response
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceDetailResponse {
     pub id: Uuid,
     pub realm_id: String,
     pub invoice_number: String,
-    pub source: String,
+    pub source: InvoiceSource,
     pub account_id: Option<Uuid>,
     pub applicant_user_id: Option<Uuid>,
     pub subscription_id: Option<Uuid>,
     pub payment_attempt_id: Option<Uuid>,
-    pub status: String,
+    pub status: InvoiceStatus,
     pub currency: String,
 
-    pub provider: String,
+    pub provider: InvoiceProvider,
     pub payment_provider: Option<String>,
     pub external_invoice_id: Option<String>,
     pub external_hosted_url: Option<String>,
@@ -475,11 +427,11 @@ pub struct InvoiceDetailResponse {
     pub amount_refunded: i64,
     pub amount_remaining: i64,
 
-    pub discount_mode: Option<String>,
+    pub discount_mode: Option<AdjustmentMode>,
     pub discount_value: Option<String>,
-    pub tax_mode: Option<String>,
+    pub tax_mode: Option<AdjustmentMode>,
     pub tax_value: Option<String>,
-    pub shipping_mode: Option<String>,
+    pub shipping_mode: Option<AdjustmentMode>,
     pub shipping_value: Option<String>,
 
     pub billing_name: Option<String>,
@@ -506,10 +458,6 @@ pub struct InvoiceDetailResponse {
     pub updated_at: String,
 }
 
-// ---------------------------------------------------------------------------
-// Invoice List Response
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvoiceListResponse {
@@ -518,10 +466,6 @@ pub struct InvoiceListResponse {
     pub page_size: u64,
     pub data: Vec<InvoiceResponse>,
 }
-
-// ---------------------------------------------------------------------------
-// Attribution Anomalies — admin read-only
-// ---------------------------------------------------------------------------
 
 /// A succeeded payment attempt with no invoice linked via `payment_attempt_id`.
 ///
@@ -557,15 +501,6 @@ pub struct AttributionAnomaliesResponse {
     pub payments_without_invoice: Vec<PaymentWithoutInvoiceResponse>,
 }
 
-// ---------------------------------------------------------------------------
-// Conversion helpers
-// ---------------------------------------------------------------------------
-
-/// Parse optional adjustment mode string.
-pub fn parse_adjustment_mode(s: Option<&str>) -> Option<AdjustmentMode> {
-    s.and_then(AdjustmentMode::from_str_opt)
-}
-
 /// Convert domain InvoiceSummary to API InvoiceResponse.
 pub fn summary_to_response(
     s: herald_core::domain::billing::invoice::InvoiceSummary,
@@ -573,16 +508,16 @@ pub fn summary_to_response(
     InvoiceResponse {
         id: s.id,
         invoice_number: s.invoice_number,
-        source: s.source.as_str().to_string(),
+        source: s.source,
         account_id: s.account_id,
         subscription_id: s.subscription_id,
         payment_attempt_id: s.payment_attempt_id,
-        status: s.status.as_str().to_string(),
+        status: s.status,
         currency: s.currency,
         total: s.total,
         billing_name: s.billing_name,
         due_date: s.due_date,
-        provider: s.provider.as_str().to_string(),
+        provider: s.provider,
         payment_provider: s.payment_provider,
         external_invoice_id: s.external_invoice_id,
         external_hosted_url: s.external_hosted_url,
@@ -591,10 +526,6 @@ pub fn summary_to_response(
         created_at: s.created_at.to_rfc3339(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Credit Note (Manual refund recording)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
@@ -613,8 +544,8 @@ pub struct CreditNoteResponse {
     pub id: Uuid,
     pub amount: i64,
     pub currency: String,
-    pub source: String,
-    pub status: String,
+    pub source: CreditNoteSource,
+    pub status: CreditNoteStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_credit_note_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -630,8 +561,8 @@ impl From<CreditNote> for CreditNoteResponse {
             id: cn.id,
             amount: cn.amount,
             currency: cn.currency,
-            source: cn.source.as_str().to_string(),
-            status: cn.status.as_str().to_string(),
+            source: cn.source,
+            status: cn.status,
             external_credit_note_id: cn.external_credit_note_id,
             memo: cn.memo,
             created_by_user_id: cn.created_by_user_id,
@@ -646,15 +577,15 @@ pub fn invoice_to_detail_response(detail: InvoiceDetail) -> InvoiceDetailRespons
         id: detail.invoice.id,
         realm_id: detail.invoice.realm_id,
         invoice_number: detail.invoice.invoice_number,
-        source: detail.invoice.source.as_str().to_string(),
+        source: detail.invoice.source,
         account_id: detail.invoice.account_id,
         applicant_user_id: detail.invoice.applicant_user_id,
         subscription_id: detail.invoice.subscription_id,
         payment_attempt_id: detail.invoice.payment_attempt_id,
-        status: detail.invoice.status.as_str().to_string(),
+        status: detail.invoice.status,
         currency: detail.invoice.currency,
 
-        provider: detail.invoice.provider.as_str().to_string(),
+        provider: detail.invoice.provider,
         payment_provider: detail.invoice.payment_provider,
         external_invoice_id: detail.invoice.external_invoice_id,
         external_hosted_url: detail.invoice.external_hosted_url,
@@ -676,11 +607,11 @@ pub fn invoice_to_detail_response(detail: InvoiceDetail) -> InvoiceDetailRespons
         amount_refunded: detail.invoice.amount_refunded,
         amount_remaining: detail.invoice.amount_remaining,
 
-        discount_mode: detail.invoice.discount_mode.map(|m| m.as_str().to_string()),
+        discount_mode: detail.invoice.discount_mode,
         discount_value: detail.invoice.discount_value,
-        tax_mode: detail.invoice.tax_mode.map(|m| m.as_str().to_string()),
+        tax_mode: detail.invoice.tax_mode,
         tax_value: detail.invoice.tax_value,
-        shipping_mode: detail.invoice.shipping_mode.map(|m| m.as_str().to_string()),
+        shipping_mode: detail.invoice.shipping_mode,
         shipping_value: detail.invoice.shipping_value,
 
         billing_name: detail.invoice.billing_name,

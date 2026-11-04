@@ -413,6 +413,10 @@ impl RedisBrowserTokenService {
             DeleteAccount,
             TotpManage,
             PasskeyManage,
+            // Phone bind/rebind/unbind is first-party-only by design: it is
+            // deliberately absent from `custom_user_ui_scopes()` so restricted
+            // consent and third-party portal sessions never hold it.
+            PhoneManage,
             Logout,
             PointsRead,
             PointsTransactionsRead,

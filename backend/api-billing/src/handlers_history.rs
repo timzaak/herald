@@ -21,8 +21,7 @@ use herald_api_base::application::http::server::api_entities::{ApiError, ErrorRe
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::authentication::{CredentialScope, Identity, TokenCredentialContext};
 use herald_core::domain::billing::{
-    BillingRepository, HistoryEventType, SUBSCRIPTION_STATUS_UNKNOWN, SortOrder,
-    SubscriptionHistoryQuery,
+    BillingRepository, HistoryEventType, SortOrder, SubscriptionHistoryQuery,
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 
@@ -355,13 +354,13 @@ async fn convert_events_with_details(
         {
             SubscriptionSummary {
                 id: subscription.id,
-                status: subscription.status.as_str().to_string(),
+                status: Some(subscription.status),
                 entitlement_key: Some(subscription.entitlement_key),
             }
         } else {
             SubscriptionSummary {
                 id: event.subscription_id,
-                status: SUBSCRIPTION_STATUS_UNKNOWN.to_string(),
+                status: None,
                 entitlement_key: None,
             }
         };

@@ -25,10 +25,6 @@ use super::super::{
     UserPermissionService, UserRoleRepository,
 };
 
-// ============================================================================
-// Shared permission check helper
-// ============================================================================
-
 async fn require_permission<P: PermissionService>(
     permission_checker: &P,
     identity: &Identity,
@@ -54,10 +50,6 @@ async fn require_permission<P: PermissionService>(
         _ => UserAdminError::InternalError(format!("Policy check error: {:?}", e)),
     })
 }
-
-// ============================================================================
-// Target realm-boundary checks
-// ============================================================================
 
 /// Load the target user of a path-scoped admin operation and enforce the
 /// realm boundary: the user acted on must belong to `realm_id`.
@@ -243,10 +235,6 @@ where
     }
     Ok(())
 }
-
-// ============================================================================
-// Admin User Service Implementation
-// ============================================================================
 
 pub struct AdminUserServiceImpl<R, UR, RP, P, AE, B>
 where
@@ -1189,6 +1177,135 @@ where
 
         Ok(new_password)
     }
+
+    async fn unbind_user_phone(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> UserAdminResult<()> {
+        require_permission(
+            &*self.permission_checker,
+            &identity,
+            realm_id,
+            "users",
+            "manage",
+            "Insufficient permissions to manage users",
+        )
+        .await?;
+
+        if identity.realm_id() != realm_id {
+            return Err(UserAdminError::PermissionDenied(
+                "Cannot manage users in a different realm".to_string(),
+            ));
+        }
+
+        require_target_user_not_deleted(&*self.user_repository, realm_id, user_id).await?;
+
+        let old_phone = self
+            .user_repository
+            .get_user_phone(realm_id, user_id)
+            .await?
+            .ok_or_else(|| {
+                UserAdminError::InvalidOperation("No phone is bound to this account".to_string())
+            })?;
+
+        self.user_repository
+            .update_user_phone(realm_id, user_id, None)
+            .await?;
+
+        if let Err(e) = self
+            .audit_event_repository
+            .create(NewAuditEvent {
+                realm_id: realm_id.to_string(),
+                category: AuditCategory::UserManagement,
+                action: AuditAction::PhoneAdminUnbind,
+                actor_id: ctx.actor_id.clone(),
+                actor_type: ctx.actor_type,
+                actor_name: ctx.actor_name.clone(),
+                target_type: AuditTargetType::User,
+                target_id: user_id.to_string(),
+                target_name: None,
+                result: AuditResult::Success,
+                details: Some(serde_json::json!({
+                    "masked_phone": crate::user::phone::mask_phone(&old_phone),
+                })),
+                ip_address: ctx.ip_address.clone(),
+                user_agent: ctx.user_agent.clone(),
+                trace_id: ctx.trace_id.clone(),
+            })
+            .await
+        {
+            tracing::warn!(error = %e, "Failed to record phone admin-unbind audit event");
+        }
+        Ok(())
+    }
+
+    async fn rebind_user_phone(
+        &self,
+        identity: Identity,
+        ctx: AuditContext,
+        realm_id: &str,
+        user_id: Uuid,
+        new_phone: &str,
+    ) -> UserAdminResult<()> {
+        require_permission(
+            &*self.permission_checker,
+            &identity,
+            realm_id,
+            "users",
+            "manage",
+            "Insufficient permissions to manage users",
+        )
+        .await?;
+
+        if identity.realm_id() != realm_id {
+            return Err(UserAdminError::PermissionDenied(
+                "Cannot manage users in a different realm".to_string(),
+            ));
+        }
+
+        require_target_user_not_deleted(&*self.user_repository, realm_id, user_id).await?;
+
+        let old_phone = self
+            .user_repository
+            .get_user_phone(realm_id, user_id)
+            .await?;
+
+        // A concurrent bind of the same phone loses here with DuplicatePhone
+        // (pending record already consumed — the admin must resend).
+        self.user_repository
+            .update_user_phone(realm_id, user_id, Some(new_phone))
+            .await?;
+
+        if let Err(e) = self
+            .audit_event_repository
+            .create(NewAuditEvent {
+                realm_id: realm_id.to_string(),
+                category: AuditCategory::UserManagement,
+                action: AuditAction::PhoneAdminRebind,
+                actor_id: ctx.actor_id.clone(),
+                actor_type: ctx.actor_type,
+                actor_name: ctx.actor_name.clone(),
+                target_type: AuditTargetType::User,
+                target_id: user_id.to_string(),
+                target_name: None,
+                result: AuditResult::Success,
+                details: Some(serde_json::json!({
+                    "masked_old_phone": old_phone.as_deref().and_then(crate::user::phone::mask_phone),
+                    "masked_new_phone": crate::user::phone::mask_phone(new_phone),
+                })),
+                ip_address: ctx.ip_address.clone(),
+                user_agent: ctx.user_agent.clone(),
+                trace_id: ctx.trace_id.clone(),
+            })
+            .await
+        {
+            tracing::warn!(error = %e, "Failed to record phone admin-rebind audit event");
+        }
+        Ok(())
+    }
 }
 
 /// Password character categories used by `generate_random_password`.
@@ -1225,10 +1342,6 @@ fn generate_random_password() -> String {
     chars.shuffle(&mut rng);
     chars.into_iter().collect()
 }
-
-// ============================================================================
-// Role Assignment Service Implementation
-// ============================================================================
 
 pub struct RoleAssignmentServiceImpl<R, RP, P>
 where
@@ -1502,10 +1615,6 @@ where
     }
 }
 
-// ============================================================================
-// User Permission Service Implementation
-// ============================================================================
-
 pub struct UserPermissionServiceImpl<R, RP, P>
 where
     R: UserRoleRepository,
@@ -1778,12 +1887,10 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Forbidden linkage — hand-rolled mock ports.
-    // The port traits return `impl Future` (non-object-safe), so mockall is
-    // unusable. Only the methods exercised by `update_user_admin` return
-    // meaningful values; the rest panic to surface accidental coupling.
-    // ========================================================================
+    // Forbidden linkage — hand-rolled mock ports: the port traits return
+    // `impl Future` (non-object-safe), so mockall is unusable. Only the
+    // methods exercised by `update_user_admin` return meaningful values; the
+    // rest panic to surface accidental coupling.
 
     /// Permission checker that always grants the requested permission.
     struct AlwaysAllowPermission;
@@ -1941,6 +2048,23 @@ mod tests {
         create_calls: Arc<AtomicUsize>,
     }
     impl AdminUserRepository for MockAdminUserRepo {
+        async fn get_user_phone(
+            &self,
+            _realm_id: &str,
+            _user_id: Uuid,
+        ) -> UserAdminResult<Option<String>> {
+            Ok(None)
+        }
+
+        async fn update_user_phone(
+            &self,
+            _realm_id: &str,
+            _user_id: Uuid,
+            _phone: Option<&str>,
+        ) -> UserAdminResult<()> {
+            Ok(())
+        }
+
         async fn create_user_with_profile(
             &self,
             _realm_id: &str,
@@ -2355,6 +2479,7 @@ mod tests {
             password_hash: None,
             provider_ids: vec![],
             status: UserStatus::Normal,
+            phone: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
@@ -2620,13 +2745,9 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // Target realm-boundary regressions (cross-tenant IDOR fixes).
-    //
-    // The caller-vs-path realm check does not constrain the target id: a
-    // realm admin must not be able to read, mutate, delete, password-reset,
-    // or re-role another realm's user by supplying its uuid.
-    // ========================================================================
+    // Target realm-boundary regressions (cross-tenant IDOR): the caller-vs-
+    // path realm check does not constrain the target id — a realm admin must
+    // not reach another realm's user by supplying its uuid.
 
     fn role_entity(id: Uuid, realm_id: &str) -> RoleEntity {
         RoleEntity {

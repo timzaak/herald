@@ -37,12 +37,14 @@ pub struct UserInfo {
     pub email: String,
 }
 
-/// Subscription summary in history
+/// Subscription summary in history. `status` is absent when the referenced
+/// subscription row no longer resolves (history outlives its subscription).
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionSummary {
     pub id: Uuid,
-    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<herald_core::domain::billing::entities::SubscriptionStatus>,
     pub entitlement_key: Option<String>,
 }
 

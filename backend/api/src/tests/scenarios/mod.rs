@@ -117,7 +117,11 @@ pub mod user_sessions_scenarios;
 // Email-OTP login scenarios.
 pub mod client_app_turnstile_scenarios;
 pub mod email_otp_send_verify_scenarios;
+pub mod password_login_phone_identifier_scenarios;
+pub mod phone_binding_scenarios;
 pub mod realm_email_otp_config_scenarios;
+pub mod realm_phone_login_config_scenarios;
+pub mod sms_otp_send_verify_scenarios;
 
 // Google One Tap login scenarios.
 pub mod google_one_tap_scenarios;

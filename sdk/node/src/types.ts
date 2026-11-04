@@ -10,6 +10,24 @@
 
 // --- Permission check ---
 
+/**
+ * Wire unions mirroring the backend domain enums (serde snake_case names as
+ * emitted by the Herald API — see api.json).
+ */
+export type UserStatus = 'wait_verified' | 'normal' | 'forbidden' | 'deleted'
+
+export type SubscriptionStatus =
+  | 'active'
+  | 'canceled'
+  | 'expired'
+  | 'incomplete'
+  | 'paused'
+  | 'trialing'
+  | 'past_due'
+  | 'scheduled_cancel'
+  | 'dispute'
+  | 'pending'
+
 export interface Rule {
   resource: string
   action: string
@@ -34,7 +52,7 @@ export interface PermissionCheckResponse {
 export interface SubscriptionDetail {
   id: string
   clientAppId: string | null
-  status: string
+  status: SubscriptionStatus
   entitlementKey: string
   paymentProvider: string
   /** Provider price id bound to this subscription; omitted for price-less
@@ -231,7 +249,7 @@ export interface UserInfo {
   id: string
   email: string
   nickname: string | null
-  status: number
+  status: UserStatus
   createdAt: string
 }
 

@@ -75,15 +75,13 @@ export function toPointDistributionRuleFormData<
   } as unknown as PointDistributionRuleFormData
 }
 
-// ==================== Price-Level Batch Save Schema ====================
-//
 // Mirrors the generated `PriceMappingUpdate` / `BatchUpdateEntitlementMappingsRequest`.
 // One price row per entry; `entitlementKey` is provider-sync owned and not editable here.
 
 export const priceMappingUpdateSchema = z.object({
   mappingId: z.string().min(1),
 
-  billingType: z.string().nullable().optional(),
+  billingType: z.enum(['recurring', 'one_time', 'non_renewing']).nullable().optional(),
 
   billingPeriod: z.string().nullable().optional(),
 

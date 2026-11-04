@@ -16,10 +16,6 @@ use herald_domain::user::{
 use herald_domain::authorization::principal_types;
 use herald_domain::common::entities::generate_uuid_v7;
 
-// ============================================================================
-// Admin User Repository
-// ============================================================================
-
 /// PostgreSQL implementation of AdminUserRepository
 pub struct PostgresAdminUserRepository {
     pool: PgPool,
@@ -377,11 +373,73 @@ impl AdminUserRepository for PostgresAdminUserRepository {
 
         Ok(updated)
     }
-}
 
-// ============================================================================
-// User Role Repository
-// ============================================================================
+    async fn get_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+    ) -> UserAdminResult<Option<String>> {
+        let phone = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT phone FROM account WHERE id = $1 AND realm_id = $2",
+        )
+        .bind(user_id)
+        .bind(realm_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load user phone: {}", e);
+            UserAdminError::DatabaseError(format!("Failed to load user phone: {}", e))
+        })?
+        .flatten();
+        Ok(phone)
+    }
+
+    async fn update_user_phone(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        phone: Option<&str>,
+    ) -> UserAdminResult<()> {
+        let result = sqlx::query(
+            "UPDATE account SET phone = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND realm_id = $3",
+        )
+        .bind(phone)
+        .bind(user_id)
+        .bind(realm_id)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            // 0 rows = the target vanished between the service-level guards
+            // and this write (e.g. a concurrent hard delete). A silent Ok
+            // here would record a success audit and answer 200 for a write
+            // that never happened — map to NotFound like the self-service
+            // `set_user_phone` does.
+            Ok(res) if res.rows_affected() == 0 => {
+                Err(UserAdminError::UserNotFound(user_id.to_string()))
+            }
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Partial unique index account_realm_id_phone_index — a
+                // concurrent bind of the same normalized phone lost the race.
+                if let sqlx::Error::Database(db) = &e
+                    && db.code().as_deref() == Some("23505")
+                {
+                    tracing::debug!("Phone already in use on admin phone update");
+                    return Err(UserAdminError::DuplicatePhone(
+                        "Phone number is already in use".to_string(),
+                    ));
+                }
+                tracing::error!("Failed to update user phone: {}", e);
+                Err(UserAdminError::DatabaseError(format!(
+                    "Failed to update user phone: {}",
+                    e
+                )))
+            }
+        }
+    }
+}
 
 /// PostgreSQL implementation of UserRoleRepository
 pub struct PostgresUserRoleRepository {
@@ -989,10 +1047,6 @@ impl UserRoleRepository for PostgresUserRoleRepository {
         Ok(result)
     }
 }
-
-// ============================================================================
-// Role Policy Repository
-// ============================================================================
 
 /// PostgreSQL implementation of RolePolicyRepository
 pub struct PostgresRolePolicyRepository {

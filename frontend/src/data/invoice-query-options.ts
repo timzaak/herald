@@ -14,6 +14,9 @@ import type {
   SellerConfigResponse,
   RealmConfigResponse,
   InvoiceApplyEligibilityResponse,
+  InvoiceStatus,
+  InvoiceSource,
+  InvoiceProvider,
 } from '@/lib/api-generated'
 import { QUERY_TIMING } from '@/lib/constants'
 
@@ -42,14 +45,14 @@ export const invoiceKeys = {
 export function invoiceListQueryOptions(
   realmId: string,
   query?: {
-    status?: string
-    source?: string
+    status?: InvoiceStatus
+    source?: InvoiceSource
     search?: string
     dateFrom?: string
     dateTo?: string
     page?: number
     pageSize?: number
-    provider?: string
+    provider?: InvoiceProvider
     attribution?: string
   }
 ) {
@@ -104,14 +107,14 @@ export function sellerConfigQueryOptions(realmId: string) {
 export function myInvoiceListQueryOptions(
   realmId: string,
   query?: {
-    status?: string
-    source?: string
+    status?: InvoiceStatus
+    source?: InvoiceSource
     search?: string
     dateFrom?: string
     dateTo?: string
     page?: number
     pageSize?: number
-    provider?: string
+    provider?: InvoiceProvider
   }
 ) {
   return queryOptions({

@@ -1,3 +1,4 @@
+import type { InvoiceSource, InvoiceStatus, PaymentAttemptStatus } from '@/lib/api-generated'
 import type { InvoiceLineItemFormData } from '@/lib/schemas/invoice-forms'
 import { m } from '@/paraglide/messages'
 
@@ -5,29 +6,34 @@ export const INVOICE_PAGE_SIZE = 20
 
 export const PDF_DOWNLOADABLE_STATUSES = new Set(['issued', 'paid', 'overdue'])
 
-export function getInvoiceStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    draft: m['billing.invoice_status_draft'](),
-    issued: m['billing.invoice_status_issued'](),
-    paid: m['billing.invoice_status_paid'](),
-    void: m['billing.invoice_status_void'](),
-    overdue: m['billing.invoice_status_overdue'](),
-  }
-  return labels[status] ?? status
+const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  draft: m['billing.invoice_status_draft'](),
+  issued: m['billing.invoice_status_issued'](),
+  paid: m['billing.invoice_status_paid'](),
+  void: m['billing.invoice_status_void'](),
+  overdue: m['billing.invoice_status_overdue'](),
 }
 
-export const INVOICE_STATUS_COLORS: Record<string, string> = {
+export function getInvoiceStatusLabel(status: InvoiceStatus): string {
+  return INVOICE_STATUS_LABELS[status]
+}
+
+export const INVOICE_STATUS_COLORS: Record<InvoiceStatus, string> = {
   draft: 'secondary',
   issued: 'default',
+  paid: 'default',
   void: 'destructive',
+  overdue: 'destructive',
 }
 
-export function getInvoiceSourceLabel(source: string): string {
-  const labels: Record<string, string> = {
-    admin_manual: m['billing.invoice_source_manual'](),
-    user_application: m['billing.invoice_source_application'](),
-  }
-  return labels[source] ?? source
+const INVOICE_SOURCE_LABELS: Record<InvoiceSource, string> = {
+  admin_manual: m['billing.invoice_source_manual'](),
+  user_application: m['billing.invoice_source_application'](),
+  external_sync: m['billing.invoice_source_external'](),
+}
+
+export function getInvoiceSourceLabel(source: InvoiceSource): string {
+  return INVOICE_SOURCE_LABELS[source]
 }
 
 export function formatInvoiceAmount(amount: number, currency: string): string {
@@ -53,19 +59,18 @@ export function centsToDisplayPrice(cents: number): string {
 }
 
 export function getPaymentStatusBadgeVariant(
-  status: string
+  status: PaymentAttemptStatus
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
     case 'Succeeded':
       return 'default'
     case 'Pending':
+    case 'RequiresAction':
       return 'secondary'
     case 'Failed':
       return 'destructive'
     case 'Cancelled':
     case 'Expired':
-      return 'outline'
-    default:
       return 'outline'
   }
 }

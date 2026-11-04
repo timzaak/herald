@@ -16,10 +16,12 @@ pub mod register;
 pub mod registration_status;
 pub mod reset_password;
 pub mod signup;
+pub mod sms_otp;
 pub mod status;
 mod totp_replay;
 pub mod turnstile_status;
 pub mod user_passkey;
+pub mod user_phone;
 pub mod user_totp;
 pub mod verify_email;
 pub mod verify_passkey;
@@ -62,6 +64,9 @@ pub use reset_password::__path_request as __path_reset_password_request;
 pub use signup::__path_get_signup_status;
 pub use signup::__path_send_email_code;
 pub use signup::__path_signup;
+pub use sms_otp::__path_phone_login_status;
+pub use sms_otp::__path_sms_otp_send;
+pub use sms_otp::__path_sms_otp_verify;
 pub use status::__path_status;
 pub use turnstile_status::__path_get_turnstile_status;
 pub use user_passkey::__path_handle_begin_passkey_registration;
@@ -69,6 +74,10 @@ pub use user_passkey::__path_handle_delete_passkey_credential;
 pub use user_passkey::__path_handle_finish_passkey_registration;
 pub use user_passkey::__path_handle_list_passkey_credentials;
 pub use user_passkey::__path_handle_rename_passkey_credential;
+pub use user_phone::__path_user_phone_bind_confirm;
+pub use user_phone::__path_user_phone_bind_send;
+pub use user_phone::__path_user_phone_status;
+pub use user_phone::__path_user_phone_unbind;
 pub use user_totp::__path_handle_disable_totp;
 pub use user_totp::__path_handle_enable_totp;
 pub use user_totp::__path_handle_get_totp_status;
@@ -93,6 +102,13 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::email_otp::send,
         crate::email_otp::verify,
         crate::email_otp::status,
+        crate::sms_otp::sms_otp_send,
+        crate::sms_otp::sms_otp_verify,
+        crate::sms_otp::phone_login_status,
+        crate::user_phone::user_phone_status,
+        crate::user_phone::user_phone_bind_send,
+        crate::user_phone::user_phone_bind_confirm,
+        crate::user_phone::user_phone_unbind,
         crate::ldap_login::ldap_login,
         crate::ldap_login::ldap_status,
         crate::register::register,
@@ -140,6 +156,18 @@ pub use verify_totp::__path_handle_verify_totp as __path_verify_totp;
         crate::email_otp::EmailOtpVerifyRequest,
         crate::email_otp::EmailOtpStatusResponse,
         crate::email_otp::EmailOtpConflictResponse,
+        crate::sms_otp::SmsOtpSendRequest,
+        crate::sms_otp::SmsOtpSendResponse,
+        crate::sms_otp::SmsOtpVerifyRequest,
+        crate::sms_otp::SmsOtpConflictResponse,
+        crate::sms_otp::PhoneLoginStatusResponse,
+        crate::user_phone::UserPhoneStatusResponse,
+        crate::user_phone::PhoneBindSendRequest,
+        crate::user_phone::PhoneBindSendResponse,
+        crate::user_phone::PhoneBindConfirmRequest,
+        crate::user_phone::PhoneBindConfirmResponse,
+        crate::user_phone::PhoneUnbindRequest,
+        crate::user_phone::PhoneUnbindResponse,
         crate::ldap_login::LdapLoginRequest,
         crate::ldap_login::LdapStatusResponse,
         crate::register::RegisterRequest,
@@ -209,6 +237,9 @@ pub fn auth_router() -> Router<AppState> {
         .route("/login/email-otp/send", post(email_otp::send))
         .route("/login/email-otp/verify", post(email_otp::verify))
         .route("/email-otp/status", get(email_otp::status))
+        .route("/login/sms-otp/send", post(sms_otp::sms_otp_send))
+        .route("/login/sms-otp/verify", post(sms_otp::sms_otp_verify))
+        .route("/phone-login/status", get(sms_otp::phone_login_status))
         .route("/ldap/status", get(ldap_login::ldap_status))
         .route("/passkey/status", get(verify_passkey::status))
         .route("/login/verify-totp", post(verify_totp::handle_verify_totp))

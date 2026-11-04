@@ -271,6 +271,10 @@ pub fn normalize_email(email: &str) -> String {
     email.trim().to_ascii_lowercase()
 }
 
+pub use herald_core::domain::user::phone::{
+    is_supported_country_code, mask_phone, normalize_phone,
+};
+
 pub fn epoch_seconds() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -642,6 +646,293 @@ pub async fn is_email_otp_enabled(state: &AppState, realm_id: &str) -> Result<bo
     Ok(settings.enabled)
 }
 
+/// `phone_login` / `settings` config_value JSON. `#[serde(default)]` is
+/// fail-closed: missing `enabled` → disabled; a missing country code falls
+/// back to `CN` (an empty region would 400 every `normalize_phone` in the
+/// realm while the status endpoint still reports enabled).
+#[derive(serde::Deserialize, Default, serde::Serialize)]
+#[serde(default)]
+pub struct PhoneLoginSettings {
+    pub enabled: bool,
+    #[serde(default = "phone_login_default_country_code")]
+    pub default_country_code: String,
+}
+
+fn phone_login_default_country_code() -> String {
+    "CN".to_string()
+}
+
+impl PhoneLoginSettings {
+    pub fn disabled_default() -> Self {
+        Self {
+            enabled: false,
+            default_country_code: phone_login_default_country_code(),
+        }
+    }
+}
+
+/// Fail-closed: a missing, disabled, or malformed row yields the disabled default.
+pub async fn load_phone_login_settings(
+    state: &AppState,
+    realm_id: &str,
+) -> Result<PhoneLoginSettings, ApiError> {
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT config_value FROM realm_config
+         WHERE realm_id = $1 AND config_type = 'phone_login' AND config_key = 'settings' AND enabled = true",
+    )
+    .bind(realm_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to query phone login config: {e}");
+        ApiError::internal("Failed to query phone login config")
+    })?;
+
+    let Some((raw,)) = row else {
+        return Ok(PhoneLoginSettings::disabled_default());
+    };
+
+    let settings: PhoneLoginSettings = serde_json::from_str(&raw).unwrap_or_else(|e| {
+        tracing::error!("Failed to parse phone login settings JSON: {e}; using default");
+        PhoneLoginSettings::disabled_default()
+    });
+    Ok(settings)
+}
+
+pub async fn is_phone_login_enabled(state: &AppState, realm_id: &str) -> Result<bool, ApiError> {
+    let settings = load_phone_login_settings(state, realm_id).await?;
+    Ok(settings.enabled)
+}
+
+pub async fn is_sms_configured(state: &AppState, realm_id: &str) -> Result<bool, ApiError> {
+    herald_core::third::sms::SmsService::is_sms_configured(&state.pool, realm_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to query SMS config: {e}");
+            ApiError::internal("Failed to query SMS config")
+        })
+}
+
+// Shared by the login, bind and admin-rebind OTP families: the claim
+// protocol and constant-time comparison must exist exactly once.
+
+/// Stored SMS OTP payload (Redis JSON): plaintext code in the same trust
+/// zone as session tokens; attempts live in a separate INCR key.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct StoredOtp {
+    pub code: String,
+    pub max_attempts: i64,
+    /// Absolute (epoch ms) so a mismatch-restore re-applies the original TTL.
+    pub expires_at_ms: u64,
+}
+
+impl OtpRecord for StoredOtp {
+    fn code(&self) -> &str {
+        &self.code
+    }
+    fn max_attempts(&self) -> i64 {
+        self.max_attempts
+    }
+    fn expires_at_ms(&self) -> u64 {
+        self.expires_at_ms
+    }
+}
+
+/// Lets OTP families with extra payload fields (admin-rebind's `new_phone`)
+/// share the same claim/store primitives.
+pub trait OtpRecord: serde::Serialize + serde::de::DeserializeOwned {
+    fn code(&self) -> &str;
+    fn max_attempts(&self) -> i64;
+    fn expires_at_ms(&self) -> u64;
+}
+
+pub fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Constant-time comparison; every SMS OTP code check must go through this,
+/// never `==`.
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a_bytes, b_bytes) = (a.as_bytes(), b.as_bytes());
+    if a_bytes.len() != b_bytes.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Why a code attempt failed. All variants map to 400 with distinguishing
+/// message text; callers with family-specific wording map the variants
+/// themselves instead of using [`sms_otp_failure_error`].
+pub enum SmsOtpFailure {
+    Expired,
+    Invalid,
+    Exhausted,
+}
+
+pub fn sms_otp_failure_error(failure: SmsOtpFailure) -> ApiError {
+    let message = match failure {
+        SmsOtpFailure::Expired => "Verification code expired, please request a new one",
+        SmsOtpFailure::Invalid => "Invalid or expired verification code",
+        SmsOtpFailure::Exhausted => "Too many attempts, please request a new code",
+    };
+    ApiError::bad_request(message)
+}
+
+/// Atomic GET+DEL claim: two concurrent requests presenting the same code
+/// cannot both consume it. On mismatch the code is restored (unless the
+/// attempt budget ran out); attempts count in a separate INCR key so
+/// concurrent guesses cannot undercount.
+pub async fn claim_sms_otp_code<T: OtpRecord>(
+    conn: &mut redis::aio::ConnectionManager,
+    key: &str,
+    attempts_key: &str,
+    code: &str,
+) -> Result<Result<T, SmsOtpFailure>, ApiError> {
+    use redis::AsyncCommands;
+    let redis_err = |e: redis::RedisError| {
+        tracing::error!(error = %e, "Redis operation error in SMS OTP claim");
+        ApiError::internal("Redis operation error")
+    };
+    let (stored_raw, _deleted): (Option<String>, i64) = redis::pipe()
+        .atomic()
+        .cmd("GET")
+        .arg(key)
+        .cmd("DEL")
+        .arg(key)
+        .query_async(conn)
+        .await
+        .map_err(redis_err)?;
+    let Some(stored_json) = stored_raw else {
+        return Ok(Err(SmsOtpFailure::Expired));
+    };
+    let stored: T = serde_json::from_str(&stored_json).map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse stored SMS OTP JSON");
+        ApiError::internal("Redis operation error")
+    })?;
+
+    if constant_time_eq(code, stored.code()) {
+        let _: () = conn.del(attempts_key).await.map_err(redis_err)?;
+        return Ok(Ok(stored));
+    }
+
+    let attempts: i64 = conn.incr(attempts_key, 1).await.map_err(redis_err)?;
+    if attempts == 1 {
+        // The counter must not outlive the code: recompute the TTL from the
+        // stored absolute expiry (post-claim TTL is negative); `.max(1)`
+        // avoids leaving the counter with no TTL at all.
+        let remaining_secs = (stored.expires_at_ms().saturating_sub(now_epoch_ms()) / 1000).max(1);
+        let _: () = conn
+            .expire(attempts_key, remaining_secs as i64)
+            .await
+            .map_err(redis_err)?;
+    }
+    if attempts >= stored.max_attempts() {
+        // Burned: drop the counter too so the user must request a new code.
+        let _: () = conn.del(attempts_key).await.map_err(redis_err)?;
+        return Ok(Err(SmsOtpFailure::Exhausted));
+    }
+    // NX so a newer code is never clobbered; a failed restore burns the code.
+    let remaining_ms = stored.expires_at_ms().saturating_sub(now_epoch_ms());
+    if remaining_ms > 0 {
+        let restore: Result<(), _> = redis::pipe()
+            .atomic()
+            .cmd("SET")
+            .arg(key)
+            .arg(&stored_json)
+            .arg("NX")
+            .arg("PX")
+            .arg(remaining_ms)
+            .query_async(conn)
+            .await;
+        if let Err(e) = restore {
+            tracing::warn!(error = %e, "Failed to restore claimed SMS OTP code");
+        }
+    }
+    Ok(Err(SmsOtpFailure::Invalid))
+}
+
+/// Newest-wins SET EX plus a cleared attempt counter: a leftover counter
+/// from the previous code must not count against this one.
+pub async fn store_otp_record<T: OtpRecord>(
+    conn: &mut redis::aio::ConnectionManager,
+    key: &str,
+    attempts_key: &str,
+    record: &T,
+    ttl_secs: u64,
+) -> Result<(), ApiError> {
+    use redis::AsyncCommands;
+    let stored_json = serde_json::to_string(record)
+        .map_err(|_| ApiError::internal("Failed to serialize OTP state"))?;
+    let _: () = conn.set_ex(key, stored_json, ttl_secs).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to store SMS OTP code in Redis");
+        ApiError::internal("Redis operation error")
+    })?;
+    let _: () = conn.del(attempts_key).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to reset SMS OTP attempt counter");
+        ApiError::internal("Redis operation error")
+    })?;
+    Ok(())
+}
+
+pub async fn store_sms_otp_code(
+    conn: &mut redis::aio::ConnectionManager,
+    key: &str,
+    attempts_key: &str,
+    code: &str,
+) -> Result<(), ApiError> {
+    let record = StoredOtp {
+        code: code.to_string(),
+        max_attempts: herald_core::domain::security_constants::SMS_OTP_MAX_ATTEMPTS,
+        expires_at_ms: now_epoch_ms()
+            + herald_core::domain::security_constants::SMS_OTP_CODE_TTL_SECONDS * 1000,
+    };
+    store_otp_record(
+        conn,
+        key,
+        attempts_key,
+        &record,
+        herald_core::domain::security_constants::SMS_OTP_CODE_TTL_SECONDS,
+    )
+    .await
+}
+
+/// Unconfigured channel → 400 explicit rejection (no fake success);
+/// upstream failure → 502. All send paths map through this so status codes
+/// and wording cannot drift between entrances.
+pub fn map_sms_send_error(e: herald_core::third::sms::SmsError) -> ApiError {
+    match e {
+        herald_core::third::sms::SmsError::NotConfigured => {
+            ApiError::bad_request("SMS channel is not configured")
+        }
+        herald_core::third::sms::SmsError::UnsupportedDestination => {
+            ApiError::bad_request("Destination is not supported by the configured SMS provider")
+        }
+        herald_core::third::sms::SmsError::Upstream(_) => ApiError::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "Upstream service unavailable",
+        ),
+    }
+}
+
+/// 409 body for `phone_already_in_use`, shared by the self-service bind and
+/// admin bind/rebind paths; the frontend and tests key on this code string.
+pub fn phone_in_use_conflict() -> ApiError {
+    ApiError::with_json(
+        axum::http::StatusCode::CONFLICT,
+        serde_json::json!({
+            "code": "phone_already_in_use",
+            "message": "Phone number is already in use"
+        }),
+    )
+}
+
 /// Parse and gate the `ldap/settings` JSON: `None` when malformed, not
 /// enabled, or the credential channel is insecure (legacy `ldap://` rows
 /// without StartTLS fail closed). Shared by the full config load (login
@@ -815,4 +1106,73 @@ pub async fn require_permission(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod sms_otp_tests {
+    use super::*;
+
+    // WHY: the stored JSON is a live wire format — a serde rename or a switch
+    // to a hashed code would invalidate every in-flight stored code.
+    #[test]
+    fn stored_otp_round_trips_plaintext_code() {
+        let stored = StoredOtp {
+            code: "123456".to_string(),
+            max_attempts: 5,
+            expires_at_ms: 1_700_000_000_000,
+        };
+        let json = serde_json::to_string(&stored).unwrap();
+        assert!(
+            json.contains("\"code\":\"123456\""),
+            "stored JSON must carry the plaintext code; got {json}"
+        );
+        let back: StoredOtp = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.code, "123456");
+        assert_eq!(back.max_attempts, 5);
+    }
+
+    // WHY: must agree with plain equality while never short-circuiting
+    // (timing side-channel).
+    #[test]
+    fn constant_time_eq_matches_equality() {
+        assert!(constant_time_eq("abc", "abc"));
+        assert!(constant_time_eq("123456", "123456"));
+        assert!(!constant_time_eq("abc", "abd"));
+        assert!(!constant_time_eq("abc", "abcd"));
+        assert!(!constant_time_eq("123456", "654321"));
+    }
+
+    // WHY: the 400/502 mapping is shared by every send path in three crates;
+    // drift here would change the status code of one entrance only.
+    #[test]
+    fn sms_send_error_mapping_keeps_the_contract() {
+        assert_eq!(
+            map_sms_send_error(herald_core::third::sms::SmsError::NotConfigured).status(),
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            map_sms_send_error(herald_core::third::sms::SmsError::UnsupportedDestination).status(),
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            map_sms_send_error(herald_core::third::sms::SmsError::Upstream(
+                "signature=s3cret".into()
+            ))
+            .status(),
+            axum::http::StatusCode::BAD_GATEWAY
+        );
+    }
+
+    // WHY: a missing country code must fall back to CN, not "" — an empty
+    // region 400s every phone in the realm while status reports enabled.
+    #[test]
+    fn phone_login_settings_missing_country_falls_back_to_cn() {
+        let settings: PhoneLoginSettings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert!(settings.enabled);
+        assert_eq!(settings.default_country_code, "CN");
+        assert_eq!(
+            PhoneLoginSettings::disabled_default().default_country_code,
+            "CN"
+        );
+    }
 }

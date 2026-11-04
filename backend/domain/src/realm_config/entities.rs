@@ -484,6 +484,29 @@ pub enum ConfigType {
     /// Read as fail-closed: a missing row is treated as `false` so the public
     /// entry is never opened by accident.
     PlatformSignup,
+
+    /// SMS delivery channel configuration (phone login)
+    ///
+    /// Stored as per-field KV rows reusing the `realm_config` table (no DDL):
+    /// - `provider` — `"aliyun"` | `"twilio"` (row-validated on write)
+    /// - Aliyun: `aliyun_access_key_id`, `aliyun_sign_name`, `aliyun_template_code`
+    ///   (non-secret), `aliyun_access_key_secret` (server-forced secret)
+    /// - Twilio: `twilio_account_sid`, `twilio_from`, `twilio_content_sid`
+    ///   (non-secret), `twilio_auth_token` (server-forced secret)
+    /// - `base_url` — provider endpoint override; wiremock tests only,
+    ///   rejected in production
+    Sms,
+
+    /// Phone-login realm switch
+    ///
+    /// - config_key: `settings` (fixed)
+    /// - config_value: JSON `{"enabled": boolean, "default_country_code": "CN"}`
+    /// - is_secret: false; enabled: true
+    ///
+    /// Fail-closed: `enabled=true` is rejected at write time unless the realm's
+    /// SMS channel (`ConfigType::Sms`) is fully configured; missing/malformed
+    /// rows read as disabled.
+    PhoneLogin,
 }
 
 impl From<String> for ConfigType {
@@ -512,6 +535,8 @@ impl ConfigType {
             "email_otp" => ConfigType::EmailOtp,
             "platform_signup" => ConfigType::PlatformSignup,
             "ldap" => ConfigType::Ldap,
+            "sms" => ConfigType::Sms,
+            "phone_login" => ConfigType::PhoneLogin,
             _ => return Err(format!("Invalid config type: {}", s)),
         };
         Ok(config_type)
@@ -540,6 +565,8 @@ impl ConfigType {
             ConfigType::EmailOtp => "email_otp",
             ConfigType::PlatformSignup => "platform_signup",
             ConfigType::Ldap => "ldap",
+            ConfigType::Sms => "sms",
+            ConfigType::PhoneLogin => "phone_login",
         }
     }
 }
@@ -736,9 +763,7 @@ pub struct CustomDomainStatus {
     pub checked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-// ---------------------------------------------------------------------------
 // Hostname normalization + validation
-// ---------------------------------------------------------------------------
 
 const MAX_HOSTNAME_LEN: usize = 253;
 const MAX_LABEL_LEN: usize = 63;
@@ -903,6 +928,31 @@ mod config_type_tests {
         let ct: ConfigType = "definitely_not_a_real_config_type".to_string().into();
         assert_eq!(ct, ConfigType::Turnstile);
         assert!(ConfigType::try_from_str("definitely_not_a_real_config_type").is_err());
+    }
+
+    /// WHY: a fallback miss would mislabel the SMS rows on every generic
+    /// read, so the channel reads as absent and the switch won't enable.
+    #[test]
+    fn sms_from_string_does_not_fall_back_to_turnstile() {
+        let ct: ConfigType = "sms".to_string().into();
+        assert_eq!(ct, ConfigType::Sms);
+        assert_ne!(ct, ConfigType::Turnstile);
+        assert_eq!(ConfigType::try_from_str("SMS").unwrap(), ConfigType::Sms);
+        assert_eq!(ConfigType::Sms.as_ref(), "sms");
+    }
+
+    /// WHY: a fallback miss would make `load_phone_login_settings` never
+    /// find the row — an enabled realm would silently read as disabled.
+    #[test]
+    fn phone_login_from_string_does_not_fall_back_to_turnstile() {
+        let ct: ConfigType = "phone_login".to_string().into();
+        assert_eq!(ct, ConfigType::PhoneLogin);
+        assert_ne!(ct, ConfigType::Turnstile);
+        assert_eq!(
+            ConfigType::try_from_str("PHONE_LOGIN").unwrap(),
+            ConfigType::PhoneLogin
+        );
+        assert_eq!(ConfigType::PhoneLogin.as_ref(), "phone_login");
     }
 }
 

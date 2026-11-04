@@ -52,7 +52,7 @@ where
 }
 
 /// Account status enum
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WalletStatus {
     Active,
@@ -94,8 +94,9 @@ impl std::fmt::Display for WalletStatus {
 }
 
 /// Transaction type enum
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+// snake_case (not lowercase) so multi-word variants match as_str()/wire ("subscription_grant").
+#[serde(rename_all = "snake_case")]
 pub enum TransactionType {
     Recharge,
     Consume,
@@ -169,7 +170,7 @@ impl std::fmt::Display for TransactionType {
 }
 
 /// Recharge type enum
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RechargeType {
     Subscribe,
@@ -208,7 +209,7 @@ impl std::fmt::Display for RechargeType {
 }
 
 /// Credit type enum (积分类型) - Extended
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditType {
     /// 充值积分（用户主动购买）
@@ -280,7 +281,7 @@ impl std::fmt::Display for CreditType {
 }
 
 /// Credit source type enum (积分来源类型) - Extended
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditSourceType {
     /// 订阅首次赠送
@@ -369,8 +370,9 @@ impl std::fmt::Display for CreditSourceType {
 }
 
 /// Credit ledger status enum (账本状态)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
+// snake_case (not lowercase) so FullyUsed matches as_str()/wire ("fully_used").
+#[serde(rename_all = "snake_case")]
 pub enum CreditLedgerStatus {
     Active,
     Revoked,
@@ -414,7 +416,7 @@ impl std::fmt::Display for CreditLedgerStatus {
 }
 
 /// Revocation type enum (回收类型)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RevocationType {
     RefundRevoke,
@@ -710,7 +712,7 @@ pub struct QuotaWindow {
 
 /// Quota source type enum (配额权益来源类型) — corresponds to the
 /// points_quota_entitlements.source_type CHECK constraint.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum QuotaSourceType {
     /// 订阅首次赠送

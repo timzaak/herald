@@ -274,7 +274,7 @@ fn mapping_to_response(
         external_product_id: m.external_product_id,
         external_price_id: m.external_price_id,
         entitlement_key: m.entitlement_key,
-        billing_type: m.billing_type.map(|bt| bt.as_str().to_string()),
+        billing_type: m.billing_type,
         billing_period: m.billing_period,
         service_duration_days: m.service_duration_days,
         enabled: m.enabled,
@@ -494,11 +494,7 @@ pub async fn create_entitlement_mapping(
         .map_err(map_batch_error)?;
     }
 
-    // 3. billing_type parse + billing_period guard.
-    let billing_type = request
-        .billing_type
-        .parse::<herald_core::domain::billing::entities::BillingType>()
-        .map_err(|e| ApiError::bad_request(format!("invalid billing_type: {e}")))?;
+    let billing_type = request.billing_type;
 
     // 4. Materialize the rule upsert set (validates trigger/policy shape).
     let point_rules = request
@@ -511,7 +507,7 @@ pub async fn create_entitlement_mapping(
             &realm_id,
             DistributionRuleOwner::EntitlementMapping(Uuid::nil()),
         );
-        validate_rule_for_owner(&resolved, Some(billing_type.clone()))
+        validate_rule_for_owner(&resolved, Some(billing_type))
             .map_err(|error| distribution_rule_validation_error(error, rule.id))?;
     }
     let only_rule_id = (point_rules.len() == 1)
@@ -695,7 +691,7 @@ pub async fn update_entitlement_mapping(
                 &realm_id,
                 DistributionRuleOwner::EntitlementMapping(mapping_id),
             );
-            validate_rule_for_owner(&resolved, existing.billing_type.clone())
+            validate_rule_for_owner(&resolved, existing.billing_type)
                 .map_err(|error| distribution_rule_validation_error(error, rule.id))?;
         }
     }
@@ -989,6 +985,22 @@ pub async fn batch_update_entitlement_mappings(
         require_points_manage_permission(&state, &identity, &realm_id).await?;
     }
 
+    // Re-check the provider billing_type whitelist here, or the bulk UPDATE
+    // bypasses `validate_provider_billing_type` (WeChat → recurring has no
+    // renewal event source).
+    for u in &request.updates {
+        if let Some(billing_type) = u.billing_type {
+            validate_provider_billing_type(&request.payment_provider, &billing_type).map_err(
+                |e| {
+                    herald_api_base::application::http::common::error_helpers::core_error_to_api_error(
+                        e,
+                        "batch update entitlement mappings",
+                    )
+                },
+            )?;
+        }
+    }
+
     let input = herald_core::domain::billing::BatchUpdateMappingsInput {
         realm_id: realm_id.clone(),
         payment_provider: request.payment_provider.clone(),
@@ -1008,7 +1020,7 @@ pub async fn batch_update_entitlement_mappings(
                 };
                 Ok(herald_core::domain::billing::PriceMappingUpdateInput {
                     mapping_id: u.mapping_id,
-                    billing_type: u.billing_type,
+                    billing_type: u.billing_type.map(|t| t.as_str().to_string()),
                     enabled: u.enabled,
                     point_rules,
                     granted_role_ids: u.granted_role_ids,
@@ -1016,25 +1028,6 @@ pub async fn batch_update_entitlement_mappings(
             })
             .collect::<Result<Vec<_>, ApiError>>()?,
     };
-
-    // 3. billing_type parse + channel whitelist (mirrors create): a batch row
-    // may only write a billing_type the create path would accept for the same
-    // provider — without this the bulk UPDATE is a bypass around
-    // `validate_provider_billing_type` (e.g. WeChat → recurring would produce
-    // a subscription mapping with no renewal event source).
-    for u in &input.updates {
-        if let Some(raw) = u.billing_type.as_deref() {
-            let billing_type = raw
-                .parse::<herald_core::domain::billing::entities::BillingType>()
-                .map_err(|e| ApiError::bad_request(format!("invalid billing_type: {e}")))?;
-            validate_provider_billing_type(&input.payment_provider, &billing_type).map_err(|e| {
-                herald_api_base::application::http::common::error_helpers::core_error_to_api_error(
-                    e,
-                    "batch update entitlement mappings",
-                )
-            })?;
-        }
-    }
 
     // any row carrying a non-empty `granted_role_ids` must reference roles that
     // all belong to this realm. Collect the union of provided role IDs across

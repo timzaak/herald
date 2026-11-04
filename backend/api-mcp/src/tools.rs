@@ -236,6 +236,7 @@ impl HeraldMcpService {
                         page_size,
                         input.email,
                         None,
+                        None,
                     )
                     .await
                     .map_err(|e| map_core_error(e, "users.view"))?;
@@ -466,13 +467,10 @@ impl HeraldMcpService {
         finish_tool(result)
     }
 
-    // ========================================================================
-    // Self-face tools: the operating user is derived from the verified
-    // identity; no tool accepts a userId, so reading another user is
-    // structurally inexpressible. The scope gate ran in the transport
-    // preflight (HTTP 403 challenge before any read); the marker check below
-    // is the contract guard against drift.
-    // ========================================================================
+    // Self-face tools: the operating user is the verified identity; no tool
+    // accepts a userId, so reading another user is structurally inexpressible.
+    // The scope gate ran in the transport preflight; the marker check below
+    // guards against drift.
 
     #[tool(description = "Get your own account profile. Requires the \
         mcp:profile:read scope (granted by default on MCP authorization).")]

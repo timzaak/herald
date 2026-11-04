@@ -30,6 +30,7 @@ mod tests {
             status: UserStatus::Normal,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            phone: None,
         })
     }
 

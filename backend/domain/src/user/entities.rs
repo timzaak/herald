@@ -13,6 +13,8 @@ pub struct User {
     pub password_hash: Option<String>,
     pub provider_ids: Vec<Uuid>,
     pub status: UserStatus,
+    /// E.164-normalized bound phone (parallel login identifier); NULL = unbound.
+    pub phone: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -54,6 +56,12 @@ impl From<i16> for UserStatus {
     }
 }
 
+impl From<i32> for UserStatus {
+    fn from(value: i32) -> Self {
+        UserStatus::from(value as i16)
+    }
+}
+
 impl UserStatus {
     /// Blocks authentication while allowing pending users to verify their email.
     pub fn is_disabled(&self) -> bool {
@@ -78,6 +86,7 @@ impl User {
             password_hash: config.password_hash,
             provider_ids: config.provider_ids.unwrap_or_default(),
             status: UserStatus::Normal,
+            phone: None,
             created_at: now,
             updated_at: now,
         }

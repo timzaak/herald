@@ -11,8 +11,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use herald_api_base::application::http::auth::util::{
-    ClientIp, normalize_email, rate_limit_hit, user_agent_from_headers,
-    verify_turnstile_for_client_app,
+    ClientIp, PhoneLoginSettings, load_phone_login_settings, mask_phone, normalize_email,
+    normalize_phone, rate_limit_hit, user_agent_from_headers, verify_turnstile_for_client_app,
 };
 use herald_api_base::application::http::server::api_entities::ApiError;
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
@@ -176,6 +176,34 @@ pub async fn login(
     let normalized_email = payload.email.as_ref().map(|e| normalize_email(e));
     let normalized_username = payload.username.clone();
 
+    // Phone-identifier transport: with the switch on and
+    // no email, the username is also tried as a phone (E.164); the raw username
+    // stays the fallback so pure-numeric usernames keep their exact-match path.
+    // A settings READ failure degrades to "switch off" — the phone branch must
+    // not take the username entrance down with a realm_config hiccup.
+    let phone_identifier = if normalized_email.is_none() && normalized_username.is_some() {
+        let settings = match load_phone_login_settings(&state, &realm_id).await {
+            Ok(settings) => settings,
+            Err(e) => {
+                tracing::warn!(
+                    realm_id = %realm_id,
+                    error = ?e,
+                    "Phone login settings unavailable; username login proceeds without the phone-identifier branch"
+                );
+                PhoneLoginSettings::disabled_default()
+            }
+        };
+        if settings.enabled {
+            normalized_username
+                .as_deref()
+                .and_then(|raw| normalize_phone(raw, &settings.default_country_code))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     tracing::debug!(
         realm_id = %realm_id,
         client_id = %payload.client_id,
@@ -200,19 +228,17 @@ pub async fn login(
     )
     .await?;
 
-    // Rate limit by identifier (email or username)
-    if let Some(email) = &normalized_email {
+    // Rate limit by identifier, normalized (lowercased email / E.164 phone /
+    // raw username) — one bucket per provided identifier: the lookup below ORs
+    // all of them, so limiting only the first would let a throwaway email
+    // shield a victim-username brute force.
+    for identifier in [&normalized_email, &phone_identifier, &normalized_username]
+        .into_iter()
+        .flatten()
+    {
         rate_limit_hit(
             &state,
-            format!("rl:login:identifier:{}", email),
-            LOGIN_IDENTIFIER_RATE_LIMIT.0,
-            LOGIN_IDENTIFIER_RATE_LIMIT.1,
-        )
-        .await?;
-    } else if let Some(username) = &normalized_username {
-        rate_limit_hit(
-            &state,
-            format!("rl:login:identifier:{}", username),
+            format!("rl:login:identifier:{identifier}"),
             LOGIN_IDENTIFIER_RATE_LIMIT.0,
             LOGIN_IDENTIFIER_RATE_LIMIT.1,
         )
@@ -224,6 +250,7 @@ pub async fn login(
         realm_id: realm_id.clone(),
         email: normalized_email.clone(),
         username: normalized_username.clone(),
+        phone: phone_identifier.clone(),
         password: payload.password,
     };
 
@@ -237,12 +264,17 @@ pub async fn login(
                 "Login failed"
             );
 
-            // Record login failure audit event
-            let actor_id = normalized_email
-                .as_deref()
-                .or(normalized_username.as_deref())
-                .unwrap_or("unknown")
-                .to_string();
+            // Phone identifiers are PII: only the masked form goes into the
+            // audit trail (same policy as sms_otp::record_login_failure).
+            let actor_id = if let Some(e164) = phone_identifier.as_deref() {
+                mask_phone(e164).unwrap_or_else(|| "****".to_string())
+            } else {
+                normalized_email
+                    .as_deref()
+                    .or(normalized_username.as_deref())
+                    .unwrap_or("unknown")
+                    .to_string()
+            };
             if let Err(audit_err) = state
                 .audit_event_repository
                 .create(NewAuditEvent {

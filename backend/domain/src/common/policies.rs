@@ -1,6 +1,3 @@
-// Policy traits and AllowAll stub implementations
-// PermissionBased* implementations moved to infrastructure/authorization/policies.rs
-
 #![allow(clippy::manual_async_fn)]
 
 use crate::authentication::Identity;
@@ -225,6 +222,7 @@ mod tests {
             status: UserStatus::Normal,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            phone: None,
         };
         Identity::User(user)
     }

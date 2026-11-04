@@ -290,6 +290,8 @@ pub struct HealthCheckResponse {
         realm_config::delete_realm_config,
         realm_config::email_status,
         realm_config::email_test,
+        realm_config::sms_status,
+        realm_config::sms_test,
         realm::crud::list_realms,
         realm::crud::list_realms_paginated,
         realm::crud::get_realm,
@@ -307,6 +309,8 @@ pub struct HealthCheckResponse {
         realm::passkey_config::handle_get_realm_passkey_config,
         realm::email_otp_config::handle_update_realm_email_otp_config,
         realm::email_otp_config::handle_get_realm_email_otp_config,
+        realm::phone_login_config::handle_update_realm_phone_login_config,
+        realm::phone_login_config::handle_get_realm_phone_login_config,
         realm::white_label_config::handle_get_white_label_config,
         realm::white_label_config::handle_save_white_label_draft,
         realm::white_label_config::handle_discard_white_label_draft,
@@ -349,6 +353,9 @@ pub struct HealthCheckResponse {
             realm_config::EmailStatusResponse,
             realm_config::EmailTestRequest,
             realm_config::EmailTestResponse,
+            realm_config::SmsStatusResponse,
+            realm_config::SmsTestRequest,
+            realm_config::SmsTestResponse,
             realm::ListRealmsResponse,
             realm::ListRealmsPaginatedQuery,
             realm::CreateRealmValidator,
@@ -365,6 +372,8 @@ pub struct HealthCheckResponse {
             realm::email_otp_config::UpdateRealmEmailOtpConfigRequest,
             realm::email_otp_config::UpdateRealmEmailOtpConfigResponse,
             realm::email_otp_config::GetRealmEmailOtpConfigResponse,
+            realm::phone_login_config::PhoneLoginConfigRequest,
+            realm::phone_login_config::PhoneLoginConfigResponse,
             realm::white_label_config::WhiteLabelBackground,
             realm::white_label_config::WhiteLabelBackgroundType,
             realm::white_label_config::WhiteLabelConfig,
@@ -817,6 +826,9 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 // Email status and test routes (must be before parameterized {configType} routes)
                 .route("/email/status", get(realm_config::email_status))
                 .route("/email/test", post(realm_config::email_test))
+                // SMS status/test (must equally precede {configType} routes)
+                .route("/sms/status", get(realm_config::sms_status))
+                .route("/sms/test", post(realm_config::sms_test))
                 .route(
                     "/{configType}",
                     get(realm_config::list_realm_configs_by_type),
@@ -874,6 +886,7 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
                 .merge(herald_api_points::routes::user_points_router())
                 .merge(herald_api_billing::routes::billing_user_routes())
                 .merge(herald_api_auth::user_passkey::router())
+                .merge(herald_api_auth::user_phone::router())
                 .merge(herald_api_auth::reauth_router())
                 .route("/consent/status", get(legal::get_consent_status))
                 .route("/consent", post(legal::record_consent))

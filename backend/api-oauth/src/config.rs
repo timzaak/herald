@@ -26,7 +26,7 @@ use herald_core::domain::oauth::entities::{
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOAuthConfigRequest {
-    pub provider_type: String,
+    pub provider_type: ProviderType,
     #[validate(length(min = 1))]
     pub client_id: String,
     #[validate(length(min = 1))]
@@ -50,7 +50,7 @@ pub struct UpdateOAuthConfigRequest {
 pub struct OAuthConfigResponse {
     pub id: Uuid,
     pub realm_id: String,
-    pub provider_type: String,
+    pub provider_type: ProviderType,
     pub client_id: String,
     pub scopes: Vec<String>,
     pub enabled: bool,
@@ -63,7 +63,7 @@ fn to_response(config: OAuthProviderConfig) -> OAuthConfigResponse {
     OAuthConfigResponse {
         id: config.id,
         realm_id: config.realm_id,
-        provider_type: config.provider_type.as_str().to_string(),
+        provider_type: config.provider_type,
         client_id: config.client_id,
         // Note: client_secret should not be exposed in GET responses
         scopes: config.scopes,
@@ -203,10 +203,7 @@ pub async fn create_oauth_config(
         .validate()
         .map_err(|e| ApiError::bad_request(format!("Validation error: {}", e)))?;
 
-    // Parse and validate provider type
-    let provider_type = payload.provider_type.parse::<ProviderType>().map_err(|_| {
-        ApiError::bad_request(format!("Invalid provider type: {}", payload.provider_type))
-    })?;
+    let provider_type = payload.provider_type;
 
     let oauth_config_service = state.service.oauth_config_service();
 

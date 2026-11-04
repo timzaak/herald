@@ -161,7 +161,7 @@ where
                     payment_provider: input.payment_provider,
                     target_type: target.target_type.to_string(),
                     target_id: target.target_id,
-                    billing_type: target.billing_type.clone().ok_or_else(|| {
+                    billing_type: target.billing_type.ok_or_else(|| {
                         CoreError::BillingError(format!(
                             "Entitlement mapping '{}' has no billing_type set",
                             target.target_id
@@ -274,7 +274,7 @@ where
                     payment_provider: input.payment_provider,
                     target_type: target.target_type.to_string(),
                     target_id: target.target_id,
-                    billing_type: target.billing_type.clone().ok_or_else(|| {
+                    billing_type: target.billing_type.ok_or_else(|| {
                         CoreError::BillingError(format!(
                             "Entitlement mapping '{}' has no billing_type set",
                             target.target_id
@@ -519,7 +519,7 @@ where
         locale: Option<&str>,
         attempt_expires_at: chrono::DateTime<chrono::Utc>,
     ) -> PurchaseResult<(Option<String>, PaymentContext)> {
-        validate_flow_combination(payment_provider, target.billing_type.clone(), flow)?;
+        validate_flow_combination(payment_provider, target.billing_type, flow)?;
         match payment_provider {
             "creem" => {
                 self.build_creem_payment_context(
@@ -992,8 +992,7 @@ mod flow_combination_tests {
             ("wechat", None),
         ] {
             assert!(
-                validate_flow_combination(provider, billing_type.clone(), PaymentFlow::Hosted)
-                    .is_ok(),
+                validate_flow_combination(provider, billing_type, PaymentFlow::Hosted).is_ok(),
                 "hosted must stay valid for {provider}/{billing_type:?}"
             );
         }

@@ -38,8 +38,8 @@ fn subscription_to_response(sub: &Subscription) -> SubscriptionDetailResponse {
         entitlement_key: sub.entitlement_key.clone(),
         external_price_id: sub.external_price_id.clone(),
         payment_provider: sub.payment_provider.clone(),
-        status: sub.status.as_str().to_string(),
-        billing_type: sub.billing_type.as_str().to_string(),
+        status: sub.status,
+        billing_type: sub.billing_type,
         current_period_start: sub.current_period_start.map(|dt| dt.to_rfc3339()),
         current_period_end: sub.current_period_end.map(|dt| dt.to_rfc3339()),
         cancel_at: sub.cancel_at.map(|dt| dt.to_rfc3339()),
@@ -50,10 +50,6 @@ fn subscription_to_response(sub: &Subscription) -> SubscriptionDetailResponse {
         updated_at: sub.updated_at.to_rfc3339(),
     }
 }
-
-// ============================================================================
-// Permission Check Helper
-// ============================================================================
 
 /// Check billing permissions for a realm
 ///
@@ -122,10 +118,6 @@ fn require_subscription_ownership(
     Ok(())
 }
 
-// ============================================================================
-// Subscription Handlers
-// ============================================================================
-
 /// List subscriptions for a realm
 #[utoipa::path(
     get,
@@ -157,7 +149,7 @@ pub async fn list_subscriptions(
         .list_subscriptions(
             &realm_id,
             query.entitlement_key.as_deref(),
-            query.status.as_deref(),
+            query.status.as_ref().map(|s| s.as_str()),
             query.payment_provider.as_deref(),
             page,
             page_size,
@@ -176,8 +168,8 @@ pub async fn list_subscriptions(
             entitlement_key: sub.entitlement_key.clone(),
             external_price_id: sub.external_price_id.clone(),
             payment_provider: sub.payment_provider.clone(),
-            status: sub.status.as_str().to_string(),
-            billing_type: sub.billing_type.as_str().to_string(),
+            status: sub.status,
+            billing_type: sub.billing_type,
             current_period_start: sub.current_period_start.map(|dt| dt.to_rfc3339()),
             current_period_end: sub.current_period_end.map(|dt| dt.to_rfc3339()),
             synced_at: sub.synced_at.map(|dt| dt.to_rfc3339()),
@@ -472,7 +464,7 @@ fn mapping_to_purchase_option(
         external_price_id: m.external_price_id,
         payment_provider: m.payment_provider,
         entitlement_key: m.entitlement_key,
-        billing_type: m.billing_type.map(|t| t.as_str().to_string()),
+        billing_type: m.billing_type,
         billing_period: m.billing_period,
         display_name: info
             .and_then(|i| i.get("name"))

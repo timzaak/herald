@@ -1,22 +1,16 @@
-// =============================================================================
-// SDK Billing Scenarios
-// =============================================================================
 //
 // Test SDK billing API against real API.
 // Adapted for product_reduce: subscription uses entitlement_key instead of
 // plan/planId/billingPeriod. Plan list/assignment tests removed as those
 // endpoints no longer exist.
 //
-// =============================================================================
 
-use herald_sdk::Client;
+use herald_sdk::{Client, SubscriptionStatus};
 use herald_test_support::SchemaTestContext;
 use test_context::test_context;
 use uuid::Uuid;
 
-/// ============================================================================
 /// Billing API Scenarios
-/// ============================================================================
 /// Test scenario: SDK get subscription - success
 ///
 /// Verifies that the SDK correctly retrieves subscription details
@@ -87,7 +81,8 @@ async fn test_scenario_sdk_get_subscription_success(ctx: &mut SchemaTestContext)
     );
     let subscription = result.unwrap();
     assert_eq!(
-        subscription.status, "active",
+        subscription.status,
+        SubscriptionStatus::Active,
         "Subscription should be active"
     );
     assert_eq!(

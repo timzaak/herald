@@ -803,7 +803,8 @@
     "all": "All",
     "wait_verified": "Wait Verified",
     "normal": "Normal",
-    "forbidden": "Forbidden"
+    "forbidden": "Forbidden",
+    "deleted": "Deleted"
   },
   "client_apps": {
     "page_title": "Client Apps",
@@ -1492,6 +1493,7 @@
     "invoice_source_all": "All Sources",
     "invoice_source_manual": "Manual",
     "invoice_source_application": "Application",
+    "invoice_source_external": "External Sync",
     "invoice_search_placeholder": "Search invoices...",
     "invoice_detail_title": "Invoice {number}",
     "invoice_detail_description": "Invoice details and status history",
@@ -1781,6 +1783,7 @@
     "subscription_change_timeline": "Change Timeline",
     "subscription_billing_period": "Billing Period",
     "subscription_status_label_active": "Active",
+    "subscription_status_label_pending": "Pending",
     "subscription_status_label_trialing": "Trialing",
     "subscription_status_label_past_due": "Past Due",
     "subscription_status_label_canceled": "Canceled",

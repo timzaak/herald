@@ -1,6 +1,3 @@
-// =============================================================================
-// Client API 场景测试
-// =============================================================================
 //
 // 测试客户端 API 密钥管理系统的端到端场景，包括：
 // - API Key 认证（有效、无效、缺失、禁用、过期）
@@ -14,7 +11,6 @@
 // 运行测试：
 //   cargo nextest run --workspace test_scenario::client_api_scenarios
 //
-// =============================================================================
 
 use crate::tests::helpers::*;
 use crate::tests::schema_test_context::SchemaTestContext;
@@ -28,9 +24,7 @@ use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-/// ============================================================================
 // 辅助函数
-/// ============================================================================
 ///
 /// 创建带 API Key 的请求
 fn create_request_with_api_key(
@@ -54,9 +48,7 @@ fn create_request_with_api_key(
     request_builder.body(Body::empty()).unwrap()
 }
 
-/// ============================================================================
 // 场景 1: 有效 API Key 调用权限检查 API（Redis 缓存命中）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -121,9 +113,7 @@ async fn scenario_valid_api_key_with_cache_hit(ctx: &mut SchemaTestContext) {
     );
 }
 
-/// ============================================================================
 // 场景 2: 有效 API Key 调用权限检查 API（Redis 缓存未命中）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -180,9 +170,7 @@ async fn scenario_valid_api_key_with_cache_miss(ctx: &mut SchemaTestContext) {
     assert_eq!(response2.status(), StatusCode::OK);
 }
 
-/// ============================================================================
 // 场景 3: 无效 API Key 返回 401
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -210,9 +198,7 @@ async fn scenario_invalid_api_key(ctx: &mut SchemaTestContext) {
     assert_eq!(json["message"], "invalid_api_key");
 }
 
-/// ============================================================================
 // 场景 4: 缺失 API Key 返回 401
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -243,9 +229,7 @@ async fn scenario_missing_api_key(ctx: &mut SchemaTestContext) {
     assert_eq!(json["message"], "missing_api_key");
 }
 
-/// ============================================================================
 // 场景 5: 已禁用 API Key 返回 401（缓存失效）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -334,9 +318,7 @@ async fn scenario_disabled_api_key(ctx: &mut SchemaTestContext) {
     }
 }
 
-/// ============================================================================
 // 场景 6: 已过期 API Key 返回 401
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -365,9 +347,7 @@ async fn scenario_expired_api_key(ctx: &mut SchemaTestContext) {
     assert_eq!(json["message"], "api_key_expired");
 }
 
-/// ============================================================================
 // 场景 7: 跨 realm 访问返回 403
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -441,10 +421,8 @@ async fn scenario_cross_realm_access(ctx: &mut SchemaTestContext) {
     );
 }
 
-/// ============================================================================
 // 场景 8: last_used_at 节流更新（异步）
 // 验证三态：首次使用(NULL→写入) / 1 分钟内重复(→节流跳过) / 超过 1 分钟(→刷新)
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -525,9 +503,7 @@ async fn scenario_throttled_last_used_update(ctx: &mut SchemaTestContext) {
     );
 }
 
-/// ============================================================================
 // 场景 9: Redis 缓存失效策略
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -575,9 +551,7 @@ async fn scenario_redis_cache_invalidation(ctx: &mut SchemaTestContext) {
     assert_eq!(json["message"], "invalid_api_key");
 }
 
-/// ============================================================================
 // 场景 10: 订阅状态查询（有订阅）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -623,9 +597,7 @@ async fn scenario_subscription_active(ctx: &mut SchemaTestContext) {
     assert_eq!(json["paymentProvider"], "creem");
 }
 
-/// ============================================================================
 // 场景 11: 订阅状态查询（无订阅）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -662,14 +634,14 @@ async fn scenario_subscription_none(ctx: &mut SchemaTestContext) {
 
     assert_eq!(json["clientAppId"], ctx._client_app_id);
     assert_eq!(json["hasSubscription"], false);
-    assert_eq!(json["status"], "none");
+    // No subscription ⟺ the enum fields are absent.
+    assert!(json.get("status").is_none() || json["status"].is_null());
+    assert!(json.get("billingType").is_none() || json["billingType"].is_null());
     assert_eq!(json["entitlementKey"], "");
     assert_eq!(json["paymentProvider"], "");
 }
 
-/// ============================================================================
 // 场景 12: 订阅状态查询（客户端应用不存在）
-// ============================================================================
 
 #[test_context(SchemaTestContext)]
 #[tokio::test]
@@ -703,11 +675,6 @@ async fn scenario_client_app_not_found(ctx: &mut SchemaTestContext) {
         error_str
     );
 }
-
-// ============================================================================
-// 回归（审计 run-1：api-ext/permission.rs:check_permission:
-// introspection-skips-disabled-principal-recheck）
-// ============================================================================
 
 /// 内省必须与 identity_middleware 同规则重检主体：禁用 Client App 不吊销
 /// 令牌族（令牌存活至 TTL），Forbidden/Deleted 用户的吊销也可能滞后/失败 ——
@@ -798,11 +765,6 @@ async fn scenario_check_permission_rejects_disabled_principals(ctx: &mut SchemaT
         "re-enabled app must introspect allowed again"
     );
 }
-
-// ============================================================================
-// 回归（审计 run-2）：admin /api/permission/check 探测令牌的主体复查 +
-// ext client-app 详情路由的跨租户存在性 oracle
-// ============================================================================
 
 /// 回归（审计 run-2：probed-token-introspection-skips-client-app-live-recheck）：
 /// /api/permission/check 曾对被探测令牌只做 Redis 存在性检查 —— 禁用/删除

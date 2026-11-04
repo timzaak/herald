@@ -233,7 +233,7 @@ describe('users', () => {
     server.use(
       http.post(`${BASE_URL}/api/ext/realms/realm-001/users`, () =>
         HttpResponse.json(
-          { id: 'user-001', email: 'test@example.com', nickname: 'testuser', status: 1, createdAt: '2025-01-01T00:00:00Z' },
+          { id: 'user-001', email: 'test@example.com', nickname: 'testuser', status: 'normal', createdAt: '2025-01-01T00:00:00Z' },
           { status: 201 },
         ),
       ),
@@ -253,8 +253,8 @@ describe('users', () => {
       http.get(`${BASE_URL}/api/ext/realms/realm-001/users`, () =>
         HttpResponse.json({
           items: [
-            { id: 'user-001', email: 'a@example.com', nickname: null, status: 1, createdAt: '2025-01-01T00:00:00Z' },
-            { id: 'user-002', email: 'b@example.com', nickname: 'bob', status: 1, createdAt: '2025-02-01T00:00:00Z' },
+            { id: 'user-001', email: 'a@example.com', nickname: null, status: 'normal', createdAt: '2025-01-01T00:00:00Z' },
+            { id: 'user-002', email: 'b@example.com', nickname: 'bob', status: 'normal', createdAt: '2025-02-01T00:00:00Z' },
           ],
           page: 1,
           pageSize: 20,
@@ -272,7 +272,7 @@ describe('users', () => {
   it('getUser returns the detail', async () => {
     server.use(
       http.get(`${BASE_URL}/api/ext/realms/realm-001/users/user-001`, () =>
-        HttpResponse.json({ id: 'user-001', email: 'test@example.com', nickname: null, status: 1, createdAt: '2025-01-01T00:00:00Z' }),
+        HttpResponse.json({ id: 'user-001', email: 'test@example.com', nickname: null, status: 'normal', createdAt: '2025-01-01T00:00:00Z' }),
       ),
     )
 

@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { getFieldErrorMessage } from '@/lib/form-utils'
-import { USER_STATUS, getWritableUserStatusOptions } from '@/lib/constants/user'
+import { getWritableUserStatusOptions } from '@/lib/constants/user'
 import { useQuery } from '@tanstack/react-query'
 import { useRealmId } from '@/stores/auth-store'
 import { adminRolesQueryOptions, queryKeys } from '@/data/query-options'
@@ -34,7 +34,7 @@ interface CreateUserDialogProps {
   realmId?: string // Optional for backward compatibility
 }
 
-const DEFAULT_STATUS = USER_STATUS.NORMAL
+const DEFAULT_STATUS = 'normal' as const
 
 export function CreateUserDialog({
   open,
@@ -136,7 +136,7 @@ export function CreateUserDialog({
                   <Label htmlFor="status">{m['users.form_status']()}</Label>
                   <Select
                     value={String(field.state.value ?? '')}
-                    onValueChange={(value) => field.handleChange(Number(value))}
+                    onValueChange={(value) => field.handleChange(value as 'normal' | 'forbidden')}
                     data-testid="user-create-status-select"
                   >
                     <SelectTrigger>
