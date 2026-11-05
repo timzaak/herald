@@ -456,7 +456,9 @@ def _ensure_points_user(opener: urllib.request.OpenerDirector, logger: "Logger |
             "email": POINTS_USER_EMAIL,
             "password": POINTS_USER_PASSWORD,
             "nickname": "Points Demo User",
-            "status": 1,
+            # UserStatus deserializes from snake_case strings ("normal"), not
+            # the legacy i16 codes — an integer fails request parsing with 400.
+            "status": "normal",
             "roleIds": [user_role_id],
         }
         status, body = _http_json(
@@ -1528,7 +1530,9 @@ def _ensure_subscription_history_demo_data(admin_opener: urllib.request.OpenerDi
             "email": SUBSCRIPTION_TEST_USER_EMAIL,
             "password": SUBSCRIPTION_TEST_USER_PASSWORD,
             "nickname": "Subscription Test User",
-            "status": 1,
+            # UserStatus deserializes from snake_case strings ("normal"), not
+            # the legacy i16 codes — an integer fails request parsing with 400.
+            "status": "normal",
             "roleIds": [user_role_id],
         }
         status, body = _http_json(

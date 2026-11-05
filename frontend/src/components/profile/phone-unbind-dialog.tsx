@@ -62,7 +62,6 @@ export function PhoneUnbindDialog({ maskedPhone, onClose }: PhoneUnbindDialogPro
   const [passkeyChallenge, setPasskeyChallenge] = useState<PasskeyChallenge | undefined>()
   const [selectedFactor, setSelectedFactor] = useState<ReauthFactor>('password')
   const [credential, setCredential] = useState('')
-  const [reauthToken, setReauthToken] = useState<string | null>(null)
   const [stepError, setStepError] = useState<string | null>(null)
 
   const beginMutation = useMutation({
@@ -98,12 +97,11 @@ export function PhoneUnbindDialog({ maskedPhone, onClose }: PhoneUnbindDialogPro
   }
 
   const unbindMutation = useMutation({
-    mutationFn: () => userPhoneUnbind({ body: { reauthToken: reauthToken ?? '' } }),
+    mutationFn: (reauthToken: string) => userPhoneUnbind({ body: { reauthToken } }),
     onSuccess: (response) => {
       if (response.error) {
         const { status } = resolveApiError(response.error)
         if (status === 401 || status === 409) {
-          setReauthToken(null)
           setStepError(m['profile.phone_error_reauth_needed']())
           restartReauth()
           return
@@ -155,10 +153,9 @@ export function PhoneUnbindDialog({ maskedPhone, onClose }: PhoneUnbindDialogPro
         setStepError(m['reauth.failed']())
         return
       }
-      setReauthToken(token)
       setCredential('')
       setStepError(null)
-      unbindMutation.mutate()
+      unbindMutation.mutate(token)
     },
     onError: () => setStepError(m['reauth.failed']()),
   })

@@ -224,6 +224,21 @@ export class SettingsPage extends BasePage {
   readonly emailOtpAutoRegisterSwitch: Locator
   readonly emailOtpSaveButton: Locator
 
+  readonly smsTab: Locator
+  readonly smsStatusBadge: Locator
+  readonly smsMissingFields: Locator
+  readonly smsProviderAliyun: Locator
+  readonly smsAliyunAccessKeyIdInput: Locator
+  readonly smsAliyunAccessKeySecretInput: Locator
+  readonly smsAliyunSignNameInput: Locator
+  readonly smsAliyunTemplateCodeInput: Locator
+  readonly smsTestPhoneInput: Locator
+  readonly smsTestSendButton: Locator
+  readonly smsTestSuccess: Locator
+  readonly smsSaveButton: Locator
+  readonly phoneLoginSwitch: Locator
+  readonly phoneLoginSaveButton: Locator
+
   // LDAP (corporate directory) Configuration — standalone `ldap` tab. The form
   // card root has no testid; the url input doubles as the form-ready anchor.
   readonly ldapTab: Locator
@@ -349,6 +364,23 @@ export class SettingsPage extends BasePage {
     this.emailOtpAutoRegisterSwitch = page.getByTestId('email-otp-auto-register-switch')
     this.emailOtpSaveButton = page.getByTestId('email-otp-save-button')
 
+    this.smsTab = page.locator(SELECTORS.phoneOtp.smsTab)
+    this.smsStatusBadge = page.locator(SELECTORS.phoneOtp.smsStatusBadge)
+    this.smsMissingFields = page.locator(SELECTORS.phoneOtp.smsMissingFields)
+    this.smsProviderAliyun = page.locator(SELECTORS.phoneOtp.smsProviderAliyun)
+    this.smsAliyunAccessKeyIdInput = page.locator(SELECTORS.phoneOtp.smsAliyunAccessKeyIdInput)
+    this.smsAliyunAccessKeySecretInput = page.locator(
+      SELECTORS.phoneOtp.smsAliyunAccessKeySecretInput
+    )
+    this.smsAliyunSignNameInput = page.locator(SELECTORS.phoneOtp.smsAliyunSignNameInput)
+    this.smsAliyunTemplateCodeInput = page.locator(SELECTORS.phoneOtp.smsAliyunTemplateCodeInput)
+    this.smsTestPhoneInput = page.locator(SELECTORS.phoneOtp.smsTestPhoneInput)
+    this.smsTestSendButton = page.locator(SELECTORS.phoneOtp.smsTestSendButton)
+    this.smsTestSuccess = page.locator(SELECTORS.phoneOtp.smsTestSuccess)
+    this.smsSaveButton = page.locator(SELECTORS.phoneOtp.smsSaveButton)
+    this.phoneLoginSwitch = page.locator(SELECTORS.phoneOtp.phoneLoginSwitch)
+    this.phoneLoginSaveButton = page.locator(SELECTORS.phoneOtp.phoneLoginSaveButton)
+
     // LDAP (corporate directory) Configuration — anchors live in the shared
     // SELECTORS.ldap registry (demo/e2e/selectors.ts).
     this.ldapTab = page.locator(SELECTORS.ldap.settingsTab)
@@ -449,10 +481,6 @@ export class SettingsPage extends BasePage {
     // Additional wait to ensure React state is fully settled
     await this.page.waitForLoadState('networkidle')
   }
-
-  // ============================================================================
-  // Email Configuration Methods
-  // ============================================================================
 
   /**
    * Switch to Email Tab
@@ -572,10 +600,6 @@ export class SettingsPage extends BasePage {
     return text.toLowerCase().includes('configured') && !text.toLowerCase().includes('not configured')
   }
 
-  // ============================================================================
-  // TOTP Configuration Methods
-  // ============================================================================
-
   /**
    * Enable TOTP
    */
@@ -642,10 +666,6 @@ export class SettingsPage extends BasePage {
     expect(actual.enabled).toBe(expected.enabled)
     expect(actual.force_enabled).toBe(expected.force_enabled)
   }
-
-  // ============================================================================
-  // Registration Configuration Methods
-  // ============================================================================
 
   /**
    * Enable user registration
@@ -723,10 +743,6 @@ export class SettingsPage extends BasePage {
     expect(actual.enabled).toBe(expected.enabled)
     expect(actual.require_email_verification).toBe(expected.require_email_verification)
   }
-
-  // ============================================================================
-  // OAuth Provider Configuration Methods
-  // ============================================================================
 
   /**
    * Switch to Providers Tab
@@ -1021,15 +1037,11 @@ export class SettingsPage extends BasePage {
     return ids.filter((id): id is string => id !== null && id !== undefined)
   }
 
-  // ============================================================================
-  // White-label Configuration Methods (US-WL-001/002/003/004)
-  //
-  // Mirrors switchToTOTPTab/saveTOTPConfig/getTOTPConfig patterns. Drives the
-  // white-label-config-form (frontend/src/components/realm-config/white-label-
-  // config-form.tsx). Background is a {type,value} object edited through a type
-  // select + conditional value textarea (only renders when type !== 'none').
+  // Drives the white-label-config-form (frontend/src/components/realm-config/
+  // white-label-config-form.tsx). Background is a {type,value} object edited
+  // through a type select + conditional value textarea (only renders when
+  // type !== 'none').
   // @see docs/user-stories/core/white-label.md, docs/prd/core/ui-custom.md
-  // ============================================================================
 
   /**
    * Switch to White-label Tab.
@@ -1249,16 +1261,12 @@ export class SettingsPage extends BasePage {
     }
   }
 
-  // ===========================================================================
-  // Custom-domain Configuration (US-CD-001 — single-state save model)
-  //
   // Custom-domain is a single `hostname` field with one Save button (PUT
   // /config/custom-domain writes the hostname + host→realm mapping in one step).
   // There is no draft/publish/restore lifecycle. The CNAME guidance panel
   // renders the configured `cname_target` (from [custom_domain].cname_target in
   // demo.toml); getCnameGuidanceText() reads it back so tests can assert it is
   // non-empty.
-  // ===========================================================================
 
   /**
    * Switch to Custom-domain Tab.
@@ -1356,16 +1364,10 @@ export class SettingsPage extends BasePage {
     }
   }
 
-  // ============================================================================
-  // Email-OTP Configuration Methods
-  //
-  // Mirrors the TOTP block (switchToTOTPTab / enableTOTP / disableTOTP /
-  // saveTOTPConfig / getTOTPConfig). Drives the Email-OTP section that was
-  // merged into the `email` tab's EmailConfigForm by frontend commit 364767b2
+  // Drives the Email-OTP section inside the `email` tab's EmailConfigForm
   // (frontend/src/components/realm-config/email-config-form.tsx). The two
   // switches carry `data-testid` via the shared config-switch-field.tsx.
   // @see docs/user-stories/auth/email-otp-login.md
-  // ============================================================================
 
   /**
    * Navigate to the Email-OTP configuration controls.
@@ -1476,13 +1478,107 @@ export class SettingsPage extends BasePage {
     }
   }
 
-  // ============================================================================
-  // LDAP (Corporate Directory) Configuration Methods
-  //
+  /**
+   * Switch to the SMS tab. Waits for the channel form (its save button) to
+   * indicate the tab content is fully loaded.
+   */
+  async switchToSmsTab(): Promise<void> {
+    await this.smartClick(this.smsTab)
+    await expect(this.smsSaveButton).toBeVisible({ timeout: 10000 })
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  /**
+   * Configure the Aliyun SMS provider (REAL KV write on save).
+   *
+   * Selects the Aliyun radio and fills the four required fields
+   * (`ALIYUN_REQUIRED_KEYS`); the credential values only need to be
+   * non-empty for `sms_status.configured` to flip true.
+   */
+  async configureAliyunSms(config: {
+    accessKeyId: string
+    accessKeySecret: string
+    signName: string
+    templateCode: string
+  }): Promise<void> {
+    await this.smartClick(this.smsProviderAliyun)
+    await expect(this.smsAliyunAccessKeyIdInput).toBeVisible({ timeout: 5000 })
+
+    await this.fillField(this.smsAliyunAccessKeyIdInput, config.accessKeyId)
+    await this.fillField(this.smsAliyunAccessKeySecretInput, config.accessKeySecret)
+    await this.fillField(this.smsAliyunSignNameInput, config.signName)
+    await this.fillField(this.smsAliyunTemplateCodeInput, config.templateCode)
+  }
+
+  /**
+   * Save the SMS channel configuration (real POST to the config batch API).
+   */
+  async saveSmsConfig(): Promise<void> {
+    const saved = this.page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/configs/batch'
+      && response.request().method() === 'POST'
+    )
+    await this.smartClick(this.smsSaveButton)
+    expect((await saved).ok(), 'SMS channel configuration must persist').toBe(true)
+  }
+
+  /**
+   * Get the SMS status badge text ("已配置 / Not configured" per locale).
+   */
+  async getSmsStatusBadgeText(): Promise<string> {
+    return await this.getText(this.smsStatusBadge)
+  }
+
+  /**
+   * Check whether the SMS channel reads as configured (badge text based,
+   * mirroring isEmailConfigured).
+   */
+  async isSmsConfigured(): Promise<boolean> {
+    const text = await this.getSmsStatusBadgeText()
+    return text.toLowerCase().includes('configured') && !text.toLowerCase().includes('not configured')
+  }
+
+  /**
+   * Fill the test-SMS recipient and click send. The demo intercepts the
+   * `/api/configs/sms/test` request at the browser layer; this helper only
+   * drives the UI (the real send would fail loudly on fake credentials).
+   */
+  async sendTestSms(recipient: string): Promise<void> {
+    await this.fillField(this.smsTestPhoneInput, recipient)
+    await this.smartClick(this.smsTestSendButton)
+  }
+
+  /**
+   * Enable the phone-login switch (fail-closed: requires the channel above to
+   * read configured — the UI keeps the switch disabled otherwise).
+   */
+  async enablePhoneLogin(): Promise<void> {
+    await this.setSwitch(this.phoneLoginSwitch, true)
+  }
+
+  /**
+   * Disable the phone-login switch (always allowed — degradation direction).
+   */
+  async disablePhoneLogin(): Promise<void> {
+    await this.setSwitch(this.phoneLoginSwitch, false)
+  }
+
+  /**
+   * Save the phone-login configuration (real PUT to the dedicated config
+   * endpoint).
+   */
+  async savePhoneLoginConfig(): Promise<void> {
+    const saved = this.page.waitForResponse(response =>
+      new URL(response.url()).pathname === `/api/realms/${this.realmId}/config/phone-login`
+      && response.request().method() === 'PUT'
+    )
+    await this.smartClick(this.phoneLoginSaveButton)
+    expect((await saved).ok(), 'Phone-login configuration must persist').toBe(true)
+  }
+
   // Drives the standalone `ldap` tab: Radix Switch toggles via setSwitch, text
   // fields via fillField (blur included so TanStack Form validation runs),
   // save + wait for the button text to settle back to 'Save'.
-  // ============================================================================
 
   /**
    * Switch to the Corporate directory (LDAP) tab.
@@ -1595,14 +1691,8 @@ export class SettingsPage extends BasePage {
     }).toPass({ timeout: 15000 })
   }
 
-  // ============================================================================
-  // Platform Self-Service Signup Configuration Methods (admin realm only)
-  //
-  // Mirrors the Email-OTP config methods: Radix Switch toggles via setSwitch,
-  // save + wait for button text to settle. The platform-signup tab is rendered
-  // only when realmId === 'admin' (frontend settings.tsx), so the caller must
-  // be logged into the admin realm.
-  // ============================================================================
+  // The platform-signup tab is rendered only when realmId === 'admin'
+  // (frontend settings.tsx), so the caller must be logged into the admin realm.
 
   /**
    * Switch to the Platform Self-Service Signup tab (admin realm only).
@@ -1678,8 +1768,6 @@ export class SettingsPage extends BasePage {
     }
   }
 
-  // --- White-label private helpers -------------------------------------------
-
   /**
    * Drive the background type Select + conditional value Textarea.
    *
@@ -1724,10 +1812,6 @@ export class SettingsPage extends BasePage {
 
     return { type, value }
   }
-
-  // ============================================================================
-  // Private Helper Methods
-  // ============================================================================
 
   /**
    * Get display name for provider type

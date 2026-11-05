@@ -333,9 +333,6 @@ export const SELECTORS = {
     descriptionInput: '[data-testid="client-app-description-input"]',
     redirectUrisInput: '[data-testid="redirect-uris-input-field"]',
     enabledSwitch: '[data-testid="client-app-enabled-switch"]',
-    // Security-tab TTL field was renamed sessionTtlSeconds → browserRefreshAbsoluteTtlSeconds
-    // (commit f3b8d48a browser bearer-token model). The frontend input testid is
-    // `browser-refresh-ttl-input` with preset buttons `browser-refresh-ttl-preset-{label}`.
     sessionTtlInput: '[data-testid="browser-refresh-ttl-input"]',
     sessionTtlPreset: (label: string) =>
       `[data-testid="browser-refresh-ttl-preset-${label}"]`,
@@ -1353,11 +1350,9 @@ export const SELECTORS = {
    * User stories: US-EO-001 / US-EO-002 (login flow), US-EO-003 (admin config).
    */
   emailOtp: {
-    // --- Login route (end-user) ----------------------------------------------
     // Toggle on the password login route that switches into the OTP form.
     loginRouteToggle: '[data-testid="email-otp-toggle"]',
 
-    // --- OTP login form (user side) ------------------------------------------
     form: '[data-testid="email-otp-login-form"]',
     emailInput: '[data-testid="email-otp-email-input"]',
     sendButton: '[data-testid="email-otp-send-btn"]',
@@ -1381,13 +1376,11 @@ export const SELECTORS = {
     registerLink: '[data-testid="email-otp-register-link"]',
     backAfterConflictButton: '[data-testid="email-otp-back-after-conflict-button"]',
 
-    // --- Admin Settings → Email-OTP section (inside the `email` tab) ---------
-    // Since frontend commit 364767b2 ("merged email-otp settings"), Email-OTP is
-    // NOT a standalone tab. The two config switches + save button render inside
-    // the `email` tab as a `data-testid="email-otp-section"` sub-block of
-    // EmailConfigForm. `tab` is retained only for selector discoverability;
-    // navigation to the OTP controls must go through `email-tab` (see
-    // SettingsPage.switchToEmailOtpTab).
+    // Email-OTP is NOT a standalone tab: the two config switches + save button
+    // render inside the `email` tab as a `data-testid="email-otp-section"`
+    // sub-block of EmailConfigForm. `tab` is retained only for selector
+    // discoverability; navigation to the OTP controls must go through
+    // `email-tab` (see SettingsPage.switchToEmailOtpTab).
     tab: '[data-testid="email-otp-section"]',
     enabledSwitch: '[data-testid="email-otp-enabled-switch"]',
     autoRegisterSwitch: '[data-testid="email-otp-auto-register-switch"]',
@@ -1414,7 +1407,6 @@ export const SELECTORS = {
    * @see docs/user-stories/auth/support-ldap.md
    */
   ldap: {
-    // --- Login route (end-user) ------------------------------------------------
     loginRouteToggle: '[data-testid="ldap-toggle"]',
     form: '[data-testid="ldap-login-form"]',
     usernameInput: '[data-testid="ldap-username-input"]',
@@ -1422,7 +1414,6 @@ export const SELECTORS = {
     submitButton: '[data-testid="ldap-submit-button"]',
     backButton: '[data-testid="ldap-back-button"]',
 
-    // --- Admin Settings → Corporate directory (LDAP) tab -----------------------
     settingsTab: '[data-testid="ldap-tab"]',
     enabledSwitch: '[data-testid="ldap-enabled-switch"]',
     urlInput: '[data-testid="ldap-url-input"]',
@@ -1469,7 +1460,6 @@ export const SELECTORS = {
    * @see docs/user-stories/billing/support-iap.md
    */
   iap: {
-    // --- Payment providers page shell (payment-providers-page.tsx) -----------
     paymentProvidersPage: '[data-testid="payment-providers-page"]',
     providerList: '[data-testid="provider-list"]',
     appleProviderRow: '[data-testid="apple-provider-row"]',
@@ -1483,7 +1473,6 @@ export const SELECTORS = {
     // `add-${type}-button` is rendered per unconfigured provider type.
     addButton: (type: 'apple' | 'google') => `[data-testid="add-${type}-button"]`,
 
-    // --- Delete confirm dialog (DeleteConfirmDialog.tsx) ---------------------
     // Note: when the provider protects active subscriptions, `delete-confirm-button`
     // is NOT rendered (the dialog surfaces the active-sub count + a Cancel-only
     // footer). Tests asserting the delete path assume an empty subscription set.
@@ -1491,7 +1480,6 @@ export const SELECTORS = {
     deleteConfirmButton: '[data-testid="delete-confirm-button"]',
     deleteCancelButton: '[data-testid="delete-cancel-button"]',
 
-    // --- Apple config form (AppleIapConfigForm.tsx) --------------------------
     appleConfigPage: '[data-testid="apple-config-form-page"]',
     appleConfigHeading: '[data-testid="apple-config-form-page-heading"]',
     appleConfigForm: '[data-testid="apple-config-page-form"]',
@@ -1504,7 +1492,6 @@ export const SELECTORS = {
     appleConfigSubmitButton: '[data-testid="apple-config-page-submit-button"]',
     appleConfigCancelButton: '[data-testid="apple-config-page-cancel-button"]',
 
-    // --- Google config form (GooglePlayConfigForm.tsx) -----------------------
     googleConfigPage: '[data-testid="google-config-form-page"]',
     googleConfigHeading: '[data-testid="google-config-form-page-heading"]',
     googleConfigForm: '[data-testid="google-config-page-form"]',
@@ -1513,7 +1500,6 @@ export const SELECTORS = {
     googleConfigSubmitButton: '[data-testid="google-config-page-submit-button"]',
     googleConfigCancelButton: '[data-testid="google-config-page-cancel-button"]',
 
-    // --- Create-mapping page (create-entitlement-mapping-page.tsx) ----------
     // The page is reached from the entitlement-mappings list via
     // `create-mapping-button` (navigates to /manage/billing/entitlement-mappings/new).
     // Billing period is conditionally rendered for a
@@ -1531,6 +1517,95 @@ export const SELECTORS = {
     createMappingSubmitError: '[data-testid="create-mapping-submit-error"]',
     createMappingSubmitButton: '[data-testid="create-mapping-submit-button"]',
     createMappingCancelButton: '[data-testid="create-mapping-cancel-button"]',
+  },
+
+  /**
+   * Phone login (SMS-OTP) — login route, Security page dialogs, admin Settings
+   * sms tab.
+   *
+   * Anchors calibrated against shipped source (data-testid verified):
+   * - frontend/src/routes/$realmId/auth/login.tsx (`phone-otp-toggle`, rendered
+   *   only when the public phone-login status query reports enabled===true)
+   * - frontend/src/components/auth/sms-otp-login-form.tsx (form + steps; per-digit
+   *   testids `phone-otp-code-digit-0`…`-5` from OtpCodeInput testIdBase)
+   * - frontend/src/components/profile/phone-security-section.tsx (tab content,
+   *   bound value, bind/unbind entries)
+   * - frontend/src/components/profile/change-phone-dialog.tsx (reauth → phone →
+   *   code steps; digits `phone-bind-code-digit-0`…`-5`)
+   * - frontend/src/components/profile/phone-unbind-dialog.tsx (confirm → reauth
+   *   → done)
+   * - frontend/src/components/realm-config/sms-config-form.tsx (admin tab form,
+   *   test SMS, phone-login switch via ConfigSwitchField `${id}-switch`)
+   *
+   * User stories: US-PL-001 (bind/rebind/unbind), US-PL-002 (SMS-OTP login),
+   * US-PL-004 (admin channel + switch).
+   */
+  phoneOtp: {
+    loginRouteToggle: '[data-testid="phone-otp-toggle"]',
+    form: '[data-testid="phone-otp-login-form"]',
+    phoneInput: '[data-testid="phone-otp-phone-input"]',
+    sendButton: '[data-testid="phone-otp-send-btn"]',
+    codeInput: '[data-testid="phone-otp-code-input"]',
+    codeDigit: (index: number) => `[data-testid="phone-otp-code-digit-${index}"]`,
+    verifyButton: '[data-testid="phone-otp-verify-btn"]',
+    resendButton: '[data-testid="phone-otp-resend-btn"]',
+    resendCountdown: '[data-testid="phone-otp-resend-countdown"]',
+    backButton: '[data-testid="phone-otp-back-button"]',
+    backToPhoneButton: '[data-testid="phone-otp-back-to-phone-button"]',
+    errorMessage: '[data-testid="phone-otp-error-message"]',
+    // 409 phone_not_registered guidance (no auto-register, no consent branch).
+    notRegisteredMessage: '[data-testid="phone-otp-not-registered-message"]',
+    registerLink: '[data-testid="phone-otp-register-link"]',
+    backAfterConflictButton: '[data-testid="phone-otp-back-after-conflict-button"]',
+
+    securityTab: '[data-testid="phone-security-tab"]',
+    boundValue: '[data-testid="phone-bound-value"]',
+    verifiedBadge: '[data-testid="phone-verified-badge"]',
+    bindButton: '[data-testid="phone-bind-button"]',
+    unbindButton: '[data-testid="phone-unbind-button"]',
+    bindDialog: '[data-testid="phone-bind-dialog"]',
+    // reauth step (single password factor on the demo user)
+    bindPasswordInput: '[data-testid="phone-bind-password-input"]',
+    bindVerifyFactorButton: '[data-testid="phone-bind-verify-button"]',
+    bindPhoneInput: '[data-testid="phone-bind-phone-input"]',
+    bindSendButton: '[data-testid="phone-bind-send-btn"]',
+    bindCodeStep: '[data-testid="phone-bind-code-step"]',
+    bindCodeDigit: (index: number) => `[data-testid="phone-bind-code-digit-${index}"]`,
+    bindConfirmButton: '[data-testid="phone-bind-confirm-btn"]',
+    bindDonePanel: '[data-testid="phone-bind-done-panel"]',
+    bindDoneButton: '[data-testid="phone-bind-done-button"]',
+    bindDialogError: '[data-testid="phone-bind-error-message"]',
+    // unbind dialog: confirm → reauth → done
+    unbindDialog: '[data-testid="phone-unbind-dialog"]',
+    confirmUnbindButton: '[data-testid="confirm-unbind-phone-button"]',
+    unbindPasswordInput: '[data-testid="phone-unbind-password-input"]',
+    unbindVerifyFactorButton: '[data-testid="phone-unbind-verify-button"]',
+    unbindDonePanel: '[data-testid="phone-unbind-done-panel"]',
+    unbindDoneButton: '[data-testid="phone-unbind-done-button"]',
+
+    smsTab: '[data-testid="sms-tab"]',
+    smsConfigForm: '[data-testid="sms-config-form"]',
+    smsProviderRadio: '[data-testid="sms-provider-radio"]',
+    // RadioGroupItem has no per-value data-testid; anchored on its DOM id.
+    // Root fix: add data-testid="sms-provider-aliyun" in sms-config-form.tsx.
+    smsProviderAliyun: '#sms-provider-aliyun',
+    smsAliyunAccessKeyIdInput: '[data-testid="sms-aliyun-access-key-id-input"]',
+    smsAliyunAccessKeySecretInput: '[data-testid="sms-aliyun-access-key-secret-input"]',
+    smsAliyunSignNameInput: '[data-testid="sms-aliyun-sign-name-input"]',
+    smsAliyunTemplateCodeInput: '[data-testid="sms-aliyun-template-code-input"]',
+    smsSaveButton: '[data-testid="sms-save-button"]',
+    smsStatusBadge: '[data-testid="sms-config-status-badge"]',
+    smsMissingFields: '[data-testid="sms-missing-fields"]',
+    smsTestPhoneInput: '[data-testid="sms-test-phone-input"]',
+    smsTestSendButton: '[data-testid="sms-test-send-button"]',
+    smsTestSuccess: '[data-testid="sms-test-success"]',
+    smsTestError: '[data-testid="sms-test-error"]',
+    // ConfigSwitchField emits `${id}-switch` for id="phone-login-enabled".
+    phoneLoginSwitch: '[data-testid="phone-login-enabled-switch"]',
+    phoneLoginSwitchTooltip: '[data-testid="phone-login-enabled-switch-tooltip"]',
+    phoneLoginSwitchTooltipTrigger: '[data-testid="phone-login-enabled-switch-tooltip-trigger"]',
+    defaultCountryCodeInput: '[data-testid="default-country-code-input"]',
+    phoneLoginSaveButton: '[data-testid="phone-login-save-button"]',
   },
 };
 

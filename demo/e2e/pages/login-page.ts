@@ -77,10 +77,10 @@ export class LoginPage extends BasePage {
     // Check if we've been redirected to a dashboard/profile page (user is already logged in).
     // Support URLs with or without query parameters (e.g., /admin, /admin/, /admin?param=value).
     //
-    // Post route-refactor (commit 03eeb456): the admin console and user account
-    // center moved to TOP-LEVEL paths with NO realm prefix (/manage, /user/profile).
-    // Realm-scoped variants are kept for backward-compat. Authenticated users visiting
-    // an auth page are sent to /manage (admin) or /user/profile (regular user).
+    // The admin console and user account center live at TOP-LEVEL paths with NO
+    // realm prefix (/manage, /user/profile); realm-scoped variants are kept for
+    // backward-compat. Authenticated users visiting an auth page are sent to
+    // /manage (admin) or /user/profile (regular user).
     const BASE_URL_NO_SLASH = BASE_URL.replace(/\/$/, '')
     const isRedirectedToDashboard = currentUrl.includes(`/${realmId}/manage`)
       || currentUrl.startsWith(`${BASE_URL_NO_SLASH}/manage`)
@@ -185,6 +185,18 @@ export class LoginPage extends BasePage {
       await this.page.waitForURL(/\/auth\/login/, { timeout: 10000 }).catch(() => {})
     }
     await expect(this.container).toBeVisible()
+  }
+
+  /**
+   * Wait for the realm-isolated refresh token to be persisted — the proof
+   * that the frontend completed login + the PKCE token exchange. Refresh
+   * tokens are keyed `herald.refreshToken:{realm}`; `auth-storage` only
+   * holds transient PKCE state.
+   */
+  private async waitForRealmSessionPersisted(realmId: string): Promise<void> {
+    await expect.poll(() => this.page.evaluate(
+      realm => Boolean(localStorage.getItem(`herald.refreshToken:${realm}`)), realmId
+    )).toBe(true)
   }
 
   /**
@@ -338,7 +350,7 @@ export class LoginPage extends BasePage {
     }
 
     await this.page.waitForURL(
-      url => url.pathname === '/manage' || url.pathname.startsWith('/manage/'),
+      url => url.pathname === `/${realmId}/manage` || url.pathname.startsWith(`/${realmId}/manage/`),
       { timeout: 15000 },
     )
 
@@ -367,18 +379,7 @@ export class LoginPage extends BasePage {
     this.accessToken = accessToken
     console.log(`[LoginPage] Login successful, userId: ${userId}`)
 
-    // Verify the browser-token session was established. Since commit f3b8d48a
-    // replaced the X-Auth session cookie with the browser Bearer token model,
-    // there is no cookie to check; the rotating refresh token is persisted in
-    // localStorage under `auth-storage` (frontend Zustand `persist` store,
-    // auth-store.ts:203 / auth-constants.ts:130). Its presence is the persistent
-    // proof that the frontend completed login + PKCE token exchange.
-    const authStorage = await this.page.evaluate(() => window.localStorage.getItem('auth-storage'))
-    if (!authStorage) {
-      throw new Error(`[LoginPage] Login failed: auth-storage not found in localStorage after login`)
-    }
-
-    console.log(`[LoginPage] auth-storage persisted (length=${authStorage.length})`)
+    await this.waitForRealmSessionPersisted(realmId)
 
     await expect(this.page).toHaveURL(/\/manage(?:\/|\?|$)/)
 
@@ -516,16 +517,7 @@ export class LoginPage extends BasePage {
 
     this.accessToken = accessToken
 
-    // Browser Bearer token model (commit f3b8d48a): no X-Auth cookie. The
-    // rotating refresh token is persisted in localStorage under `auth-storage`
-    // (frontend Zustand `persist` store). Its presence proves the session was
-    // established. See loginAsAdmin for the full rationale.
-    const authStorage = await this.page.evaluate(() => window.localStorage.getItem('auth-storage'))
-    if (!authStorage) {
-      throw new Error(`[LoginPage] User login failed: auth-storage not found in localStorage after login`)
-    }
-
-    console.log(`[LoginPage] User login successful, auth-storage persisted (length=${authStorage.length})`)
+    await this.waitForRealmSessionPersisted(realmId)
   }
 
   /**
