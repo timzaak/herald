@@ -10,7 +10,7 @@
 |-------|----------|--------------|
 | 租户与运营 | 创建 Realm / 自助开通（含入口指引）→ 首登引导 → 配置 → Dashboard 运营 → 审计 | [Admin Realm](core/admin-realm.md)、[自助开通 Realm](core/realm-create.md)、[自助开通指引与首登引导](core/realm-onboarding-guidance.md)、[Realm Admin](core/realm-admin.md)、[审计](core/audit.md)、[内置保护](core/builtin-protection.md) |
 | 用户生命周期与合规 | 注册/登录 → 资料维护 → 协议确认 → 账户注销 | [普通用户](core/regular-user.md)、[合规适配](core/legal-consent-account-deletion.md) |
-| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OpenID Connect](auth/openid-connect.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
+| 登录体验与品牌 | 第三方登录 → 品牌页面 → 自定义域名 → 多语言 | [OAuth 应用](auth/third-party-app.md)、[OpenID Connect](auth/openid-connect.md)、[OAuth 扩展](auth/oauth-extension.md)、[微信 OAuth](auth/wechat-oauth.md)、[邮箱验证码登录](auth/email-otp-login.md)、[手机号登录](auth/phone-login.md)、[Google One Tap](auth/google-one-tap.md)、[Apple native 登录](auth/support-mobile-apple-login.md)、[Discord 登录](auth/support-discord.md)、[LDAP 企业目录登录](auth/support-ldap.md)、[White-label](core/white-label.md)、[自定义域名](core/realm-custom-domain.md)、[i18n](core/i18n.md) |
 | 强认证 | 管理员配置 → 用户绑定 → 登录/恢复 | [TOTP](auth/totp.md)、[Passkey](auth/passkey.md)、[Device Code](auth/device-code.md) |
 | 授权与应用接入 | RBAC 配置 → Client App/API Key → 组织级成员托管 → SDK 调用 → 自建用户 UI | [Realm Admin](core/realm-admin.md)、[Client App 设置](auth/client-app-settings.md)、[组织授权](auth/org-authorization.md)、[SDK](integration/sdk.md)、[JS 浏览器 SDK](integration/js-sdk.md)、[自建用户 UI](integration/custom-user-ui.md)、[MCP Server](integration/mcp-server.md) |
 | 商品、支付与权益履约 | Provider 配置/同步 → 下单 → 支付 → 订阅或权益生效 → 补偿 | [支付平台](billing/payment-provider.md)、[Entitlement Mapping](billing/entitlement-mapping.md)、[支付尝试](billing/payment-attempt.md)、[订阅](billing/subscription.md)、[履约模型扩展（买断/非续期订阅）](billing/pay_model.md)、[Paywall](billing/support-paywall.md)、[Webhook 补偿](billing/webhook-compensation.md)、[IAP](billing/support-iap.md)、[WeChat Pay](billing/wechat-support.md)、[多货币](billing/multiple-currency.md)、[计费统计](billing/billing-statistics.md) |
@@ -123,6 +123,11 @@
 | US-EO-001 | 用户用邮箱验证码登录已有账号 | Regular User | P0 | [auth/email-otp-login](auth/email-otp-login.md#故事-1用户用邮箱验证码登录已有账号-us-eo-001) |
 | US-EO-002 | 未注册邮箱验证成功后自动注册（受 Realm 注册政策门控） | Regular User | P0 | [auth/email-otp-login](auth/email-otp-login.md#故事-2未注册邮箱验证成功后自动注册-us-eo-002) |
 | US-EO-003 | Realm 管理员配置邮箱验证码登录与自动注册 | Realm Admin | P1 | [auth/email-otp-login](auth/email-otp-login.md#故事-3realm-管理员配置邮箱验证码登录与自动注册-us-eo-003) |
+| US-PL-001 | 用户自助绑定手机号（绑定/换绑/解绑） | Regular User | P0 | [auth/phone-login](auth/phone-login.md#故事-1用户自助绑定手机号-us-pl-001) |
+| US-PL-002 | 用户用短信验证码登录已有账号 | Regular User | P0 | [auth/phone-login](auth/phone-login.md#故事-2用户用短信验证码登录已有账号-us-pl-002) |
+| US-PL-003 | 用户在密码登录中使用手机号作为登录标识 | Regular User | P1 | [auth/phone-login](auth/phone-login.md#故事-3用户在密码登录中使用手机号作为登录标识-us-pl-003) |
+| US-PL-004 | Realm 管理员配置短信通道与手机号登录开关 | Realm Admin | P0 | [auth/phone-login](auth/phone-login.md#故事-4realm-管理员配置短信通道与手机号登录开关-us-pl-004) |
+| US-PL-005 | Realm 管理员处置用户手机号 | Realm Admin | P1 | [auth/phone-login](auth/phone-login.md#故事-5realm-管理员处置用户手机号-us-pl-005) |
 | US-OT-001 | 通过 One Tap 在第三方应用一键登录 | Regular User | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-1通过-one-tap-在第三方应用一键登录-us-ot-001) |
 | US-OT-002 | 第三方应用集成 One Tap | 第三方应用开发者 | P0 | [auth/google-one-tap](auth/google-one-tap.md#故事-2第三方应用集成-one-tap-us-ot-002) |
 | US-OT-003 | One Tap 用户与已有账号关联 | Regular User | P1 | [auth/google-one-tap](auth/google-one-tap.md#故事-3one-tap-用户与已有账号关联-us-ot-003) |

@@ -30,7 +30,7 @@ If all you need is login plus card payments, a hosted service is less work. Hera
 
 | Area | Included capabilities |
 |------|-----------------------|
-| **Multi-tenant identity** | Isolated realms, email/password and one-time-code login, Google, GitHub, Apple, Facebook, WeChat, Discord, and LDAP login, passkeys, TOTP 2FA, an OpenID Connect layer, Cloudflare Turnstile bot protection |
+| **Multi-tenant identity** | Isolated realms, email/password and one-time-code login, phone-number login with SMS codes, Google, GitHub, Apple, Facebook, WeChat, Discord, and LDAP login, passkeys, TOTP 2FA, an OpenID Connect layer, Cloudflare Turnstile bot protection |
 | **Authorization and apps** | Realm-level RBAC, organizations with their own roles and membership, Client Apps, API keys, OAuth 2.0, device authorization, cross-app SSO |
 | **Billing and payments** | Stripe, Creem, and WeChat Pay, App Store / Google Play in-app purchases, subscriptions, one-time purchases, multi-currency pricing, invoices, payment-to-entitlement mapping, payment and credit-consumption statistics |
 | **Credits and usage** | Prepaid balances, top-ups, refunds, expiry, per-user ledgers, grants, rolling quota windows |
