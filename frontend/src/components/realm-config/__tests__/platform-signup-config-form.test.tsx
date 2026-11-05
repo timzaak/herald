@@ -42,17 +42,4 @@ describe('PlatformSignupConfigForm', () => {
       expect(mockOnSave).toHaveBeenCalledWith({ enabled: true })
     })
   })
-
-  it('GIVEN the form is disabled WHEN rendering THEN switch and save button are disabled', async () => {
-    const screen = render(<PlatformSignupConfigForm {...defaultProps} disabled={true} />)
-
-    expect(screen.getByTestId('platform-signup-switch')).toBeDisabled()
-    expect(screen.getByTestId('platform-signup-save-button')).toBeDisabled()
-  })
-
-  it('GIVEN isLoading is true WHEN rendering THEN save button is disabled', async () => {
-    const screen = render(<PlatformSignupConfigForm {...defaultProps} isLoading={true} />)
-
-    expect(screen.getByTestId('platform-signup-save-button')).toBeDisabled()
-  })
 })

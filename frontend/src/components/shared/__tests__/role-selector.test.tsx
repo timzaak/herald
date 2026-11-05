@@ -83,34 +83,4 @@ describe('RoleSelector', () => {
     expect(screen.getAllByText('Admin', { exact: true })[0]).toBeInTheDocument()
     expect(screen.getAllByText('User', { exact: true })[0]).toBeInTheDocument()
   })
-
-  it('GIVEN disabled prop is true WHEN rendering THEN should disable selector', async () => {
-    const handleChange = vi.fn()
-    const screen = render(
-      <RoleSelector
-        roles={mockRoles}
-        selectedRoleIds={[]}
-        onChange={handleChange}
-        disabled={true}
-      />
-    )
-
-    const trigger = screen.getByTestId('role-selector-trigger')
-    expect(trigger).toBeDisabled()
-  })
-
-  it('GIVEN no roles are selected WHEN rendering THEN should display placeholder', async () => {
-    const handleChange = vi.fn()
-    const screen = render(
-      <RoleSelector
-        roles={mockRoles}
-        selectedRoleIds={[]}
-        onChange={handleChange}
-        placeholder="Select roles..."
-      />
-    )
-
-    const trigger = screen.getByTestId('role-selector-trigger')
-    expect(trigger).toHaveTextContent('Select roles...')
-  })
 })

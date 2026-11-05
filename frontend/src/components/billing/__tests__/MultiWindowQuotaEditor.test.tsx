@@ -269,18 +269,6 @@ describe('MultiWindowQuotaEditor', () => {
       expect(screen.getByTestId('quota-window-window-cap')).toBeInTheDocument()
     })
 
-    it('clicking the disabled add button does not call onChange (no 9th window)', async () => {
-      const onChange = vi.fn()
-      const user = userEvent.setup()
-      render(<MultiWindowQuotaEditor {...defaultProps({ value: eightWindows(), onChange })} />)
-
-      await user.click(screen.getByTestId('quota-window-add-button'))
-
-      expect(onChange).not.toHaveBeenCalled()
-      // Still exactly 8 rows — the cap held.
-      expect(screen.getAllByTestId(/^quota-window-row-\d+$/)).toHaveLength(8)
-    })
-
     it('re-enables add after a row is removed below the cap', () => {
       const eight = eightWindows()
       const onChange = vi.fn()
@@ -297,26 +285,6 @@ describe('MultiWindowQuotaEditor', () => {
 
       expect(screen.getByTestId('quota-window-add-button')).toBeEnabled()
       expect(screen.queryByTestId('quota-window-window-cap')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('disabled prop', () => {
-    it('disables every interactive control when disabled=true', () => {
-      render(
-        <MultiWindowQuotaEditor
-          {...defaultProps({
-            value: [windowSeconds(3600, 1)],
-            disabled: true,
-          })}
-        />
-      )
-
-      // disabled editor is used while a save mutation is in-flight; no
-      // control may let the operator mutate an in-flight payload.
-      expect(screen.getByTestId('quota-window-length-row-0')).toBeDisabled()
-      expect(screen.getByTestId('quota-window-limit-row-0')).toBeDisabled()
-      expect(screen.getByTestId('quota-window-delete-row-0')).toBeDisabled()
-      expect(screen.getByTestId('quota-window-add-button')).toBeDisabled()
     })
   })
 

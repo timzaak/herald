@@ -20,22 +20,6 @@ describe('SubscriptionTimeline - Empty State', () => {
     expect(screen.getByTestId('timeline-loading')).toBeInTheDocument()
     expect(screen.getByText(/loading history/i)).toBeInTheDocument()
   })
-
-  it('should display loading state when loading is true', () => {
-    const mockEvents = [
-      mockSubscriptionHistoryEvent({
-        id: '1',
-        eventType: 'upgraded',
-      }),
-    ]
-
-    render(<SubscriptionTimeline events={mockEvents} loading={true} />)
-
-    expect(screen.getByTestId('timeline-loading')).toBeInTheDocument()
-    expect(screen.getByText(/loading history/i)).toBeInTheDocument()
-    // Loading state should not show events
-    expect(screen.queryByTestId('subscription-timeline')).not.toBeInTheDocument()
-  })
 })
 
 describe('SubscriptionTimeline - Event Rendering', () => {

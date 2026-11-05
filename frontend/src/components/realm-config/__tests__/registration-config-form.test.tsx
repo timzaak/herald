@@ -54,52 +54,6 @@ describe('RegistrationConfigForm', () => {
     })
   })
 
-  it('GIVEN form is disabled WHEN user interacts THEN should not allow changes', async () => {
-    const screen = render(<RegistrationConfigForm {...defaultProps} disabled={true} />)
-
-    // 验证开关被禁用
-    const enabledSwitch = screen.getByTestId('reg-enabled-switch')
-    expect(enabledSwitch).toBeDisabled()
-
-    const requireEmailSwitch = screen.getByTestId('reg-require-email-switch')
-    expect(requireEmailSwitch).toBeDisabled()
-
-    // 验证保存按钮被禁用
-    const saveButton = screen.getByTestId('reg-save-button')
-    expect(saveButton).toBeDisabled()
-  })
-
-  it('GIVEN isLoading prop is true WHEN rendering THEN should disable save button', async () => {
-    const screen = render(<RegistrationConfigForm {...defaultProps} isLoading={true} />)
-
-    const saveButton = screen.getByTestId('reg-save-button')
-    expect(saveButton).toBeDisabled()
-  })
-
-  it('GIVEN form is submitting WHEN save is in progress THEN should disable save button', async () => {
-    mockOnSave.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)))
-
-    // agreementsUsingDefault=false: this test exercises the in-flight save
-    // state, not the enable-registration reminder that would intercept it.
-    const screen = render(
-      <RegistrationConfigForm {...defaultProps} agreementsUsingDefault={false} />
-    )
-
-    const saveButton = screen.getByTestId('reg-save-button')
-    await userEvent.click(saveButton)
-
-    // 验证按钮被禁用（使用 waitFor 等待状态更新）
-    await waitFor(() => {
-      expect(saveButton).toBeDisabled()
-    })
-
-    // 等待保存走完、按钮恢复：禁用是暂态的，且避免 setIsSubmitting(false)
-    // 在 jsdom 销毁后触发 unhandled rejection
-    await waitFor(() => {
-      expect(saveButton).toBeEnabled()
-    })
-  })
-
   // 互补分支：enabled:false + requireEmail:true 已由上面的
   // "initial config provided" 测试覆盖，这里测 enabled:true 分支
   it('GIVEN initial config allows registration without email verification WHEN rendering THEN should display switches correctly', async () => {

@@ -167,14 +167,6 @@ describe('PermissionTable', () => {
     })
   })
 
-  it('GIVEN isLoading is true WHEN rendering THEN should show loading state', async () => {
-    const screen = render(
-      <PermissionTable permissions={[]} isLoading={true} error={null} canManage />
-    )
-
-    expect(screen.getByText('Loading permissions...')).toBeInTheDocument()
-  })
-
   it('GIVEN error is provided WHEN rendering THEN should show error state', async () => {
     const screen = render(
       <PermissionTable

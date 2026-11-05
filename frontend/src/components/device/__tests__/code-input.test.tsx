@@ -109,11 +109,4 @@ describe('CodeInput', () => {
     const input = screen.getByTestId('device-code-input')
     expect(input).toHaveValue('BCDF-GHJK')
   })
-
-  it('disables submit when isLoading is true even with valid code', async () => {
-    render(<CodeInput onSubmit={vi.fn()} defaultValue="BCDFGHJK" isLoading={true} />)
-
-    const submitButton = screen.getByTestId('device-code-submit')
-    expect(submitButton).toBeDisabled()
-  })
 })

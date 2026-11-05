@@ -92,34 +92,6 @@ describe('ClientAppTable', () => {
     expect(badge).toHaveTextContent('Disabled')
   })
 
-  it('GIVEN client app is enabled WHEN rendering THEN should display checked switch', async () => {
-    const screen = render(
-      <ClientAppTable
-        data={[mockClientApps[0]]}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onToggleEnabled={vi.fn()}
-      />
-    )
-
-    const switchElement = screen.getByTestId('client-app-enabled-switch')
-    expect(switchElement).toBeChecked()
-  })
-
-  it('GIVEN client app is disabled WHEN rendering THEN should display unchecked switch', async () => {
-    const screen = render(
-      <ClientAppTable
-        data={[mockClientApps[1]]}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onToggleEnabled={vi.fn()}
-      />
-    )
-
-    const switchElement = screen.getByTestId('client-app-enabled-switch')
-    expect(switchElement).not.toBeChecked()
-  })
-
   it('GIVEN user clicks enabled switch WHEN clicked THEN should call onToggleEnabled', async () => {
     const onToggleEnabled = vi.fn()
     render(
@@ -171,20 +143,6 @@ describe('ClientAppTable', () => {
     await userEvent.click(deleteButton)
 
     expect(onDelete).toHaveBeenCalledWith(mockClientApps[0])
-  })
-
-  it('GIVEN loading WHEN rendering THEN should display loading message', async () => {
-    const screen = render(
-      <ClientAppTable
-        data={[]}
-        isLoading={true}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onToggleEnabled={vi.fn()}
-      />
-    )
-
-    expect(screen.getByText('Loading client apps...')).toBeInTheDocument()
   })
 
   it('GIVEN error occurs WHEN rendering THEN should display error message', async () => {

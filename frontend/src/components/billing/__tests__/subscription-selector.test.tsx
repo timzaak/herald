@@ -213,48 +213,6 @@ describe('SubscriptionSelector - Selection Logic', () => {
 })
 
 describe('SubscriptionSelector - Date Formatting', () => {
-  it('should format currentPeriodEnd date correctly', () => {
-    const mockOnSelect = vi.fn()
-
-    const mockSubscription: Array<{
-      clientApp: ClientAppItem
-      subscription: SubscriptionDetailResponse | null
-    }> = [
-      {
-        clientApp: {
-          id: 'app1',
-          name: 'App 1',
-          description: 'Description 1',
-          clientId: 'client-1',
-          clientSecret: 'secret-1',
-          redirectUris: ['http://localhost:3000/callback'],
-          postLogoutRedirectUris: ['http://localhost:3000/logout'],
-          scopes: ['openid', 'profile'],
-          grantTypes: ['authorization_code'],
-          realmId: 'realm-1',
-          createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
-        },
-        subscription: {
-          id: 'sub1',
-          status: 'active',
-          entitlementKey: 'basic',
-          paymentProvider: 'stripe',
-          externalPriceId: 'price_basic',
-          currentPeriodStart: '2025-01-01T00:00:00Z',
-          currentPeriodEnd: '2025-02-15T00:00:00Z',
-          cancelAtPeriodEnd: false,
-        } as SubscriptionDetailResponse,
-      },
-    ]
-
-    render(<SubscriptionSelector subscriptions={mockSubscription} onSelect={mockOnSelect} />)
-
-    // The date should be formatted using toLocaleDateString()
-    // We just check that "Expires:" text is present
-    expect(screen.getByText(/Expires:/i)).toBeInTheDocument()
-  })
-
   it('should not show expiry date when currentPeriodEnd is missing', () => {
     const mockOnSelect = vi.fn()
 

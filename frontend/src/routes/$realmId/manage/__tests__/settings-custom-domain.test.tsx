@@ -128,6 +128,12 @@ function installCustomDomainHandlers(initialState: ReturnType<typeof publishedSt
 /**
  * Minimal handlers for the *other* Settings-page queries so mounting every tab
  * does not fire unhandled requests. Not under test.
+ *
+ * Radix keeps inactive TabsContent mounted (hidden), so EVERY tab's parse
+ * helpers run on each render — an unmocked endpoint is passed through by MSW
+ * (`onUnhandledRequest: 'warn'`), so anything listening on the local port 3000
+ * (e.g. an unrelated dev server) leaks real responses into the page and can
+ * crash it (e.g. a HTML body reaching `parseLdapConfig`).
  */
 function installSiblingTabHandlers() {
   server.use(
@@ -135,8 +141,12 @@ function installSiblingTabHandlers() {
       HttpResponse.json({ id: 'test-realm', name: 'Test Realm', description: '' })
     ),
     http.get(`${API_BASE_URL}/api/configs`, () => HttpResponse.json([])),
+    http.get(`${API_BASE_URL}/api/configs/ldap`, () => HttpResponse.json([])),
     http.get(`${API_BASE_URL}/api/configs/email/status`, () =>
       HttpResponse.json({ configured: false })
+    ),
+    http.get(`${API_BASE_URL}/api/configs/sms/status`, () =>
+      HttpResponse.json({ configured: false, missingFields: [] })
     ),
     http.get(`${API_BASE_URL}/api/realms/test-realm/config/passkey`, () =>
       HttpResponse.json({
@@ -144,6 +154,12 @@ function installSiblingTabHandlers() {
         userVerification: 'preferred',
         crossPlatformAuthenticator: true,
       })
+    ),
+    http.get(`${API_BASE_URL}/api/realms/test-realm/config/email-otp`, () =>
+      HttpResponse.json({ enabled: false, autoRegister: false })
+    ),
+    http.get(`${API_BASE_URL}/api/realms/test-realm/config/phone-login`, () =>
+      HttpResponse.json({ enabled: false, defaultCountryCode: '+86', smsConfigured: false })
     ),
     http.get(`${API_BASE_URL}/api/realms/test-realm/config/white-label`, () =>
       HttpResponse.json({
@@ -153,6 +169,9 @@ function installSiblingTabHandlers() {
         publishedUpdatedAt: null,
         draftUpdatedAt: null,
       })
+    ),
+    http.get(`${API_BASE_URL}/api/legal/admin/agreements`, () =>
+      HttpResponse.json({ agreements: [] })
     )
   )
 }

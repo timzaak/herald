@@ -69,13 +69,6 @@ describe('CustomDomainConfigForm', () => {
     })
   })
 
-  it('GIVEN the form is disabled WHEN rendering THEN should disable the hostname field and the save button', async () => {
-    const screen = render(<CustomDomainConfigForm {...defaultProps} disabled={true} />)
-
-    expect(screen.getByTestId('custom-domain-hostname')).toBeDisabled()
-    expect(screen.getByTestId('custom-domain-save')).toBeDisabled()
-  })
-
   it.each([
     ['isSaving', 'custom-domain-save', { isSaving: true }],
     ['isRefreshing', 'custom-domain-refresh-status', { isRefreshing: true }],

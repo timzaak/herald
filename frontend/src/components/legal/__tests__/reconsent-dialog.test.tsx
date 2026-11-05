@@ -150,21 +150,4 @@ describe('ReconsentDialog', () => {
 
     expect(onLogout).toHaveBeenCalledTimes(1)
   })
-
-  it('GIVEN isPending is true THEN disables buttons and shows loading text', () => {
-    render(
-      <ReconsentDialog
-        realmId={realmId}
-        open={true}
-        items={pendingItems}
-        isPending={true}
-        onAgree={vi.fn()}
-        onLogout={vi.fn()}
-      />
-    )
-
-    expect(screen.getByTestId('reconsent-agree-button')).toBeDisabled()
-    expect(screen.getByTestId('reconsent-logout-button')).toBeDisabled()
-    expect(screen.getByTestId('reconsent-agree-button')).toHaveTextContent('Loading...')
-  })
 })

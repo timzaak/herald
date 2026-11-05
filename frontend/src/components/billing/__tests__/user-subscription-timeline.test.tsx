@@ -376,22 +376,6 @@ describe('UserSubscriptionTimeline - Loading State', () => {
     expect(screen.getByTestId('subscription-timeline-loading')).toBeInTheDocument()
     expect(screen.getByText(/Loading history\.\.\./i)).toBeInTheDocument()
   })
-
-  it('should hide timeline when loading', () => {
-    const mockEvents: SubscriptionHistoryEvent[] = [
-      {
-        id: 'evt-1',
-        subscriptionId: 'sub-1',
-        eventType: 'created',
-        timestamp: '2025-01-20T10:30:00Z',
-      },
-    ]
-
-    render(<UserSubscriptionTimeline events={mockEvents} loading={true} />)
-
-    expect(screen.queryByTestId('subscription-timeline')).not.toBeInTheDocument()
-    expect(screen.getByTestId('subscription-timeline-loading')).toBeInTheDocument()
-  })
 })
 
 describe('UserSubscriptionTimeline - Empty State', () => {

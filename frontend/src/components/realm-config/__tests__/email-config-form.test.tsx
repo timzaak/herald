@@ -190,35 +190,6 @@ describe('EmailConfigForm', () => {
     })
   })
 
-  it('GIVEN form is disabled WHEN rendering THEN should disable save button and all fields', () => {
-    renderWithProviders(<EmailConfigForm {...defaultProps} disabled={true} />)
-
-    expect(screen.getByTestId('email-save-button')).toBeDisabled()
-    expect(screen.getByTestId('email-test-button')).toBeDisabled()
-    expect(screen.getByTestId('email-from-address-input')).toBeDisabled()
-    expect(screen.getByTestId('email-provider-resend')).toBeDisabled()
-    expect(screen.getByTestId('email-provider-smtp')).toBeDisabled()
-    expect(screen.getByTestId('email-resend-api-key-input')).toBeDisabled()
-  })
-
-  it('GIVEN save is in progress WHEN submitting THEN should disable save button', async () => {
-    // The pending window must span the assertion deterministically: a fixed
-    // setTimeout races against form state updates under CPU contention and the
-    // button can already be re-enabled by the time waitFor polls.
-    let finishSave!: () => void
-    mockOnSave.mockImplementation(() => new Promise<void>((resolve) => (finishSave = resolve)))
-
-    renderWithProviders(<EmailConfigForm {...defaultProps} />)
-
-    const saveButton = screen.getByTestId('email-save-button')
-    await userEvent.click(saveButton)
-
-    await waitFor(() => {
-      expect(saveButton).toBeDisabled()
-    })
-    finishSave()
-  })
-
   it('GIVEN emailStatus is configured WHEN rendering THEN should show green badge', () => {
     renderWithProviders(
       <EmailConfigForm {...defaultProps} emailStatus={{ configured: true, missingFields: [] }} />

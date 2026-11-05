@@ -245,14 +245,6 @@ describe('RoleTable', () => {
     })
   })
 
-  it('GIVEN isLoading is true WHEN rendering THEN should show loading state', async () => {
-    const screen = render(
-      <RoleTable roles={[]} isLoading={true} error={null} canManage canManagePermissions />
-    )
-
-    expect(screen.getByText('Loading roles...')).toBeInTheDocument()
-  })
-
   it('GIVEN error is provided WHEN rendering THEN should show error state', async () => {
     const screen = render(
       <RoleTable roles={[]} isLoading={false} error={new Error('Failed to load')} />

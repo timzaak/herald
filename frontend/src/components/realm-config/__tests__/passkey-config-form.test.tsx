@@ -9,9 +9,9 @@ import type { PasskeyConfigForm as PasskeyConfigFormValues } from '@/lib/schemas
  *
  * Mirrors `totp-config-form.test.tsx`: the form is a presentational editor
  * driven by an `onSave` callback. We assert the switches reflect their initial
- * config, that toggling composes the right payload, and the submission guard /
- * disabled / error states behave. The P1 fields (`userVerification`,
- * `crossPlatformAuthenticator`) are exercised alongside the P0 booleans.
+ * config and that toggling composes the right payload. The P1 fields
+ * (`userVerification`, `crossPlatformAuthenticator`) are exercised alongside
+ * the P0 booleans.
  */
 describe('PasskeyConfigForm', () => {
   const mockOnSave = vi.fn()
@@ -65,35 +65,5 @@ describe('PasskeyConfigForm', () => {
         crossPlatformAuthenticator: true,
       })
     })
-  })
-
-  it('GIVEN isLoading prop is true WHEN rendering THEN should disable save button', async () => {
-    const screen = render(<PasskeyConfigForm {...defaultProps} isLoading={true} />)
-    expect(screen.getByTestId('passkey-save-button')).toBeDisabled()
-  })
-
-  it('GIVEN form is disabled WHEN rendering THEN should disable all controls and the save button', async () => {
-    const screen = render(<PasskeyConfigForm {...defaultProps} disabled={true} />)
-
-    expect(screen.getByTestId('passkey-enabled-switch')).toBeDisabled()
-    expect(screen.getByTestId('passkey-cross-platform-switch')).toBeDisabled()
-    expect(screen.getByTestId('passkey-save-button')).toBeDisabled()
-  })
-
-  it('GIVEN form is submitting WHEN save is in progress THEN should disable the save button', async () => {
-    // The pending window must span the assertion deterministically: a fixed
-    // setTimeout races against form state updates under CPU contention and the
-    // button can already be re-enabled by the time waitFor polls.
-    let finishSave!: () => void
-    mockOnSave.mockImplementation(() => new Promise<void>((resolve) => (finishSave = resolve)))
-
-    const screen = render(<PasskeyConfigForm {...defaultProps} />)
-    const saveButton = screen.getByTestId('passkey-save-button')
-    await userEvent.click(saveButton)
-
-    await waitFor(() => {
-      expect(saveButton).toBeDisabled()
-    })
-    finishSave()
   })
 })

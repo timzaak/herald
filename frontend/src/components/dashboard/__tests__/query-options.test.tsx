@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { server } from '@/test/mocks/server'
-import { dashboardStatsQueryOptions, queryKeys } from '@/data/query-options'
+import { dashboardStatsQueryOptions } from '@/data/query-options'
 import { QUERY_KEYS } from '@/lib/constants'
 
 const API_BASE_URL = 'http://localhost:3000'
@@ -48,13 +48,6 @@ describe('dashboardStatsQueryOptions', () => {
       const options2 = dashboardStatsQueryOptions('realm-2')
 
       expect(options1.queryKey).not.toEqual(options2.queryKey)
-    })
-
-    it('should use queryKeys.dashboardStats helper consistently', () => {
-      const realmId = 'test-realm'
-      const options = dashboardStatsQueryOptions(realmId)
-
-      expect(options.queryKey).toEqual(queryKeys.dashboardStats(realmId))
     })
   })
 

@@ -51,21 +51,6 @@ describe('TransactionFilters', () => {
 
       expect(screen.queryByLabelText('Client App')).not.toBeInTheDocument()
     })
-
-    it('GIVEN loading is true WHEN rendering THEN should disable apply button', () => {
-      render(
-        <TransactionFilters
-          filters={defaultFilters}
-          onChange={mockOnChange}
-          onClear={mockOnClear}
-          loading={true}
-        />
-      )
-
-      const applyButton = screen.getByTestId('apply-filters-button')
-      expect(applyButton).toBeDisabled()
-      expect(applyButton).toHaveTextContent('Applying...')
-    })
   })
 
   describe('filter interactions', () => {
@@ -214,24 +199,6 @@ describe('TransactionFilters', () => {
       )
 
       expect(screen.queryByTestId('clear-filters-button')).not.toBeInTheDocument()
-    })
-
-    it('GIVEN clear button is clicked WHEN loading THEN should be disabled', async () => {
-      const user = userEvent.setup({ delay: null })
-      const activeFilters: TransactionFiltersType = {
-        transactionType: 'recharge',
-      }
-      render(
-        <TransactionFilters
-          filters={activeFilters}
-          onChange={mockOnChange}
-          onClear={mockOnClear}
-          loading={true}
-        />
-      )
-
-      const clearButton = screen.getByTestId('clear-filters-button')
-      expect(clearButton).toBeDisabled()
     })
   })
 

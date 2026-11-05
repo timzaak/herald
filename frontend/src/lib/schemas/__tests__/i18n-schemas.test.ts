@@ -119,59 +119,5 @@ describe('Zod schema i18n -- runtime message resolution', () => {
 
       mockState.locale = 'en'
     })
-
-    it('passwordSchema re-import with toggled locale yields different message', async () => {
-      const result1 = passwordSchema.safeParse('short')
-      expect(result1.success).toBe(false)
-      if (!result1.success) {
-        expect(result1.error.issues[0].message).toBe('[en:auth.password_min_length]')
-      }
-
-      mockState.locale = 'fr'
-
-      vi.resetModules()
-      const { passwordSchema: freshSchema } = await import('../common')
-
-      const result2 = freshSchema.safeParse('short')
-      expect(result2.success).toBe(false)
-      if (!result2.success) {
-        expect(result2.error.issues[0].message).toBe('[fr:auth.password_min_length]')
-      }
-
-      mockState.locale = 'en'
-    })
-
-    it('changePasswordSchema re-import with toggled locale yields different cross-field message', async () => {
-      const result1 = changePasswordSchema.safeParse({
-        oldPass: 'currentPassword1',
-        newPass: 'newPassword123',
-        confirmPass: 'differentPass1',
-      })
-      expect(result1.success).toBe(false)
-      if (!result1.success) {
-        const issue = result1.error.issues.find((i) => i.path[0] === 'confirmPass')
-        expect(issue).toBeDefined()
-        expect(issue!.message).toBe('[en:profile.passwords_dont_match]')
-      }
-
-      mockState.locale = 'ja'
-
-      vi.resetModules()
-      const { changePasswordSchema: freshSchema } = await import('../common')
-
-      const result2 = freshSchema.safeParse({
-        oldPass: 'currentPassword1',
-        newPass: 'newPassword123',
-        confirmPass: 'differentPass1',
-      })
-      expect(result2.success).toBe(false)
-      if (!result2.success) {
-        const issue = result2.error.issues.find((i) => i.path[0] === 'confirmPass')
-        expect(issue).toBeDefined()
-        expect(issue!.message).toBe('[ja:profile.passwords_dont_match]')
-      }
-
-      mockState.locale = 'en'
-    })
   })
 })

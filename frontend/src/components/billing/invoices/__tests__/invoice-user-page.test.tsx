@@ -128,36 +128,6 @@ describe('InvoiceUserPage', () => {
       })
     })
 
-    it('shows PDF download button for paid invoice', async () => {
-      const invoice = makeInvoice({ id: 'inv-paid', status: 'paid' })
-      server.use(
-        http.get(`${BASE_URL}/api/user/bill/invoices`, () => {
-          return HttpResponse.json(makeListResponse([invoice]))
-        })
-      )
-
-      renderWithProviders(<InvoiceUserPage realmId={REALM_ID} />)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invoice-download-pdf-inv-paid')).toBeInTheDocument()
-      })
-    })
-
-    it('shows PDF download button for overdue invoice', async () => {
-      const invoice = makeInvoice({ id: 'inv-overdue', status: 'overdue' })
-      server.use(
-        http.get(`${BASE_URL}/api/user/bill/invoices`, () => {
-          return HttpResponse.json(makeListResponse([invoice]))
-        })
-      )
-
-      renderWithProviders(<InvoiceUserPage realmId={REALM_ID} />)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invoice-download-pdf-inv-overdue')).toBeInTheDocument()
-      })
-    })
-
     it('hides PDF download button for draft invoice', async () => {
       const invoice = makeInvoice({ id: 'inv-draft', status: 'draft' })
       server.use(

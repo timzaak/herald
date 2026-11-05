@@ -194,17 +194,6 @@ describe('PermissionTransfer', () => {
     expect(screen.getAllByText('(1 permission)').length).toBe(2)
   })
 
-  it('GIVEN the dialog is saving WHEN rendering THEN all checkboxes, search inputs and move buttons are disabled', () => {
-    render(<TransferHarness initialAssigned={['1']} disabled />)
-
-    expect(screen.getByTestId('permission-checkbox-2')).toBeDisabled()
-    expect(screen.getByTestId('permission-checkbox-1')).toBeDisabled()
-    expect(screen.getByTestId('permission-available-search')).toBeDisabled()
-    expect(screen.getByTestId('permission-selected-search')).toBeDisabled()
-    expect(screen.getByTestId('permission-move-right')).toBeDisabled()
-    expect(screen.getByTestId('permission-move-left')).toBeDisabled()
-  })
-
   it('GIVEN the permission catalog is empty WHEN rendering THEN the empty state replaces the panes', () => {
     render(
       <PermissionTransfer

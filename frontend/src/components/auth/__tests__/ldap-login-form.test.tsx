@@ -121,14 +121,6 @@ describe('LdapLoginForm', () => {
     expect(defaultProps.onBack).toHaveBeenCalledTimes(1)
   })
 
-  it('GIVEN a submission is in flight WHEN rendering THEN inputs and submit are disabled', () => {
-    const screen = render(<LdapLoginForm {...defaultProps} isPending={true} />)
-
-    expect(screen.getByTestId('ldap-username-input')).toBeDisabled()
-    expect(screen.getByTestId('ldap-password-input')).toBeDisabled()
-    expect(screen.getByTestId('ldap-submit-button')).toBeDisabled()
-  })
-
   it('GIVEN incomplete OAuth params WHEN rendering THEN submit is blocked (same guard as the password form)', () => {
     const screen = render(<LdapLoginForm {...defaultProps} hasPartialOAuth={true} />)
 

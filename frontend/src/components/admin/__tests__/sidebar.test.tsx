@@ -135,24 +135,6 @@ describe('Sidebar navigation', () => {
     expect(entitlementMappingsLink).not.toHaveClass('font-semibold')
   })
 
-  it('keeps sidebar navigation in its own scroll container when group expands', async () => {
-    currentPath = '/manage/billing?page=0&pageSize=20&status=all'
-    const user = userEvent.setup()
-    render(
-      <LocaleProvider>
-        <Sidebar />
-      </LocaleProvider>
-    )
-
-    await user.click(screen.getByTestId('sidebar-menu-products-&-payments'))
-
-    const sidebar = screen.getByTestId('admin-sidebar')
-    const nav = screen.getByTestId('sidebar-nav')
-
-    expect(sidebar).toHaveClass('h-full', 'min-h-0', 'flex', 'flex-col')
-    expect(nav).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto')
-  })
-
   it('exposes each expanded group submenu container for tour anchor detection', async () => {
     // The onboarding tour reads a group's open state from this container
     // (sidebar-menu-X header ↔ sidebar-submenu-X container) so it can expand

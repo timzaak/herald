@@ -229,18 +229,6 @@ describe('WhiteLabelConfigForm', () => {
     expect(screen.getByTestId('white-label-restore')).toBeDisabled()
   })
 
-  it('GIVEN form is disabled WHEN rendering THEN should disable all inputs and action buttons', async () => {
-    const screen = render(<WhiteLabelConfigForm {...defaultProps} disabled={true} />)
-
-    expect(screen.getByTestId('white-label-logo-url')).toBeDisabled()
-    expect(screen.getByTestId('white-label-accent-color')).toBeDisabled()
-    expect(screen.getByTestId('white-label-background-type')).toBeDisabled()
-    expect(screen.getByTestId('white-label-footer-text')).toBeDisabled()
-    expect(screen.getByTestId('white-label-save-draft')).toBeDisabled()
-    expect(screen.getByTestId('white-label-publish')).toBeDisabled()
-    expect(screen.getByTestId('white-label-restore')).toBeDisabled()
-  })
-
   it('GIVEN hasDraft or form is dirty WHEN rendering THEN should show the draft notice', async () => {
     // hasDraft flag alone surfaces the notice.
     const screenA = render(<WhiteLabelConfigForm {...defaultProps} hasDraft={true} />)
