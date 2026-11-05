@@ -30,6 +30,7 @@ use sqlx::Row;
         ("page" = Option<i32>, Query, description = "Page number (0-based)"),
         ("pageSize" = Option<i32>, Query, description = "Page size"),
         ("email" = Option<String>, Query, description = "Filter users by email (partial match)"),
+        ("phone" = Option<String>, Query, description = "Filter by bound phone (exact match on the normalized E.164 form)"),
         ("status" = Option<UserStatus>, Query, description = "Filter by user status"),
     ),
     responses(

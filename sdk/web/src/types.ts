@@ -105,6 +105,29 @@ export interface EmailOtpConflict {
 
 export type EmailOtpSendResult = EmailOtpSent | EmailOtpConflict
 
+/** A real send: the code was issued and is valid for `expiresInSeconds`. */
+export interface SmsOtpSent {
+  kind: 'sent'
+  message: string
+  expiresInSeconds: number
+  /** Backend-derived masked form (`138****8000`); the raw number never crosses the API. */
+  maskedPhone: string
+}
+
+/**
+ * A 409 control-flow outcome — NOT an error. `phone_not_registered` means no
+ * account in the realm matches the number: no code is sent and none is created
+ * (DEC-phone-login-001). SMS OTP has no auto-register consent branch.
+ */
+export interface SmsOtpConflict {
+  kind: 'conflict'
+  /** `phone_not_registered` (backend `sms_otp.rs`). */
+  code: string
+  message: string
+}
+
+export type SmsOtpSendResult = SmsOtpSent | SmsOtpConflict
+
 export type LoginResult =
   | LoginSuccess
   | LoginRequiresSecondFactor

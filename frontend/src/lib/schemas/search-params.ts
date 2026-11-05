@@ -27,6 +27,10 @@ export const usersSearchSchema = z.object({
   page: z.number().int().min(0).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
   email: z.string().optional(),
+  // Full phone number (exact match after server-side normalization); any
+  // writing form is accepted — the server normalizes, the client never
+  // format-checks (DEC-phone-login-004).
+  phone: z.string().optional(),
   status: z.enum(['wait_verified', 'normal', 'forbidden', 'deleted']).optional(),
 })
 

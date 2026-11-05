@@ -30,6 +30,7 @@ interface UserTableProps {
   onManageRoles?: (user: UserWithRoles) => void
   onResetPassword?: (user: UserWithRoles) => void
   onManageSessions?: (user: UserWithRoles) => void
+  onManagePhone?: (user: UserWithRoles) => void
 }
 
 function createUserColumns(
@@ -37,7 +38,8 @@ function createUserColumns(
   onDelete?: (user: UserWithRoles) => void,
   onManageRoles?: (user: UserWithRoles) => void,
   onResetPassword?: (user: UserWithRoles) => void,
-  onManageSessions?: (user: UserWithRoles) => void
+  onManageSessions?: (user: UserWithRoles) => void,
+  onManagePhone?: (user: UserWithRoles) => void
 ): ColumnDef<UserWithRoles>[] {
   return [
     {
@@ -61,6 +63,16 @@ function createUserColumns(
           </div>
         )
       },
+    },
+    {
+      id: 'phone',
+      // Backend-derived masked value only (`138****8000`); `-` when unbound.
+      header: () => <span data-testid="users-table-phone">{m['users.table_phone']()}</span>,
+      cell: ({ row }) => (
+        <div className="font-mono text-xs" data-testid={`user-table-${row.index}-phone`}>
+          {row.original.phoneMasked ?? '-'}
+        </div>
+      ),
     },
     {
       accessorKey: 'nickname',
@@ -140,6 +152,15 @@ function createUserColumns(
               {m['users.sessions.entry_button']()}
             </button>
           )}
+          {onManagePhone && (
+            <button
+              onClick={() => onManagePhone(row.original)}
+              className="text-sm text-primary hover:text-primary/80"
+              data-testid={`user-table-${row.index}-manage-phone-button`}
+            >
+              {m['users.phone_manage_entry']()}
+            </button>
+          )}
           {onResetPassword && (
             <button
               onClick={() => onResetPassword(row.original)}
@@ -182,13 +203,15 @@ export function UserTable({
   onManageRoles,
   onResetPassword,
   onManageSessions,
+  onManagePhone,
 }: UserTableProps) {
   const columns = createUserColumns(
     onEdit,
     onDelete,
     onManageRoles,
     onResetPassword,
-    onManageSessions
+    onManageSessions,
+    onManagePhone
   )
 
   const table = useReactTable({

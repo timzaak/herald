@@ -80,6 +80,10 @@ vi.mock('@/data/query-options', () => ({
     queryKey: ['email-otp-status', 'admin'],
     queryFn: () => Promise.resolve({ enabled: false }),
   }),
+  phoneLoginStatusQueryOptions: () => ({
+    queryKey: ['phone-login-status', 'admin'],
+    queryFn: () => Promise.resolve({ enabled: false }),
+  }),
   ldapStatusQueryOptions: () => ({
     queryKey: ['ldap-status', 'admin'],
     queryFn: () => Promise.resolve({ enabled: false }),

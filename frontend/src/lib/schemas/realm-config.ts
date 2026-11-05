@@ -181,6 +181,36 @@ export const customDomainConfigSchema = z.object({
   hostname: z.string().nullable(),
 })
 
+// SMS 通道配置 Schema
+// ✅ camelCase：对齐后端短信通道 KV 行（config_type="sms"）与
+//    `SmsStatusResponse`（configured/provider/missingFields）。
+//    provider 判别决定可见字段集；字段不设必填（对齐 emailConfigSchema：
+//    完整性由服务端行校验权威把关，前端以 missingFields 徽章反馈）；
+//    密文字段留空 = 保留已保存值（掩码占位不回传，服务端强制 secret，
+//    见 buildSmsConfigRequest）。
+export const smsConfigSchema = z.object({
+  provider: z.enum(['aliyun', 'twilio']),
+  // Aliyun — KV 键名与 backend/core/src/third/sms.rs 的 SMS_CONFIG_KEYS 同步
+  aliyunAccessKeyId: z.string().optional(),
+  aliyunAccessKeySecret: z.string().optional(),
+  aliyunSignName: z.string().optional(),
+  aliyunTemplateCode: z.string().optional(),
+  twilioAccountSid: z.string().optional(),
+  twilioAuthToken: z.string().optional(),
+  twilioFrom: z.string().optional(),
+  twilioContentSid: z.string().optional(),
+})
+
+// 「手机号登录」开关 Schema
+// ✅ camelCase：对齐后端 `PhoneLoginConfigRequest` / `PhoneLoginConfigResponse`。
+//    defaultCountryCode 为 ISO 3166-1 alpha-2 大写（服务端校验可解析性）。
+export const phoneLoginConfigSchema = z.object({
+  enabled: z.boolean(),
+  defaultCountryCode: z
+    .string()
+    .regex(/^[A-Z]{2}$/, { error: () => m['realm_config.sms.default_country_code_invalid']() }),
+})
+
 // 类型导出
 export type TOTPConfigForm = z.infer<typeof totpConfigSchema>
 export type PasskeyConfigForm = z.infer<typeof passkeyConfigSchema>
@@ -188,6 +218,8 @@ export type EmailOtpConfigForm = z.infer<typeof emailOtpConfigSchema>
 export type RegistrationConfigForm = z.infer<typeof registrationConfigSchema>
 export type PlatformSignupConfigForm = z.infer<typeof platformSignupConfigSchema>
 export type EmailConfigForm = z.infer<typeof emailConfigSchema>
+export type SmsConfigForm = z.infer<typeof smsConfigSchema>
+export type PhoneLoginConfigForm = z.infer<typeof phoneLoginConfigSchema>
 export type WhiteLabelBackgroundForm = z.infer<typeof whiteLabelBackgroundSchema>
 export type WhiteLabelConfigForm = z.infer<typeof whiteLabelConfigSchema>
 export type CustomDomainConfigForm = z.infer<typeof customDomainConfigSchema>

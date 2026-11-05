@@ -22,6 +22,10 @@ import {
   getTurnstileStatus,
   status2 as emailOtpStatus,
   status3 as passkeyStatus,
+  phoneLoginStatus,
+  userPhoneStatus,
+  smsStatus,
+  getRealmPhoneLoginConfig,
   ldapStatus,
   listRealmConfigsByType,
   getSignupStatus,
@@ -181,6 +185,11 @@ export const queryKeys = {
   turnstileStatus: (realmId: string, clientId: string) =>
     [QUERY_KEYS.TURNSTILE_STATUS, realmId, clientId] as const,
   emailOtpStatus: (realmId: string) => [QUERY_KEYS.EMAIL_OTP_STATUS, realmId] as const,
+  phoneLoginStatus: (realmId: string) => [QUERY_KEYS.PHONE_LOGIN_STATUS, realmId] as const,
+  userPhoneStatus: () => [QUERY_KEYS.USER_PHONE_STATUS] as const,
+  smsStatus: (realmId: string) => [QUERY_KEYS.SMS_STATUS, realmId] as const,
+  phoneLoginRealmConfig: (realmId: string) =>
+    [QUERY_KEYS.PHONE_LOGIN_REALM_CONFIG, realmId] as const,
   passkeyStatus: (realmId: string) => [QUERY_KEYS.PASSKEY_STATUS, realmId] as const,
   ldapStatus: (realmId: string) => [QUERY_KEYS.LDAP_STATUS, realmId] as const,
   ldapRealmConfig: (realmId: string) => [QUERY_KEYS.LDAP_REALM_CONFIG, realmId] as const,
@@ -387,6 +396,7 @@ export const usersQueryOptions = (
     page?: number
     pageSize?: number
     email?: string
+    phone?: string
     status?: string
   }
 ) =>
@@ -399,6 +409,7 @@ export const usersQueryOptions = (
             page: filters.page ?? 0,
             pageSize: filters.pageSize ?? 20,
             email: filters.email,
+            phone: filters.phone,
             status: filters.status as UserStatus | undefined,
           },
         })
@@ -605,6 +616,62 @@ export const emailOtpStatusQueryOptions = (realmId: string) =>
     queryKey: queryKeys.emailOtpStatus(realmId),
     queryFn: async () => {
       const response = await emailOtpStatus({ path: { realmId } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+    gcTime: GC_TIME_5_MIN,
+  })
+
+// Fail-closed: the login entry renders only on an explicit `enabled === true`
+// (mirrors emailOtp/passkey status gating).
+export const phoneLoginStatusQueryOptions = (realmId: string) =>
+  queryOptions({
+    queryKey: queryKeys.phoneLoginStatus(realmId),
+    queryFn: async () => {
+      const response = await phoneLoginStatus({ path: { realmId } })
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+    gcTime: GC_TIME_5_MIN,
+  })
+
+// Security-page phone binding state; `staleTime: 0` so the gating matrix
+// (`phoneLoginEnabled`/`smsConfigured`) never serves a stale entry decision.
+export const userPhoneStatusQueryOptions = queryOptions({
+  queryKey: queryKeys.userPhoneStatus(),
+  queryFn: async () => {
+    const response = await userPhoneStatus({})
+    if (response.error) throw response.error
+    return response.data
+  },
+  retry: RETRY_COUNT,
+  staleTime: 0,
+  gcTime: GC_TIME_5_MIN,
+})
+
+// Requires the `settings.view` permission.
+export const smsStatusQueryOptions = (realmId: string) =>
+  queryOptions({
+    queryKey: queryKeys.smsStatus(realmId),
+    queryFn: async () => {
+      const response = await smsStatus({})
+      if (response.error) throw response.error
+      return response.data
+    },
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_2_MIN,
+  })
+
+// Requires the `settings.view` permission.
+export const phoneLoginRealmConfigQueryOptions = (realmId: string) =>
+  queryOptions({
+    queryKey: queryKeys.phoneLoginRealmConfig(realmId),
+    queryFn: async () => {
+      const response = await getRealmPhoneLoginConfig({ path: { realmId } })
       if (response.error) throw response.error
       return response.data
     },

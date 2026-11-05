@@ -33,7 +33,6 @@ import { queryKeys } from '@/data/query-options'
 
 const API_BASE_URL = 'http://localhost:3000'
 
-// --- Route + auth mocks ------------------------------------------------------
 // The page reads `realmId` via `Route.useParams()` (the `Route` object is built
 // by `createFileRoute` at module load). Stub the router so params resolve, and
 // stub `useAuth` so the user holds both `settings.view` and `settings.manage`.
@@ -93,8 +92,6 @@ vi.mock('@/components/settings/LegalAgreementTab', () => ({
 // before the page module evaluates. `SettingsPage` is the direct component
 // (not the Vite-plugin-wrapped `Route.component`) so the render is synchronous.
 import { SettingsPage } from '../settings'
-
-// --- Fixtures ----------------------------------------------------------------
 
 const PUBLISHED_LOGO = 'https://cdn.example.com/published-logo.svg'
 const PUBLISHED_FOOTER = '© Published Inc.'
@@ -217,7 +214,25 @@ function installSiblingTabHandlers() {
         userVerification: 'preferred',
         crossPlatformAuthenticator: true,
       })
-    )
+    ),
+    // SMS channel status (sms tab badge / phone-login switch gate)
+    http.get(`${API_BASE_URL}/api/configs/sms/status`, () =>
+      HttpResponse.json({ configured: false, missingFields: [], provider: null })
+    ),
+    http.get(`${API_BASE_URL}/api/realms/test-realm/config/phone-login`, () =>
+      HttpResponse.json({ enabled: false, defaultCountryCode: 'CN', smsConfigured: false })
+    ),
+    // Remaining Settings-page queries (LDAP tab, email-otp, custom-domain,
+    // legal) are not under test: emulate an unreachable backend so the
+    // queries settle into their error state (data undefined) deterministically
+    // — an unhandled pass-through would leak to whatever listens on :3000 and
+    // feed the page garbage (e.g. a non-array into parseLdapConfig).
+    http.get(`${API_BASE_URL}/api/configs/ldap`, () => HttpResponse.error()),
+    http.get(`${API_BASE_URL}/api/realms/test-realm/config/email-otp`, () => HttpResponse.error()),
+    http.get(`${API_BASE_URL}/api/realms/test-realm/config/custom-domain`, () =>
+      HttpResponse.error()
+    ),
+    http.get(`${API_BASE_URL}/api/legal/admin/agreements`, () => HttpResponse.error())
   )
 }
 
@@ -371,7 +386,6 @@ describe('Settings white-label tab lifecycle (FE-T03)', () => {
       await openWhiteLabelTab(user)
 
       const restoreButton = screen.getByTestId('white-label-restore')
-      // Gate: restore is only enabled when a previous version exists.
       expect(restoreButton).not.toBeDisabled()
 
       // Opening the confirm dialog must NOT fire restore yet.

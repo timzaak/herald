@@ -11,6 +11,7 @@ import {
   type RegistrationConfigForm,
   type PlatformSignupConfigForm,
   type EmailConfigForm,
+  type SmsConfigForm,
   type WhiteLabelConfigForm,
   type WhiteLabelBackgroundForm,
   type CustomDomainConfigForm,
@@ -206,7 +207,90 @@ export function buildEmailConfigRequest(config: EmailConfigForm) {
   }))
 }
 
-// ==================== LDAP 目录配置 ====================
+/**
+ * Parses SMS channel configuration from realm config rows
+ * (`configType='sms'`)。键名与 `backend/core/src/third/sms.rs` 的
+ * `SMS_CONFIG_KEYS` 同步；密文行（access_key_secret/auth_token）回显为
+ * 服务端掩码值，保存时经 `buildSmsConfigRequest` 跳过未改动的掩码。
+ */
+export function parseSmsConfig(configs: RealmConfigResponse[]): SmsConfigForm {
+  const smsConfigs = configs.filter((c) => c.configType === 'sms')
+
+  const find = (key: string) => smsConfigs.find((c) => c.configKey === key)
+
+  return {
+    provider: (find('provider')?.configValue as 'aliyun' | 'twilio') || 'aliyun',
+    aliyunAccessKeyId: find('aliyun_access_key_id')?.configValue ?? undefined,
+    aliyunAccessKeySecret: find('aliyun_access_key_secret')?.configValue ?? undefined,
+    aliyunSignName: find('aliyun_sign_name')?.configValue ?? undefined,
+    aliyunTemplateCode: find('aliyun_template_code')?.configValue ?? undefined,
+    twilioAccountSid: find('twilio_account_sid')?.configValue ?? undefined,
+    twilioAuthToken: find('twilio_auth_token')?.configValue ?? undefined,
+    twilioFrom: find('twilio_from')?.configValue ?? undefined,
+    twilioContentSid: find('twilio_content_sid')?.configValue ?? undefined,
+  }
+}
+
+/**
+ * Builds SMS channel rows for the batch upsert operation. Secret fields
+ * (aliyun_access_key_secret / twilio_auth_token) are only included when the
+ * user has entered a new value — the masked placeholder never round-trips, so
+ * unchanged credentials are preserved server-side (email form precedent).
+ */
+export function buildSmsConfigRequest(config: SmsConfigForm): UpsertRealmConfigRequest[] {
+  const entries: {
+    configKey: string
+    configValue: string
+    isSecret: boolean
+  }[] = [
+    { configKey: 'provider', configValue: config.provider, isSecret: false },
+    {
+      configKey: 'aliyun_access_key_id',
+      configValue: config.aliyunAccessKeyId ?? '',
+      isSecret: false,
+    },
+    { configKey: 'aliyun_sign_name', configValue: config.aliyunSignName ?? '', isSecret: false },
+    {
+      configKey: 'aliyun_template_code',
+      configValue: config.aliyunTemplateCode ?? '',
+      isSecret: false,
+    },
+    {
+      configKey: 'twilio_account_sid',
+      configValue: config.twilioAccountSid ?? '',
+      isSecret: false,
+    },
+    { configKey: 'twilio_from', configValue: config.twilioFrom ?? '', isSecret: false },
+    {
+      configKey: 'twilio_content_sid',
+      configValue: config.twilioContentSid ?? '',
+      isSecret: false,
+    },
+  ]
+
+  if (config.aliyunAccessKeySecret && config.aliyunAccessKeySecret !== MASKED_SECRET) {
+    entries.push({
+      configKey: 'aliyun_access_key_secret',
+      configValue: config.aliyunAccessKeySecret,
+      isSecret: true,
+    })
+  }
+
+  if (config.twilioAuthToken && config.twilioAuthToken !== MASKED_SECRET) {
+    entries.push({
+      configKey: 'twilio_auth_token',
+      configValue: config.twilioAuthToken,
+      isSecret: true,
+    })
+  }
+
+  return entries.map((entry) => ({
+    configType: 'sms' as const,
+    configKey: entry.configKey,
+    configValue: entry.configValue,
+    isSecret: entry.isSecret,
+  }))
+}
 
 /** LDAP 表单默认值（从未配置过的 Realm 打开即为该默认表单，无空态页面）。 */
 export function emptyLdapConfig(): LdapConfigState {
@@ -303,8 +387,6 @@ export function buildLdapConfigRequest(config: LdapConfigForm): UpsertRealmConfi
   return rows
 }
 
-// ==================== White-label 配置 ====================
-
 /**
  * Empty white-label form values. All fields default to `null` so the form
  * starts with no branding applied (terminal pages fall back to Herald defaults).
@@ -386,8 +468,6 @@ export function toUpdateWhiteLabelConfigRequest(
     registerSubtitle: normalizeOptionalString(config.registerSubtitle),
   }
 }
-
-// ==================== Custom-domain 配置 ====================
 
 /**
  * Empty custom-domain form values. `hostname` defaults to `null` so the form

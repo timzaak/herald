@@ -38,6 +38,9 @@ export type {
   PasskeyLoginBeginResult,
   SecondFactor,
   SessionEvent,
+  SmsOtpConflict,
+  SmsOtpSendResult,
+  SmsOtpSent,
   StatusResponse,
 } from './types'
 
@@ -51,6 +54,8 @@ export type {
   PasskeyLoginFinishPayload,
   RegisterPayload,
   RequestPasswordResetPayload,
+  SmsOtpSendPayload,
+  SmsOtpVerifyPayload,
   TriggerVerifyEmailPayload,
   VerifyTotpPayload,
 } from './auth'

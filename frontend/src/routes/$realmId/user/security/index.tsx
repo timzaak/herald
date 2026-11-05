@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChangePasswordForm } from '@/components/profile/change-password-form'
+import { PhoneSecuritySection } from '@/components/profile/phone-security-section'
 import { TotpStatusCard } from '@/components/profile/totp/totp-status-card'
 import { PasskeyList } from '@/components/profile/passkey/passkey-list'
 import { PasskeyRegisterForm } from '@/components/profile/passkey/passkey-register-form'
@@ -19,6 +20,7 @@ import {
   passkeyStatusQueryOptions,
   totpStatusQueryOptions,
   userFeatureAvailabilityQueryOptions,
+  userPhoneStatusQueryOptions,
 } from '@/data/query-options'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
@@ -46,11 +48,22 @@ export function ProfileSecurity() {
   const passkeyEnabled = userFeatureAvailability?.user.passkeyEnabled ?? false
   const totpEnabled = userFeatureAvailability?.user.totpEnabled ?? false
   const totpForceEnabled = userFeatureAvailability?.user.totpForceEnabled ?? false
+
+  // Phone tab visibility: full management when the realm has
+  // phone login on AND the SMS channel configured; a bound number stays
+  // visible as a read-only retained card after the realm turns the feature
+  // off; unbound + unavailable → no tab at all (mirrors the change-email
+  // entry gating).
+  const { data: userPhoneStatus } = useQuery(userPhoneStatusQueryOptions)
+  const phoneCanManage =
+    (userPhoneStatus?.phoneLoginEnabled ?? false) && (userPhoneStatus?.smsConfigured ?? false)
+  const phoneTabVisible = phoneCanManage || (userPhoneStatus?.bound ?? false)
+
   // The password tab is the only always-present one; with TOTP and Passkey both
   // disabled it would sit alone above the "Change Password" heading — a tab
   // that switches nothing. Hide the whole tab bar then and show the form
   // directly.
-  const hasFeatureTabs = totpEnabled || passkeyEnabled
+  const hasFeatureTabs = totpEnabled || passkeyEnabled || phoneTabVisible
 
   // TOTP force-mode guidance (totp PRD §5.2): when the realm forces TOTP and
   // this user has none configured, surface a prompt pointing at the setup
@@ -147,6 +160,15 @@ export function ProfileSecurity() {
                 {m['profile.passkey_tab']()}
               </TabsTrigger>
             )}
+            {phoneTabVisible && (
+              <TabsTrigger
+                value="phone"
+                className="flex-1 md:flex-initial"
+                data-testid="phone-security-tab"
+              >
+                {m['profile.phone_tab']()}
+              </TabsTrigger>
+            )}
           </TabsList>
         )}
         <TabsContent value="password" data-testid="password-section-title">
@@ -181,6 +203,11 @@ export function ProfileSecurity() {
                 <PasskeyList onAdd={() => setPasskeyRegistering(true)} />
               </div>
             )}
+          </TabsContent>
+        )}
+        {phoneTabVisible && (
+          <TabsContent value="phone" data-testid="phone-section-title">
+            <PhoneSecuritySection />
           </TabsContent>
         )}
       </Tabs>

@@ -19,6 +19,8 @@ import {
   register,
   resetPasswordRequest,
   send,
+  smsOtpSend,
+  smsOtpVerify,
   status,
   verify,
   verifyEmailTrigger,
@@ -36,6 +38,8 @@ import type {
   LoginResult,
   PasskeyLoginBeginResult,
   SecondFactor,
+  SmsOtpConflict,
+  SmsOtpSendResult,
 } from './types'
 import type { AssertionResultJSON } from './webauthn'
 
@@ -136,6 +140,19 @@ export interface EmailOtpVerifyPayload {
   email: string
   code: string
   agreements?: ConsentAgreement[]
+}
+
+export interface SmsOtpSendPayload {
+  /** Any writing form (bare / +86 / 0086 / separators); the server normalizes. */
+  phone: string
+  turnstileToken?: string
+}
+
+export interface SmsOtpVerifyPayload {
+  /** Must match the number the code was sent to (server re-normalizes). */
+  phone: string
+  code: string
+  turnstileToken?: string
 }
 
 // --- internal helpers ---
@@ -455,6 +472,78 @@ export function createAuth(deps: AuthDeps) {
           }),
         )
         return toLoginResult(body, deps)
+      },
+    },
+
+    loginWithSmsOtp: {
+      /**
+       * Send a passwordless SMS login code. The single 409 control-flow
+       * outcome — `phone_not_registered` (no account matches; no code is sent
+       * and none is created, DEC-phone-login-001) — resolves as
+       * `{ kind: 'conflict' }` instead of throwing. SMS OTP has no
+       * auto-register consent branch, unlike `loginWithEmailOtp.send`. All
+       * other HTTP failures throw `HeraldError`.
+       */
+      async send(payload: SmsOtpSendPayload): Promise<SmsOtpSendResult> {
+        const { data, error, response } = await smsOtpSend({
+          client,
+          path: { realmId },
+          body: {
+            clientId: deps.clientId,
+            phone: payload.phone,
+            ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
+          },
+        })
+        if (data) {
+          return {
+            kind: 'sent',
+            message: data.message,
+            expiresInSeconds: data.expiresInSeconds,
+            maskedPhone: data.maskedPhone,
+          }
+        }
+        const body = (error ?? {}) as Record<string, unknown>
+        if (response?.status === 409 && body['code'] === 'phone_not_registered') {
+          return {
+            kind: 'conflict',
+            code: String(body['code']),
+            message: String(body['message'] ?? ''),
+          }
+        }
+        throw toHeraldError(error, response)
+      },
+
+      /**
+       * Verify an SMS login code. On success the issued token set is applied
+       * internally and the result mirrors the other `loginWith*` verify
+       * methods. The documented 409 `phone_not_registered` (the account was
+       * anonymized between send and verify, backend `sms_otp.rs`) resolves as
+       * `{ kind: 'conflict' }` — the same shape as `send` — instead of
+       * throwing. All other HTTP failures throw `HeraldError`.
+       */
+      async verify(payload: SmsOtpVerifyPayload): Promise<LoginResult | SmsOtpConflict> {
+        const { data, error, response } = await smsOtpVerify({
+          client,
+          path: { realmId },
+          body: {
+            clientId: deps.clientId,
+            phone: payload.phone,
+            code: payload.code,
+            ...(payload.turnstileToken ? { turnstileToken: payload.turnstileToken } : {}),
+          },
+        })
+        if (data) {
+          return toLoginResult(data, deps)
+        }
+        const errBody = (error ?? {}) as Record<string, unknown>
+        if (response?.status === 409 && errBody['code'] === 'phone_not_registered') {
+          return {
+            kind: 'conflict',
+            code: String(errBody['code']),
+            message: String(errBody['message'] ?? ''),
+          }
+        }
+        throw toHeraldError(error, response)
       },
     },
 

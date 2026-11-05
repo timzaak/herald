@@ -8,6 +8,10 @@ import { useEffect, useRef, useState } from 'react'
 export function useCountdown() {
   const [countdown, setCountdown] = useState<number | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Mutation callbacks can fire after unmount (in-flight request resolves
+  // while the caller is gone); starting a countdown then would create an
+  // interval nobody will ever clear.
+  const mountedRef = useRef(true)
 
   function clearCountdown() {
     if (countdownRef.current) {
@@ -18,6 +22,7 @@ export function useCountdown() {
   }
 
   function startCountdown(seconds: number) {
+    if (!mountedRef.current) return
     clearCountdown()
     if (!seconds || seconds <= 0) return
     setCountdown(seconds)
@@ -37,7 +42,12 @@ export function useCountdown() {
   }
 
   useEffect(() => {
-    return () => clearCountdown()
+    // Re-arm on re-mount (StrictMode dev double-invoke runs cleanup first).
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      clearCountdown()
+    }
   }, [])
 
   return { countdown, startCountdown, clearCountdown }

@@ -35,6 +35,7 @@ import { TotpVerificationForm } from '@/components/auth/totp-verification-form'
 import { PasskeyLoginForm } from '@/components/auth/passkey-login-form'
 import { Passkey2FaForm } from '@/components/auth/passkey-2fa-form'
 import { EmailOtpLoginForm } from '@/components/auth/email-otp-login-form'
+import { SmsOtpLoginForm } from '@/components/auth/sms-otp-login-form'
 import { LdapLoginForm, type LdapLoginFormValues } from '@/components/auth/ldap-login-form'
 import { OneTapLogin } from '@/components/auth/one-tap-login'
 import { TurnstileWidget } from '@/components/auth/turnstile-widget'
@@ -48,6 +49,7 @@ import {
   turnstileStatusQueryOptions,
   emailOtpStatusQueryOptions,
   passkeyStatusQueryOptions,
+  phoneLoginStatusQueryOptions,
   ldapStatusQueryOptions,
 } from '@/data/query-options'
 import { Link } from '@tanstack/react-router'
@@ -166,6 +168,11 @@ export function LoginPage() {
   // when the public OTP-status query reports `enabled`, so the
   // entry is hidden entirely for realms with OTP login off.
   const [otpMode, setOtpMode] = useState(false)
+  // SMS-OTP mode toggle. Same shape as `otpMode`: swapped-in `SmsOtpLoginForm`
+  // card body, back button returns to the password form. The entry is rendered
+  // only on an explicit `enabled === true` from the public phone-login status
+  // query — loading and failed queries keep it hidden (fail-closed).
+  const [phoneOtpMode, setPhoneOtpMode] = useState(false)
   // LDAP (corporate account) mode toggle. Same shape as `otpMode`: swapped-in
   // `LdapLoginForm` card body, back button returns to the password form. The
   // entry is rendered only on an explicit `enabled === true` from the public
@@ -184,6 +191,14 @@ export function LoginPage() {
   // Anonymous; safe to query unconditionally.
   const { data: emailOtpStatus } = useQuery(emailOtpStatusQueryOptions(realmId))
   const emailOtpEnabled = emailOtpStatus?.enabled === true
+
+  // Public SMS-OTP (phone login) enablement flag. Gates the "SMS code" entry
+  // visibility AND the password-form identifier label (the server accepts a
+  // phone number in the username field only while this is on, DEC-009).
+  // Strictly `=== true` — loading and failed queries must NOT surface the
+  // entry (fail-closed). Anonymous; safe to query unconditionally.
+  const { data: phoneLoginStatus } = useQuery(phoneLoginStatusQueryOptions(realmId))
+  const phoneLoginEnabled = phoneLoginStatus?.enabled === true
 
   // Public corporate-directory (LDAP) login enablement flag. Gates the
   // "corporate account" entry visibility. Strictly `=== true` — loading and
@@ -264,7 +279,6 @@ export function LoginPage() {
       setConsentStep(null)
       const { response } = data.result
 
-      // --- Second-factor routing (backward compatible) ----------
       // Read order: prefer `secondFactors` when present and non-empty; only
       // when it is ABSENT do we fall back to the legacy `requiresTotp` path.
       // This keeps the existing password+TOTP login 100% unchanged for any
@@ -503,12 +517,14 @@ export function LoginPage() {
   }
 
   /**
-   * Completion handler for an Email-OTP login. Mirrors `handlePasskeySuccess`
-   * minus the PKCE/`redirectTo` branch — OTP verify runs through the Herald
-   * SDK, which applies the issued token set itself, so
-   * `completeLoginAfterEmailOtp` only rebinds the routing clientId + hydrates.
-   * The `EmailOtpLoginForm` notified the route via its argument-less
-   * `onSuccess` prop.
+   * Completion handler for an Email-OTP login, shared with the SMS-OTP form:
+   * it depends only on realmId + clientId, which is all either OTP form needs
+   * after the SDK applied the issued token set during verify.
+   * Mirrors `handlePasskeySuccess` minus the PKCE/`redirectTo` branch — OTP
+   * verify runs through the Herald SDK, which applies the issued token set
+   * itself, so `completeLoginAfterEmailOtp` only rebinds the routing clientId
+   * + hydrates. The `EmailOtpLoginForm`/`SmsOtpLoginForm` notified the route
+   * via their argument-less `onSuccess` prop.
    */
   async function handleEmailOtpSuccess(): Promise<void> {
     toast.success(m['auth.login.login_successful']())
@@ -723,6 +739,22 @@ export function LoginPage() {
               onBack={() => setOtpMode(false)}
               registerPath={realmPath(realmContext, '/auth/register')}
             />
+          ) : phoneOtpMode ? (
+            <SmsOtpLoginForm
+              realmId={realmId}
+              clientId={resolvedClientId}
+              turnstileStatus={turnstileStatus}
+              onSuccess={handleEmailOtpSuccess}
+              // OTP verified but the user has an enabled TOTP/passkey: hand
+              // the temp token to the SAME second-factor step the password
+              // login uses (backend mirrors login.rs temp-session shape).
+              onSecondFactorRequired={(tempToken, secondFactors) => {
+                setPhoneOtpMode(false)
+                routeSecondFactor(tempToken, secondFactors)
+              }}
+              onBack={() => setPhoneOtpMode(false)}
+              registerPath={realmPath(realmContext, '/auth/register')}
+            />
           ) : ldapMode ? (
             <LdapLoginForm
               realmId={realmId}
@@ -745,6 +777,21 @@ export function LoginPage() {
                     data-testid="email-otp-toggle"
                   >
                     {m['auth.email_otp.toggle_entry']()}
+                  </Button>
+                </div>
+              )}
+
+              {phoneLoginEnabled && (
+                <div className="mb-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setPhoneOtpMode(true)}
+                    disabled={loginMutation.isPending}
+                    data-testid="phone-otp-toggle"
+                  >
+                    {m['auth.phone_otp.toggle_entry']()}
                   </Button>
                 </div>
               )}
@@ -775,7 +822,14 @@ export function LoginPage() {
                 <form.Field name="username" validators={{ onChange: loginSchema.shape.username }}>
                   {(field) => (
                     <div>
-                      <Label htmlFor="username">{m['auth.login.username_or_email']()}</Label>
+                      <Label htmlFor="username">
+                        {/* A phone number is submitted in the same `username`
+                        field (no payload change, DEC-009); only the label
+                        follows the realm's phone-login switch. */}
+                        {phoneLoginEnabled
+                          ? m['auth.login.identifier_with_phone']()
+                          : m['auth.login.username_or_email']()}
+                      </Label>
                       <Input
                         id="username"
                         type="text"

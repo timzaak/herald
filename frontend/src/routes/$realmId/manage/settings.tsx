@@ -11,6 +11,7 @@ import {
   handleDiscardWhiteLabelDraft,
   handleRestoreWhiteLabelConfig,
   handleUpdateCustomDomainConfig,
+  updateRealmPhoneLoginConfig,
 } from '@/lib/api-generated'
 import type { UpsertRealmConfigRequest } from '@/lib/api-generated/types.gen'
 import { TOTPConfigForm as TOTPConfigFormComponent } from '@/components/realm-config/totp-config-form'
@@ -18,6 +19,7 @@ import { PasskeyConfigForm as PasskeyConfigFormComponent } from '@/components/re
 import { RegistrationConfigForm as RegistrationConfigFormComponent } from '@/components/realm-config/registration-config-form'
 import { PlatformSignupConfigForm as PlatformSignupConfigFormComponent } from '@/components/realm-config/platform-signup-config-form'
 import { EmailConfigForm as EmailConfigFormComponent } from '@/components/realm-config/email-config-form'
+import { SmsConfigForm as SmsConfigFormComponent } from '@/components/realm-config/sms-config-form'
 import { LdapConfigForm as LdapConfigFormComponent } from '@/components/realm-config/ldap-config-form'
 import { WhiteLabelConfigForm as WhiteLabelConfigFormComponent } from '@/components/realm-config/white-label-config-form'
 import { CustomDomainConfigForm as CustomDomainConfigFormComponent } from '@/components/realm-config/custom-domain-config-form'
@@ -32,6 +34,8 @@ import type {
   RegistrationConfigForm,
   PlatformSignupConfigForm,
   EmailConfigForm,
+  SmsConfigForm,
+  PhoneLoginConfigForm,
   PasskeyConfigForm,
   EmailOtpConfigForm,
   LdapConfigForm,
@@ -47,6 +51,8 @@ import {
   buildRegistrationConfigRequest,
   buildPlatformSignupConfigRequest,
   buildEmailConfigRequest,
+  parseSmsConfig,
+  buildSmsConfigRequest,
   parseLdapConfig,
   buildLdapConfigRequest,
   normalizeWhiteLabelConfig,
@@ -60,6 +66,8 @@ import {
   queryKeys,
   realmQueryOptions,
   emailStatusQueryOptions,
+  smsStatusQueryOptions,
+  phoneLoginRealmConfigQueryOptions,
   passkeyRealmConfigQueryOptions,
   emailOtpRealmConfigQueryOptions,
   ldapRealmConfigQueryOptions,
@@ -228,6 +236,27 @@ export function SettingsPage() {
     enabled: !!realmId && canViewConfig,
   })
 
+  // SMS channel status via GET /api/configs/sms/status. Drives the status
+  // badge and the phone-login switch's fail-closed disabled gate.
+  const { data: smsStatusData, error: smsStatusQueryError } = useQuery({
+    ...smsStatusQueryOptions(realmId),
+    enabled: !!realmId && canViewConfig,
+  })
+
+  // Phone-login switch config via GET /api/realms/{realmId}/config/phone-login.
+  // Loading/error are surfaced to the SMS tab: the switch form seeds its
+  // defaultValues once at mount, so it must not render before the query
+  // settles (a late/failed query would invite saving seed defaults over the
+  // real config, silently disabling phone login).
+  const {
+    data: phoneLoginConfigData,
+    isLoading: isPhoneLoginLoading,
+    error: phoneLoginQueryError,
+  } = useQuery({
+    ...phoneLoginRealmConfigQueryOptions(realmId),
+    enabled: !!realmId && canViewConfig,
+  })
+
   // Passkey Realm config via dedicated endpoint (GET /api/realms/{realmId}/config/passkey)
   const { data: passkeyConfigData } = useQuery({
     ...passkeyRealmConfigQueryOptions(realmId),
@@ -236,7 +265,7 @@ export function SettingsPage() {
 
   // Email-OTP Realm config via dedicated endpoint
   // (GET /api/realms/{realmId}/config/email-otp). Requires `settings.view`;
-  // consumed by the Settings → Security "Email code" tab (design §4.2, §5.5).
+  // consumed by the Settings → Security "Email code" tab.
   const { data: emailOtpConfigData } = useQuery({
     ...emailOtpRealmConfigQueryOptions(realmId),
     enabled: !!realmId && canViewConfig,
@@ -350,6 +379,36 @@ export function SettingsPage() {
     },
   })
 
+  // Phone-login switch mutation (PUT /api/realms/{realmId}/config/phone-login).
+  // Saving flips THREE visible surfaces: the switch form itself,
+  // the login-page SMS entry (public `phoneLoginStatus`) and the Security-page
+  // binding entry (`userPhoneStatus` gating matrix). All three are
+  // invalidated — the LDAP precedent (public status invalidation on save),
+  // not the email-OTP one which leaves its public status stale for up to 2min.
+  const phoneLoginMutation = useMutation({
+    mutationFn: (config: PhoneLoginConfigForm) =>
+      updateRealmPhoneLoginConfig({
+        path: { realmId },
+        body: {
+          enabled: config.enabled,
+          defaultCountryCode: config.defaultCountryCode,
+        },
+      }).then((response) => {
+        if (response.error) throw response.error
+        return response.data
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.phoneLoginRealmConfig(realmId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.phoneLoginStatus(realmId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.userPhoneStatus() })
+      toast.success(m['settings.config_saved_success']())
+    },
+    onError: (error: unknown) => {
+      console.error('Failed to save phone-login config:', error)
+      toast.error(resolveConfigSaveError(error))
+    },
+  })
+
   // LDAP directory config mutation (generic configs batch upsert). Saving the
   // `settings` row can flip the login-page entry visibility, so it also
   // invalidates the public `ldapStatus` query (same rationale as white-label
@@ -373,8 +432,7 @@ export function SettingsPage() {
     },
   })
 
-  // --- White-label mutations ---------------------------------------------------
-  // Invalidate boundary (design §4.4.2): save-draft / discard-draft touch only
+  // Invalidate boundary: save-draft / discard-draft touch only
   // the admin draft state, so they invalidate `whiteLabelRealmConfig` only.
   // publish / restore change the published config, so they additionally
   // invalidate `publicConfig(realmId)` — otherwise the terminal-user auth
@@ -451,7 +509,6 @@ export function SettingsPage() {
     },
   })
 
-  // --- Custom-domain mutations -------------------------------------------------
   // A single update writes the published config + host→realm mapping in one
   // step, so it always changes what terminal-user auth pages serve and must
   // invalidate `publicConfig(realmId)` as well as `customDomainRealmConfig`.
@@ -507,6 +564,7 @@ export function SettingsPage() {
   const totpConfig = parseTOTPConfig(configs || [])
   const registrationConfig = parseRegistrationConfig(configs || [])
   const emailConfig = parseEmailConfig(configs || [])
+  const smsConfig = parseSmsConfig(configs || [])
   // Platform self-service signup is an admin-realm-only switch (DEC-001/009).
   // Parsed unconditionally; the tab/UI is gated on `realmId === 'admin'`.
   const platformSignupConfig = parsePlatformSignupConfig(configs || [])
@@ -565,6 +623,27 @@ export function SettingsPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.emailStatus(realmId) })
   }
 
+  async function saveSmsConfig(config: SmsConfigForm) {
+    if (!canUpdateConfig) {
+      toast.error(m['settings.config_modify_denied']())
+      return
+    }
+
+    // The shared generic `mutation` invalidates `realmConfigs`; the status
+    // badge + switch gate additionally need `smsStatus` (email precedent).
+    await mutation.mutateAsync(buildSmsConfigRequest(config)).catch(() => {})
+    queryClient.invalidateQueries({ queryKey: queryKeys.smsStatus(realmId) })
+  }
+
+  async function savePhoneLoginConfig(config: PhoneLoginConfigForm) {
+    if (!canUpdateConfig) {
+      toast.error(m['settings.config_modify_denied']())
+      return
+    }
+
+    await phoneLoginMutation.mutateAsync(config).catch(() => {})
+  }
+
   async function savePasskeyConfig(config: PasskeyConfigForm) {
     if (!canUpdateConfig) {
       toast.error(m['settings.config_modify_denied']())
@@ -592,7 +671,6 @@ export function SettingsPage() {
     await ldapMutation.mutateAsync(config).catch(() => {})
   }
 
-  // --- White-label action wrappers --------------------------------------------
   // Each wrapper guards `settings.manage` (matching sibling forms) and swallows
   // the rejected promise — the mutation's `onError` already surfaces the toast.
   async function saveWhiteLabelDraft(config: WhiteLabelConfigFormValues) {
@@ -631,7 +709,6 @@ export function SettingsPage() {
     await restoreWhiteLabelMutation.mutateAsync().catch(() => {})
   }
 
-  // --- Custom-domain action wrappers ------------------------------------------
   // Guards `settings.manage` and swallows the rejected promise — the mutation's
   // `onError` already surfaces the toast.
   async function updateCustomDomain(config: CustomDomainConfigFormValues) {
@@ -663,6 +740,9 @@ export function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="email" data-testid="email-tab">
             {m['settings.tab_email']()}
+          </TabsTrigger>
+          <TabsTrigger value="sms" data-testid="sms-tab">
+            {m['settings.tab_sms']()}
           </TabsTrigger>
           <TabsTrigger value="ldap" data-testid="ldap-tab">
             {m['settings.ldap.tab']()}
@@ -732,6 +812,25 @@ export function SettingsPage() {
             }
             emailOtpInitialConfig={emailOtpConfigData ?? undefined}
             onSaveEmailOtp={saveEmailOtpConfig}
+          />
+        </TabsContent>
+
+        <TabsContent value="sms">
+          <SmsConfigFormComponent
+            initialConfig={smsConfig}
+            onSave={saveSmsConfig}
+            isLoading={isLoading}
+            disabled={!canUpdateConfig}
+            smsStatus={smsStatusData ?? null}
+            smsStatusError={
+              smsStatusQueryError instanceof Error ? smsStatusQueryError.message : null
+            }
+            phoneLoginInitialConfig={phoneLoginConfigData ?? undefined}
+            phoneLoginLoading={isPhoneLoginLoading}
+            phoneLoginError={
+              phoneLoginQueryError instanceof Error ? phoneLoginQueryError.message : null
+            }
+            onSavePhoneLogin={savePhoneLoginConfig}
           />
         </TabsContent>
 

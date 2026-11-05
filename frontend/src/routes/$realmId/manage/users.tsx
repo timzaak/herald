@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog, PageHeader } from '@/components/shared'
 import { ResetPasswordResultDialog } from '@/components/users/reset-password-result-dialog'
 import { UserSessionsDialog } from '@/components/users/user-sessions-dialog'
+import { UserPhoneManageDialog } from '@/components/users/user-phone-manage-dialog'
 import { m } from '@/paraglide/messages'
 import { useCurrentSearch } from '@/lib/realm-routing'
 import { getErrorMessage } from '@/lib/error-utils'
@@ -57,6 +58,7 @@ export function UsersPage() {
   const rolesDialog = useDialogManager<UserResponse>()
   const resetPasswordDialog = useDialogManager<UserResponse>()
   const sessionsDialog = useDialogManager<UserResponse>()
+  const phoneDialog = useDialogManager<UserResponse>()
   const [resetPasswordResult, setResetPasswordResult] = useState<string | null>(null)
   const { hasPermission } = usePermission()
   const canManage = hasPermission(PERMISSION.USERS_MANAGE)
@@ -66,6 +68,7 @@ export function UsersPage() {
       page: search.page,
       pageSize: search.pageSize,
       email: search.email,
+      phone: search.phone,
       status: search.status,
     })
   )
@@ -127,6 +130,15 @@ export function UsersPage() {
     sessionsDialog.open(user)
   }
 
+  function handleManagePhone(user: UserResponse) {
+    phoneDialog.open(user)
+  }
+
+  function handlePhoneSearchChange(phone: string | undefined) {
+    // Same `to: '.'` rationale as handleSearchChange above (mirror-tree safe).
+    navigate({ to: '.', search: (prev) => ({ ...prev, phone, page: 0 }) })
+  }
+
   function handleSearchChange(email: string | undefined) {
     // `to: '.'` keeps the update on the CURRENT route match: this component
     // backs both /$realmId/manage/users and the prefix-less /manage/users,
@@ -163,15 +175,20 @@ export function UsersPage() {
           <div className="flex items-center gap-4">
             <UserSearch
               email={search.email}
+              phone={search.phone}
               status={search.status}
               onSearchChange={handleSearchChange}
+              onPhoneSearchChange={handlePhoneSearchChange}
               onStatusChange={handleStatusChange}
             />
           </div>
 
-          {data && (
+          {/* Rendered on error too: the query failing (e.g. the phone filter
+          rejecting a partial number with 400) must surface as UserTableError,
+          not as a silently blank list area. */}
+          {(data || error) && (
             <UserTable
-              data={data.items}
+              data={data?.items ?? []}
               isLoading={isLoading}
               error={error ?? undefined}
               onEdit={handleEdit}
@@ -179,6 +196,7 @@ export function UsersPage() {
               onManageRoles={handleManageRoles}
               onResetPassword={handleResetPassword}
               onManageSessions={canManage ? handleManageSessions : undefined}
+              onManagePhone={canManage ? handleManagePhone : undefined}
             />
           )}
         </CardContent>
@@ -269,6 +287,16 @@ export function UsersPage() {
           onOpenChange={sessionsDialog.onOpenChange}
           realmId={realmId}
           user={sessionsDialog.selectedItem}
+        />
+      )}
+
+      {phoneDialog.selectedItem && (
+        <UserPhoneManageDialog
+          open={phoneDialog.isOpen}
+          onOpenChange={phoneDialog.onOpenChange}
+          realmId={realmId}
+          userId={phoneDialog.selectedItem.id}
+          userEmail={phoneDialog.selectedItem.email}
         />
       )}
     </div>

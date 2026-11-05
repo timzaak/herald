@@ -102,6 +102,12 @@ vi.mock('@/data/query-options', () => ({
     queryKey: ['email-otp-status', 'test-realm'],
     queryFn: () => Promise.resolve({ enabled: false }),
   }),
+  // Phone-login flag; default disabled keeps the SMS entry hidden in these
+  // passkey-flow tests (fail-closed; asserted in login-phone-status-gating).
+  phoneLoginStatusQueryOptions: () => ({
+    queryKey: ['phone-login-status', 'test-realm'],
+    queryFn: () => Promise.resolve({ enabled: false }),
+  }),
   // LDAP entry gate; default disabled keeps the corporate-account entry
   // hidden in these password-flow tests (fail-closed).
   ldapStatusQueryOptions: () => ({
