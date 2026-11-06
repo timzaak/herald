@@ -324,9 +324,12 @@ async fn test_scenario_phone_bind_conflict_with_other_account_any_writing_form(
 
     let (user_id, _) = create_user_and_login(ctx, "pl001-mine@test.com", "password123").await;
     let token = mint_first_party_session(ctx, user_id).await;
-    let reauth = obtain_reauth_token(ctx, &token, "change_phone", "password123").await;
 
     for form in [digits, &format!("+86{digits}"), &format!("0086{digits}")] {
+        // The 409 pre-check sits after consume_reauth by design (it must not
+        // become a ticket-free bound-number probe), so every attempt needs a
+        // fresh single-use ticket.
+        let reauth = obtain_reauth_token(ctx, &token, "change_phone", "password123").await;
         let resp = bind_send(ctx, &token, form, &reauth).await;
         assert_eq!(
             resp.status(),

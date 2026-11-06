@@ -305,7 +305,12 @@ async fn test_scenario_sms_otp_send_invalid_phone_uniform_400(ctx: &mut TestCont
 async fn test_scenario_sms_otp_dangling_channel_state_rejected(ctx: &mut TestContext) {
     seed_phone_login_config(&ctx._app_state.pool, &ctx._realm_id, true).await;
 
-    let resp = send_otp(ctx, "+8613800138000").await;
+    // The not-registered 409 fires before the channel gate, so the
+    // dangling-channel 400 is only observable for a registered active phone.
+    let e164 = format!("+86{}", unique_cn_phone("138"));
+    create_active_phone_user(ctx, "pl002-dangling@test.com", &e164, true).await;
+
+    let resp = send_otp(ctx, &e164).await;
     assert_eq!(
         resp.status(),
         StatusCode::BAD_REQUEST,
