@@ -371,99 +371,6 @@ pub async fn create_points_wallet_with_balance(
     existing
 }
 
-/// Create a points transaction record
-pub async fn create_points_transaction(
-    ctx: &mut SchemaTestContext,
-    wallet_id: Uuid,
-    user_id: Uuid,
-    realm_id: &str,
-    transaction_type: TransactionType,
-    amount: i64,
-    balance_after: i64,
-    topup_balance_after: Option<i64>,
-    subscription_balance_after: Option<i64>,
-    credit_type: Option<CreditType>,
-    description: Option<&str>,
-) -> Uuid {
-    // Resolve the bucket_id bound to this wallet so the NOT NULL
-    // points_transactions.bucket_id constraint holds.
-    let bucket_id: Uuid =
-        sqlx::query_scalar::<_, Uuid>("SELECT bucket_id FROM points_wallets WHERE id = $1")
-            .bind(wallet_id)
-            .fetch_one(&ctx.app_state.pool)
-            .await
-            .expect("Failed to resolve bucket_id from points_wallets");
-
-    let transaction_id = Uuid::now_v7();
-
-    sqlx::query(
-        "INSERT INTO points_transactions (id, wallet_id, user_id, realm_id, bucket_id, type, amount, balance_after,
-         topup_balance_after, subscription_balance_after, credit_type, description, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())"
-    )
-    .bind(transaction_id)
-    .bind(wallet_id)
-    .bind(user_id)
-    .bind(realm_id)
-    .bind(bucket_id)
-    .bind(transaction_type.to_string())
-    .bind(amount)
-    .bind(balance_after)
-    .bind(topup_balance_after)
-    .bind(subscription_balance_after)
-    .bind(credit_type.map(|t| t.to_string()))
-    .bind(description)
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("Failed to create points transaction");
-
-    transaction_id
-}
-
-/// Create a credit ledger entry (for tracking credit grants).
-/// Legacy helper kept for completeness; new tests should prefer
-/// `create_credit_ledger_entry_v2`. `points_credit_ledger` no longer stores
-/// `wallet_id` / `transaction_id` / `amount` /
-/// `remaining_amount` columns; `bucket_id` is NOT NULL, `remaining_amount` is a
-/// generated column). This helper resolves the user/realm/bucket from the
-/// wallet row and writes the new-schema columns.
-pub async fn create_credit_ledger_entry(
-    ctx: &mut SchemaTestContext,
-    wallet_id: Uuid,
-    transaction_id: Uuid,
-    credit_type: CreditType,
-    amount: i64,
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
-) {
-    let row = sqlx::query("SELECT user_id, realm_id, bucket_id FROM points_wallets WHERE id = $1")
-        .bind(wallet_id)
-        .fetch_one(&ctx.app_state.pool)
-        .await
-        .expect("Failed to resolve wallet for credit ledger entry");
-    let user_id: Uuid = row.get("user_id");
-    let realm_id: String = row.get("realm_id");
-    let bucket_id: Uuid = row.get("bucket_id");
-
-    sqlx::query(
-        "INSERT INTO points_credit_ledger
-            (id, user_id, realm_id, bucket_id, credit_type, source_type, source_id,
-             granted_amount, used_amount, revoked_amount, expires_at, status,
-             created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'system_grant', $6, $7, 0, 0, $8, 'active', NOW(), NOW())",
-    )
-    .bind(Uuid::now_v7())
-    .bind(user_id)
-    .bind(&realm_id)
-    .bind(bucket_id)
-    .bind(credit_type.to_string())
-    .bind(transaction_id.to_string())
-    .bind(amount)
-    .bind(expires_at)
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("Failed to create credit ledger entry");
-}
-
 /// Get points wallet by user ID
 /// Returns (wallet_id, balance, topup_balance, subscription_balance).
 /// The balance figures are DERIVED from
@@ -666,69 +573,6 @@ pub async fn get_user_transactions(
     .collect()
 }
 
-/// Count transactions by type for a user
-pub async fn count_transactions_by_type(
-    ctx: &SchemaTestContext,
-    user_id: Uuid,
-    transaction_type: TransactionType,
-) -> i64 {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM points_transactions WHERE user_id = $1 AND type = $2",
-    )
-    .bind(user_id)
-    .bind(transaction_type.to_string())
-    .fetch_one(&ctx.app_state.pool)
-    .await
-    .unwrap()
-}
-
-/// Assert points wallet balance matches expected values
-pub async fn assert_points_balance(
-    ctx: &SchemaTestContext,
-    wallet_id: Uuid,
-    expected_total: i64,
-    expected_topup: i64,
-    expected_subscription: i64,
-) {
-    let balance = get_points_balance(ctx, wallet_id).await;
-
-    if let Some((total, topup, subscription)) = balance {
-        assert_eq!(
-            total, expected_total,
-            "Total balance mismatch: expected {}, got {}",
-            expected_total, total
-        );
-        assert_eq!(
-            topup, expected_topup,
-            "Topup balance mismatch: expected {}, got {}",
-            expected_topup, topup
-        );
-        assert_eq!(
-            subscription, expected_subscription,
-            "Subscription balance mismatch: expected {}, got {}",
-            expected_subscription, subscription
-        );
-    } else {
-        panic!("Points wallet not found");
-    }
-}
-
-/// Assert credit ledger entries exist for a specific credit type
-pub async fn assert_credit_ledger_exists(
-    ctx: &SchemaTestContext,
-    user_id: Uuid,
-    credit_type: CreditType,
-    expected_total_amount: i64,
-) {
-    let total = get_total_credit_by_type(ctx, user_id, credit_type).await;
-
-    assert_eq!(
-        total, expected_total_amount,
-        "Total {} credit mismatch: expected {}, got {}",
-        credit_type, expected_total_amount, total
-    );
-}
-
 /// Assert transaction exists for a user
 pub async fn assert_transaction_exists(
     ctx: &SchemaTestContext,
@@ -747,48 +591,6 @@ pub async fn assert_transaction_exists(
         "Expected transaction of type {:?} with amount {} not found for user",
         transaction_type, expected_amount
     );
-}
-
-/// Delete all points data for a user
-pub async fn cleanup_user_points(ctx: &mut SchemaTestContext, user_id: Uuid) {
-    sqlx::query("DELETE FROM points_transactions WHERE user_id = $1")
-        .bind(user_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-
-    sqlx::query("DELETE FROM points_credit_ledger WHERE user_id = $1")
-        .bind(user_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-
-    sqlx::query("DELETE FROM points_wallets WHERE user_id = $1")
-        .bind(user_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-}
-
-/// Delete all points data for an account
-pub async fn cleanup_wallet_points(ctx: &mut SchemaTestContext, wallet_id: Uuid) {
-    sqlx::query("DELETE FROM points_transactions WHERE wallet_id = $1")
-        .bind(wallet_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-
-    sqlx::query("DELETE FROM points_credit_ledger WHERE wallet_id IN (SELECT id FROM points_wallets WHERE id = $1)")
-        .bind(wallet_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-
-    sqlx::query("DELETE FROM points_wallets WHERE id = $1")
-        .bind(wallet_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
 }
 
 /// Create a credit ledger entry (user-focused version)
@@ -1469,45 +1271,6 @@ pub async fn get_consumption_allocations(
         .collect()
 }
 
-/// Check if idempotency key exists
-pub async fn assert_idempotency_key_exists(ctx: &SchemaTestContext, key: &str) {
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM idempotency_keys WHERE idempotency_key = $1)",
-    )
-    .bind(key)
-    .fetch_one(&ctx.app_state.pool)
-    .await
-    .unwrap();
-
-    assert!(exists, "Idempotency key {} should exist", key);
-}
-
-/// Assert transaction exists by type
-pub async fn assert_transaction_exists_by_type(
-    ctx: &SchemaTestContext,
-    user_id: Uuid,
-    transaction_type: herald_core::domain::points::entities::TransactionType,
-    expected_amount: i64,
-) {
-    let transactions =
-        sqlx::query("SELECT * FROM points_transactions WHERE user_id = $1 AND type = $2")
-            .bind(user_id)
-            .bind(transaction_type.to_string())
-            .fetch_all(&ctx.app_state.pool)
-            .await
-            .unwrap();
-
-    let found = transactions
-        .iter()
-        .any(|row| row.get::<i64, _>("amount") == expected_amount);
-
-    assert!(
-        found,
-        "Expected transaction of type {:?} with amount {} not found for user",
-        transaction_type, expected_amount
-    );
-}
-
 /// Create a test Identity for a user
 pub fn create_test_identity(user_id: Uuid, realm_id: &str) -> Identity {
     let user = User {
@@ -1827,19 +1590,6 @@ pub async fn get_points_grant_schedule_by_entitlement(
         .collect()
 }
 
-/// Truncate a UTC datetime to microsecond precision.
-/// Postgres `TIMESTAMPTZ` stores microsecond precision (not nanoseconds), so a
-/// seed value derived from `chrono::Utc::now()` (nanosecond precision) loses
-/// its sub-microsecond nanos on the DB round-trip. Truncating the seed before
-/// writing keeps strict equality assertions (e.g. `expires_at == seed + days`)
-/// exact without loosening them.
-pub fn trunc_to_micros(ts: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
-    use chrono::Timelike;
-    let nanos = ts.timestamp_subsec_nanos();
-    let truncated_nanos = (nanos / 1_000) * 1_000;
-    ts.with_nanosecond(truncated_nanos)
-        .expect("truncated_nanos is a valid subsec nanos value (< 2e9)")
-}
 /// Derived-predicate fragment mirroring production
 /// `compute_available_balance` / consumption selection.
 /// Kept inline (not a constant) so the full SQL stays readable at call sites.
@@ -2290,24 +2040,6 @@ pub async fn grant_record_exists(
     .expect("Failed to check grant record existence")
 }
 
-/// Locate the ledger id for a `(user, source_id)`. Used by reclaim tests
-/// asserting row-level positioning by `source_id`.
-pub async fn find_ledger_by_source_id(
-    ctx: &SchemaTestContext,
-    user_id: Uuid,
-    source_id: &str,
-) -> Option<Uuid> {
-    sqlx::query_scalar::<_, Option<Uuid>>(
-        "SELECT id FROM points_credit_ledger WHERE user_id = $1 AND source_id = $2 LIMIT 1",
-    )
-    .bind(user_id)
-    .bind(source_id)
-    .fetch_optional(&ctx.app_state.pool)
-    .await
-    .expect("Failed to find ledger by source_id")
-    .flatten()
-}
-
 /// Locate the ledger id for a `(schedule_id, period_number)` via the
 /// `points_grant_records.ledger_id` FK (reclaim bridge).
 /// This is the same lookup production reclaim performs — it resolves
@@ -2659,63 +2391,6 @@ pub async fn get_total_quota_limit_by_type(
         })
         .map(|e| e.quota_windows.first().map(|w| w.limit).unwrap_or(0))
         .sum()
-}
-
-/// Seed a `provider_entitlement_mappings` row whose quota-window grant surfaces
-/// via a `quota` distribution rule owned by that mapping (mirroring
-/// `multi_wallet_grant_rule_scenarios::seed_rule`). When `grant_on_subscribe` is
-/// true the rule fires on `subscription_initial`; otherwise no rule is seeded
-/// (no grant configured). Routed to the realm's legacy test bucket.
-/// Returns the mapping id.
-pub async fn create_entitlement_mapping_with_quota_windows(
-    ctx: &SchemaTestContext,
-    realm_id: &str,
-    provider: &str,
-    external_product_id: &str,
-    entitlement_key: &str,
-    quota_windows: &[(i64, i64, &str)],
-    grant_on_subscribe: bool,
-) -> Uuid {
-    let mapping_id = Uuid::now_v7();
-
-    sqlx::query(
-        r#"INSERT INTO provider_entitlement_mappings
-             (id, realm_id, payment_provider, external_product_id, entitlement_key, enabled)
-           VALUES ($1, $2, $3, $4, $5, true)"#,
-    )
-    .bind(mapping_id)
-    .bind(realm_id)
-    .bind(provider)
-    .bind(external_product_id)
-    .bind(entitlement_key)
-    .execute(&ctx.app_state.pool)
-    .await
-    .expect("Failed to create entitlement mapping with quota_windows");
-
-    if grant_on_subscribe {
-        let bucket_id = ensure_test_bucket_for_realm(&ctx.app_state.pool, realm_id).await;
-        let windows_json = quota_windows_jsonb(quota_windows);
-        let rule_id = Uuid::now_v7();
-        sqlx::query(
-            r#"INSERT INTO points_distribution_rules
-                 (id, realm_id, owner_type, entitlement_mapping_id, bucket_id,
-                  trigger_sources, grant_mode, points_amount, validity_days,
-                  quota_windows, enabled, display_order)
-               VALUES ($1, $2, 'entitlement_mapping', $3, $4,
-                       $5, 'quota', NULL, 0, $6, true, 0)"#,
-        )
-        .bind(rule_id)
-        .bind(realm_id)
-        .bind(mapping_id)
-        .bind(bucket_id)
-        .bind(["subscription_initial"])
-        .bind(&windows_json)
-        .execute(&ctx.app_state.pool)
-        .await
-        .expect("Failed to seed mapping-owned quota distribution rule");
-    }
-
-    mapping_id
 }
 
 /// Grant a quota entitlement directly for scenario tests. This is intentionally

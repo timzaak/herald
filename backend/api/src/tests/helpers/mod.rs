@@ -8,12 +8,10 @@ pub mod billing_seed_helpers;
 pub mod client_helpers;
 #[cfg(test)]
 pub mod credit_bucket_helpers;
-#[cfg(test)]
-pub mod creem_mocks;
 // IAP test-only helpers (Apple JWS fixtures + Google Play Developer API
 // wiremock + realm_config inserters). Not exported via `pub use` — imported
 // explicitly by `scenarios/billing/iap_*_scenarios.rs`, mirroring the
-// `creem_mocks` / `otp_helpers` pattern.
+// `otp_helpers` pattern.
 pub mod device_code_helpers;
 pub mod email_config_helpers;
 #[cfg(test)]
@@ -27,8 +25,6 @@ pub mod oauth_pkce_helpers;
 pub mod oauth_test_helpers;
 #[cfg(test)]
 pub mod passkey_authenticator;
-#[cfg(test)]
-pub mod payment_assertions;
 pub mod points_grant_helpers;
 pub mod points_helpers;
 pub mod rbac_helpers;

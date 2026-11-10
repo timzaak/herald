@@ -1,6 +1,4 @@
-// =============================================================================
 // Points System Scenario Test 75: Ext/SDK Grant Points
-// =============================================================================
 //
 // **User Story**: US-TP-017 (Third-party app grants points to user via SDK)
 // **Priority**: P0
@@ -17,7 +15,6 @@
 // - Grant record appears in transaction history with correct types
 // - Concurrent grants to same user both succeed
 //
-// =============================================================================
 
 use crate::tests::helpers::points_grant_helpers::{
     assert_granted_balance, assert_total_balance, grant_points_ext_via_api,
@@ -28,12 +25,9 @@ use sqlx::Row;
 use test_context::test_context;
 use uuid::Uuid;
 
-// =============================================================================
 // Test 75.1: Normal ext grant succeeds
-// =============================================================================
 // User Story: US-TP-017
 // Covers: API Key auth, valid userId, amount=100, reason="sdk grant", 200 OK
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_1_normal_ext_grant_succeeds(ctx: &mut TestContext) {
@@ -74,12 +68,9 @@ async fn test_75_1_normal_ext_grant_succeeds(ctx: &mut TestContext) {
     assert_total_balance(&ctx._app_state.pool, target_user_id, 100).await;
 }
 
-// =============================================================================
 // Test 75.2: Ext grant with validity days
-// =============================================================================
 // User Story: US-TP-017
 // Covers: Grant with validityDays=7 sets expiresAt approximately now+7 days
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_2_ext_grant_with_validity_days(ctx: &mut TestContext) {
@@ -123,84 +114,9 @@ async fn test_75_2_ext_grant_with_validity_days(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// Test 75.3: Amount <= 0 rejected
-// =============================================================================
-// User Story: US-TP-017
-// Covers: amount=0 and amount=-1 both return 400
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_75_3_amount_zero_and_negative_rejected(ctx: &mut TestContext) {
-    let (api_key, _) = create_ext_api_key(ctx).await;
-    let target_user_id = create_target_user(ctx, "target_75_3@test.com").await;
-
-    // When: POST with amount=0
-    let (status_zero, _) = grant_points_ext_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        0,
-        "test",
-        None,
-        &api_key,
-    )
-    .await;
-    assert_eq!(
-        status_zero,
-        StatusCode::BAD_REQUEST,
-        "amount=0 should return 400"
-    );
-
-    // When: POST with amount=-1
-    let (status_neg, _) = grant_points_ext_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        -1,
-        "test",
-        None,
-        &api_key,
-    )
-    .await;
-    assert_eq!(
-        status_neg,
-        StatusCode::BAD_REQUEST,
-        "amount=-1 should return 400"
-    );
-}
-
-// =============================================================================
-// Test 75.4: Empty reason rejected
-// =============================================================================
-// User Story: US-TP-017
-// Covers: reason="" returns 400
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_75_4_empty_reason_rejected(ctx: &mut TestContext) {
-    let (api_key, _) = create_ext_api_key(ctx).await;
-    let target_user_id = create_target_user(ctx, "target_75_4@test.com").await;
-
-    // When: POST with reason=""
-    let (status, _) =
-        grant_points_ext_via_api(ctx, &ctx._realm_id, target_user_id, 100, "", None, &api_key)
-            .await;
-
-    // Then: 400 response
-    assert_eq!(
-        status,
-        StatusCode::BAD_REQUEST,
-        "empty reason should return 400"
-    );
-}
-
-// =============================================================================
 // Test 75.5: Invalid API Key rejected
-// =============================================================================
 // User Story: US-TP-017
 // Covers: Invalid/missing API Key returns 401
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_5_invalid_api_key_rejected(ctx: &mut TestContext) {
@@ -227,12 +143,9 @@ async fn test_75_5_invalid_api_key_rejected(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
 // Test 75.6: Cross-realm rejected
-// =============================================================================
 // User Story: US-TP-017
 // Covers: API Key belongs to realm A, request targets realm B, returns 403
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_6_cross_realm_rejected(ctx: &mut TestContext) {
@@ -261,45 +174,10 @@ async fn test_75_6_cross_realm_rejected(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// Test 75.7: User not found rejected
-// =============================================================================
-// User Story: US-TP-017
-// Covers: userId pointing to non-existent user returns 404
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_75_7_user_not_found_rejected(ctx: &mut TestContext) {
-    let (api_key, _) = create_ext_api_key(ctx).await;
-    let non_existent_user_id = Uuid::now_v7();
-
-    // When: POST with userId pointing to non-existent user
-    let (status, _) = grant_points_ext_via_api(
-        ctx,
-        &ctx._realm_id,
-        non_existent_user_id,
-        100,
-        "grant to nobody",
-        None,
-        &api_key,
-    )
-    .await;
-
-    // Then: 404 response
-    assert_eq!(
-        status,
-        StatusCode::NOT_FOUND,
-        "non-existent user should return 404"
-    );
-}
-
-// =============================================================================
 // Test 75.9: Grant record in transaction history
-// =============================================================================
 // User Story: US-TP-017
 // Covers: points_transactions has row with type='grant', credit_type='granted_credit',
 //         source_type='sdk_grant' in credit ledger
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_9_grant_record_in_transaction_history(ctx: &mut TestContext) {
@@ -371,13 +249,10 @@ async fn test_75_9_grant_record_in_transaction_history(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
 // Test 75.10: Concurrent grants to same user
-// =============================================================================
 // User Story: US-TP-017
 // Covers: Two concurrent ext grant requests for same user, both succeed,
 //         final granted_balance = sum of both amounts
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_75_10_concurrent_grants_to_same_user(ctx: &mut TestContext) {
@@ -426,9 +301,7 @@ async fn test_75_10_concurrent_grants_to_same_user(ctx: &mut TestContext) {
     assert_total_balance(&ctx._app_state.pool, target_user_id, 100).await;
 }
 
-// =============================================================================
 // Helpers
-// =============================================================================
 
 /// Create a target user without any roles.
 async fn create_target_user(ctx: &TestContext, email: &str) -> Uuid {

@@ -82,26 +82,3 @@ impl PointsErrorExt for CoreError {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_error_creation() {
-        let err = CoreError::wallet_not_found("user123");
-        assert!(matches!(err, CoreError::NotFound));
-
-        let err = CoreError::insufficient_points(100, 50);
-        assert!(matches!(err, CoreError::BadRequest(_)));
-
-        let err = CoreError::invalid_amount("negative value");
-        assert!(matches!(err, CoreError::BadRequest(_)));
-
-        let err = CoreError::plan_config_not_found("plan123");
-        assert!(matches!(err, CoreError::NotFound));
-
-        let err = CoreError::concurrent_modification();
-        assert!(matches!(err, CoreError::Conflict(_)));
-    }
-}

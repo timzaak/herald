@@ -1,30 +1,17 @@
-// =============================================================================
 // Billing Test Helpers
-// =============================================================================
 //
 // Shared helpers for billing-related API tests.
 // Adapted for product_reduce: subscription uses entitlement_key instead of
 // plan_id/tier/billing_period; Product/Plan helpers removed; entitlement
 // mapping helpers added.
 //
-// =============================================================================
 
 #![allow(dead_code)]
 
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
-use axum::{body::Body, http::Request};
-use herald_core::domain::billing::entities::SubscriptionStatus;
-use hex;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use tower::ServiceExt;
 use uuid::Uuid;
 
-type HmacSha256 = Hmac<Sha256>;
-
-/// ============================================================================
 /// Billing Test Setup Helpers
-/// ============================================================================
 ///
 /// Setup admin session for billing tests
 pub async fn setup_billing_admin_session(ctx: &mut TestContext, email: &str) -> String {
@@ -52,9 +39,7 @@ pub async fn setup_billing_admin_session_with_user(
     (admin_token, user_uuid)
 }
 
-/// ============================================================================
 /// Entitlement Mapping Test Data Creation Helpers
-/// =============================================================================
 ///
 /// Create a test entitlement mapping via direct SQL insertion.
 /// Returns the mapping ID.
@@ -259,9 +244,7 @@ pub async fn setup_test_entitlement_mapping_full(
     mapping_id
 }
 
-/// ============================================================================
 /// Subscription Test Data Creation Helpers
-/// =============================================================================
 ///
 /// Create a test subscription with entitlement_key via direct SQL insertion.
 /// Uses the new schema (entitlement_key, external_price_id, provider_metadata).
@@ -314,27 +297,7 @@ pub async fn create_test_subscription_with_entitlement(
     subscription_id
 }
 
-/// Delete a subscription via SQL (for cleanup)
-pub async fn delete_test_subscription(ctx: &mut TestContext, subscription_id: Uuid) {
-    sqlx::query("DELETE FROM subscription WHERE id = $1")
-        .bind(subscription_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-}
-
-/// Delete subscriptions by client app ID (for cleanup)
-pub async fn delete_subscriptions_by_client_app(ctx: &mut TestContext, client_app_id: Uuid) {
-    sqlx::query("DELETE FROM subscription WHERE client_app_id = $1")
-        .bind(client_app_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-}
-
-/// ============================================================================
 /// Client App Creation Helper
-/// =============================================================================
 ///
 pub fn client_app_create_json(client_id: &str, name: &str, redirect_uris: &[&str]) -> String {
     use serde_json::json;
@@ -349,162 +312,7 @@ pub fn client_app_create_json(client_id: &str, name: &str, redirect_uris: &[&str
     payload.to_string()
 }
 
-/// ============================================================================
-/// Payment Flow Helpers
-/// ============================================================================
-///
-/// Send a webhook event to the system (Creem)
-///
-/// Returns the HTTP response
-pub async fn send_webhook_event(
-    app: &axum::Router,
-    realm_id: &str,
-    payload: serde_json::Value,
-    webhook_secret: &str,
-) -> axum::response::Response {
-    let payload_str = serde_json::to_string(&payload).unwrap();
-
-    // Generate signature
-    let mut mac = HmacSha256::new_from_slice(webhook_secret.as_bytes()).unwrap();
-    mac.update(payload_str.as_bytes());
-    let signature = hex::encode(mac.finalize().into_bytes());
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/third/pay/{}/creem/webhooks", realm_id))
-                .header("creem-signature", signature)
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload_str))
-                .unwrap(),
-        )
-        .await
-        .unwrap()
-}
-
-/// Verify subscription status in database
-pub async fn verify_subscription_status(
-    ctx: &TestContext,
-    subscription_id: Uuid,
-    expected_status: SubscriptionStatus,
-) {
-    let status_str: String = sqlx::query_scalar("SELECT status FROM subscription WHERE id = $1")
-        .bind(subscription_id)
-        .fetch_one(&ctx.app_state.pool)
-        .await
-        .expect("Subscription not found");
-
-    let actual_status: SubscriptionStatus = status_str
-        .parse()
-        .expect("Invalid subscription status in database");
-
-    assert_eq!(
-        actual_status, expected_status,
-        "Expected status {:?}, got {:?}",
-        expected_status, actual_status
-    );
-}
-
-/// Verify payment event exists in database
-pub async fn verify_payment_event_exists(ctx: &TestContext, creem_event_id: &str) -> bool {
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM payment_event WHERE external_event_id = $1 AND payment_provider = 'creem'")
-            .bind(creem_event_id)
-            .fetch_one(&ctx.app_state.pool)
-            .await
-            .unwrap();
-
-    count > 0
-}
-
-/// Get subscription by client app ID
-pub async fn get_subscription_by_client_app(
-    ctx: &TestContext,
-    client_app_id: Uuid,
-) -> Option<Uuid> {
-    sqlx::query_scalar("SELECT id FROM subscription WHERE client_app_id = $1")
-        .bind(client_app_id)
-        .fetch_optional(&ctx.app_state.pool)
-        .await
-        .unwrap()
-}
-
-/// ============================================================================
-/// Subscription Status Transition Helpers
-/// ============================================================================
-///
-/// Update subscription status directly via SQL
-pub async fn update_subscription_status(
-    ctx: &mut TestContext,
-    subscription_id: Uuid,
-    new_status: &str,
-) {
-    // When canceling, also set cancel_at to now
-    if new_status == "canceled" {
-        sqlx::query(
-            "UPDATE subscription SET status = $1, cancel_at = NOW(), updated_at = NOW() WHERE id = $2"
-        )
-        .bind(new_status)
-        .bind(subscription_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-    } else {
-        sqlx::query("UPDATE subscription SET status = $1, updated_at = NOW() WHERE id = $2")
-            .bind(new_status)
-            .bind(subscription_id)
-            .execute(&ctx.app_state.pool)
-            .await
-            .unwrap();
-    }
-}
-
-/// Update subscription period dates
-pub async fn update_subscription_period(
-    ctx: &mut TestContext,
-    subscription_id: Uuid,
-    period_start: chrono::DateTime<chrono::Utc>,
-    period_end: chrono::DateTime<chrono::Utc>,
-) {
-    sqlx::query(
-        "UPDATE subscription SET current_period_start = $1, current_period_end = $2, updated_at = NOW() WHERE id = $3"
-    )
-    .bind(period_start)
-    .bind(period_end)
-    .bind(subscription_id)
-    .execute(&ctx.app_state.pool)
-    .await
-    .unwrap();
-}
-
-/// ============================================================================
-/// Cleanup Helpers
-/// ============================================================================
-///
-/// Clean up payment events for a specific subscription
-pub async fn cleanup_payment_events(ctx: &mut TestContext, subscription_id: Uuid) {
-    sqlx::query("DELETE FROM payment_event WHERE subscription_id = $1")
-        .bind(subscription_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
-}
-
-/// Clean up payment events by Creem event ID
-pub async fn cleanup_payment_event_by_creem_id(ctx: &mut TestContext, creem_event_id: &str) {
-    sqlx::query(
-        "DELETE FROM payment_event WHERE external_event_id = $1 AND payment_provider = 'creem'",
-    )
-    .bind(creem_event_id)
-    .execute(&ctx.app_state.pool)
-    .await
-    .unwrap();
-}
-
-/// ============================================================================
 /// Stripe Configuration Helpers
-/// =============================================================================
 ///
 /// Setup Stripe configuration for a test realm
 pub async fn setup_stripe_config(
@@ -571,32 +379,4 @@ pub async fn insert_realm_base_url(
     .execute(&ctx.app_state.pool)
     .await
     .expect("Failed to insert base_url realm config");
-}
-
-/// Verify payment event exists with Stripe event ID
-pub async fn verify_stripe_payment_event_exists(ctx: &TestContext, stripe_event_id: &str) -> bool {
-    let count: i64 =
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM payment_event WHERE external_event_id = $1 AND payment_provider = 'stripe'"
-        )
-        .bind(stripe_event_id)
-        .fetch_one(&ctx.app_state.pool)
-        .await
-        .unwrap();
-
-    count > 0
-}
-
-/// Get subscription by Stripe subscription ID
-pub async fn get_subscription_by_stripe_id(
-    ctx: &TestContext,
-    stripe_subscription_id: &str,
-) -> Option<Uuid> {
-    sqlx::query_scalar(
-        "SELECT id FROM subscription WHERE external_subscription_id = $1 AND payment_provider = 'stripe'"
-    )
-    .bind(stripe_subscription_id)
-    .fetch_optional(&ctx.app_state.pool)
-    .await
-    .unwrap()
 }

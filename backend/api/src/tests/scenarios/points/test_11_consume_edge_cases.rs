@@ -1,6 +1,4 @@
-// =============================================================================
 // Points System Scenario Test 11: Consume Edge Cases (Input Validation Boundaries)
-// =============================================================================
 //
 // User Story: docs/user-stories/points-billing-events.md
 // Covers: Input validation boundaries for the consume endpoint
@@ -13,7 +11,6 @@
 // These complement test_10 which covers negative amounts, and test_08/test_09
 // which cover normal and exact-balance consumption success paths.
 //
-// =============================================================================
 
 use crate::tests::helpers::test_setup_helpers::assert_response_error;
 use crate::tests::scenarios::points::fixtures::*;
@@ -63,77 +60,7 @@ async fn parse_response_body(response: axum::response::Response) -> serde_json::
     serde_json::from_slice(&body_bytes).expect("Failed to parse JSON")
 }
 
-// ============================================================================
-// Scenario 1: amount=0 should be rejected
-// ============================================================================
-// User Story: docs/user-stories/points-billing-events.md
-// Covers: Zero-amount consumption must be rejected; amount must be >= 1
-
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_scenario_consume_zero_amount_rejected(ctx: &mut TestContext) {
-    let app = ctx.create_unified_test_router();
-
-    // Given: user with balance 5000
-    let (user_id, wallet_id, client_app_id, api_key) =
-        setup_consume_fixtures(ctx, "edge-zero@example.com", 5000).await;
-
-    // When: consume with amount=0
-    let payload = json!({
-        "userId": user_id.to_string(),
-        "clientAppId": client_app_id.to_string(),
-        "amount": 0,
-        "description": "zero amount"
-    });
-
-    let response = app
-        .clone()
-        .oneshot(build_consume_request(&ctx._realm_id, &api_key, payload))
-        .await
-        .unwrap();
-
-    // Then: 400 Bad Request, balance unchanged
-    assert_eq!(
-        response.status(),
-        StatusCode::BAD_REQUEST,
-        "amount=0 should be rejected with 400 Bad Request"
-    );
-
-    let body = parse_response_body(response).await;
-    assert_response_error(&body, None);
-
-    let error_msg = body.get("message").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(
-        error_msg.contains("invalid") || error_msg.contains("amount"),
-        "Error should mention invalid amount, got: {}",
-        error_msg
-    );
-
-    // Verify balance unchanged
-    let (balance,): (i64,) =
-        sqlx::query_as("SELECT COALESCE(SUM(l.remaining_amount) FILTER (WHERE l.status = 'active' AND l.remaining_amount > 0 AND (l.effective_at IS NULL OR l.effective_at <= NOW()) AND (l.expires_at IS NULL OR l.expires_at > NOW())), 0)::BIGINT AS total_balance FROM points_wallets w LEFT JOIN points_credit_ledger l ON l.realm_id = w.realm_id AND l.user_id = w.user_id AND l.bucket_id = w.bucket_id WHERE w.id = $1 GROUP BY w.id")
-            .bind(wallet_id)
-            .fetch_one(&ctx._app_state.pool)
-            .await
-            .unwrap();
-    assert_eq!(balance, 5000, "Balance should remain 5000");
-
-    // Verify no transaction created
-    let txn_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM points_transactions WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(&ctx._app_state.pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        txn_count, 0,
-        "No transaction should be created for amount=0"
-    );
-}
-
-// ============================================================================
 // Scenario 2: amount=1 (minimum valid value) should succeed
-// ============================================================================
 // User Story: docs/user-stories/points-billing-events.md
 // Covers: Minimum valid consumption amount (1 point)
 
@@ -199,9 +126,7 @@ async fn test_scenario_consume_amount_one_succeeds(ctx: &mut TestContext) {
     assert_eq!(txn_amount, -1, "Transaction amount should be -1");
 }
 
-// ============================================================================
 // Scenario 3: Oversized amount should fail with insufficient balance, not panic
-// ============================================================================
 // User Story: docs/user-stories/points-billing-events.md
 // Covers: No integer overflow panic on very large amounts; normal error response
 

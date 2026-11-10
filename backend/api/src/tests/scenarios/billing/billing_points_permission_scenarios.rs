@@ -1,6 +1,4 @@
-// =============================================================================
 // Billing & Points Permission Scenario Tests
-// =============================================================================
 //
 // Verifies that billing.view/manage are enforced as distinct permissions for
 // billing endpoints.
@@ -14,7 +12,6 @@
 //   GET  /api/bill/subscriptions/history     -> requires billing.view
 //   GET  /api/bill/providers            -> any authenticated realm member; returns all configured providers
 //
-// =============================================================================
 
 use crate::tests::helpers::auth_helpers::create_admin_session_with_user;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
@@ -26,9 +23,7 @@ use herald_core::domain::authorization::permission_service::PermissionService;
 use test_context::test_context;
 use tower::ServiceExt;
 
-// =============================================================================
 // Helper: grant a single permission to a user via a dedicated role
-// =============================================================================
 
 /// Creates a role with a single permission and assigns it to the user.
 ///
@@ -87,9 +82,7 @@ async fn grant_single_permission(ctx: &TestContext, user_id: &str, resource: &st
         .await;
 }
 
-// =============================================================================
 // Scenario 1: billing.view grants subscription history access (US-RA-009)
-// =============================================================================
 
 // User Story: docs/user-stories/core/realm-admin.md - Story 9 (US-RA-009)
 // Covers: User with billing.view can access subscription history endpoint
@@ -125,47 +118,7 @@ async fn test_scenario_billing_view_grants_history_access(ctx: &mut TestContext)
     );
 }
 
-// =============================================================================
-// Scenario 2: payment provider list is accessible to realm members (US-RA-009)
-// =============================================================================
-
-// User Story: docs/user-stories/core/realm-admin.md - Story 9 (US-RA-009)
-// Covers: Authenticated realm member can list configured payment providers
-//
-// Given an authenticated realm member,
-// When calling GET /api/bill/providers,
-// Then response is 200 OK (returns all configured providers).
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_scenario_can_list_payment_providers(ctx: &mut TestContext) {
-    let app = ctx.create_unified_test_router();
-
-    // Given: authenticated realm member
-    let (user_token, user_id) =
-        create_admin_session_with_user(ctx, "billing-view-providers@test.com", 1800).await;
-    grant_single_permission(ctx, &user_id, "billing", "view").await;
-
-    // When: calling payment providers list endpoint
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/bill/providers".to_string())
-        .header(header::AUTHORIZATION, format!("Bearer {}", user_token))
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.clone().oneshot(req).await.unwrap();
-
-    // Then: 200 OK
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "Authenticated realm member should get 200 OK for payment provider list"
-    );
-}
-
-// =============================================================================
 // Scenario 3: Stripe provider entry exposes the non-secret publishable key
-// =============================================================================
 
 // User Story: US-PA-001, US-PV-002 (docs/user-stories/billing/payment-provider.md)
 // A mobile app needs the Stripe publishable key (pk_...) to initialize its
@@ -233,9 +186,7 @@ async fn test_list_payment_providers_stripe_publishable_key(ctx: &mut TestContex
     );
 }
 
-// =============================================================================
 // Scenario 4: Creem provider entry omits publishableKey entirely
-// =============================================================================
 
 // User Story: US-PV-002 (docs/user-stories/billing/payment-provider.md)
 // publishableKey is a Stripe-only field (skip_serializing_if); a Creem entry

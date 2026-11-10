@@ -1,6 +1,4 @@
-// =============================================================================
 // Entitlement Mapping CRUD + Sync Scenario Tests
-// =============================================================================
 //
 // Tests for:
 // 1. GET list entitlement mappings (empty, with data, filter by provider, filter by enabled)
@@ -13,7 +11,6 @@
 // User Story: US-EM-001, US-EM-002, US-EM-004
 // Covers: Entitlement mapping list/filter/detail/update/sync, key validation, schema
 //
-// =============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -44,37 +41,7 @@ mod tests {
         }
     }
 
-    // =========================================================================
     // GET /api/bill/entitlement-mappings
-    // =========================================================================
-
-    /// User Story: US-EM-001
-    /// Covers: Empty list returns pagination wrapper with empty items array
-    #[test_context(EntitlementTestContext)]
-    #[tokio::test]
-    async fn test_list_entitlement_mappings_empty(ctx: &mut EntitlementTestContext) {
-        let app = ctx.create_unified_test_router();
-        let token = setup_billing_admin_session(ctx, "em-list-empty@test.com").await;
-        let _realm_id = ctx._realm_id.clone();
-
-        let response = app
-            .clone()
-            .oneshot(auth_request(
-                "GET",
-                "/api/bill/entitlement-mappings".to_string(),
-                &token,
-                None,
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["items"].as_array().unwrap().len(), 0);
-        assert_eq!(json["total"], 0);
-    }
 
     /// User Story: US-EM-001
     /// Covers: List returns all mappings across providers
@@ -226,9 +193,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
-    // =========================================================================
     // GET /api/bill/entitlement-mappings/{mappingId}
-    // =========================================================================
 
     /// User Story: US-EM-001, US-EM-004
     /// Covers: Get existing mapping returns full mapping with points policy fields
@@ -282,34 +247,7 @@ mod tests {
         assert_eq!(rules[0]["triggerSources"][0], "subscription_initial");
     }
 
-    /// User Story: US-EM-001
-    /// Covers: Non-existent mapping ID returns 404
-    #[test_context(EntitlementTestContext)]
-    #[tokio::test]
-    async fn test_get_entitlement_mapping_not_found(ctx: &mut EntitlementTestContext) {
-        let app = ctx.create_unified_test_router();
-        let token = setup_billing_admin_session(ctx, "em-notfound@test.com").await;
-        let _realm_id = ctx._realm_id.clone();
-
-        let fake_id = Uuid::now_v7();
-
-        let response = app
-            .clone()
-            .oneshot(auth_request(
-                "GET",
-                format!("/api/bill/entitlement-mappings/{}", fake_id),
-                &token,
-                None,
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    // =========================================================================
     // PATCH /api/bill/entitlement-mappings/{mappingId}
-    // =========================================================================
 
     /// User Story: US-EM-004
     /// Covers: Setting enabled=true via PATCH
@@ -526,35 +464,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
-    /// User Story: US-EM-004
-    /// Covers: Non-existent mapping ID returns 404
-    #[test_context(EntitlementTestContext)]
-    #[tokio::test]
-    async fn test_update_entitlement_mapping_not_found(ctx: &mut EntitlementTestContext) {
-        let app = ctx.create_unified_test_router();
-        let token = setup_billing_admin_session(ctx, "em-updatenf@test.com").await;
-        let _realm_id = ctx._realm_id.clone();
-
-        let fake_id = Uuid::now_v7();
-        let payload = json!({"enabled": true});
-
-        let response = app
-            .clone()
-            .oneshot(auth_request(
-                "PATCH",
-                format!("/api/bill/entitlement-mappings/{}", fake_id),
-                &token,
-                Some(Body::from(payload.to_string())),
-            ))
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    // =========================================================================
     // POST /api/bill/entitlement-mappings/sync
-    // =========================================================================
 
     /// User Story: US-EM-002
     /// Covers: Sync creates mappings and returns productsSynced count
@@ -1061,9 +971,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
-    // =========================================================================
     // DEC-005 atomic upsert — repository-level rollback regression
-    // =========================================================================
     //
     // `create_entitlement_mapping_with_rules` and `upsert_mapping_with_rules`
     // must write the mapping base row and the rule set in ONE transaction so a

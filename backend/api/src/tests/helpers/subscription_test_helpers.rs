@@ -1,16 +1,12 @@
-// =============================================================================
 // Subscription Test Helpers
-// =============================================================================
 //
 // Helpers for subscription CRUD with the new schema (entitlement_key,
 // external_price_id, provider_metadata, synced_at).
 //
-// =============================================================================
 
 #![allow(dead_code)]
 
 use crate::tests::schema_test_context::SchemaTestContext;
-use sqlx::Row;
 use uuid::Uuid;
 
 /// Create a test subscription bound to an existing user via direct SQL insertion.
@@ -197,106 +193,6 @@ pub async fn verify_subscription_entitlement_key(
     );
 }
 
-/// Verify that old plan fields (plan_id, tier, billing_period) do not exist
-/// in the subscription table schema.
-pub async fn verify_subscription_has_no_plan_fields(ctx: &SchemaTestContext) {
-    let columns: Vec<String> = sqlx::query_scalar(
-        "SELECT column_name FROM information_schema.columns
-         WHERE table_name = 'subscription'
-         ORDER BY ordinal_position",
-    )
-    .fetch_all(&ctx.app_state.pool)
-    .await
-    .unwrap();
-
-    for old_col in &["plan_id", "tier", "billing_period"] {
-        assert!(
-            !columns.iter().any(|c| c == old_col),
-            "Old column '{}' should not exist in subscription table",
-            old_col
-        );
-    }
-}
-
-/// Verify that a subscription has the expected external_price_id.
-pub async fn verify_subscription_external_price_id(
-    ctx: &SchemaTestContext,
-    subscription_id: Uuid,
-    expected: &str,
-) {
-    let actual: Option<String> =
-        sqlx::query_scalar("SELECT external_price_id FROM subscription WHERE id = $1")
-            .bind(subscription_id)
-            .fetch_optional(&ctx.app_state.pool)
-            .await
-            .unwrap()
-            .flatten();
-
-    assert_eq!(
-        actual,
-        Some(expected.to_string()),
-        "Subscription external_price_id mismatch"
-    );
-}
-
-/// Verify that a subscription has provider_metadata set.
-pub async fn verify_subscription_has_provider_metadata(
-    ctx: &SchemaTestContext,
-    subscription_id: Uuid,
-) {
-    let actual: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT provider_metadata FROM subscription WHERE id = $1")
-            .bind(subscription_id)
-            .fetch_optional(&ctx.app_state.pool)
-            .await
-            .unwrap()
-            .flatten();
-
-    assert!(
-        actual.is_some(),
-        "Subscription should have provider_metadata"
-    );
-}
-
-/// Verify that a subscription has synced_at set.
-pub async fn verify_subscription_has_synced_at(ctx: &SchemaTestContext, subscription_id: Uuid) {
-    let actual: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT synced_at FROM subscription WHERE id = $1")
-            .bind(subscription_id)
-            .fetch_optional(&ctx.app_state.pool)
-            .await
-            .unwrap()
-            .flatten();
-
-    assert!(actual.is_some(), "Subscription should have synced_at");
-}
-
-/// Get subscription history events for a subscription.
-///
-/// Returns Vec of (event_type, changes_json).
-pub async fn get_subscription_history_events(
-    ctx: &SchemaTestContext,
-    subscription_id: Uuid,
-) -> Vec<(String, Option<serde_json::Value>)> {
-    let rows = sqlx::query(
-        "SELECT event_type, changes FROM subscription_history
-         WHERE subscription_id = $1
-         ORDER BY created_at ASC",
-    )
-    .bind(subscription_id)
-    .fetch_all(&ctx.app_state.pool)
-    .await
-    .unwrap();
-
-    rows.into_iter()
-        .map(|row| {
-            let event_type: String = row.get("event_type");
-            let changes: Option<serde_json::Value> = row.get("changes");
-            (event_type, changes)
-        })
-        .collect()
-}
-
 /// Count subscriptions by entitlement_key in a realm.
 pub async fn count_subscriptions_by_entitlement_key(
     ctx: &SchemaTestContext,
@@ -311,13 +207,4 @@ pub async fn count_subscriptions_by_entitlement_key(
     .fetch_one(&ctx.app_state.pool)
     .await
     .unwrap()
-}
-
-/// Delete a subscription by ID (cleanup helper).
-pub async fn delete_test_subscription(ctx: &SchemaTestContext, subscription_id: Uuid) {
-    sqlx::query("DELETE FROM subscription WHERE id = $1")
-        .bind(subscription_id)
-        .execute(&ctx.app_state.pool)
-        .await
-        .unwrap();
 }

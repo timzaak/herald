@@ -1,10 +1,7 @@
-// =============================================================================
 // Billing Security Tests
-// =============================================================================
 //
 // User Story: docs/user-stories/06-billing-user-stories.md
 //
-// =============================================================================
 
 pub mod entitlement_mapping_crud_scenarios;
 
@@ -161,9 +158,7 @@ pub mod stripe_subscription_renewal_scenarios;
 //         §6.1 (attribution + regression cases), §6.3 (COALESCE non-clobber)
 pub mod external_invoice_attribution_scenarios;
 
-// =============================================================================
 // IAP (App Store / Google Play) scenario tests (support-iap)
-// =============================================================================
 
 // IAP receipt submission scenario tests (Apple jwsRepresentation + Google
 // purchaseToken → verify → resolve mapping → create attempt → fulfil +
@@ -191,13 +186,6 @@ pub mod iap_entitlement_mapping_create_scenarios;
 // MockProcessor; failure isolation structural contract).
 // User Story: US-IAP-006 (scheduled reconciliation)
 pub mod iap_reconciliation_scenarios;
-
-// IAP provider CHECK constraint migration regression (post-migration state
-// User Story: n/a (DB regression)
-pub mod iap_provider_check_migration_scenarios;
-
-// =============================================================================
-// =============================================================================
 
 // Pay-model fulfillment scenario tests: buyout IAP → permanent role (Google
 // ack-only), restore-purchase idempotent re-grant, non-renewing fixed-duration

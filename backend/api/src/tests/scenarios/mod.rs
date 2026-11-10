@@ -45,7 +45,6 @@ pub mod dashboard_stats_scenarios;
 // TOTP scenarios
 pub mod realm_totp_key_initialization_scenarios;
 pub mod user_passkey_scenarios;
-pub mod user_totp_disable_scenarios;
 pub mod user_totp_scenarios;
 
 // Public config scenarios

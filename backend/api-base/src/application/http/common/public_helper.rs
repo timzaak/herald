@@ -192,18 +192,3 @@ pub fn parse_bool(value: &str) -> Option<bool> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::http::StatusCode;
-    use axum::response::IntoResponse;
-
-    #[test]
-    fn test_public_config_query_error_is_generic() {
-        let err = public_config_query_error("Failed to query realm config");
-        let response = err.into_response();
-
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    }
-}

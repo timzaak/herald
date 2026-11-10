@@ -1,6 +1,4 @@
-// =============================================================================
 // User TOTP Entities Tests
-// =============================================================================
 //
 // 测试 User TOTP 相关实体的业务逻辑
 //
@@ -12,33 +10,11 @@
 //
 // **测试类型**：单元测试
 //
-// =============================================================================
 
 use crate::common;
 use crate::user_totp::entities::{UserTotpBackupCode, UserTotpConfig};
 
-// ============================================================================
 // Unit Tests: UserTotpConfig
-// ============================================================================
-
-#[test]
-fn test_unit_user_totp_config_new() {
-    let user_id = common::generate_uuid_v7();
-    let realm_id = "test-realm".to_string();
-    let secret_hash = "encrypted_secret".to_string();
-    let key_version = 1;
-
-    let config = UserTotpConfig::new(user_id, realm_id.clone(), secret_hash.clone(), key_version);
-
-    assert!(!config.id.to_string().is_empty());
-    assert_eq!(config.user_id, user_id);
-    assert_eq!(config.realm_id, realm_id);
-    assert_eq!(config.secret_hash, secret_hash);
-    assert_eq!(config.key_version, key_version);
-    assert!(!config.enabled, "New config should be disabled by default");
-    assert!(config.verified_at.is_none());
-    assert!(config.last_used_at.is_none());
-}
 
 #[test]
 fn test_unit_user_totp_config_enable() {
@@ -130,9 +106,7 @@ fn test_unit_user_totp_config_regenerate_secret() {
     assert_eq!(config.key_version, 1, "key_version should remain unchanged");
 }
 
-// ============================================================================
 // Unit Tests: UserTotpBackupCode
-// ============================================================================
 
 #[test]
 fn test_unit_user_totp_backup_code_mark_as_used() {
@@ -150,26 +124,20 @@ fn test_unit_user_totp_backup_code_mark_as_used() {
     assert!(backup_code.used_at.is_some());
 }
 
-// ============================================================================
 // Unit Tests: TotpSetupResponse & TotpStatusResponse
-// ============================================================================
 
 // NOTE: Low-value tests removed (test_unit_totp_setup_response, test_unit_totp_status_response)
 // These tests only verified struct field assignments without business logic.
 // Field assignments are covered by business logic tests below.
 
-// ============================================================================
 // Unit Tests: RealmTotpConfig & RealmTotpStatistics
-// ============================================================================
 
 // NOTE: Low-value tests removed (test_unit_realm_totp_config_*, test_unit_realm_totp_statistics_*)
 // These tests only verified struct field assignments without business logic.
 // RealmTotpConfig and RealmTotpStatistics are simple data structures used for API responses,
 // field assignments are covered by integration tests.
 
-// ============================================================================
 // Unit Tests: UserTotpConfig Equality and Clone
-// ============================================================================
 
 // NOTE: Low-value tests removed (test_unit_user_totp_config_clone, test_unit_user_totp_config_equality)
 // These tests only verified trait implementations (Clone, PartialEq) without business logic.

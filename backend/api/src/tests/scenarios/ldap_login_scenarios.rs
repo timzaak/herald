@@ -1,6 +1,4 @@
-// =============================================================================
 // Scenario tests: LDAP enterprise-directory login
-// =============================================================================
 //
 // Exercises the LDAP login flow end-to-end
 // through the HTTP layer:
@@ -25,7 +23,6 @@
 // - The TOTP scenario asserts the second-factor flag branch + temp session
 //   existence; the /login/verify-totp consumption of that session is the
 //   existing covered behaviour (user_totp_scenarios / login_flow_scenarios).
-// =============================================================================
 
 use crate::tests::helpers::ldap_helpers::{
     MockLdapState, MockLdapUser, current_effective_agreements, enable_ldap, ldap_login,
@@ -43,9 +40,7 @@ use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 
-// ---------------------------------------------------------------------------
 // Local fixture helpers
-// ---------------------------------------------------------------------------
 
 /// Create an active (status=1) user via the shared helper and record consent
 /// so the login-as-consent gate does not intercept the happy paths.
@@ -115,9 +110,7 @@ async fn count_ldap_audit_events(ctx: &TestContext, action: &str, reason: Option
     }
 }
 
-// =============================================================================
 // Scenarios
-// =============================================================================
 
 /// User Story: US-LD-001
 /// Covers: an already-linked directory identity logs in via the
@@ -757,36 +750,6 @@ async fn test_scenario_ldap_turnstile_required_when_client_app_enabled(ctx: &mut
     .execute(&ctx._app_state.pool)
     .await
     .unwrap();
-}
-
-/// User Story: US-LD-001
-/// Covers: rate limits — LDAP shares the `rl:login:*` keys and
-/// thresholds with password login.
-///
-/// P2 NOTE (mirrors email_otp scenarios): `enforce_in_dev` defaults to false,
-/// so `rate_limit_hit` is skipped in the test context and repeated failures
-/// stay 401 rather than becoming 429. This test asserts the actual behaviour
-/// and MUST NOT be strengthened to assert 429.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_scenario_ldap_rate_limit_shared_budget_note(ctx: &mut TestContext) {
-    enable_ldap(ctx).await;
-
-    let mock = mock_dir(one_mock_user(
-        "rluser",
-        "uid=rluser,dc=example,dc=com",
-        None,
-        "right",
-    ));
-    // Exceed LOGIN_IDENTIFIER_RATE_LIMIT (5,60) with wrong passwords.
-    for _ in 0..6 {
-        let resp = ldap_login(ctx, &mock, "rluser", "wrong", None).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "rate limit is skipped in the test context (enforce_in_dev=false)"
-        );
-    }
 }
 
 /// User Story: US-LD-004

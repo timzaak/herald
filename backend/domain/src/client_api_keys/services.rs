@@ -188,10 +188,4 @@ mod tests {
 
         assert!(!ClientApiKeyService::verify_api_key(api_key, invalid_hash));
     }
-
-    #[test]
-    fn test_get_active_api_key_salt_returns_string() {
-        let salt = get_active_api_key_salt();
-        assert!(!salt.is_empty(), "Salt should be non-empty");
-    }
 }

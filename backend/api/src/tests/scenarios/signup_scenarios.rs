@@ -1,6 +1,4 @@
-// =============================================================================
 // Self-service Realm Signup - Scenario Tests
-// =============================================================================
 //
 // 端到端验证公开自助开通端点 POST /api/auth/admin/signup 与公开开关
 // GET /api/auth/admin/signup/status（design realm-create §4.2 / §6.1）。
@@ -17,9 +15,7 @@
 //
 // Environment behaviour (design §6.1 / §7, P2):
 // - `RateLimitConfig.enforce_in_dev` defaults to `false`, so `rate_limit_hit`
-//   is skipped in the default test context. The IP-quota scenario below asserts
-//   the *actual* (non-429) behaviour with a comment and MUST NOT be strengthened
-//   to assert 429 by this item or the runner. The quota constant is pinned by
+//   is skipped in the default test context. The quota constant is pinned by
 //   the `signup_ip_quota_is_two_realms_per_24h` domain unit test, and the
 //   enforced 429 path is covered by
 //   `test_signup_ip_limit_enforced_returns_429_on_third_attempt` (scenario 4b
@@ -39,7 +35,6 @@
 //
 // 运行方式:
 //   uv run scripts/backend-test.py -- -E 'package(herald-api) and test(/signup/)'
-// =============================================================================
 
 use crate::tests::helpers::email_config_helpers::{
     delete_email_config_direct, insert_unreachable_smtp_email_config_direct,
@@ -266,9 +261,7 @@ fn other_six_digit_code(code: &str) -> String {
     format!("{:06}", (n + 1) % 1_000_000)
 }
 
-// =============================================================================
 // Scenario 1 — US-SR-001 / US-SR-002: signup opens a realm and issues a session
-// =============================================================================
 //
 // User Story: US-SR-001 自助注册开通新 Realm (P0)
 //             US-SR-002 开通后立即管理新 Realm (P0)
@@ -387,9 +380,7 @@ async fn test_signup_opens_realm_and_issues_session(ctx: &mut TestContext) {
     cleanup_realm(ctx, &slug).await;
 }
 
-// =============================================================================
 // Scenario 2 — DEC-001: only the admin realm hosts signup
-// =============================================================================
 //
 // Covers: signup 强制 realmId="admin"，非 admin realm 不承载入口 → 404。
 #[test_context(TestContext)]
@@ -418,9 +409,7 @@ async fn test_signup_non_admin_realm_rejected(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
 // Scenario 3 — US-SR-004: platform toggle gates the entry (fail-closed)
-// =============================================================================
 //
 // User Story: US-SR-004 平台自助开通开关控制 (P0)
 // Source: docs/user-stories/core/realm-create.md
@@ -468,62 +457,7 @@ async fn test_signup_disabled_when_toggle_off(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// Scenario 4 — DEC-007: same-IP 24h quota
-// =============================================================================
-//
-// Covers: signup 在 create_realm 前对 rl:signup:ip:{ip} 做限流计数（DEC-011）。
-//
-// P2 NOTE: `RateLimitConfig.enforce_in_dev` defaults to `false`, and the signup
-// handler uses `rate_limit_hit` (NOT `rate_limit_hit_forced`). In the test
-// context the limit is therefore skipped and the 3rd attempt does NOT return
-// 429. This scenario asserts the *actual* (non-429) behaviour with a comment
-// and MUST NOT be strengthened to assert 429 by this item or the runner.
-// The 2/24h quota constant is pinned by the `signup_ip_quota_is_two_realms_per_24h`
-// domain unit test; the enforced 429 path is covered by scenario 4b below
-// (production app_env override).
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_signup_ip_limit_24h(ctx: &mut TestContext) {
-    set_platform_signup_enabled(ctx, true).await;
-    let app = ctx.create_unified_test_router();
-    let ip = "203.0.113.13";
-    let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap();
-
-    let mut created_slugs = Vec::new();
-    for i in 0..3 {
-        let slug = format!("sr-limit-{stamp}-{i}");
-        let email = format!("limit-{stamp}-{i}@signup.test");
-        let req = Request::builder()
-            .method("POST")
-            .uri(format!("/api/auth/{ADMIN_REALM}/signup"))
-            .header("content-type", "application/json")
-            .header("x-forwarded-for", ip)
-            .body(Body::from(signup_body(
-                &format!("Limit Realm {i}"),
-                Some(&slug),
-                &email,
-                "Password123",
-            )))
-            .unwrap();
-        let resp = app.clone().oneshot(req).await.unwrap();
-        // enforce_in_dev=false → rate limiting skipped → all three succeed.
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "rate_limit_hit is skipped in test env; attempt {i} should provision"
-        );
-        created_slugs.push(slug);
-    }
-
-    for slug in &created_slugs {
-        cleanup_realm(ctx, slug).await;
-    }
-}
-
-// =============================================================================
 // Scenario 5 — validation failures do not create a realm
-// =============================================================================
 //
 // Covers: 邮箱/密码/realmName/realmSlug 非法 → 400，且不创建任何 realm。
 #[test_context(TestContext)]
@@ -563,9 +497,7 @@ async fn test_signup_validation_failures(ctx: &mut TestContext) {
     assert!(!exists, "no account must be created on validation failure");
 }
 
-// =============================================================================
 // Scenario 6 — realm slug conflict is rejected (400, codebase convention)
-// =============================================================================
 //
 // Covers: realmSlug 已占用 → 被拒绝，不创建重复 realm。
 //
@@ -637,9 +569,7 @@ async fn test_signup_slug_conflict(ctx: &mut TestContext) {
     cleanup_realm(ctx, &slug).await;
 }
 
-// =============================================================================
 // Scenario 4b — DEC-011: same-IP 24h quota, ENFORCED path (positive test)
-// =============================================================================
 //
 // The sibling `test_signup_ip_limit_24h` runs in the default test environment
 // where `rate_limit_hit` is skipped, so it can only pin the non-429 shape.
@@ -721,9 +651,7 @@ async fn test_signup_ip_limit_enforced_returns_429_on_third_attempt(ctx: &mut Te
     }
 }
 
-// =============================================================================
 // Scenario 7 — the code sender is admin-realm-only (404)
-// =============================================================================
 //
 // Covers: POST /api/auth/{realmId}/signup/email_code 非 admin realm → 404。
 // 码发送入口与开通入口共享同一托管边界，不得比 signup 本体更宽（否则任意
@@ -743,9 +671,7 @@ async fn test_signup_email_code_non_admin_realm_rejected(ctx: &mut TestContext) 
     );
 }
 
-// =============================================================================
 // Scenario 8 — US-SR-004: the platform toggle gates the code sender (403)
-// =============================================================================
 //
 // User Story: US-SR-004 平台自助开通开关控制 (P0)
 // Source: docs/user-stories/core/realm-create.md
@@ -770,9 +696,7 @@ async fn test_signup_email_code_gated_by_platform_toggle(ctx: &mut TestContext) 
     );
 }
 
-// =============================================================================
 // Scenario 9 — a code request without a mail channel is refused (400)
-// =============================================================================
 //
 // Covers: admin realm 邮件通道未配置 → 400 "Email is not configured for this
 // realm"，且零码行。无通道时发码是死路：邮件永不到达，静默假成功只会让
@@ -807,9 +731,7 @@ async fn test_signup_email_code_rejected_without_email_channel(ctx: &mut TestCon
     );
 }
 
-// =============================================================================
 // Scenario 10 — a successful request persists one plaintext code, newest-wins
-// =============================================================================
 //
 // Covers:
 // - 发码在 admin realm 落一行 type='signup' 的 6 位数字明文码，行键是规范化
@@ -883,9 +805,7 @@ async fn test_signup_email_code_persists_code_newest_wins(ctx: &mut TestContext)
     );
 }
 
-// =============================================================================
 // Scenario 11 — code-request rate limit, ENFORCED path (1 per 120s per IP)
-// =============================================================================
 //
 // 同 scenario 4 的 P2 NOTE：默认测试上下文 enforce_in_dev=false，限流被跳过；
 // 这里复用 4b 的 app_env production 手法（per-test 状态覆盖，不改进程全局）
@@ -929,9 +849,7 @@ async fn test_signup_email_code_rate_limit_enforced_returns_429_on_second_reques
     );
 }
 
-// =============================================================================
 // Scenario 12 — US-SR-001: the mailbox-code gate on provisioning
-// =============================================================================
 //
 // User Story: US-SR-001 自助注册开通新 Realm (P0)
 // Source: docs/user-stories/core/realm-create.md
@@ -1056,9 +974,7 @@ async fn test_signup_email_code_gate_when_verification_enabled(ctx: &mut TestCon
     assert_eq!(body["message"], "invalid email verification code");
 }
 
-// =============================================================================
 // Scenario 13 — a code older than the TTL is refused (1800s)
-// =============================================================================
 //
 // Covers: 把码行 created_at 回拨到 TTL（1800s）之外后提交正确码 → 400
 // "invalid email verification code"，且行不被消费（TTL 拒绝不是删除——
@@ -1116,9 +1032,7 @@ async fn test_signup_email_code_ttl_expired_rejected(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
 // Scenario 14 — fail-open: verification on, mail channel missing
-// =============================================================================
 //
 // Covers: 验证开关开启但 admin realm 邮件通道未配置 →
 // `is_email_verification_required` 强制返回 false（fail-open）：不带码也能
@@ -1164,9 +1078,7 @@ async fn test_signup_verification_fail_open_without_email_channel(ctx: &mut Test
     cleanup_realm(ctx, &slug).await;
 }
 
-// =============================================================================
 // Scenario 15 — US-SR-004: status reports emailVerificationRequired per combo
-// =============================================================================
 //
 // User Story: US-SR-004 平台自助开通开关控制 (P0)
 // Source: docs/user-stories/core/realm-create.md

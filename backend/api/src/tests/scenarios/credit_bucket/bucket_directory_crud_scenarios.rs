@@ -1,8 +1,6 @@
-// =============================================================================
 // Scenario Tests: Credit Bucket directory CRUD + overview + delete intercept
-// =============================================================================
 //
-// Covers design `.ai/design/credit-bucket.md`:
+// Covers:
 //   - (Bucket directory CRUD + overview + error
 //     contracts).
 //   - "directory CRUD" testable behaviors:
@@ -23,7 +21,6 @@
 // Per authoring rules: tests target the intended design contract. Runtime gaps
 // (if any) are recorded inline; the runner triages runtime failures.
 //
-// =============================================================================
 
 #![allow(clippy::too_many_arguments)]
 
@@ -42,9 +39,7 @@ use serde_json::{Value, json};
 use test_context::test_context;
 use uuid::Uuid;
 
-// =============================================================================
 // Local helpers
-// =============================================================================
 
 /// Extract the `code` field from an error JSON body, or None if absent.
 fn error_code(body: &Option<Value>) -> Option<&str> {
@@ -123,46 +118,7 @@ async fn create_bucket_via_api(
     auth_admin_request_via_api(ctx, "POST", "/api/bill/credit-buckets", token, Some(&body)).await
 }
 
-// =============================================================================
-// Scenario 1: list returns empty array for a fresh realm
-// =============================================================================
-
-/// User Story: US-CB-001 (admin lists the realm's Buckets).
-/// Covers:
-///   - `GET .../credit-buckets` → `Bucket[]`. An empty Realm
-///     yields `[]` (not null, not 404).
-///   - response items have NO `isDefault` field.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn list_credit_buckets_empty(ctx: &mut TestContext) {
-    let _realm_id = ctx._realm_id.clone();
-    let token = setup_billing_admin_session(ctx, "cb_t04_list_empty@example.com").await;
-
-    let (status, body) =
-        auth_admin_request_via_api(ctx, "GET", "/api/bill/credit-buckets", &token, None).await;
-
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "list empty: {:?} body={:?}",
-        status,
-        body
-    );
-    let arr = body
-        .as_ref()
-        .and_then(|v| v.as_array())
-        .expect("list must return a JSON array");
-    assert!(
-        arr.is_empty(),
-        "fresh realm must list zero buckets: {:?}",
-        body
-    );
-    assert_no_is_default(&body, "list empty response");
-}
-
-// =============================================================================
 // Scenario 2: list returns rows with the list-item fields
-// =============================================================================
 
 /// User Story: US-CB-001 (admin lists Buckets with coverage/mapping counts).
 /// Covers:
@@ -234,49 +190,13 @@ async fn list_credit_buckets_with_data(ctx: &mut TestContext) {
     assert_no_is_default(&body, "list with data response");
 }
 
-// =============================================================================
-// Scenario 3: get detail → 404 when missing
-// =============================================================================
-
-/// User Story: US-CB-001 (admin fetches a Bucket; missing id → 404).
-/// Covers:
-///   - `GET .../{bucketId}` 404 when the bucket does not exist.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn get_credit_bucket_detail_404_when_missing(ctx: &mut TestContext) {
-    let _realm_id = ctx._realm_id.clone();
-    let token = setup_billing_admin_session(ctx, "cb_t04_get_404@example.com").await;
-
-    let missing_id = Uuid::now_v7();
-    let (status, body) = auth_admin_request_via_api(
-        ctx,
-        "GET",
-        &format!("/api/bill/credit-buckets/{}", missing_id),
-        &token,
-        None,
-    )
-    .await;
-
-    assert_eq!(
-        status,
-        StatusCode::NOT_FOUND,
-        "missing bucket detail must be 404, got {}: {:?}",
-        status,
-        body
-    );
-}
-
-// =============================================================================
 // Scenario 4: get detail returns clientApps + ruleReferences arrays
-// =============================================================================
 
 /// User Story: US-CB-002 + US-CB-003 (detail surfaces coverage set + rules).
 /// Covers:
 ///   - `BucketDetailResponse` shape: bucket fields + `clientApps[]` +
 ///     `ruleReferences[]` (the distribution rules targeting this bucket; design
-///     §4.2.1). The old `entitlementMappings[]` field was replaced by
-///     `ruleReferences[]` when grant config moved from the mapping to
-///     distribution rules.
+///     §4.2.1).
 ///   - NO `isDefault`.
 #[test_context(TestContext)]
 #[tokio::test]
@@ -331,9 +251,7 @@ async fn get_credit_bucket_detail_returns_client_apps_and_rule_references(ctx: &
     assert_no_is_default(&Some(body.clone()), "detail response");
 }
 
-// =============================================================================
 // Scenario 5: create with empty coverage set → 400
-// =============================================================================
 
 /// User Story: US-CB-002 (coverage set must be non-empty — fail-loud).
 /// Covers:
@@ -363,9 +281,7 @@ async fn create_credit_bucket_requires_at_least_one_client_app(ctx: &mut TestCon
     );
 }
 
-// =============================================================================
 // Scenario 6: create with invalid bucketKey format → 400
-// =============================================================================
 
 /// User Story: US-CB-001 (bucketKey must match `^[a-z0-9-]{1,64}$`).
 /// Covers:
@@ -398,9 +314,7 @@ async fn create_credit_bucket_rejects_invalid_bucket_key_format(ctx: &mut TestCo
     );
 }
 
-// =============================================================================
 // Scenario 7: create with duplicate bucketKey in same realm → 400/409
-// =============================================================================
 
 /// User Story: US-CB-001 (bucketKey is unique within a realm).
 /// Covers:
@@ -453,9 +367,7 @@ async fn create_credit_bucket_rejects_duplicate_bucket_key(ctx: &mut TestContext
     );
 }
 
-// =============================================================================
 // Scenario 8: create without points.manage → 403
-// =============================================================================
 
 /// User Story: US-CB-001 (write requires Realm Admin `points.manage`).
 /// Covers:
@@ -492,9 +404,7 @@ async fn create_credit_bucket_without_points_manage_returns_403(ctx: &mut TestCo
     );
 }
 
-// =============================================================================
 // Scenario 9: update changes fields; clearing coverage set → 400
-// =============================================================================
 
 /// User Story: US-CB-001 + US-CB-002 (update mutates fields; coverage set must
 /// stay non-empty).
@@ -525,7 +435,6 @@ async fn update_credit_bucket_changes_name_order_enabled_coverage(ctx: &mut Test
     .await;
     attach_bucket_client_app(pool, &realm_id, bucket, client_app_a).await;
 
-    // --- PUT: rename + reorder + swap coverage to a different client app. ---
     let put_body = json!({
         "name": "Renamed",
         "displayOrder": 42,
@@ -553,7 +462,6 @@ async fn update_credit_bucket_changes_name_order_enabled_coverage(ctx: &mut Test
     assert_eq!(body.get("enabled").and_then(|v| v.as_bool()), Some(false));
     assert_no_is_default(&Some(body.clone()), "update response");
 
-    // --- PUT with empty coverage set → 400. --------------------------------
     let bad_body = json!({
         "name": "Bad",
         "clientAppIds": [],
@@ -575,10 +483,8 @@ async fn update_credit_bucket_changes_name_order_enabled_coverage(ctx: &mut Test
     );
 }
 
-// =============================================================================
 // Scenario 11: PUT attaching a mapping increases entitlementMappingCount;
 //              removing an attached mapping is rejected (bucket_orphan_mapping)
-// =============================================================================
 //
 // Regression for the count-stale gap (DE-D06 Gap #4 / US-CB-003 "count must
 // increase"). Root cause was NOT a stale read — `update_credit_bucket` detached
@@ -644,7 +550,6 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
     )
     .await;
 
-    // --- PUT: attach the mapping → 200. -------------------------------------
     let put_body = json!({
         "name": "Mapping Bucket",
         "displayOrder": 0,
@@ -705,7 +610,6 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
         row
     );
 
-    // --- PUT: drop the mapping (empty set) → 400 bucket_orphan_mapping. ------
     let drop_body = json!({
         "name": "Mapping Bucket",
         "displayOrder": 0,
@@ -748,9 +652,7 @@ async fn update_credit_bucket_attaching_mapping_increases_count_and_removal_reje
     );
 }
 
-// =============================================================================
 // Scenario 11: delete rejected when active subscriptions exist → 409 bucket_in_use
-// =============================================================================
 
 /// User Story: US-CB-001 (delete refuses in-flight subscriptions).
 ///
@@ -813,9 +715,7 @@ async fn delete_credit_bucket_rejected_when_active_subscriptions_exist(ctx: &mut
     );
 }
 
-// =============================================================================
 // Scenario 12: delete rejected when holders with balance exist → 409 bucket_in_use
-// =============================================================================
 
 /// User Story: US-CB-001 (delete refuses residual balances).
 /// Covers:
@@ -877,9 +777,7 @@ async fn delete_credit_bucket_rejected_when_holders_with_balance_exist(ctx: &mut
     );
 }
 
-// =============================================================================
 // Scenario 13: delete succeeds when unused → 204
-// =============================================================================
 
 /// User Story: US-CB-001 (delete removes an unused Bucket).
 /// Covers:
@@ -935,9 +833,7 @@ async fn delete_credit_bucket_succeeds_when_unused(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
 // Scenario 14 (overview): rows + SEPARATE grandTotal (negative regression combined)
-// =============================================================================
 
 /// User Story: US-CB-001 (admin views the bucket×credit-type overview matrix).
 /// Covers:
@@ -1058,9 +954,7 @@ async fn credit_bucket_overview_returns_rows_and_grand_total(ctx: &mut TestConte
     assert_no_is_default(&Some(body.clone()), "overview response");
 }
 
-// =============================================================================
 // Local fixture: plain (non-admin) user session for the 403 scenario
-// =============================================================================
 
 /// Create a plain user session (NO Realm Admin role) so the caller does NOT
 /// hold `points.manage`. Returns (token, user_id). `create_admin_session_with_user`

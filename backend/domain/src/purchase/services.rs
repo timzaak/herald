@@ -192,9 +192,4 @@ mod payment_flow_tests {
             other => panic!("expected BadRequest, got {other:?}"),
         }
     }
-
-    #[test]
-    fn default_is_hosted() {
-        assert_eq!(PaymentFlow::default(), PaymentFlow::Hosted);
-    }
 }

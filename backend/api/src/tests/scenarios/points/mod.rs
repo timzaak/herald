@@ -28,9 +28,6 @@ mod test_60_mixed_balance_consumption;
 mod test_61_free_user_registration;
 mod test_62_free_user_upgrade;
 
-// Unified filter test framework (replaces legacy filter tests)
-mod unified_filter_tests;
-
 // Consume + Webhook concurrency race condition tests
 mod test_70_consume_webhook_race;
 

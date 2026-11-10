@@ -1,6 +1,4 @@
-// =============================================================================
 // response/wallet-list non-leak + DTO effective_at hiding
-// =============================================================================
 //
 // Encodes the point-time non-leak invariants:
 //   * "管理员钱包列表不泄漏未来期积分" — `list_wallets` cross-user
@@ -22,7 +20,6 @@
 // HTTP response JSON is inspected via `serde_json::Value` so we can assert
 // KEY presence/absence (the `skip_serializing_if` contract), not just value.
 //
-// =============================================================================
 
 use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
 use crate::tests::helpers::points_helpers::{
@@ -44,9 +41,7 @@ use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-// =============================================================================
 // Shared local helpers
-// =============================================================================
 
 /// Create a `points_wallets` row with the post-migration schema (no Stored
 /// balance columns — only analytics + status). We can NOT use the legacy
@@ -143,7 +138,6 @@ async fn seed_topup_transaction_linked_to_ledger(
     txn_id
 }
 
-/// Login helper — returns the session token. Mirrors `unified_filter_tests`.
 async fn login(ctx: &mut TestContext, app_url: &str, email: &str, password: &str) -> String {
     let login_payload = json!({
         "clientId": ctx._client_id,
@@ -168,9 +162,7 @@ async fn login(ctx: &mut TestContext, app_url: &str, email: &str, password: &str
     token.expect("Login should return accessToken")
 }
 
-// =============================================================================
 // Test 1: points.view response hides effectiveAt (key ABSENT)
-// =============================================================================
 
 // User Story: US-PU-002 / US-PU-003 (regular users must not see pre-grant
 // timing metadata; effective_at is admin/audit-only).
@@ -288,9 +280,7 @@ async fn test_user_transaction_response_hides_effective_at_for_view(ctx: &mut Te
     );
 }
 
-// =============================================================================
 // Test 2: points.manage response includes effectiveAt with the real value
-// =============================================================================
 
 // User Story: admin/audit reconciliation of pre-generated vs already-effective
 // rows (P1-2 motivation).
@@ -406,9 +396,7 @@ async fn test_admin_transaction_response_includes_effective_at_for_manage(ctx: &
     );
 }
 
-// =============================================================================
 // Test 3: admin list_wallets cross-user batched derived does not leak
-// =============================================================================
 
 // User Story: US-PO-02 (admin views all user wallets) — must not leak
 // future-effective pre-grant rows into any admin-visible "available/remaining"

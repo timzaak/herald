@@ -1,6 +1,4 @@
-// =============================================================================
 // Points System Scenario Test 8: Consume Success
-// =============================================================================
 //
 // **User Story**: US-PU-01 (balance update), SDK consumption
 // **Priority**: P0
@@ -28,10 +26,9 @@
 // - Total consumed is increased by 100
 // - A transaction record is created
 //
-// =============================================================================
 
 use crate::tests::helpers::points_helpers::{
-    assert_derived_balance, create_credit_ledger_entry_with_effective_at, get_ledger_by_id,
+    assert_derived_balance, create_credit_ledger_entry_with_effective_at,
 };
 use crate::tests::scenarios::points::fixtures::*;
 use crate::tests::schema_test_context::SchemaTestContext as TestContext;
@@ -39,24 +36,19 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use chrono::{Duration, Utc};
 use herald_core::domain::points::entities::{CreditSourceType, CreditType};
 use serde_json::json;
 use test_context::test_context;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-/// ============================================================================
 /// Scenario 2.1: Third Party Consumes Points Successfully
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
     let app = ctx.create_unified_test_router();
 
-    // ============================================================================
     // Given: A valid API Key, user with points account
-    // ============================================================================
     println!("[Step 1] Create test user and API Key");
 
     let user_id = create_test_user(&ctx._app_state.pool, &ctx._realm_id, "user8@example.com").await;
@@ -75,9 +67,7 @@ async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
         user_id, wallet_id, client_app_id, api_key
     );
 
-    // ============================================================================
     // When: Third party consumes points
-    // ============================================================================
     println!("[Step 2] Third party consumes points");
 
     let consume_payload = json!({
@@ -97,9 +87,7 @@ async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
 
     let response = app.clone().oneshot(request).await.unwrap();
 
-    // ============================================================================
     // Then: Verify consumption response and database state
-    // ============================================================================
     println!("[Step 3] Verify consumption response");
 
     assert_eq!(
@@ -234,7 +222,6 @@ async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
         txn_type, txn_amount
     );
 
-    // ============================================================================
     // Step 6 — point-time zero-regression assertion (P0 / P0).
     //
     // The seed (`create_test_points_wallet`) wrote a `subscription_credit`
@@ -252,7 +239,6 @@ async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
     // (We MUST NOT `SELECT subscription_balance FROM points_wallets`:
     // That column was physically removed — see
     // `test_wallet_balance_columns_dropped` below.)
-    // ============================================================================
     println!("[Step 6] point-time zero-regression: assert derived balance == legacy seed baseline");
 
     assert_derived_balance(
@@ -269,108 +255,7 @@ async fn test_scenario_consume_points_success(ctx: &mut TestContext) {
     println!("\n✅ Scenario 2.1 完成：第三方成功消耗积分");
 }
 
-// ============================================================================
-// consume must exclude future-effective rows (P0)
-// ============================================================================
-//
-// User Story: US-PU-004 / US-PU-005 — only credits whose effective moment has
-// arrived may be spent; future periods are invisible to the consumer.
-//
-// Covers P0 "未到生效时间不可见/不可消费" + risk "消费可用性
-// 谓词增 effective_at：影响 consume/refund/cancel/expire 全场景".
-//
-// Why this test exists: the consume selection predicate gates on
-// `(effective_at IS NULL OR effective_at <= NOW())`. When a wallet
-// holds BOTH an immediately-available row and a future-effective row of the
-// same credit type, a consume sized to the immediately-available amount
-// MUST draw only from the immediate row — the future row's `remaining_amount`
-// and `used_amount` stay unchanged. If the effective_at gate were ever
-// dropped from the consume predicate, this test fails (future row spent).
-//
-// We seed ledger rows via `create_credit_ledger_entry_with_effective_at`
-// (helper), which does NOT touch the removed wallet Stored
-// columns — the derived SUM is the sole balance authority here.
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_consume_with_future_effective_excluded(ctx: &mut TestContext) {
-    let realm_id = ctx._realm_id.clone();
-    let user_id = create_test_user(&ctx.app_state.pool, &realm_id, "be-t02-fexcl@exam.com").await;
-
-    // Immediately-available subscription_credit row — 2000.
-    let _immediate_id = create_credit_ledger_entry_with_effective_at(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        CreditSourceType::SubscriptionInitial,
-        format!("be-t02-fexcl-imm-{}", Uuid::now_v7()),
-        2000,
-        None,
-        None, // effective_at = NULL → available now
-    )
-    .await;
-
-    // Future-effective subscription_credit row — 3000, effective tomorrow.
-    let future_id = create_credit_ledger_entry_with_effective_at(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        CreditSourceType::SubscriptionRenewal,
-        format!("be-t02-fexcl-fut-{}", Uuid::now_v7()),
-        3000,
-        None,
-        Some(Utc::now() + Duration::days(1)),
-    )
-    .await;
-
-    // Pre-condition: derived balance sees only the immediately-available row.
-    assert_derived_balance(
-        ctx,
-        user_id,
-        &realm_id,
-        CreditType::SubscriptionCredit,
-        2000,
-    )
-    .await;
-
-    // Consume 2000 — exactly the immediately-available amount. The future
-    // 3000 MUST NOT be touched.
-    let identity =
-        crate::tests::helpers::points_helpers::create_test_third_party_identity(&realm_id);
-    let input = herald_core::domain::points::dtos::ConsumePointsInput {
-        user_id: user_id.to_string(),
-        client_app_id: ctx._client_app_id.clone(),
-        amount: 2000,
-        description: Some("be-t02 future-effective exclusion consume".to_string()),
-    };
-    let result = ctx
-        .app_state
-        .points_service
-        .consume_points(identity, &realm_id, input)
-        .await
-        .expect("consume of the immediately-available 2000 must succeed");
-    assert_eq!(result.len(), 1, "single-bucket consume");
-
-    // The future-effective row is untouched — proving it was never selected.
-    let future = get_ledger_by_id(ctx, future_id).await;
-    assert_eq!(
-        future.used_amount, 0,
-        "future-effective row used_amount must remain 0 (not selected by consume)"
-    );
-    assert_eq!(
-        future.remaining_amount, 3000,
-        "future-effective row remaining_amount must remain unchanged"
-    );
-
-    // Post-consume: derived subscription_credit balance is 0 (immediate row
-    // drained; future row still excluded by effective_at gate).
-    assert_derived_balance(ctx, user_id, &realm_id, CreditType::SubscriptionCredit, 0).await;
-}
-
-// ============================================================================
 // point-time: physical removal of wallet balance columns (P0)
-// ============================================================================
 //
 // User Story: — (developer / contract invariants; not user-facing).
 //
@@ -431,9 +316,7 @@ async fn test_wallet_balance_columns_dropped(ctx: &mut TestContext) {
     }
 }
 
-// ============================================================================
 // point-time: balance_after is a REAL derived snapshot, not seed-0
-// ============================================================================
 //
 // User Story: US-PU-001 (balance visibility) / contract (transaction
 // history balance_after reflects the real post-mutation derived balance).

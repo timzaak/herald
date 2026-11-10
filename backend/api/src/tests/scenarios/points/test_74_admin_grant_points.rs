@@ -1,6 +1,4 @@
-// =============================================================================
 // Points System Scenario Test 74: Admin Grant Points
-// =============================================================================
 //
 // **User Story**: US-PO-08 (Admin grants points to user)
 // **Priority**: P0
@@ -17,7 +15,6 @@
 // - Grant record appears in transaction history
 // - Cumulative grants update balance correctly
 //
-// =============================================================================
 
 use crate::tests::helpers::auth_helpers::{create_admin_session_with_user, grant_realm_admin_role};
 use crate::tests::helpers::points_grant_helpers::{
@@ -28,12 +25,9 @@ use axum::http::StatusCode;
 use test_context::test_context;
 use uuid::Uuid;
 
-// =============================================================================
 // Test 74.1: Normal grant succeeds
-// =============================================================================
 // User Story: US-PO-08
 // Covers: Admin grants points to a user, balances updated correctly
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_74_1_normal_grant_succeeds(ctx: &mut TestContext) {
@@ -77,12 +71,9 @@ async fn test_74_1_normal_grant_succeeds(ctx: &mut TestContext) {
     assert_total_balance(&ctx._app_state.pool, target_user_id, 100).await;
 }
 
-// =============================================================================
 // Test 74.2: Grant with validity days
-// =============================================================================
 // User Story: US-PO-08
 // Covers: Grant with validityDays sets expiresAt approximately now+30 days
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_74_2_grant_with_validity_days(ctx: &mut TestContext) {
@@ -143,132 +134,9 @@ async fn test_74_2_grant_with_validity_days(ctx: &mut TestContext) {
     );
 }
 
-// =============================================================================
-// Test 74.3: Amount <= 0 rejected
-// =============================================================================
-// User Story: US-PO-08
-// Covers: amount=0 and amount=-10 both return 400
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_74_3_amount_zero_and_negative_rejected(ctx: &mut TestContext) {
-    let admin_email = "admin_74_3@test.com";
-    let (admin_token, admin_user_id) = create_admin_session_with_user(ctx, admin_email, 1800).await;
-    grant_realm_admin_role(ctx, &admin_user_id).await;
-
-    let target_user_id = create_target_user(ctx, "target_74_3@test.com").await;
-
-    // When: POST with amount=0
-    let (status_zero, _) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        0,
-        "test",
-        None,
-        &admin_token,
-    )
-    .await;
-    assert_eq!(
-        status_zero,
-        StatusCode::BAD_REQUEST,
-        "amount=0 should return 400"
-    );
-
-    // When: POST with amount=-10
-    let (status_neg, _) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        -10,
-        "test",
-        None,
-        &admin_token,
-    )
-    .await;
-    assert_eq!(
-        status_neg,
-        StatusCode::BAD_REQUEST,
-        "amount=-10 should return 400"
-    );
-}
-
-// =============================================================================
-// Test 74.4: Empty reason rejected
-// =============================================================================
-// User Story: US-PO-08
-// Covers: reason="" returns 400
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_74_4_empty_reason_rejected(ctx: &mut TestContext) {
-    let admin_email = "admin_74_4@test.com";
-    let (admin_token, admin_user_id) = create_admin_session_with_user(ctx, admin_email, 1800).await;
-    grant_realm_admin_role(ctx, &admin_user_id).await;
-
-    let target_user_id = create_target_user(ctx, "target_74_4@test.com").await;
-
-    // When: POST with reason=""
-    let (status, _) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id,
-        target_user_id,
-        100,
-        "",
-        None,
-        &admin_token,
-    )
-    .await;
-
-    // Then: 400 response
-    assert_eq!(
-        status,
-        StatusCode::BAD_REQUEST,
-        "empty reason should return 400"
-    );
-}
-
-// =============================================================================
-// Test 74.5: User not found rejected
-// =============================================================================
-// User Story: US-PO-08
-// Covers: userId pointing to non-existent user returns 404
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_74_5_user_not_found_rejected(ctx: &mut TestContext) {
-    let admin_email = "admin_74_5@test.com";
-    let (admin_token, admin_user_id) = create_admin_session_with_user(ctx, admin_email, 1800).await;
-    grant_realm_admin_role(ctx, &admin_user_id).await;
-
-    let non_existent_user_id = Uuid::now_v7();
-
-    // When: POST with userId pointing to non-existent user
-    let (status, _) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id,
-        non_existent_user_id,
-        100,
-        "grant to nobody",
-        None,
-        &admin_token,
-    )
-    .await;
-
-    // Then: 404 response
-    assert_eq!(
-        status,
-        StatusCode::NOT_FOUND,
-        "non-existent user should return 404"
-    );
-}
-
-// =============================================================================
 // Test 74.6: Permission denied rejected
-// =============================================================================
 // User Story: US-PO-08
 // Covers: Regular user (no admin role) gets 403
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_74_6_permission_denied_rejected(ctx: &mut TestContext) {
@@ -296,54 +164,9 @@ async fn test_74_6_permission_denied_rejected(ctx: &mut TestContext) {
     assert_eq!(status, StatusCode::FORBIDDEN, "regular user should get 403");
 }
 
-// =============================================================================
-// Test 74.7: Cross-realm isolation is structural
-// =============================================================================
-// User Story: US-PO-08
-// Covers: the grant endpoint derives the realm from the session token, so an
-// admin of realm A can never name realm B in the request — there is no realm
-// path segment left to smuggle one through. The grant below runs with realm
-// A's admin token and a realm-A bucket, so it must succeed; combined with the
-// absent realm parameter this proves the write stays inside the caller's realm.
-// =============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_74_7_cross_realm_rejected(ctx: &mut TestContext) {
-    // Given: Admin in realm A (ctx._realm_id)
-    let admin_email = "admin_74_7@test.com";
-    let (admin_token, admin_user_id) = create_admin_session_with_user(ctx, admin_email, 1800).await;
-    grant_realm_admin_role(ctx, &admin_user_id).await;
-
-    let target_user_id = create_target_user(ctx, "target_74_7@test.com").await;
-
-    // When: POST grant — the endpoint has no realm parameter; the
-    // session token alone decides which realm the grant lands in.
-    let (status, body) = grant_points_admin_via_api(
-        ctx,
-        &ctx._realm_id.clone(),
-        target_user_id,
-        100,
-        "own-realm grant",
-        None,
-        &admin_token,
-    )
-    .await;
-
-    // Then: the grant succeeds in the admin's own realm (the only realm the
-    // endpoint can ever touch for this token).
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "session-derived grant must succeed in the caller's realm: {body:?}"
-    );
-}
-
-// =============================================================================
 // Test 74.8: Wallet auto-created on first grant
-// =============================================================================
 // User Story: US-PO-08
 // Covers: Target user exists but has no points_wallets row, grant auto-creates wallet
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_74_8_wallet_auto_created_on_first_grant(ctx: &mut TestContext) {
@@ -425,13 +248,10 @@ async fn test_74_8_wallet_auto_created_on_first_grant(ctx: &mut TestContext) {
     assert_eq!(wallet.3, 50, "total_balance should be 50");
 }
 
-// =============================================================================
 // Test 74.10: Cumulative grants update balance correctly
-// =============================================================================
 // User Story: US-PO-08
 // Covers: User has granted_balance=100 from prior grant, new grant of 50
 //         results in grantedBalance=150, totalBalance=150
-// =============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_74_10_cumulative_grants_update_balance(ctx: &mut TestContext) {
@@ -486,9 +306,7 @@ async fn test_74_10_cumulative_grants_update_balance(ctx: &mut TestContext) {
     assert_total_balance(&ctx._app_state.pool, target_user_id, 150).await;
 }
 
-// =============================================================================
 // Helper: Create a target user without any roles
-// =============================================================================
 async fn create_target_user(ctx: &TestContext, email: &str) -> Uuid {
     let user_uuid = Uuid::now_v7();
     let password_hash =

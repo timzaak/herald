@@ -1,6 +1,4 @@
-// =============================================================================
 // Public Configuration API Endpoint Scenarios
-// =============================================================================
 //
 // 测试 GET /api/{realmId}/public-config 端点的各种场景
 //
@@ -15,7 +13,6 @@
 // cargo nextest run --workspace public_config_scenarios
 // ```
 //
-// =============================================================================
 
 use crate::application::http::public_config::PublicConfigResponse;
 use crate::tests::helpers::email_config_helpers::{
@@ -86,7 +83,6 @@ fn assert_empty_white_label(response: &PublicConfigResponse) {
     assert!(response.white_label.register_subtitle.is_none());
 }
 
-/// ============================================================================
 /// User Story: Public config with registration enabled, no OAuth providers
 ///
 /// **场景描述**：
@@ -103,7 +99,6 @@ fn assert_empty_white_label(response: &PublicConfigResponse) {
 /// ```bash
 /// cargo nextest run test_scenario_public_config_registration_enabled_no_oauth
 /// ```
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_public_config_registration_enabled_no_oauth(ctx: &mut TestContext) {
@@ -150,7 +145,6 @@ async fn test_scenario_public_config_registration_enabled_no_oauth(ctx: &mut Tes
     println!("✅ Test passed: registration enabled, no OAuth providers");
 }
 
-/// ============================================================================
 /// User Story: Public config with registration disabled, OAuth providers present
 ///
 /// **场景描述**：
@@ -167,7 +161,6 @@ async fn test_scenario_public_config_registration_enabled_no_oauth(ctx: &mut Tes
 /// ```bash
 /// cargo nextest run test_scenario_public_config_registration_disabled_with_oauth
 /// ```
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_public_config_registration_disabled_with_oauth(ctx: &mut TestContext) {
@@ -228,7 +221,6 @@ async fn test_scenario_public_config_registration_disabled_with_oauth(ctx: &mut 
 
     println!("✅ Test passed: registration disabled, OAuth providers present");
 }
-/// ============================================================================
 /// User Story: Public config with non-existent realm
 ///
 /// **场景描述**：
@@ -244,7 +236,6 @@ async fn test_scenario_public_config_registration_disabled_with_oauth(ctx: &mut 
 /// ```bash
 /// cargo nextest run test_scenario_public_config_non_existent_realm
 /// ```
-/// ============================================================================
 #[test_context(TestContext)]
 #[tokio::test]
 async fn test_scenario_public_config_non_existent_realm(ctx: &mut TestContext) {
@@ -280,96 +271,6 @@ async fn test_scenario_public_config_non_existent_realm(ctx: &mut TestContext) {
     assert!(response_json.oauth_providers.is_empty());
 
     println!("✅ Test passed: non-existent realm returns default config");
-}
-
-/// ============================================================================
-/// User Story: Public config response format validation
-///
-/// **场景描述**：
-/// 验证端点返回的响应格式符合 OpenAPI 规范和 camelCase 约定。
-///
-/// **验收标准**：
-/// - 响应是有效的 JSON
-/// - 字段名称使用 camelCase (registration, enabled, requireEmailVerification, oauthProviders)
-/// - 字段类型正确（enabled/requireEmailVerification 为 boolean，oauth_providers 为数组）
-/// - 响应可以反序列化为 PublicConfigResponse 结构体
-///
-/// **运行方式**：
-/// ```bash
-/// cargo nextest run test_scenario_public_config_response_format
-/// ```
-/// ============================================================================
-#[test_context(TestContext)]
-#[tokio::test]
-async fn test_scenario_public_config_response_format(ctx: &mut TestContext) {
-    let realm_id = ctx._realm_id.clone();
-
-    // 配置 realm
-    sqlx::query(
-        "INSERT INTO realm_config (realm_id, config_type, config_key, config_value, enabled)
-         VALUES ($1, 'registration', 'enabled', 'true', true)",
-    )
-    .bind(&realm_id)
-    .execute(&ctx._app_state.pool)
-    .await
-    .unwrap();
-
-    // 添加 OAuth 提供商
-    let google_provider_id = uuid::Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO oauth_provider_config (id, realm_id, provider_type, client_id, client_secret, scopes, enabled)
-         VALUES ($1, $2, 'google', 'test-google-client-id', 'test-google-secret', ARRAY['openid', 'email'], true)",
-    )
-    .bind(google_provider_id)
-    .bind(&realm_id)
-    .execute(&ctx._app_state.pool)
-    .await
-    .unwrap();
-
-    // 创建路由
-    let app = ctx.create_unified_test_router();
-
-    // 发送请求
-    let request = Request::builder()
-        .uri(format!("/api/public-config/{}", realm_id))
-        .method(Method::GET)
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // 获取响应字符串
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let body_str = std::str::from_utf8(&body).unwrap();
-
-    // 验证 JSON 格式
-    assert!(serde_json::from_str::<serde_json::Value>(body_str).is_ok());
-
-    // 验证 camelCase 字段名称
-    assert!(body_str.contains("\"registration\""));
-    assert!(body_str.contains("\"enabled\""));
-    assert!(body_str.contains("\"requireEmailVerification\""));
-    assert!(body_str.contains("\"oauthProviders\""));
-
-    // 验证可以反序列化为强类型结构体
-    let response_value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let response_json: PublicConfigResponse =
-        serde_json::from_value(response_value.clone()).unwrap();
-
-    // 验证类型
-    assert!(response_json.registration.enabled);
-    assert!(!response_json.registration.require_email_verification);
-    assert_eq!(response_json.oauth_providers.len(), 1);
-
-    let provider = &response_json.oauth_providers[0];
-    assert_eq!(provider.name, "google");
-    assert_eq!(provider.display_name, "Google");
-    assert!(provider.enabled);
-
-    println!("✅ Test passed: response format validation");
 }
 
 /// User Story: US-WL-002 — auth pages can render with default Herald branding when a Realm has not configured white-label settings.

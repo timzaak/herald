@@ -1,6 +1,4 @@
-// =============================================================================
 // IAP Mock Fixtures + Helpers (Apple JWS + Google Play Developer API wiremock)
-// =============================================================================
 //
 // Test-only fixtures for the IAP scenario tests
 // (`backend/api/src/tests/scenarios/billing/iap_*_scenarios.rs`).
@@ -29,7 +27,6 @@
 // the verifier, so a positive HTTP-layer Apple verification test would need
 // one wired first.
 //
-// =============================================================================
 
 #![allow(dead_code)]
 #![allow(clippy::let_underscore_future)]
@@ -41,12 +38,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path, query_param},
+    matchers::{method, path},
 };
 
-// =============================================================================
 // Apple JWS fixture builders
-// =============================================================================
 
 /// Encode a 3-segment JWS (`header.payload.signature`) with a minimal ES256
 /// header, the supplied payload JSON, and a dummy base64url signature segment.
@@ -91,43 +86,6 @@ pub struct AppleJwsFixtures {
     pub wrong_trust_anchor: String,
 }
 
-impl AppleJwsFixtures {
-    /// Build the three-fixture set for `bundle_id` / `environment` and a
-    /// canonical `original_transaction_id` / `product_id`.
-    pub fn for_bundle(bundle_id: &str, environment: &str, txn_id: &str, product_id: &str) -> Self {
-        let valid_payload = json!({
-            "bundleId": bundle_id,
-            "environment": environment,
-            "originalTransactionId": txn_id,
-            "transactionId": txn_id,
-            "productId": product_id,
-        });
-        let valid_shape = make_apple_jws(&valid_payload);
-
-        // Tampered payload: flip the productId after the (dummy) signature is
-        // computed — under signature-checking environments this fails.
-        let mut tampered_payload = valid_payload.clone();
-        tampered_payload["productId"] = json!(format!("{product_id}.tampered"));
-        let tampered_payload_jws = make_apple_jws(&tampered_payload);
-
-        // Wrong trust anchor / app: claim a bundle the verifier did not pin.
-        let wrong_payload = json!({
-            "bundleId": format!("com.not.{bundle_id}"),
-            "environment": environment,
-            "originalTransactionId": txn_id,
-            "transactionId": txn_id,
-            "productId": product_id,
-        });
-        let wrong_trust_anchor = make_apple_jws(&wrong_payload);
-
-        Self {
-            valid_shape,
-            tampered_payload: tampered_payload_jws,
-            wrong_trust_anchor,
-        }
-    }
-}
-
 /// Build a minimal Apple SSV V2 notification JWS body around a signed
 /// transaction info JWS. The notification's `data.bundleId` / `environment`
 /// are populated so the verifier's notification-level guards run.
@@ -149,9 +107,7 @@ pub fn make_apple_notification_body(
     make_apple_jws(&payload)
 }
 
-// =============================================================================
 // realm_config insertion helpers (Apple / Google)
-// =============================================================================
 
 /// A fixed, throwaway EC P-256 key in PKCS#8 PEM form.
 ///
@@ -259,9 +215,7 @@ pub fn build_service_account_json(client_email: &str, rsa_pem: &str) -> String {
     .to_string()
 }
 
-// =============================================================================
 // Google Play Developer API mock server
-// =============================================================================
 
 /// wiremock-backed Google Play Developer API mock.
 ///
@@ -303,8 +257,6 @@ impl GooglePlayMockServer {
             .mount(&self.server)
             .await;
     }
-
-    // ---- subscriptionsv2.get ----
 
     /// Mount a successful `subscriptionsv2.get` response for `token`,
     /// returning an ACTIVE subscription owned by `obfuscated_account_id` with
@@ -348,8 +300,6 @@ impl GooglePlayMockServer {
             .mount(&self.server)
             .await;
     }
-
-    // ---- subscriptions.acknowledge ----
 
     /// Mount a successful 204 for `subscriptions.acknowledge`.
     pub async fn mount_subscription_acknowledge_success(&self, package_name: &str, token: &str) {
@@ -395,8 +345,6 @@ impl GooglePlayMockServer {
             .await;
     }
 
-    // ---- products.get ----
-
     /// Mount a successful `products.get` for a consumable one_time product.
     /// `consumption_state` 0 == not yet consumed.
     pub async fn mount_product_get_success(
@@ -407,24 +355,6 @@ impl GooglePlayMockServer {
         obfuscated_account_id: &str,
     ) {
         self.mount_product_get(package_name, product_id, token, obfuscated_account_id, 0)
-            .await;
-    }
-
-    /// Mount a 404 for `products.get` (lookup fails → 422 verification_failed).
-    pub async fn mount_product_get_not_found(
-        &self,
-        package_name: &str,
-        product_id: &str,
-        token: &str,
-    ) {
-        Mock::given(method("GET"))
-            .and(path(format!(
-                "/{package_name}/purchases/products/{product_id}/tokens/{token}"
-            )))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                "error": { "code": 404, "message": "The purchase token was not found." }
-            })))
-            .mount(&self.server)
             .await;
     }
 
@@ -469,8 +399,6 @@ impl GooglePlayMockServer {
             .await;
     }
 
-    // ---- products.consume ----
-
     /// Mount a successful 204 for `products.consume`.
     pub async fn mount_product_consume_success(
         &self,
@@ -483,23 +411,6 @@ impl GooglePlayMockServer {
                 "/{package_name}/purchases/products/{product_id}/tokens/{token}:consume"
             )))
             .respond_with(ResponseTemplate::new(204))
-            .mount(&self.server)
-            .await;
-    }
-
-    /// Mount a 500 for `products.consume` to drive the consume-failure
-    /// rollback regression (one_time equivalent of ack-failure).
-    pub async fn mount_product_consume_failure(
-        &self,
-        package_name: &str,
-        product_id: &str,
-        token: &str,
-    ) {
-        Mock::given(method("POST"))
-            .and(path(format!(
-                "/{package_name}/purchases/products/{product_id}/tokens/{token}:consume"
-            )))
-            .respond_with(ResponseTemplate::new(500).set_body_string("backend unavailable"))
             .mount(&self.server)
             .await;
     }
@@ -524,52 +435,6 @@ impl GooglePlayMockServer {
             .respond_with(ResponseTemplate::new(204))
             .mount(&self.server)
             .await;
-    }
-
-    /// Mount a 500 for `products.acknowledge` to drive the ack-failure
-    /// rollback regression for the buyout (non-consumable) path. Mirrors the
-    /// subscription ack-failure stub but for the product acknowledge endpoint.
-    pub async fn mount_product_acknowledge_failure(
-        &self,
-        package_name: &str,
-        product_id: &str,
-        token: &str,
-    ) {
-        Mock::given(method("POST"))
-            .and(path(format!(
-                "/{package_name}/purchases/products/{product_id}/tokens/{token}:acknowledge"
-            )))
-            .respond_with(ResponseTemplate::new(500).set_body_string("backend unavailable"))
-            .mount(&self.server)
-            .await;
-    }
-
-    // ---- voidedpurchases.list ----
-
-    /// Mount a successful `voidedpurchases.list` page for `package_name`,
-    /// optionally matching a `token` query param for page-advance assertions.
-    pub async fn mount_voided_list_success(
-        &self,
-        package_name: &str,
-        page_token: Option<&str>,
-        voided_token: &str,
-        order_id: &str,
-    ) {
-        let mut mock = Mock::given(method("GET"))
-            .and(path(format!("/{package_name}/purchases/voidedpurchases")));
-        if let Some(tok) = page_token {
-            mock = mock.and(query_param("token", tok));
-        }
-        mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "voidedPurchases": [{
-                "purchaseToken": voided_token,
-                "purchaseType": 0,
-                "voidedTimeMillis": "1700000001000",
-                "orderId": order_id,
-            }],
-        })))
-        .mount(&self.server)
-        .await;
     }
 
     /// Reset all mocks (clears registered stubs).

@@ -1,6 +1,4 @@
-// =============================================================================
 // Credit Bucket Test Helpers
-// =============================================================================
 //
 // Test-owned helpers for credit-bucket scenario tests. These directly drive the
 // real domain write paths (`PointsService::grant_points_internal` →
@@ -10,7 +8,6 @@
 //
 // Owned by the backend-test slot. Extended in place by later items.
 //
-// =============================================================================
 
 #![allow(dead_code)]
 
@@ -164,9 +161,7 @@ pub async fn admin_grant_to_bucket(
     .expect("admin_grant_to_bucket failed")
 }
 
-// =============================================================================
 // HTTP request builders — consume endpoint
-// =============================================================================
 
 /// Build a `POST /api/ext/points/{realmId}/consume` request authenticated via
 /// API Key. The returned request is ready for `oneshot`.
@@ -236,9 +231,7 @@ pub async fn consume_points_ext_via_api(
     (status, body)
 }
 
-// =============================================================================
 // Fulfillment + subscription lifecycle bucket routing helpers
-// =============================================================================
 //
 // Direct-DB and direct-service helpers for grant/fulfillment bucket routing
 // + subscription lifecycle reclamation (in-flight attempt not rerouted on
@@ -250,36 +243,6 @@ pub async fn consume_points_ext_via_api(
 // drive the real domain services (`fulfillment_service`, `subscription_service`)
 // and read the bucket-dimension columns directly for assertions.
 //
-// =============================================================================
-
-/// Attach (or re-attach) a `provider_entitlement_mappings` row to a Bucket by
-/// writing `provider_entitlement_mappings.bucket_id`.
-///
-/// Used by the regression scenario to re-point the mapping AFTER the
-/// purchase attempt is in flight, proving the in-flight attempt still fulfills
-/// to the original snapshot Bucket.
-pub async fn attach_mapping_to_bucket(pool: &PgPool, mapping_id: Uuid, bucket_id: Uuid) {
-    sqlx::query(
-        "UPDATE provider_entitlement_mappings SET bucket_id = $1, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(bucket_id)
-    .bind(mapping_id)
-    .execute(pool)
-    .await
-    .expect("Failed to attach mapping to bucket");
-}
-
-/// Detach a `provider_entitlement_mappings` row from any Bucket by setting
-/// `bucket_id = NULL` (simulates a never-attached mapping, US-CB-003 scenario 2).
-pub async fn detach_mapping_from_bucket(pool: &PgPool, mapping_id: Uuid) {
-    sqlx::query(
-        "UPDATE provider_entitlement_mappings SET bucket_id = NULL, updated_at = NOW() WHERE id = $2",
-    )
-    .bind(mapping_id)
-    .execute(pool)
-    .await
-    .expect("Failed to detach mapping from bucket");
-}
 
 /// Read `subscription.bucket_id` for a subscription. The column is NOT NULL
 /// since the eager-binding migration (`bucket_id` is frozen
@@ -296,19 +259,6 @@ pub async fn read_subscription_bucket(pool: &PgPool, subscription_id: Uuid) -> U
         .await
         .expect("Failed to read subscription.bucket_id")
         .expect("subscription row disappeared — test-setup bug")
-}
-
-/// Force-set `subscription.bucket_id` to a specific Bucket. The column is NOT
-/// NULL (eager binding), so callers must pass a real
-/// `bucket_id`. Kept for scenarios that need to re-bind a subscription to a
-/// different Bucket after creation.
-pub async fn set_subscription_bucket(pool: &PgPool, subscription_id: Uuid, bucket_id: Uuid) {
-    sqlx::query("UPDATE subscription SET bucket_id = $1, updated_at = NOW() WHERE id = $2")
-        .bind(bucket_id)
-        .bind(subscription_id)
-        .execute(pool)
-        .await
-        .expect("Failed to set subscription.bucket_id");
 }
 
 /// Read `payment_attempts.bucket_id` snapshot for an attempt; returns None if
@@ -414,161 +364,7 @@ pub async fn count_ledger_outside_bucket(
     .expect("Failed to count ledger rows outside bucket")
 }
 
-// =============================================================================
-// HTTP request builders — explicit-bucketId grant endpoints (admin + ext)
-// =============================================================================
-//
-// Mirror `points_grant_helpers::grant_points_admin_request` /
-// `grant_points_ext_request` but accept an OPTIONAL `bucket_id`. Passing `None`
-// exercises the "missing bucketId → 400 grant_bucket_required" rejection;
-// passing `Some(uuid)` exercises the intended multi-bucket routing.
-//
-// =============================================================================
-
-/// Build a `POST /api/points/grant` (admin) request. When
-/// `bucket_id` is `None` the field is omitted entirely so the handler exercises
-/// the missing-bucketId rejection path.
-pub fn grant_points_admin_request_with_bucket(
-    _realm_id: &str,
-    user_id: Uuid,
-    amount: i64,
-    reason: &str,
-    validity_days: Option<i64>,
-    bucket_id: Option<Uuid>,
-    session_token: &str,
-) -> Request<Body> {
-    let mut body = serde_json::json!({
-        "userId": user_id.to_string(),
-        "amount": amount,
-        "reason": reason,
-    });
-    if let Some(days) = validity_days {
-        body["validityDays"] = serde_json::json!(days);
-    }
-    if let Some(b) = bucket_id {
-        body["bucketId"] = serde_json::json!(b.to_string());
-    }
-
-    Request::builder()
-        .method("POST")
-        .uri("/api/points/grant".to_string())
-        .header("content-type", "application/json")
-        .header(
-            axum::http::header::AUTHORIZATION,
-            format!("Bearer {}", session_token),
-        )
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-/// Call the admin grant endpoint with an optional explicit `bucket_id` and
-/// return the status code with the parsed JSON body (if any).
-pub async fn grant_points_admin_with_bucket_via_api(
-    ctx: &TestContext,
-    realm_id: &str,
-    user_id: Uuid,
-    amount: i64,
-    reason: &str,
-    validity_days: Option<i64>,
-    bucket_id: Option<Uuid>,
-    session_token: &str,
-) -> (StatusCode, Option<serde_json::Value>) {
-    let app = ctx.create_unified_test_router();
-    let request = grant_points_admin_request_with_bucket(
-        realm_id,
-        user_id,
-        amount,
-        reason,
-        validity_days,
-        bucket_id,
-        session_token,
-    );
-    let response = app.oneshot(request).await.unwrap();
-
-    let status = response.status();
-    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let body: Option<serde_json::Value> = if body_bytes.is_empty() {
-        None
-    } else {
-        Some(serde_json::from_slice(&body_bytes).unwrap())
-    };
-    (status, body)
-}
-
-/// Build a `POST /api/ext/points/{realmId}/grant` (SDK) request. When
-/// `bucket_id` is `None` the field is omitted entirely so the handler exercises
-/// the missing-bucketId rejection path.
-pub fn grant_points_ext_request_with_bucket(
-    realm_id: &str,
-    user_id: Uuid,
-    amount: i64,
-    reason: &str,
-    validity_days: Option<i64>,
-    bucket_id: Option<Uuid>,
-    api_key: &str,
-) -> Request<Body> {
-    let mut body = serde_json::json!({
-        "userId": user_id.to_string(),
-        "amount": amount,
-        "reason": reason,
-    });
-    if let Some(days) = validity_days {
-        body["validityDays"] = serde_json::json!(days);
-    }
-    if let Some(b) = bucket_id {
-        body["bucketId"] = serde_json::json!(b.to_string());
-    }
-
-    Request::builder()
-        .method("POST")
-        .uri(format!("/api/ext/points/{}/grant", realm_id))
-        .header("content-type", "application/json")
-        .header("X-API-Key", api_key)
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-/// Call the ext (SDK) grant endpoint with an optional explicit `bucket_id` and
-/// return the status code with the parsed JSON body (if any).
-pub async fn grant_points_ext_with_bucket_via_api(
-    ctx: &TestContext,
-    realm_id: &str,
-    user_id: Uuid,
-    amount: i64,
-    reason: &str,
-    validity_days: Option<i64>,
-    bucket_id: Option<Uuid>,
-    api_key: &str,
-) -> (StatusCode, Option<serde_json::Value>) {
-    let app = ctx.create_unified_test_router();
-    let request = grant_points_ext_request_with_bucket(
-        realm_id,
-        user_id,
-        amount,
-        reason,
-        validity_days,
-        bucket_id,
-        api_key,
-    );
-    let response = app.oneshot(request).await.unwrap();
-
-    let status = response.status();
-    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let body: Option<serde_json::Value> = if body_bytes.is_empty() {
-        None
-    } else {
-        Some(serde_json::from_slice(&body_bytes).unwrap())
-    };
-    (status, body)
-}
-
-// =============================================================================
 // Credit Bucket directory CRUD + overview + delete intercept helpers
-// =============================================================================
 //
 // Direct-DB seed helpers + HTTP request builders for the Bucket directory CRUD
 // + overview + error contract + "directory CRUD" testable behavior
@@ -582,7 +378,6 @@ pub async fn grant_points_ext_with_bucket_via_api(
 // scenarios assert the 409 `bucket_in_use` body (`activeSubscriptions` /
 // `holdersWithBalance`).
 //
-// =============================================================================
 
 /// Seed an in-progress `subscription` row.
 ///
@@ -847,9 +642,7 @@ pub async fn auth_admin_request_via_api(
     (status, parsed)
 }
 
-// =============================================================================
 // Per-bucket query surface helpers (wallets / transactions / admin)
-// =============================================================================
 //
 // HTTP request builders for the query contracts. The user-facing and
 // admin-facing query endpoints are served by a single handler at
@@ -863,7 +656,6 @@ pub async fn auth_admin_request_via_api(
 // a known bucket_id so the bucketId filter scenario has deterministic rows
 // without driving the full consume path.
 //
-// =============================================================================
 
 /// Build a GET request to the points query endpoints authenticated via the
 /// session cookie (`Bearer <token>`). `query` is appended as the raw query

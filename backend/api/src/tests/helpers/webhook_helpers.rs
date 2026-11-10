@@ -1,6 +1,4 @@
-// =============================================================================
 // Webhook Test Helpers
-// =============================================================================
 //
 // Shared helpers for webhook testing.
 // Provides functions for building webhook events and sending them to test servers.
@@ -8,7 +6,6 @@
 // Updated for product_reduce: herald_* metadata builders replace plan_id builders.
 // Old plan_id-based builders have been removed.
 //
-// =============================================================================
 
 #![allow(dead_code)]
 
@@ -25,9 +22,7 @@ use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// ============================================================================
 /// Creem Webhook Event Builders (herald_* metadata)
-/// ============================================================================
 ///
 /// Build a Creem checkout.completed webhook event with all herald_* metadata keys.
 pub fn build_creem_checkout_completed_with_herald_metadata(
@@ -364,9 +359,7 @@ pub fn build_creem_checkout_invalid_entitlement_key(
     })
 }
 
-/// ============================================================================
 /// Stripe Webhook Event Builders (herald_* metadata)
-/// ============================================================================
 ///
 /// Build a Stripe checkout.session.completed webhook with herald_* metadata.
 #[allow(clippy::too_many_arguments)]
@@ -719,9 +712,7 @@ pub fn build_stripe_checkout_missing_realm_id(
     })
 }
 
-/// ============================================================================
 /// Webhook Sending Helpers
-/// ============================================================================
 /// Send a webhook event with signature
 pub async fn send_webhook_with_signature(
     app: &axum::Router,
@@ -773,30 +764,7 @@ pub async fn send_webhook_with_invalid_signature(
         .unwrap()
 }
 
-/// Send a webhook event without signature
-pub async fn send_webhook_without_signature(
-    app: &axum::Router,
-    realm_id: &str,
-    payload: serde_json::Value,
-) -> axum::response::Response {
-    let payload_str = serde_json::to_string(&payload).unwrap();
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/third/pay/{}/creem/webhooks", realm_id))
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload_str))
-                .unwrap(),
-        )
-        .await
-        .unwrap()
-}
-
-/// ============================================================================
 /// Webhook Assertion Helpers
-/// ============================================================================
 /// Assert webhook response is successful (200 OK or 202 Accepted)
 pub fn assert_webhook_success(response: &axum::response::Response) {
     let status = response.status();
@@ -818,35 +786,13 @@ pub fn assert_webhook_error(response: &axum::response::Response, expected_status
     );
 }
 
-/// ============================================================================
-/// Idempotency Helpers
-/// ============================================================================
-/// Generate idempotency key for Creem webhook
-pub fn generate_webhook_idempotency_key(event_id: &str) -> String {
-    format!("creem_{}", event_id)
-}
-
-/// ============================================================================
 /// Test Data Generators
-/// ============================================================================
 /// Generate a unique event ID for testing
 pub fn generate_test_event_id() -> String {
     format!("evt_test_{}", Uuid::now_v7())
 }
 
-/// Generate a unique user ID for testing
-pub fn generate_test_user_id() -> Uuid {
-    Uuid::now_v7()
-}
-
-/// Generate a unique plan ID for testing
-pub fn generate_test_plan_id() -> Uuid {
-    Uuid::now_v7()
-}
-
-/// ============================================================================
 /// Legacy Builders (retained for existing tests that have not yet been migrated)
-/// ============================================================================
 /// These builders reference the pre-product_reduce schema (plan_id, planId).
 /// New tests should use the herald_* metadata builders above.
 /// Pending work will migrate or remove the tests that depend on these.
@@ -1192,9 +1138,7 @@ pub async fn setup_test_plan_config_with_points(
     .expect("Failed to create generic test entitlement mapping");
 }
 
-/// ============================================================================
 /// Database Setup Helpers (entitlement mapping for webhook tests)
-/// ============================================================================
 ///
 /// Create a test entitlement mapping for webhook tests via direct SQL.
 ///
@@ -1365,9 +1309,7 @@ pub fn build_stripe_charge_refunded_topup_event(
     )
 }
 
-/// ============================================================================
 /// Stripe Webhook Sending Helpers
-/// ============================================================================
 /// Build a Stripe webhook signature for testing
 ///
 /// Follows Stripe's webhook signature format: t={timestamp},v1={signature}
@@ -1399,30 +1341,6 @@ pub async fn send_stripe_webhook_with_signature(
                 .method("POST")
                 .uri(uri)
                 .header("stripe-signature", signature)
-                .header("Content-Type", "application/json")
-                .body(Body::from(payload_str))
-                .unwrap(),
-        )
-        .await
-        .unwrap()
-}
-
-/// Send a Stripe webhook event with invalid signature
-pub async fn send_stripe_webhook_with_invalid_signature(
-    app: &axum::Router,
-    realm_id: &str,
-    payload: serde_json::Value,
-) -> axum::response::Response {
-    let payload_str = serde_json::to_string(&payload).unwrap();
-    let invalid_signature = "t=1234567890,v1=invalid_signature_here_aabbccddeeff";
-    let uri = &format!("/api/third/pay/{}/stripe/webhooks", realm_id);
-
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(uri)
-                .header("stripe-signature", invalid_signature)
                 .header("Content-Type", "application/json")
                 .body(Body::from(payload_str))
                 .unwrap(),
