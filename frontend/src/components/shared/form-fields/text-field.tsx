@@ -15,6 +15,8 @@ interface TextFieldProps {
   disabled?: boolean
   helpText?: ReactNode
   required?: boolean
+  /** Testid for the error <p>; defaults to none (query via role="alert"). */
+  errorTestId?: string
   transformValue?: (value: string) => unknown
   onSubmit?: () => void
 }
@@ -30,6 +32,7 @@ export function TextField({
   disabled = false,
   helpText,
   required = false,
+  errorTestId,
   transformValue,
   onSubmit,
 }: TextFieldProps) {
@@ -70,7 +73,7 @@ export function TextField({
           {helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
           {(field.state.meta.isTouched || form.state.isSubmitted) &&
             field.state.meta.errors.length > 0 && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-sm text-destructive" role="alert" data-testid={errorTestId}>
                 {getFieldErrorMessage(field.state.meta)}
               </p>
             )}

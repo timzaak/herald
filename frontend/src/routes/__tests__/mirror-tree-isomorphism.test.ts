@@ -10,6 +10,10 @@ import { Route as RealPermissionsRoute } from '../$realmId/manage/permissions'
 import { Route as RealSettingsRoute } from '../$realmId/manage/settings'
 import { Route as RealAuditIndexRoute } from '../$realmId/manage/audit/index'
 import { Route as RealApiKeysIndexRoute } from '../$realmId/manage/api-keys/index'
+import { Route as RealWebhooksIndexRoute } from '../$realmId/manage/webhooks.index'
+import { Route as RealWebhooksNewRoute } from '../$realmId/manage/webhooks.new'
+import { Route as RealWebhooksRevealRoute } from '../$realmId/manage/webhooks.reveal'
+import { Route as RealWebhooksEditRoute } from '../$realmId/manage/webhooks.$webhookId.edit'
 import { Route as RealClientAppsIndexRoute } from '../$realmId/manage/client-apps/index'
 import { Route as RealStatisticsRoute } from '../$realmId/manage/billing/statistics'
 import { Route as RealSubscriptionsRoute } from '../$realmId/manage/billing/subscriptions'
@@ -37,6 +41,10 @@ import { Route as MirrorPermissionsRoute } from '../manage/permissions'
 import { Route as MirrorSettingsRoute } from '../manage/settings'
 import { Route as MirrorAuditIndexRoute } from '../manage/audit/index'
 import { Route as MirrorApiKeysIndexRoute } from '../manage/api-keys/index'
+import { Route as MirrorWebhooksIndexRoute } from '../manage/webhooks.index'
+import { Route as MirrorWebhooksNewRoute } from '../manage/webhooks.new'
+import { Route as MirrorWebhooksRevealRoute } from '../manage/webhooks.reveal'
+import { Route as MirrorWebhooksEditRoute } from '../manage/webhooks.$webhookId.edit'
 import { Route as MirrorClientAppsIndexRoute } from '../manage/client-apps/index'
 import { Route as MirrorStatisticsRoute } from '../manage/billing/statistics'
 import { Route as MirrorSubscriptionsRoute } from '../manage/billing/subscriptions'
@@ -74,6 +82,14 @@ const MIRROR_PAIRS = [
   { path: 'manage/settings', real: RealSettingsRoute, mirror: MirrorSettingsRoute },
   { path: 'manage/audit/index', real: RealAuditIndexRoute, mirror: MirrorAuditIndexRoute },
   { path: 'manage/api-keys/index', real: RealApiKeysIndexRoute, mirror: MirrorApiKeysIndexRoute },
+  { path: 'manage/webhooks/index', real: RealWebhooksIndexRoute, mirror: MirrorWebhooksIndexRoute },
+  { path: 'manage/webhooks/new', real: RealWebhooksNewRoute, mirror: MirrorWebhooksNewRoute },
+  {
+    path: 'manage/webhooks/reveal',
+    real: RealWebhooksRevealRoute,
+    mirror: MirrorWebhooksRevealRoute,
+  },
+  { path: 'manage/webhooks/edit', real: RealWebhooksEditRoute, mirror: MirrorWebhooksEditRoute },
   {
     path: 'manage/client-apps/index',
     real: RealClientAppsIndexRoute,

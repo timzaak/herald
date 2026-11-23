@@ -61,14 +61,34 @@ function walk(dir) {
 }
 walk(SRC_ROOT)
 
-// 3. For each key, check if `m['key']` or `m["key"]` appears in any source file.
+// 3. Collect dynamic reference evidence:
+//    A key appearing as a quoted string literal anywhere in src/ counts as
+//    referenced even outside an `m[...]` call — records that map enum values
+//    to message keys and later call `m[record[x]]()` (e.g.
+//    src/types/billing.ts, currency-purchase-group.tsx) are legitimate
+//    consumers the static `m['key']` regex cannot see.
+const templatePrefixes = []
+for (const { text } of fileTexts) {
+  // `m[`points.balance_type_${k}`]` — any key starting with the captured
+  // literal prefix is constructible at runtime.
+  for (const match of text.matchAll(/m\[`([a-z0-9_.]+)\$\{/g)) {
+    templatePrefixes.push(match[1])
+  }
+}
+const templatePrefixSet = new Set(templatePrefixes)
+
+// 4. For each key, check if it is referenced statically or dynamically.
 const orphans = []
 let usedCount = 0
 for (const key of allKeys) {
   // Match m['common.save'] or m["common.save"] — escape the key for regex.
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`m\\[['"]${escaped}['"]\\]`)
-  const found = fileTexts.some((f) => re.test(f.text))
+  const staticRe = new RegExp(`m\\[['"]${escaped}['"]\\]`)
+  const literalRe = new RegExp(`['"]${escaped}['"]`)
+  const found =
+    fileTexts.some((f) => staticRe.test(f.text)) ||
+    fileTexts.some((f) => literalRe.test(f.text)) ||
+    [...templatePrefixSet].some((p) => key.startsWith(p))
   if (found) {
     usedCount++
   } else {
@@ -76,7 +96,7 @@ for (const key of allKeys) {
   }
 }
 
-// 4. Report.
+// 5. Report.
 console.log(`Total message keys: ${allKeys.length}`)
 console.log(`Used keys: ${usedCount}`)
 console.log(`Orphan keys: ${orphans.length}`)
@@ -87,8 +107,9 @@ if (orphans.length > 0) {
   console.log('\nOrphan keys (defined in messages/en.json but not referenced in src/):')
   for (const k of orphans.sort()) console.log(`  ${k}`)
   console.log(
-    `\nNote: keys may be referenced dynamically (e.g. m[varName]) — review before deleting. ` +
-      `This script only detects static m['key'] / m["key"] references.`
+    `\nNote: a key is counted as used when it appears as a quoted literal in src/ (record-fed ` +
+      `m[variable]() lookups), or shares a prefix with a template-literal lookup. Commented-out ` +
+      `occurrences would also count — review before deleting.`
   )
   process.exit(1)
 }

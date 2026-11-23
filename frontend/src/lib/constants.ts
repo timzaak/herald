@@ -132,6 +132,8 @@ export const QUERY_KEYS = {
   API_KEYS: 'api-keys',
   API_KEY: 'api-key',
   API_KEY_ROLES: 'api-key-roles',
+  WEBHOOKS: 'webhooks',
+  WEBHOOK: 'webhook',
   ENTITLEMENT_MAPPINGS: 'entitlement-mappings',
   ENTITLEMENT_MAPPING: 'entitlement-mapping',
   ADMIN_SUBSCRIPTIONS: 'admin-subscriptions',

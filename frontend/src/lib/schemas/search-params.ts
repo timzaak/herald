@@ -62,6 +62,11 @@ export const apiKeysSearchSchema = z.object({
   pageSize: z.number().int().min(1).max(100).optional(),
 })
 
+export const webhooksSearchSchema = z.object({
+  page: z.number().int().min(0).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+})
+
 export const resetPasswordSearchSchema = z.object({
   code: z.string().min(1),
 })
@@ -99,4 +104,5 @@ export type RealmsSearchParams = z.infer<typeof realmsSearchSchema>
 export type ClientAppsSearchParams = z.infer<typeof clientAppsSearchSchema>
 export type AuditSearchParams = z.infer<typeof auditSearchSchema>
 export type ApiKeysSearchParams = z.infer<typeof apiKeysSearchSchema>
+export type WebhooksSearchParams = z.infer<typeof webhooksSearchSchema>
 export type PurchasePointsSearchParams = z.infer<typeof purchasePointsSearchSchema>

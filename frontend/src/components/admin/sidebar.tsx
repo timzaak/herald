@@ -15,6 +15,7 @@ import {
   ScrollText,
   BarChart3,
   Github,
+  Webhook,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/use-auth'
@@ -66,6 +67,7 @@ export function Sidebar() {
       dashboard: m['nav.dashboard'],
       realms: m['nav.realms'],
       clients: m['nav.clients'],
+      webhooks: m['nav.webhooks'],
       users: m['nav.users'],
       authorization: m['nav.authorization'],
       permissions: m['nav.permissions'],
@@ -122,6 +124,13 @@ export function Sidebar() {
         path: customDomainPath('/manage/client-apps'),
         icon: Briefcase,
         permission: PERMISSION.CLIENTS_VIEW,
+      },
+      {
+        id: 'webhooks',
+        name: 'Webhooks',
+        path: customDomainPath('/manage/webhooks'),
+        icon: Webhook,
+        permission: PERMISSION.WEBHOOKS_VIEW,
       },
       {
         id: 'users',

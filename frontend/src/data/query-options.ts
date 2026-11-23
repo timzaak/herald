@@ -56,6 +56,8 @@ import {
   emailStatus,
   listApiKeys,
   getApiKey,
+  listWebhookSubscriptions,
+  getWebhookSubscription,
   adminGetApiKeyRoles,
   adminUpdateApiKeyRoles,
   getEntitlementMapping,
@@ -245,6 +247,11 @@ export const queryKeys = {
   apiKey: (realmId: string, id: string) => [QUERY_KEYS.API_KEY, realmId, id] as const,
   apiKeyRoles: (realmId: string, apiKeyId: string) =>
     [QUERY_KEYS.API_KEY_ROLES, realmId, apiKeyId] as const,
+  webhooks: (realmId: string, filters: { page?: number; pageSize?: number }) =>
+    [QUERY_KEYS.WEBHOOKS, realmId, filters] as const,
+  webhooksList: (realmId: string) => [QUERY_KEYS.WEBHOOKS, realmId] as const,
+  webhook: (realmId: string, subscriptionId: string) =>
+    [QUERY_KEYS.WEBHOOK, realmId, subscriptionId] as const,
   entitlementMappings: (realmId: string, filters: Record<string, unknown>) =>
     [QUERY_KEYS.ENTITLEMENT_MAPPINGS, realmId, filters] as const,
   entitlementMapping: (realmId: string, mappingId: string) =>
@@ -1235,6 +1242,37 @@ export const apiKeyQueryOptions = (realmId: string, id: string) =>
   queryOptions({
     queryKey: queryKeys.apiKey(realmId, id),
     queryFn: async () => handleApiResponse(await getApiKey({ path: { apiKeyId: id } })),
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_5_MIN,
+  })
+
+export const webhooksQueryOptions = (
+  realmId: string,
+  filters: {
+    page?: number
+    pageSize?: number
+  }
+) =>
+  queryOptions({
+    queryKey: queryKeys.webhooks(realmId, filters),
+    queryFn: async () =>
+      handleApiResponse(
+        await listWebhookSubscriptions({
+          query: {
+            page: filters.page ?? 0,
+            pageSize: filters.pageSize ?? 20,
+          },
+        })
+      ),
+    retry: RETRY_COUNT,
+    staleTime: STALE_TIME_5_MIN,
+  })
+
+export const webhookQueryOptions = (realmId: string, subscriptionId: string) =>
+  queryOptions({
+    queryKey: queryKeys.webhook(realmId, subscriptionId),
+    queryFn: async () =>
+      handleApiResponse(await getWebhookSubscription({ path: { subscriptionId } })),
     retry: RETRY_COUNT,
     staleTime: STALE_TIME_5_MIN,
   })

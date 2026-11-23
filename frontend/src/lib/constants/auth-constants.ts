@@ -30,6 +30,8 @@ export const PERMISSION = {
   BILLING_MANAGE: 'billing.manage',
   POINTS_VIEW: 'points.view',
   POINTS_MANAGE: 'points.manage',
+  WEBHOOKS_VIEW: 'webhooks.view',
+  WEBHOOKS_MANAGE: 'webhooks.manage',
 } as const
 
 // Admin permissions - used by hasAdminPermission to determine admin vs regular user
@@ -56,6 +58,8 @@ export const ADMIN_PERMISSIONS = [
   PERMISSION.BILLING_VIEW,
   PERMISSION.BILLING_MANAGE,
   PERMISSION.POINTS_MANAGE,
+  PERMISSION.WEBHOOKS_VIEW,
+  PERMISSION.WEBHOOKS_MANAGE,
 ] as const
 
 /**

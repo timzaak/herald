@@ -54,6 +54,7 @@ import { Route as RealmIdAuthRouteRouteImport } from './routes/$realmId/auth/rou
 import { Route as UserSecurityIndexRouteImport } from './routes/user/security/index'
 import { Route as UserMySubscriptionsIndexRouteImport } from './routes/user/my-subscriptions/index'
 import { Route as UserInvoicesIndexRouteImport } from './routes/user/invoices/index'
+import { Route as ManageWebhooksIndexRouteImport } from './routes/manage/webhooks.index'
 import { Route as ManageClientAppsIndexRouteImport } from './routes/manage/client-apps/index'
 import { Route as ManageAuditIndexRouteImport } from './routes/manage/audit/index'
 import { Route as ManageApiKeysIndexRouteImport } from './routes/manage/api-keys/index'
@@ -63,6 +64,8 @@ import { Route as RealmIdDeviceIndexRouteImport } from './routes/$realmId/device
 import { Route as UserSecurityTotpSetupRouteImport } from './routes/user/security/totp-setup'
 import { Route as UserInvoicesNewRouteImport } from './routes/user/invoices/new'
 import { Route as UserChangeEmailConfirmRouteImport } from './routes/user/change-email/confirm'
+import { Route as ManageWebhooksRevealRouteImport } from './routes/manage/webhooks.reveal'
+import { Route as ManageWebhooksNewRouteImport } from './routes/manage/webhooks.new'
 import { Route as ManagePointsWalletsRouteImport } from './routes/manage/points/wallets'
 import { Route as ManagePointsRegistrationRulesRouteImport } from './routes/manage/points/registration-rules'
 import { Route as ManagePointsDefaultConfigRouteImport } from './routes/manage/points/default-config'
@@ -109,9 +112,11 @@ import { Route as ManageBillingCreditBucketsIndexRouteImport } from './routes/ma
 import { Route as RealmIdUserSecurityIndexRouteImport } from './routes/$realmId/user/security/index'
 import { Route as RealmIdUserMySubscriptionsIndexRouteImport } from './routes/$realmId/user/my-subscriptions/index'
 import { Route as RealmIdUserInvoicesIndexRouteImport } from './routes/$realmId/user/invoices/index'
+import { Route as RealmIdManageWebhooksIndexRouteImport } from './routes/$realmId/manage/webhooks.index'
 import { Route as RealmIdManageClientAppsIndexRouteImport } from './routes/$realmId/manage/client-apps/index'
 import { Route as RealmIdManageAuditIndexRouteImport } from './routes/$realmId/manage/audit/index'
 import { Route as RealmIdManageApiKeysIndexRouteImport } from './routes/$realmId/manage/api-keys/index'
+import { Route as ManageWebhooksWebhookIdEditRouteImport } from './routes/manage/webhooks.$webhookId.edit'
 import { Route as ManageClientAppsClientAppIdEditRouteImport } from './routes/manage/client-apps/$clientAppId.edit'
 import { Route as ManageBillingPaymentProvidersWechatRouteImport } from './routes/manage/billing/payment-providers/wechat'
 import { Route as ManageBillingPaymentProvidersStripeRouteImport } from './routes/manage/billing/payment-providers/stripe'
@@ -125,6 +130,8 @@ import { Route as ManageApiKeysApiKeyIdEditRouteImport } from './routes/manage/a
 import { Route as RealmIdUserSecurityTotpSetupRouteImport } from './routes/$realmId/user/security/totp-setup'
 import { Route as RealmIdUserInvoicesNewRouteImport } from './routes/$realmId/user/invoices/new'
 import { Route as RealmIdUserChangeEmailConfirmRouteImport } from './routes/$realmId/user/change-email/confirm'
+import { Route as RealmIdManageWebhooksRevealRouteImport } from './routes/$realmId/manage/webhooks.reveal'
+import { Route as RealmIdManageWebhooksNewRouteImport } from './routes/$realmId/manage/webhooks.new'
 import { Route as RealmIdManagePointsWalletsRouteImport } from './routes/$realmId/manage/points/wallets'
 import { Route as RealmIdManagePointsRegistrationRulesRouteImport } from './routes/$realmId/manage/points/registration-rules'
 import { Route as RealmIdManagePointsDefaultConfigRouteImport } from './routes/$realmId/manage/points/default-config'
@@ -143,6 +150,7 @@ import { Route as RealmIdManageBillingEntitlementMappingsIndexRouteImport } from
 import { Route as RealmIdManageBillingCreditBucketsIndexRouteImport } from './routes/$realmId/manage/billing/credit-buckets/index'
 import { Route as ManageBillingInvoicesInvoiceIdEditRouteImport } from './routes/manage/billing/invoices/$invoiceId.edit'
 import { Route as RealmIdUserMySubscriptionsSubscriptionIdHistoryRouteImport } from './routes/$realmId/user/my-subscriptions/$subscriptionId/history'
+import { Route as RealmIdManageWebhooksWebhookIdEditRouteImport } from './routes/$realmId/manage/webhooks.$webhookId.edit'
 import { Route as RealmIdManageClientAppsClientAppIdEditRouteImport } from './routes/$realmId/manage/client-apps/$clientAppId.edit'
 import { Route as RealmIdManageBillingPaymentProvidersWechatRouteImport } from './routes/$realmId/manage/billing/payment-providers/wechat'
 import { Route as RealmIdManageBillingPaymentProvidersStripeRouteImport } from './routes/$realmId/manage/billing/payment-providers/stripe'
@@ -382,6 +390,11 @@ const UserInvoicesIndexRoute = UserInvoicesIndexRouteImport.update({
   path: '/',
   getParentRoute: () => UserInvoicesRoute,
 } as any)
+const ManageWebhooksIndexRoute = ManageWebhooksIndexRouteImport.update({
+  id: '/webhooks/',
+  path: '/webhooks/',
+  getParentRoute: () => ManageRouteRoute,
+} as any)
 const ManageClientAppsIndexRoute = ManageClientAppsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -426,6 +439,16 @@ const UserChangeEmailConfirmRoute = UserChangeEmailConfirmRouteImport.update({
   id: '/change-email/confirm',
   path: '/change-email/confirm',
   getParentRoute: () => UserRouteRoute,
+} as any)
+const ManageWebhooksRevealRoute = ManageWebhooksRevealRouteImport.update({
+  id: '/webhooks/reveal',
+  path: '/webhooks/reveal',
+  getParentRoute: () => ManageRouteRoute,
+} as any)
+const ManageWebhooksNewRoute = ManageWebhooksNewRouteImport.update({
+  id: '/webhooks/new',
+  path: '/webhooks/new',
+  getParentRoute: () => ManageRouteRoute,
 } as any)
 const ManagePointsWalletsRoute = ManagePointsWalletsRouteImport.update({
   id: '/wallets',
@@ -679,6 +702,12 @@ const RealmIdUserInvoicesIndexRoute =
     path: '/',
     getParentRoute: () => RealmIdUserInvoicesRoute,
   } as any)
+const RealmIdManageWebhooksIndexRoute =
+  RealmIdManageWebhooksIndexRouteImport.update({
+    id: '/webhooks/',
+    path: '/webhooks/',
+    getParentRoute: () => RealmIdManageRouteRoute,
+  } as any)
 const RealmIdManageClientAppsIndexRoute =
   RealmIdManageClientAppsIndexRouteImport.update({
     id: '/',
@@ -695,6 +724,12 @@ const RealmIdManageApiKeysIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => RealmIdManageApiKeysRoute,
+  } as any)
+const ManageWebhooksWebhookIdEditRoute =
+  ManageWebhooksWebhookIdEditRouteImport.update({
+    id: '/webhooks/$webhookId/edit',
+    path: '/webhooks/$webhookId/edit',
+    getParentRoute: () => ManageRouteRoute,
   } as any)
 const ManageClientAppsClientAppIdEditRoute =
   ManageClientAppsClientAppIdEditRouteImport.update({
@@ -772,6 +807,18 @@ const RealmIdUserChangeEmailConfirmRoute =
     id: '/change-email/confirm',
     path: '/change-email/confirm',
     getParentRoute: () => RealmIdUserRouteRoute,
+  } as any)
+const RealmIdManageWebhooksRevealRoute =
+  RealmIdManageWebhooksRevealRouteImport.update({
+    id: '/webhooks/reveal',
+    path: '/webhooks/reveal',
+    getParentRoute: () => RealmIdManageRouteRoute,
+  } as any)
+const RealmIdManageWebhooksNewRoute =
+  RealmIdManageWebhooksNewRouteImport.update({
+    id: '/webhooks/new',
+    path: '/webhooks/new',
+    getParentRoute: () => RealmIdManageRouteRoute,
   } as any)
 const RealmIdManagePointsWalletsRoute =
   RealmIdManagePointsWalletsRouteImport.update({
@@ -879,6 +926,12 @@ const RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute =
     id: '/$subscriptionId/history',
     path: '/$subscriptionId/history',
     getParentRoute: () => RealmIdUserMySubscriptionsRoute,
+  } as any)
+const RealmIdManageWebhooksWebhookIdEditRoute =
+  RealmIdManageWebhooksWebhookIdEditRouteImport.update({
+    id: '/webhooks/$webhookId/edit',
+    path: '/webhooks/$webhookId/edit',
+    getParentRoute: () => RealmIdManageRouteRoute,
   } as any)
 const RealmIdManageClientAppsClientAppIdEditRoute =
   RealmIdManageClientAppsClientAppIdEditRouteImport.update({
@@ -1029,6 +1082,8 @@ export interface FileRoutesByFullPath {
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
   '/manage/points/registration-rules': typeof ManagePointsRegistrationRulesRoute
   '/manage/points/wallets': typeof ManagePointsWalletsRoute
+  '/manage/webhooks/new': typeof ManageWebhooksNewRoute
+  '/manage/webhooks/reveal': typeof ManageWebhooksRevealRoute
   '/user/change-email/confirm': typeof UserChangeEmailConfirmRoute
   '/user/invoices/new': typeof UserInvoicesNewRoute
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
@@ -1038,6 +1093,7 @@ export interface FileRoutesByFullPath {
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
+  '/manage/webhooks/': typeof ManageWebhooksIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
   '/user/my-subscriptions/': typeof UserMySubscriptionsIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
@@ -1053,6 +1109,8 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
+  '/$realmId/manage/webhooks/new': typeof RealmIdManageWebhooksNewRoute
+  '/$realmId/manage/webhooks/reveal': typeof RealmIdManageWebhooksRevealRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1066,9 +1124,11 @@ export interface FileRoutesByFullPath {
   '/manage/billing/payment-providers/stripe': typeof ManageBillingPaymentProvidersStripeRoute
   '/manage/billing/payment-providers/wechat': typeof ManageBillingPaymentProvidersWechatRoute
   '/manage/client-apps/$clientAppId/edit': typeof ManageClientAppsClientAppIdEditRoute
+  '/manage/webhooks/$webhookId/edit': typeof ManageWebhooksWebhookIdEditRoute
   '/$realmId/manage/api-keys/': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
+  '/$realmId/manage/webhooks/': typeof RealmIdManageWebhooksIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/my-subscriptions/': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
@@ -1086,6 +1146,7 @@ export interface FileRoutesByFullPath {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/manage/webhooks/$webhookId/edit': typeof RealmIdManageWebhooksWebhookIdEditRoute
   '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets/': typeof RealmIdManageBillingCreditBucketsIndexRoute
@@ -1156,6 +1217,8 @@ export interface FileRoutesByTo {
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
   '/manage/points/registration-rules': typeof ManagePointsRegistrationRulesRoute
   '/manage/points/wallets': typeof ManagePointsWalletsRoute
+  '/manage/webhooks/new': typeof ManageWebhooksNewRoute
+  '/manage/webhooks/reveal': typeof ManageWebhooksRevealRoute
   '/user/change-email/confirm': typeof UserChangeEmailConfirmRoute
   '/user/invoices/new': typeof UserInvoicesNewRoute
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
@@ -1165,6 +1228,7 @@ export interface FileRoutesByTo {
   '/manage/api-keys': typeof ManageApiKeysIndexRoute
   '/manage/audit': typeof ManageAuditIndexRoute
   '/manage/client-apps': typeof ManageClientAppsIndexRoute
+  '/manage/webhooks': typeof ManageWebhooksIndexRoute
   '/user/invoices': typeof UserInvoicesIndexRoute
   '/user/my-subscriptions': typeof UserMySubscriptionsIndexRoute
   '/user/security': typeof UserSecurityIndexRoute
@@ -1176,6 +1240,8 @@ export interface FileRoutesByTo {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
+  '/$realmId/manage/webhooks/new': typeof RealmIdManageWebhooksNewRoute
+  '/$realmId/manage/webhooks/reveal': typeof RealmIdManageWebhooksRevealRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1189,9 +1255,11 @@ export interface FileRoutesByTo {
   '/manage/billing/payment-providers/stripe': typeof ManageBillingPaymentProvidersStripeRoute
   '/manage/billing/payment-providers/wechat': typeof ManageBillingPaymentProvidersWechatRoute
   '/manage/client-apps/$clientAppId/edit': typeof ManageClientAppsClientAppIdEditRoute
+  '/manage/webhooks/$webhookId/edit': typeof ManageWebhooksWebhookIdEditRoute
   '/$realmId/manage/api-keys': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps': typeof RealmIdManageClientAppsIndexRoute
+  '/$realmId/manage/webhooks': typeof RealmIdManageWebhooksIndexRoute
   '/$realmId/user/invoices': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/my-subscriptions': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security': typeof RealmIdUserSecurityIndexRoute
@@ -1209,6 +1277,7 @@ export interface FileRoutesByTo {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/manage/webhooks/$webhookId/edit': typeof RealmIdManageWebhooksWebhookIdEditRoute
   '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets': typeof RealmIdManageBillingCreditBucketsIndexRoute
@@ -1300,6 +1369,8 @@ export interface FileRoutesById {
   '/manage/points/default-config': typeof ManagePointsDefaultConfigRoute
   '/manage/points/registration-rules': typeof ManagePointsRegistrationRulesRoute
   '/manage/points/wallets': typeof ManagePointsWalletsRoute
+  '/manage/webhooks/new': typeof ManageWebhooksNewRoute
+  '/manage/webhooks/reveal': typeof ManageWebhooksRevealRoute
   '/user/change-email/confirm': typeof UserChangeEmailConfirmRoute
   '/user/invoices/new': typeof UserInvoicesNewRoute
   '/user/security/totp-setup': typeof UserSecurityTotpSetupRoute
@@ -1309,6 +1380,7 @@ export interface FileRoutesById {
   '/manage/api-keys/': typeof ManageApiKeysIndexRoute
   '/manage/audit/': typeof ManageAuditIndexRoute
   '/manage/client-apps/': typeof ManageClientAppsIndexRoute
+  '/manage/webhooks/': typeof ManageWebhooksIndexRoute
   '/user/invoices/': typeof UserInvoicesIndexRoute
   '/user/my-subscriptions/': typeof UserMySubscriptionsIndexRoute
   '/user/security/': typeof UserSecurityIndexRoute
@@ -1324,6 +1396,8 @@ export interface FileRoutesById {
   '/$realmId/manage/points/default-config': typeof RealmIdManagePointsDefaultConfigRoute
   '/$realmId/manage/points/registration-rules': typeof RealmIdManagePointsRegistrationRulesRoute
   '/$realmId/manage/points/wallets': typeof RealmIdManagePointsWalletsRoute
+  '/$realmId/manage/webhooks/new': typeof RealmIdManageWebhooksNewRoute
+  '/$realmId/manage/webhooks/reveal': typeof RealmIdManageWebhooksRevealRoute
   '/$realmId/user/change-email/confirm': typeof RealmIdUserChangeEmailConfirmRoute
   '/$realmId/user/invoices/new': typeof RealmIdUserInvoicesNewRoute
   '/$realmId/user/security/totp-setup': typeof RealmIdUserSecurityTotpSetupRoute
@@ -1337,9 +1411,11 @@ export interface FileRoutesById {
   '/manage/billing/payment-providers/stripe': typeof ManageBillingPaymentProvidersStripeRoute
   '/manage/billing/payment-providers/wechat': typeof ManageBillingPaymentProvidersWechatRoute
   '/manage/client-apps/$clientAppId/edit': typeof ManageClientAppsClientAppIdEditRoute
+  '/manage/webhooks/$webhookId/edit': typeof ManageWebhooksWebhookIdEditRoute
   '/$realmId/manage/api-keys/': typeof RealmIdManageApiKeysIndexRoute
   '/$realmId/manage/audit/': typeof RealmIdManageAuditIndexRoute
   '/$realmId/manage/client-apps/': typeof RealmIdManageClientAppsIndexRoute
+  '/$realmId/manage/webhooks/': typeof RealmIdManageWebhooksIndexRoute
   '/$realmId/user/invoices/': typeof RealmIdUserInvoicesIndexRoute
   '/$realmId/user/my-subscriptions/': typeof RealmIdUserMySubscriptionsIndexRoute
   '/$realmId/user/security/': typeof RealmIdUserSecurityIndexRoute
@@ -1357,6 +1433,7 @@ export interface FileRoutesById {
   '/$realmId/manage/billing/payment-providers/stripe': typeof RealmIdManageBillingPaymentProvidersStripeRoute
   '/$realmId/manage/billing/payment-providers/wechat': typeof RealmIdManageBillingPaymentProvidersWechatRoute
   '/$realmId/manage/client-apps/$clientAppId/edit': typeof RealmIdManageClientAppsClientAppIdEditRoute
+  '/$realmId/manage/webhooks/$webhookId/edit': typeof RealmIdManageWebhooksWebhookIdEditRoute
   '/$realmId/user/my-subscriptions/$subscriptionId/history': typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRoute
   '/manage/billing/invoices/$invoiceId/edit': typeof ManageBillingInvoicesInvoiceIdEditRoute
   '/$realmId/manage/billing/credit-buckets/': typeof RealmIdManageBillingCreditBucketsIndexRoute
@@ -1449,6 +1526,8 @@ export interface FileRouteTypes {
     | '/manage/points/default-config'
     | '/manage/points/registration-rules'
     | '/manage/points/wallets'
+    | '/manage/webhooks/new'
+    | '/manage/webhooks/reveal'
     | '/user/change-email/confirm'
     | '/user/invoices/new'
     | '/user/security/totp-setup'
@@ -1458,6 +1537,7 @@ export interface FileRouteTypes {
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
+    | '/manage/webhooks/'
     | '/user/invoices/'
     | '/user/my-subscriptions/'
     | '/user/security/'
@@ -1473,6 +1553,8 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
+    | '/$realmId/manage/webhooks/new'
+    | '/$realmId/manage/webhooks/reveal'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1486,9 +1568,11 @@ export interface FileRouteTypes {
     | '/manage/billing/payment-providers/stripe'
     | '/manage/billing/payment-providers/wechat'
     | '/manage/client-apps/$clientAppId/edit'
+    | '/manage/webhooks/$webhookId/edit'
     | '/$realmId/manage/api-keys/'
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
+    | '/$realmId/manage/webhooks/'
     | '/$realmId/user/invoices/'
     | '/$realmId/user/my-subscriptions/'
     | '/$realmId/user/security/'
@@ -1506,6 +1590,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/manage/webhooks/$webhookId/edit'
     | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets/'
@@ -1576,6 +1661,8 @@ export interface FileRouteTypes {
     | '/manage/points/default-config'
     | '/manage/points/registration-rules'
     | '/manage/points/wallets'
+    | '/manage/webhooks/new'
+    | '/manage/webhooks/reveal'
     | '/user/change-email/confirm'
     | '/user/invoices/new'
     | '/user/security/totp-setup'
@@ -1585,6 +1672,7 @@ export interface FileRouteTypes {
     | '/manage/api-keys'
     | '/manage/audit'
     | '/manage/client-apps'
+    | '/manage/webhooks'
     | '/user/invoices'
     | '/user/my-subscriptions'
     | '/user/security'
@@ -1596,6 +1684,8 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
+    | '/$realmId/manage/webhooks/new'
+    | '/$realmId/manage/webhooks/reveal'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1609,9 +1699,11 @@ export interface FileRouteTypes {
     | '/manage/billing/payment-providers/stripe'
     | '/manage/billing/payment-providers/wechat'
     | '/manage/client-apps/$clientAppId/edit'
+    | '/manage/webhooks/$webhookId/edit'
     | '/$realmId/manage/api-keys'
     | '/$realmId/manage/audit'
     | '/$realmId/manage/client-apps'
+    | '/$realmId/manage/webhooks'
     | '/$realmId/user/invoices'
     | '/$realmId/user/my-subscriptions'
     | '/$realmId/user/security'
@@ -1629,6 +1721,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/manage/webhooks/$webhookId/edit'
     | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets'
@@ -1719,6 +1812,8 @@ export interface FileRouteTypes {
     | '/manage/points/default-config'
     | '/manage/points/registration-rules'
     | '/manage/points/wallets'
+    | '/manage/webhooks/new'
+    | '/manage/webhooks/reveal'
     | '/user/change-email/confirm'
     | '/user/invoices/new'
     | '/user/security/totp-setup'
@@ -1728,6 +1823,7 @@ export interface FileRouteTypes {
     | '/manage/api-keys/'
     | '/manage/audit/'
     | '/manage/client-apps/'
+    | '/manage/webhooks/'
     | '/user/invoices/'
     | '/user/my-subscriptions/'
     | '/user/security/'
@@ -1743,6 +1839,8 @@ export interface FileRouteTypes {
     | '/$realmId/manage/points/default-config'
     | '/$realmId/manage/points/registration-rules'
     | '/$realmId/manage/points/wallets'
+    | '/$realmId/manage/webhooks/new'
+    | '/$realmId/manage/webhooks/reveal'
     | '/$realmId/user/change-email/confirm'
     | '/$realmId/user/invoices/new'
     | '/$realmId/user/security/totp-setup'
@@ -1756,9 +1854,11 @@ export interface FileRouteTypes {
     | '/manage/billing/payment-providers/stripe'
     | '/manage/billing/payment-providers/wechat'
     | '/manage/client-apps/$clientAppId/edit'
+    | '/manage/webhooks/$webhookId/edit'
     | '/$realmId/manage/api-keys/'
     | '/$realmId/manage/audit/'
     | '/$realmId/manage/client-apps/'
+    | '/$realmId/manage/webhooks/'
     | '/$realmId/user/invoices/'
     | '/$realmId/user/my-subscriptions/'
     | '/$realmId/user/security/'
@@ -1776,6 +1876,7 @@ export interface FileRouteTypes {
     | '/$realmId/manage/billing/payment-providers/stripe'
     | '/$realmId/manage/billing/payment-providers/wechat'
     | '/$realmId/manage/client-apps/$clientAppId/edit'
+    | '/$realmId/manage/webhooks/$webhookId/edit'
     | '/$realmId/user/my-subscriptions/$subscriptionId/history'
     | '/manage/billing/invoices/$invoiceId/edit'
     | '/$realmId/manage/billing/credit-buckets/'
@@ -2112,6 +2213,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UserInvoicesIndexRouteImport
       parentRoute: typeof UserInvoicesRoute
     }
+    '/manage/webhooks/': {
+      id: '/manage/webhooks/'
+      path: '/webhooks'
+      fullPath: '/manage/webhooks/'
+      preLoaderRoute: typeof ManageWebhooksIndexRouteImport
+      parentRoute: typeof ManageRouteRoute
+    }
     '/manage/client-apps/': {
       id: '/manage/client-apps/'
       path: '/'
@@ -2174,6 +2282,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/user/change-email/confirm'
       preLoaderRoute: typeof UserChangeEmailConfirmRouteImport
       parentRoute: typeof UserRouteRoute
+    }
+    '/manage/webhooks/reveal': {
+      id: '/manage/webhooks/reveal'
+      path: '/webhooks/reveal'
+      fullPath: '/manage/webhooks/reveal'
+      preLoaderRoute: typeof ManageWebhooksRevealRouteImport
+      parentRoute: typeof ManageRouteRoute
+    }
+    '/manage/webhooks/new': {
+      id: '/manage/webhooks/new'
+      path: '/webhooks/new'
+      fullPath: '/manage/webhooks/new'
+      preLoaderRoute: typeof ManageWebhooksNewRouteImport
+      parentRoute: typeof ManageRouteRoute
     }
     '/manage/points/wallets': {
       id: '/manage/points/wallets'
@@ -2497,6 +2619,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RealmIdUserInvoicesIndexRouteImport
       parentRoute: typeof RealmIdUserInvoicesRoute
     }
+    '/$realmId/manage/webhooks/': {
+      id: '/$realmId/manage/webhooks/'
+      path: '/webhooks'
+      fullPath: '/$realmId/manage/webhooks/'
+      preLoaderRoute: typeof RealmIdManageWebhooksIndexRouteImport
+      parentRoute: typeof RealmIdManageRouteRoute
+    }
     '/$realmId/manage/client-apps/': {
       id: '/$realmId/manage/client-apps/'
       path: '/'
@@ -2517,6 +2646,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$realmId/manage/api-keys/'
       preLoaderRoute: typeof RealmIdManageApiKeysIndexRouteImport
       parentRoute: typeof RealmIdManageApiKeysRoute
+    }
+    '/manage/webhooks/$webhookId/edit': {
+      id: '/manage/webhooks/$webhookId/edit'
+      path: '/webhooks/$webhookId/edit'
+      fullPath: '/manage/webhooks/$webhookId/edit'
+      preLoaderRoute: typeof ManageWebhooksWebhookIdEditRouteImport
+      parentRoute: typeof ManageRouteRoute
     }
     '/manage/client-apps/$clientAppId/edit': {
       id: '/manage/client-apps/$clientAppId/edit'
@@ -2608,6 +2744,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/$realmId/user/change-email/confirm'
       preLoaderRoute: typeof RealmIdUserChangeEmailConfirmRouteImport
       parentRoute: typeof RealmIdUserRouteRoute
+    }
+    '/$realmId/manage/webhooks/reveal': {
+      id: '/$realmId/manage/webhooks/reveal'
+      path: '/webhooks/reveal'
+      fullPath: '/$realmId/manage/webhooks/reveal'
+      preLoaderRoute: typeof RealmIdManageWebhooksRevealRouteImport
+      parentRoute: typeof RealmIdManageRouteRoute
+    }
+    '/$realmId/manage/webhooks/new': {
+      id: '/$realmId/manage/webhooks/new'
+      path: '/webhooks/new'
+      fullPath: '/$realmId/manage/webhooks/new'
+      preLoaderRoute: typeof RealmIdManageWebhooksNewRouteImport
+      parentRoute: typeof RealmIdManageRouteRoute
     }
     '/$realmId/manage/points/wallets': {
       id: '/$realmId/manage/points/wallets'
@@ -2734,6 +2884,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$realmId/user/my-subscriptions/$subscriptionId/history'
       preLoaderRoute: typeof RealmIdUserMySubscriptionsSubscriptionIdHistoryRouteImport
       parentRoute: typeof RealmIdUserMySubscriptionsRoute
+    }
+    '/$realmId/manage/webhooks/$webhookId/edit': {
+      id: '/$realmId/manage/webhooks/$webhookId/edit'
+      path: '/webhooks/$webhookId/edit'
+      fullPath: '/$realmId/manage/webhooks/$webhookId/edit'
+      preLoaderRoute: typeof RealmIdManageWebhooksWebhookIdEditRouteImport
+      parentRoute: typeof RealmIdManageRouteRoute
     }
     '/$realmId/manage/client-apps/$clientAppId/edit': {
       id: '/$realmId/manage/client-apps/$clientAppId/edit'
@@ -3026,7 +3183,11 @@ interface RealmIdManageRouteRouteChildren {
   RealmIdManageSubscriptionHistoryRoute: typeof RealmIdManageSubscriptionHistoryRoute
   RealmIdManageUsersRoute: typeof RealmIdManageUsersRoute
   RealmIdManageIndexRoute: typeof RealmIdManageIndexRoute
+  RealmIdManageWebhooksNewRoute: typeof RealmIdManageWebhooksNewRoute
+  RealmIdManageWebhooksRevealRoute: typeof RealmIdManageWebhooksRevealRoute
   RealmIdManageAuditIndexRoute: typeof RealmIdManageAuditIndexRoute
+  RealmIdManageWebhooksIndexRoute: typeof RealmIdManageWebhooksIndexRoute
+  RealmIdManageWebhooksWebhookIdEditRoute: typeof RealmIdManageWebhooksWebhookIdEditRoute
 }
 
 const RealmIdManageRouteRouteChildren: RealmIdManageRouteRouteChildren = {
@@ -3042,7 +3203,12 @@ const RealmIdManageRouteRouteChildren: RealmIdManageRouteRouteChildren = {
   RealmIdManageSubscriptionHistoryRoute: RealmIdManageSubscriptionHistoryRoute,
   RealmIdManageUsersRoute: RealmIdManageUsersRoute,
   RealmIdManageIndexRoute: RealmIdManageIndexRoute,
+  RealmIdManageWebhooksNewRoute: RealmIdManageWebhooksNewRoute,
+  RealmIdManageWebhooksRevealRoute: RealmIdManageWebhooksRevealRoute,
   RealmIdManageAuditIndexRoute: RealmIdManageAuditIndexRoute,
+  RealmIdManageWebhooksIndexRoute: RealmIdManageWebhooksIndexRoute,
+  RealmIdManageWebhooksWebhookIdEditRoute:
+    RealmIdManageWebhooksWebhookIdEditRoute,
 }
 
 const RealmIdManageRouteRouteWithChildren =
@@ -3357,7 +3523,11 @@ interface ManageRouteRouteChildren {
   ManageSubscriptionHistoryRoute: typeof ManageSubscriptionHistoryRoute
   ManageUsersRoute: typeof ManageUsersRoute
   ManageIndexRoute: typeof ManageIndexRoute
+  ManageWebhooksNewRoute: typeof ManageWebhooksNewRoute
+  ManageWebhooksRevealRoute: typeof ManageWebhooksRevealRoute
   ManageAuditIndexRoute: typeof ManageAuditIndexRoute
+  ManageWebhooksIndexRoute: typeof ManageWebhooksIndexRoute
+  ManageWebhooksWebhookIdEditRoute: typeof ManageWebhooksWebhookIdEditRoute
 }
 
 const ManageRouteRouteChildren: ManageRouteRouteChildren = {
@@ -3373,7 +3543,11 @@ const ManageRouteRouteChildren: ManageRouteRouteChildren = {
   ManageSubscriptionHistoryRoute: ManageSubscriptionHistoryRoute,
   ManageUsersRoute: ManageUsersRoute,
   ManageIndexRoute: ManageIndexRoute,
+  ManageWebhooksNewRoute: ManageWebhooksNewRoute,
+  ManageWebhooksRevealRoute: ManageWebhooksRevealRoute,
   ManageAuditIndexRoute: ManageAuditIndexRoute,
+  ManageWebhooksIndexRoute: ManageWebhooksIndexRoute,
+  ManageWebhooksWebhookIdEditRoute: ManageWebhooksWebhookIdEditRoute,
 }
 
 const ManageRouteRouteWithChildren = ManageRouteRoute._addFileChildren(
