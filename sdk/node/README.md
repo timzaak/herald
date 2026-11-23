@@ -13,11 +13,17 @@ use [`herald-auth-web`](../web) instead.
 
 - **Permission checking** with built-in caching (per-request TTL cache,
   token-indexed invalidation, 5-minute token staleness heuristic)
+- **Organization authorization** — create/delete organizations, manage
+  memberships and tiers (including on-behalf-of `actorUserId`), check
+  per-organization permissions, and list user organizations
+- **Outbound webhook verification** — constant-time HMAC-SHA256 verification,
+  replay-window enforcement, multi-secret rotation support, and typed event
+  envelope parsing (`verifyWebhookSignature` / `verifyAndParseWebhookEvent`)
 - **Subscription management** — get subscription details by `entitlementKey`
 - **Points system** — check balance, consume points with idempotency support,
   grant points to explicit Credit Buckets
 - **Realm / user / client-app administration** over the external API
-- ESM + CommonJS dual build, async/await native
+- ESM + CommonJS dual build, async/await native, optional `withHttpTimeout`
 
 ## Install
 
@@ -71,6 +77,57 @@ const result = await client.consumePoints(
 const primary = result.transactions[0]
 console.log('correlationId:', result.correlationId)
 console.log('remaining balance:', primary.balanceAfter)
+
+// Organizations (instance-level workspace authorization)
+const org = await client.createOrg('realm-id', {
+  externalId: 'workspace-42',
+  name: 'Acme Workspace',
+  ownerId: 'owner-user-id',
+})
+await client.upsertOrgMember('realm-id', org.id, {
+  userId: 'member-user-id',
+  role: 'org-admin',
+})
+const orgCheck = await client.checkOrgPermission('realm-id', org.id, {
+  userId: 'member-user-id',
+  rules: [{ resource: 'project', action: 'delete' }],
+})
+console.log('org allowed:', orgCheck.member && orgCheck.allowed)
+```
+
+### Outbound Webhooks
+
+Verify Herald's HMAC-SHA256 webhook signature over the **raw** request bytes
+and parse the typed event envelope. Pass an array of secrets during key
+rotation for zero-downtime transitions:
+
+```ts
+import { HeraldWebhookError, verifyAndParseWebhookEvent } from 'herald-sdk'
+
+app.post('/webhooks/herald', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const event = verifyAndParseWebhookEvent({
+      payload: req.body,
+      headers: req.headers,
+      secret: [process.env.HERALD_WEBHOOK_SECRET!, process.env.HERALD_WEBHOOK_NEXT_SECRET!],
+    })
+
+    if (event.type === 'role.granted') {
+      // Paywall unlock in seconds
+      console.log('unlock', event.data.userId, event.data.roleName)
+    } else if (event.type === 'user.disabled') {
+      // Instant session takedown
+      console.log('disable', event.data.userId)
+    }
+
+    res.status(200).send()
+  } catch (error) {
+    if (error instanceof HeraldWebhookError) {
+      return res.status(400).send(error.code)
+    }
+    throw error
+  }
+})
 ```
 
 Errors throw `HeraldSdkError` with a stable `code`

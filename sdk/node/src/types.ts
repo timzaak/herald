@@ -292,3 +292,119 @@ export interface ClientAppItem {
   enabled: boolean
   createdAt: string
 }
+
+/** Request body for creating an organization (`POST /api/ext/realms/{realmId}/orgs`). */
+export interface CreateOrgSdkRequest {
+  /** App-side identifier (workspace id etc.); unique per Client App.
+   * Replaying an existing externalId returns it with `created = false`. */
+  externalId: string
+  name?: string | null
+  ownerId: string
+}
+
+/** Organization detail (create response). */
+export interface OrgInfo {
+  id: string
+  externalId: string
+  name: string | null
+  ownerId: string
+  realmId: string
+  clientId: string
+  createdAt: string
+  created: boolean
+}
+
+/** Tier reference (id + name) of an organization role. */
+export interface OrgRoleRef {
+  id: string
+  name: string
+}
+
+/** Request body for member upsert (add or change tier). */
+export interface UpsertOrgMemberSdkRequest {
+  userId: string
+  /** Tier name within `(realm, org's clientId)`: built-ins `org-owner` /
+   * `org-admin` / `org-member` or an app-defined tier. */
+  role: string
+  /** When set, the change passes that user's in-org management and self-hold
+   * authority instead of the application's full rights. */
+  actorUserId?: string | null
+}
+
+/** Membership view (upsert response). */
+export interface OrgMemberInfo {
+  orgId: string
+  userId: string
+  role: OrgRoleRef
+  isOwner: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** One rule of an organization permission check. */
+export interface OrgCheckRule {
+  resource: string
+  action: string
+}
+
+/** Request body for the organization permission check. */
+export interface OrgPermissionCheckSdkRequest {
+  userId: string
+  /** Every rule must hit for `allowed = true`. */
+  rules: OrgCheckRule[]
+}
+
+/** Organization permission check result (denials are structured 200 bodies).
+ * `role` is omitted by the backend when `member === false`. */
+export interface OrgPermissionCheckResult {
+  /** false = the user is not a member (distinct from a denied member). */
+  member: boolean
+  allowed: boolean
+  role?: OrgRoleRef
+}
+
+/** Member row of an organization member list. */
+export interface OrgMemberListItem {
+  userId: string
+  email: string
+  nickname: string | null
+  role: OrgRoleRef
+  isOwner: boolean
+  joinedAt: string
+}
+
+/** Paginated organization member list. */
+export interface OrgMemberPage {
+  items: OrgMemberListItem[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+/** Single-member tier query result.
+ * Optional fields are omitted by the backend when `member === false`. */
+export interface OrgMemberLookup {
+  member: boolean
+  userId: string
+  role?: OrgRoleRef
+  isOwner?: boolean
+  joinedAt?: string
+}
+
+/** Row of a user's organization list. */
+export interface UserOrgListItem {
+  orgId: string
+  externalId: string
+  name: string | null
+  role: OrgRoleRef
+  isOwner: boolean
+  joinedAt: string
+}
+
+/** Paginated user-organization list. */
+export interface UserOrgPage {
+  items: UserOrgListItem[]
+  page: number
+  pageSize: number
+  total: number
+}

@@ -24,9 +24,16 @@ import type {
   ClientAppItem,
   ConsumePointsResponse,
   CreateClientAppSdkRequest,
+  CreateOrgSdkRequest,
   CreateRealmSdkRequest,
   CreateUserSdkRequest,
   GrantPointsResponse,
+  OrgInfo,
+  OrgMemberInfo,
+  OrgMemberLookup,
+  OrgMemberPage,
+  OrgPermissionCheckResult,
+  OrgPermissionCheckSdkRequest,
   PermissionCheckRequest,
   PermissionCheckResponse,
   PointsBalanceResponse,
@@ -34,7 +41,9 @@ import type {
   RealmItem,
   SubscriptionDetail,
   TransactionDetail,
+  UpsertOrgMemberSdkRequest,
   UserInfo,
+  UserOrgPage,
   UserPage,
 } from './types'
 
@@ -60,7 +69,15 @@ function permissionCacheKey(req: PermissionCheckRequest): string {
 
 /** Map a `fetch` response onto the Rust `handle_response` semantics. */
 async function handleResponse<T>(response: Response): Promise<T> {
-  const text = await response.text()
+  let text: string
+  try {
+    text = await response.text()
+  } catch (cause) {
+    // Body-phase transport failure (e.g. AbortSignal.timeout firing after the
+    // headers arrived). sendRequest's catch only covers fetch itself, but the
+    // Rust timeout spans the whole request including the body.
+    throw new HeraldSdkError('network', undefined, String(cause))
+  }
   const status = response.status
   if (status === 401) throw new HeraldSdkError('unauthorized', status, text)
   if (status === 403) throw new HeraldSdkError('forbidden', status, text)
@@ -85,6 +102,7 @@ export class HeraldClient {
   private readonly baseUrl: string
   private readonly apiKey: string
   private readonly cacheTtlMs: number
+  private timeoutMs?: number
   private readonly permissionCache = new Map<string, CacheEntry>()
   /** token → cache keys for its checks (Rust `token_index: DashMap`). */
   private readonly tokenIndex = new Map<string, Set<string>>()
@@ -98,7 +116,31 @@ export class HeraldClient {
     this.cacheTtlMs = (cacheTtlSeconds ?? 300) * 1000
   }
 
-  private async requestJson<T>(method: 'GET' | 'POST', path: string, options: RequestOptions = {}): Promise<T> {
+  /**
+   * Set the HTTP timeout in milliseconds for every request sent through this
+   * client (mirrors Rust `Client::with_http_timeout`). The setting persists
+   * on this instance and every reference to it — unlike the Rust builder,
+   * which consumes `self`, this mutates the shared client, so build a
+   * separate `HeraldClient` if only some calls need a different timeout.
+   * Without this, `fetch` relies on the runtime's default timeouts; a
+   * timed-out request rejects with `HeraldSdkError('network')`.
+   */
+  withHttpTimeout(timeoutMs: number): this {
+    // AbortSignal.timeout throws ERR_OUT_OF_RANGE above 2^31-1 ms — reject
+    // here so a config bug fails at configuration time, not as a per-request
+    // 'network' error.
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+      throw new RangeError('timeoutMs must be a positive finite number (max 2^31-1 ms)')
+    }
+    this.timeoutMs = timeoutMs
+    return this
+  }
+
+  private async sendRequest(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<Response> {
     let url = `${this.baseUrl}${path}`
     if (options.query) {
       const search = new URLSearchParams(options.query).toString()
@@ -107,17 +149,43 @@ export class HeraldClient {
     const headers: Record<string, string> = { 'X-API-Key': this.apiKey }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
-    let response: Response
     try {
-      response = await fetch(url, {
+      return await fetch(url, {
         method,
         headers,
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: this.timeoutMs !== undefined ? AbortSignal.timeout(this.timeoutMs) : undefined,
       })
     } catch (cause) {
       throw new HeraldSdkError('network', undefined, String(cause))
     }
+  }
+
+  private async requestJson<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    const response = await this.sendRequest(method, path, options)
     return handleResponse<T>(response)
+  }
+
+  private async requestVoid(
+    method: 'DELETE',
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    const response = await this.sendRequest(method, path, options)
+    // 204 carries an empty body — nothing to deserialize.
+    if (response.status === 204) return
+    await handleResponse<void>(response)
+  }
+
+  private pageQuery(page?: number, pageSize?: number): Record<string, string> {
+    const query: Record<string, string> = {}
+    if (page !== undefined) query.page = String(page)
+    if (pageSize !== undefined) query.pageSize = String(pageSize)
+    return query
   }
 
   // --- Permission check (with cache) ---
@@ -289,13 +357,10 @@ export class HeraldClient {
    * server. The response echoes the applied paging and the cross-page total.
    */
   async listUsersPage(realmId: string, page?: number, pageSize?: number): Promise<UserPage> {
-    const query: Record<string, string> = {}
-    if (page !== undefined) query.page = String(page)
-    if (pageSize !== undefined) query.pageSize = String(pageSize)
     return this.requestJson<UserPage>(
       'GET',
       `/api/ext/realms/${encodeURIComponent(realmId)}/users`,
-      { query },
+      { query: this.pageQuery(page, pageSize) },
     )
   }
 
@@ -326,6 +391,122 @@ export class HeraldClient {
     return this.requestJson(
       'GET',
       `/api/ext/realms/${encodeURIComponent(realmId)}/client-apps/${encodeURIComponent(clientAppId)}`,
+    )
+  }
+
+  /**
+   * Create an organization (idempotent on `(clientApp, externalId)`).
+   *
+   * The first creation for a `(realm, clientApp)` also seeds the three
+   * built-in tiers (`org-owner` / `org-admin` / `org-member`). A replay
+   * answers 200 with `created: false`.
+   */
+  createOrg(realmId: string, request: CreateOrgSdkRequest): Promise<OrgInfo> {
+    return this.requestJson('POST', `/api/ext/realms/${encodeURIComponent(realmId)}/orgs`, {
+      body: request,
+    })
+  }
+
+  /** Delete an organization (memberships cascade). Repeated delete throws `not-found`. */
+  deleteOrg(realmId: string, orgId: string): Promise<void> {
+    return this.requestVoid(
+      'DELETE',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}`,
+    )
+  }
+
+  /**
+   * Add or change an organization member (idempotent upsert).
+   *
+   * Granting the `org-owner` tier performs an atomic ownership transfer.
+   */
+  upsertOrgMember(
+    realmId: string,
+    orgId: string,
+    request: UpsertOrgMemberSdkRequest,
+  ): Promise<OrgMemberInfo> {
+    return this.requestJson(
+      'POST',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}/members`,
+      { body: request },
+    )
+  }
+
+  /** Remove an organization member (owner and last admin are protected). */
+  removeOrgMember(
+    realmId: string,
+    orgId: string,
+    userId: string,
+    actorUserId?: string,
+  ): Promise<void> {
+    const query: Record<string, string> = {}
+    if (actorUserId !== undefined) query.actorUserId = actorUserId
+    return this.requestVoid(
+      'DELETE',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
+      { query },
+    )
+  }
+
+  /** List an organization's members, first page with server defaults
+   * (page = 1, pageSize = 20). */
+  listOrgMembers(realmId: string, orgId: string): Promise<OrgMemberPage> {
+    return this.listOrgMembersPage(realmId, orgId)
+  }
+
+  /** List an organization's members with pagination. */
+  listOrgMembersPage(
+    realmId: string,
+    orgId: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<OrgMemberPage> {
+    return this.requestJson<OrgMemberPage>(
+      'GET',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}/members`,
+      { query: this.pageQuery(page, pageSize) },
+    )
+  }
+
+  /** Query a user's tier in an organization (non-members get `member: false`). */
+  getOrgMember(realmId: string, orgId: string, userId: string): Promise<OrgMemberLookup> {
+    return this.requestJson(
+      'GET',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
+    )
+  }
+
+  /** Check a user's capabilities in an organization (all rules must hit;
+   * non-members and denied members are structured 200 results). */
+  checkOrgPermission(
+    realmId: string,
+    orgId: string,
+    request: OrgPermissionCheckSdkRequest,
+  ): Promise<OrgPermissionCheckResult> {
+    return this.requestJson(
+      'POST',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs/${encodeURIComponent(orgId)}/permission-check`,
+      { body: request },
+    )
+  }
+
+  /** List a user's organizations in the caller's Client App, first page with
+   * server defaults (page = 1, pageSize = 20). */
+  listUserOrgs(realmId: string, userId: string): Promise<UserOrgPage> {
+    return this.listUserOrgsPage(realmId, userId)
+  }
+
+  /** List a user's organizations in the caller's Client App with pagination. */
+  listUserOrgsPage(
+    realmId: string,
+    userId: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<UserOrgPage> {
+    return this.requestJson<UserOrgPage>(
+      'GET',
+      `/api/ext/realms/${encodeURIComponent(realmId)}/orgs`,
+      { query: { userId, ...this.pageQuery(page, pageSize) } },
     )
   }
 }
