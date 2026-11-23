@@ -37,6 +37,7 @@ pub mod totp_key_management;
 pub mod user;
 pub mod user_passkey;
 pub mod user_totp;
+pub mod webhook_outbound;
 
 // Re-export commonly used types
 pub use audit::{

@@ -1,11 +1,5 @@
-// =============================================================================
-// Schema 隔离测试上下文
-// =============================================================================
-//
-// 每个测试使用独立的 PostgreSQL Schema，实现真正的数据库隔离。
-// 这样可以完全并行运行测试，避免唯一约束冲突。
-//
-// =============================================================================
+// 每个测试使用独立的 PostgreSQL Schema，实现真正的数据库隔离，
+// 完全并行运行测试，避免唯一约束冲突。
 
 use crate::application::http::oauth::device_functions::init_device_functions;
 use crate::application::http::rate_limit::init_rate_limit_function;
@@ -264,6 +258,23 @@ impl AsyncTestContext for SchemaTestContext {
                 pool_with_schema.clone(),
             ),
         );
+        // Outbound-webhook fan-out service (real implementation over the
+        // schema-scoped pool — delivery scenarios assert against its
+        // fan-out rows).
+        let webhook_outbound_service = Arc::new(
+            herald_core::domain::webhook_outbound::WebhookOutboundService::new(
+                Arc::new(
+                    herald_core::infrastructure::webhook_outbound::PostgresWebhookSubscriptionRepository::new(Arc::new(pool_with_schema.clone())),
+                ),
+                Arc::new(
+                    herald_core::infrastructure::webhook_outbound::PostgresOutboundEventRepository::new(Arc::new(pool_with_schema.clone())),
+                ),
+            ),
+        );
+        let webhook_publisher: Arc<
+            dyn herald_core::domain::webhook_outbound::OutboundEventPublisher,
+        > = webhook_outbound_service.clone();
+
         let fulfillment_service = Arc::new(
             herald_core::infrastructure::purchase::PostgresFulfillmentService::new(
                 Arc::new(
@@ -276,6 +287,7 @@ impl AsyncTestContext for SchemaTestContext {
                 payment_attempt_repository.clone(),
                 user_role_repository.clone(),
                 permission_checker.clone(),
+                webhook_publisher.clone(),
             ),
         );
         let payment_attempt_service = Arc::new(
@@ -384,6 +396,8 @@ impl AsyncTestContext for SchemaTestContext {
                     // after a payment-driven grant (BE-T05 / design §5.3).
                     permission_checker.clone(),
                     None,
+                    // Publisher: outbound role/subscription lifecycle events.
+                    webhook_publisher.clone(),
                 ),
             ),
             idempotency_service: Arc::new(herald_core::domain::points::IdempotencyService::new(
@@ -392,6 +406,7 @@ impl AsyncTestContext for SchemaTestContext {
             webhook_service: Arc::new(WebhookService::new(Arc::new(WebhookEventRepository::new(
                 pool_with_schema.clone(),
             )))),
+            webhook_outbound: webhook_outbound_service,
             registration_service: Arc::new(
                 herald_core::domain::points::services::RegistrationService::new(
                     Arc::new(

@@ -12,6 +12,9 @@ use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::Identity;
 use herald_core::domain::user::AdminUserService;
 use herald_core::domain::user::admin_errors::UserAdminError;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+};
 use uuid::Uuid;
 
 /// Delete user
@@ -112,6 +115,18 @@ pub async fn delete_user(
         realm_id = %realm_id,
         "User deleted successfully"
     );
+
+    // user.deleted carries the whole semantics — cascading role losses are
+    // NOT emitted as individual role.revoked events (noise without signal).
+    state
+        .webhook_outbound
+        .emit(vec![OutboundEventInput::user_event(
+            realm_id.clone(),
+            OutboundEventType::UserDeleted,
+            chrono::Utc::now(),
+            target_user_id,
+        )])
+        .await;
 
     Ok(ApiResult::no_content())
 }

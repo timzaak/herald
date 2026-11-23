@@ -11,7 +11,115 @@ use herald_core::domain::billing::{
 };
 use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::points::DistributionPolicy;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    SubscriptionEventData,
+};
 use herald_core::infrastructure::billing::PostgresBillingRepository;
+
+/// Post-commit outbound subscription lifecycle events for a persisted sync:
+/// `subscription.activated` on any entry into the has_access set (first
+/// purchase, incomplete→active, trial start, dispute recovery — consumers
+/// deduplicate by eventId), `subscription.expired` on the flip into
+/// expired. Callers MUST invoke this only after the write committed
+/// (in-txn callers emit at their commit boundary) — a rolled-back sync
+/// must never produce events.
+pub(crate) async fn emit_subscription_lifecycle(
+    app_state: &AppState,
+    subscription: &Subscription,
+    previous: Option<&Subscription>,
+) {
+    // Dispute itself is a has_access state, so plain set-membership never
+    // sees a Dispute-to-Active resolution - dispute recovery must re-emit
+    // activated as documented.
+    let entered_access = match previous {
+        None => subscription.status.has_access(),
+        Some(prev) => {
+            subscription.status.has_access()
+                && (!prev.status.has_access()
+                    || (prev.status == herald_core::domain::billing::SubscriptionStatus::Dispute
+                        && subscription.status
+                            != herald_core::domain::billing::SubscriptionStatus::Dispute))
+        }
+    };
+    let became_expired = match previous {
+        None => false,
+        Some(prev) => {
+            prev.status != herald_core::domain::billing::SubscriptionStatus::Expired
+                && subscription.status == herald_core::domain::billing::SubscriptionStatus::Expired
+        }
+    };
+
+    let mut events = Vec::new();
+    let now = Utc::now();
+    if entered_access {
+        events.push(lifecycle_event(
+            subscription,
+            OutboundEventType::SubscriptionActivated,
+            now,
+        ));
+    }
+    if became_expired {
+        events.push(lifecycle_event(
+            subscription,
+            OutboundEventType::SubscriptionExpired,
+            now,
+        ));
+    }
+    if !events.is_empty() {
+        app_state.webhook_outbound.emit(events).await;
+    }
+}
+
+fn lifecycle_event(
+    subscription: &Subscription,
+    event_type: OutboundEventType,
+    occurred_at: DateTime<Utc>,
+) -> OutboundEventInput {
+    OutboundEventInput {
+        realm_id: subscription.realm_id.clone(),
+        event_type,
+        occurred_at,
+        data: OutboundEventData::Subscription(SubscriptionEventData {
+            user_id: subscription.user_id,
+            subscription_id: Some(subscription.id),
+            entitlement_key: Some(subscription.entitlement_key.clone()),
+            current_period_start: subscription.current_period_start,
+            current_period_end: subscription.current_period_end,
+        }),
+    }
+}
+
+/// `subscription.refunded` event. One-time purchases (topup/void) have no
+/// subscription row — pass `None` and the wire payload carries nulls.
+pub(crate) fn refunded_event(
+    realm_id: &str,
+    user_id: Uuid,
+    subscription: Option<&Subscription>,
+) -> OutboundEventInput {
+    let data = match subscription {
+        None => SubscriptionEventData {
+            user_id,
+            subscription_id: None,
+            entitlement_key: None,
+            current_period_start: None,
+            current_period_end: None,
+        },
+        Some(subscription) => SubscriptionEventData {
+            user_id,
+            subscription_id: Some(subscription.id),
+            entitlement_key: Some(subscription.entitlement_key.clone()),
+            current_period_start: subscription.current_period_start,
+            current_period_end: subscription.current_period_end,
+        },
+    };
+    OutboundEventInput {
+        realm_id: realm_id.to_string(),
+        event_type: OutboundEventType::SubscriptionRefunded,
+        occurred_at: Utc::now(),
+        data: OutboundEventData::Subscription(data),
+    }
+}
 
 pub(crate) struct SyncSubscriptionInput {
     pub provider: &'static str,
@@ -474,6 +582,7 @@ pub(crate) async fn sync_subscription(
             .billing_repository
             .update_subscription(subscription)
             .await?;
+        emit_subscription_lifecycle(app_state, &updated, Some(&previous)).await;
         Ok(Some((updated, Some(previous))))
     } else {
         let user_id = user_id.ok_or_else(|| {
@@ -507,6 +616,7 @@ pub(crate) async fn sync_subscription(
             .billing_repository
             .create_subscription(subscription)
             .await?;
+        emit_subscription_lifecycle(app_state, &created, None).await;
         Ok(Some((created, None)))
     }
 }

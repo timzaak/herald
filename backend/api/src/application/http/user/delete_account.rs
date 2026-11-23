@@ -28,6 +28,9 @@ use herald_core::domain::audit::AuditContext;
 use herald_core::domain::authentication::{
     CredentialScope, Identity, TargetOperation, TokenCredentialContext,
 };
+use herald_core::domain::webhook_outbound::{
+    OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+};
 
 /// DELETE /api/user request body.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -82,5 +85,20 @@ pub async fn delete_account(
     // browser token family of the user (including the caller's, fail-closed),
     // and a redundant post-delete revoke whose error propagates would answer
     // 500 for an account that was in fact deleted successfully.
+
+    // user.deleted fires for the self-service anonymization path too
+    // (post-commit, best-effort).
+    if let Ok(user_id) = uuid::Uuid::parse_str(&identity.user_id()) {
+        app_state
+            .webhook_outbound
+            .emit(vec![OutboundEventInput::user_event(
+                identity.realm_id(),
+                OutboundEventType::UserDeleted,
+                chrono::Utc::now(),
+                user_id,
+            )])
+            .await;
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }

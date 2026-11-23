@@ -137,6 +137,23 @@ pub enum AuditAction {
     OrgMemberUpsert,
     #[serde(rename = "org.member.remove")]
     OrgMemberRemove,
+    /// Webhook subscription management face. Details carry the endpoint /
+    /// categories / status transition — never the signing secret.
+    #[serde(rename = "webhook_subscription.create")]
+    WebhookSubscriptionCreate,
+    #[serde(rename = "webhook_subscription.update")]
+    WebhookSubscriptionUpdate,
+    #[serde(rename = "webhook_subscription.delete")]
+    WebhookSubscriptionDelete,
+    #[serde(rename = "webhook_subscription.rotate_secret")]
+    WebhookSubscriptionRotateSecret,
+    #[serde(rename = "webhook_subscription.status")]
+    WebhookSubscriptionStatus,
+    /// System actor: delivery pipeline auto-paused a subscription after
+    /// sustained failures. Details carry the failure count and a truncated
+    /// last error.
+    #[serde(rename = "webhook_subscription.auto_paused")]
+    WebhookSubscriptionAutoPaused,
 }
 
 /// Type of the target entity an audit event refers to.

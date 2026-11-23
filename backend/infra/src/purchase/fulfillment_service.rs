@@ -15,6 +15,10 @@ use herald_domain::purchase::{
     FulfillmentResult, FulfillmentService, FulfillmentType, PointsGrant,
 };
 use herald_domain::user::{GrantRoleOutcome, UserRoleRepository};
+use herald_domain::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    RoleEventData, RoleEventSource,
+};
 
 fn billing_period_to_days(period: Option<&str>) -> i64 {
     match period.map(|p| p.trim().to_ascii_lowercase()).as_deref() {
@@ -54,6 +58,7 @@ where
     payment_attempt_repository: Arc<PA>,
     user_role_repository: Arc<U>,
     permission_service: Arc<C>,
+    publisher: Arc<dyn OutboundEventPublisher>,
 }
 
 impl<P, B, PA, U, C> PostgresFulfillmentService<P, B, PA, U, C>
@@ -70,6 +75,7 @@ where
         payment_attempt_repository: Arc<PA>,
         user_role_repository: Arc<U>,
         permission_service: Arc<C>,
+        publisher: Arc<dyn OutboundEventPublisher>,
     ) -> Self {
         Self {
             points_repository,
@@ -77,6 +83,7 @@ where
             payment_attempt_repository,
             user_role_repository,
             permission_service,
+            publisher,
         }
     }
 
@@ -90,6 +97,7 @@ where
         source_id: &str,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(), CoreError> {
+        let mut granted_events = Vec::new();
         for role_id in role_ids {
             match self
                 .user_role_repository
@@ -108,6 +116,18 @@ where
                         source_id = %source_id,
                         "Payment role granted"
                     );
+                    granted_events.push(OutboundEventInput {
+                        realm_id: realm_id.to_string(),
+                        event_type: OutboundEventType::RoleGranted,
+                        occurred_at: chrono::Utc::now(),
+                        data: OutboundEventData::Role(RoleEventData {
+                            user_id,
+                            role_id: *role_id,
+                            role_name: None,
+                            source: RoleEventSource::Payment,
+                            expires_at,
+                        }),
+                    });
                 }
                 Ok(GrantRoleOutcome::AlreadyExists) => {
                     tracing::info!(
@@ -125,9 +145,22 @@ where
                         error = %e,
                         "Failed to grant payment role"
                     );
+                    // Grants so far are already committed; emit their events
+                    // before propagating, or a replay (AlreadyExists skip)
+                    // would strand them forever.
+                    if !granted_events.is_empty() {
+                        self.publisher
+                            .emit(std::mem::take(&mut granted_events))
+                            .await;
+                    }
                     return Err(e.into());
                 }
             }
+        }
+        // Post-commit best-effort emit: Granted-only, so a replayed payment
+        // event (AlreadyExists) never produces a duplicate outbound event.
+        if !granted_events.is_empty() {
+            self.publisher.emit(granted_events).await;
         }
 
         // Invalidate the user's cached roles/permissions so the newly granted
@@ -622,10 +655,6 @@ where
         })
     }
 }
-
-// =============================================================================
-// Unit Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

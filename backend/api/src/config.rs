@@ -24,6 +24,8 @@ pub struct ApiConfig {
     pub google_oauth: GoogleOAuthConfig,
     #[serde(default)]
     pub apple_oauth: AppleOAuthConfig,
+    #[serde(default)]
+    pub webhook_delivery: herald_core::domain::webhook_outbound::WebhookDeliveryConfig,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -372,6 +374,39 @@ url = "postgres://test:test@localhost/test"
     /// NOT silently widen trust — the missing fields must resolve to the exact
     /// secure defaults (empty trusted_proxies → socket IP only). This fails if
     /// anyone removes the `#[serde(default)]` on either field.
+    /// User Story: Technical invariant — legacy configs without a
+    /// `[webhook_delivery]` section still parse and resolve to the
+    /// documented runtime defaults.
+    ///
+    /// WHY: existing deployments ship config.toml files written before
+    /// outbound webhooks existed; a rollout MUST NOT break them, and MUST
+    /// NOT silently adopt different tuning (e.g. an 8h backoff becoming
+    /// infinite) either. Fails if anyone removes the `#[serde(default)]`
+    /// from the field or the per-field default fns.
+    #[test]
+    fn config_webhook_delivery_defaults_when_section_missing() {
+        let toml = r#"
+[database]
+url = "postgres://test:test@localhost/test"
+
+[redis]
+
+[server]
+
+[frontend]
+"#;
+        let cfg: ApiConfig = toml::from_str(toml)
+            .expect("ApiConfig MUST parse a pre-webhook config (no [webhook_delivery] section)");
+        // Equal to the canonical domain default; the exact numbers are
+        // pinned once in delivery_runtime_defaults_are_pinned (delivery
+        // job tests). This test's invariant is: a legacy config without
+        // the section still parses and resolves to that same default.
+        assert_eq!(
+            cfg.webhook_delivery,
+            herald_core::domain::webhook_outbound::WebhookDeliveryConfig::default()
+        );
+    }
+
     #[test]
     fn config_server_real_ip_defaults_when_section_empty() {
         let toml = r#"

@@ -1,14 +1,3 @@
-// =============================================================================
-// User Roles Management API
-// =============================================================================
-//
-// Provides endpoints for managing user role assignments
-// GET /api/permission/users/{userId}/roles - Get user's roles
-// POST /api/permission/users/{userId}/roles - Assign roles to user
-// DELETE /api/permission/users/{userId}/roles/{roleId} - Remove role from user
-//
-// =============================================================================
-
 use axum::{
     Json,
     extract::{Extension, Path, State},
@@ -31,13 +20,13 @@ use herald_core::domain::authentication::Identity;
 use herald_core::domain::authorization::permission_service::PermissionService;
 use herald_core::domain::authorization::principal_types;
 use herald_core::domain::client::ADMIN_WEB_CONSOLE_CLIENT_ID;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    RoleEventData, RoleEventSource,
+};
 use herald_core::entity::{account, role_policies, roles, user_roles};
 
 pub use herald_api_base::application::http::server::api_entities::ErrorResponse;
-
-// ============================================================================
-// Request/Response Types
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -59,10 +48,6 @@ pub struct AssignRolesRequest {
     #[validate(length(min = 1))]
     pub role_ids: Vec<Uuid>,
 }
-
-// ============================================================================
-// Handlers
-// ============================================================================
 
 /// Get user's roles
 ///
@@ -252,6 +237,7 @@ pub async fn assign_roles_to_user(
     }
 
     // Assign each role
+    let mut granted_events = Vec::new();
     for role_id in &unique_role_ids {
         let user_role = user_roles::ActiveModel {
             id: ActiveValue::Set(Uuid::now_v7()),
@@ -279,6 +265,23 @@ pub async fn assign_roles_to_user(
         match user_role.insert(state.db.as_ref()).await {
             Ok(_) => {
                 tracing::debug!(user_id = %user_id, role_id = %role_id, "Role assigned to user");
+                // Granted-only event collection — duplicate inserts are
+                // idempotent skips, not grants.
+                granted_events.push(OutboundEventInput {
+                    realm_id: realm_id.clone(),
+                    event_type: OutboundEventType::RoleGranted,
+                    occurred_at: chrono::Utc::now(),
+                    data: OutboundEventData::Role(RoleEventData {
+                        user_id,
+                        role_id: *role_id,
+                        role_name: matching_roles
+                            .iter()
+                            .find(|r| r.id == *role_id)
+                            .map(|r| r.name.clone()),
+                        source: RoleEventSource::Manual,
+                        expires_at: None,
+                    }),
+                });
             }
             Err(e) => {
                 // Check if this is a duplicate key error (idempotent)
@@ -300,6 +303,9 @@ pub async fn assign_roles_to_user(
                 }
             }
         }
+    }
+    if !granted_events.is_empty() {
+        state.webhook_outbound.emit(granted_events).await;
     }
 
     // Invalidate user role cache
@@ -391,6 +397,27 @@ pub async fn remove_role_from_user(
     )
     .await?;
 
+    // Snapshot the doomed assignment's provenance before the delete — the
+    // role.revoked payload reports the actual grant source (this endpoint
+    // can also remove payment-granted rows), and the rows are unrecoverable
+    // afterwards.
+    let removed_source = user_roles::Entity::find()
+        .filter(user_roles::Column::UserId.eq(user_id))
+        .filter(user_roles::Column::RoleId.eq(role_id))
+        .filter(user_roles::Column::RealmId.eq(realm_id.clone()))
+        .one(state.db.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                user_id = %user_id,
+                role_id = %role_id,
+                "Failed to load user role for removal"
+            );
+            ApiError::internal(format!("Failed to remove role: {}", e))
+        })?
+        .map(|row| row.source);
+
     // Find and delete the user_role assignment
     let result = user_roles::Entity::delete_many()
         .filter(user_roles::Column::UserId.eq(user_id))
@@ -442,12 +469,27 @@ pub async fn remove_role_from_user(
     )
     .await;
 
+    if let Some(source) = removed_source {
+        let source = RoleEventSource::from_db_str(&source);
+        state
+            .webhook_outbound
+            .emit(vec![OutboundEventInput {
+                realm_id: realm_id.clone(),
+                event_type: OutboundEventType::RoleRevoked,
+                occurred_at: chrono::Utc::now(),
+                data: OutboundEventData::Role(RoleEventData {
+                    user_id,
+                    role_id,
+                    role_name: None,
+                    source,
+                    expires_at: None,
+                }),
+            }])
+            .await;
+    }
+
     Ok(ApiResult::no_content())
 }
-
-// ============================================================================
-// Router
-// ============================================================================
 
 pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
@@ -458,10 +500,6 @@ pub fn router() -> axum::Router<AppState> {
             axum::routing::delete(remove_role_from_user),
         )
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 /// Record a user-role write outcome (audit.md requires failed RBAC writes to
 /// be audited alongside successes). Best-effort.

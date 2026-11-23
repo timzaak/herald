@@ -21,6 +21,8 @@ sqlx = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
+# Host extraction for the outbound-delivery external.http span.
+url = { workspace = true }
 # `FutureExt::catch_unwind` is used by `iap_reconciliation_job` to convert
 # panics raised inside the third-party `app-store-server-library`
 # (`EncodingKey::from_ec_pem(...).unwrap()` on a malformed realm `.p8` key)

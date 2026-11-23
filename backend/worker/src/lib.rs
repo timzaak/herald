@@ -19,6 +19,7 @@ use sqlx::PgPool;
 
 pub use jobs::IapReconciliationJob;
 pub use jobs::InvoiceOverdueJob;
+pub use jobs::OutboundDeliveryJob;
 pub use jobs::PaymentAttemptExpiryJob;
 pub use jobs::PaymentEventRetryJob;
 pub use jobs::PointsExpirationJob;
@@ -84,6 +85,15 @@ where
     /// (30 min). The job itself fans out Apple compensation +
     /// Google lifecycle polling per realm.
     pub iap_reconciliation_interval_secs: u64,
+
+    /// Optional outbound-webhook delivery sweep. When Some, the job scans
+    /// due `outbound_delivery` rows and POSTs signed event envelopes to
+    /// subscriber endpoints (the only delivery path — the API layer never
+    /// sends inline). Interval comes from `[webhook_delivery]
+    /// sweep_interval_secs` (default 10s), which also bounds the
+    /// first-delivery latency contract.
+    pub outbound_delivery: Option<Arc<OutboundDeliveryJob>>,
+    pub outbound_delivery_interval_secs: u64,
 }
 
 impl<R> WorkerConfig<R>
@@ -140,6 +150,8 @@ where
             payment_attempt_expiry: None,
             iap_reconciliation: None,
             iap_reconciliation_interval_secs,
+            outbound_delivery: None,
+            outbound_delivery_interval_secs: 10,
         }
     }
 
@@ -177,6 +189,19 @@ where
     /// windows (decision A5).
     pub fn with_iap_reconciliation(mut self, job: Arc<IapReconciliationJob>) -> Self {
         self.iap_reconciliation = Some(job);
+        self
+    }
+
+    /// Attach the outbound-webhook delivery sweep. The interval is passed
+    /// by the caller (from `[webhook_delivery].sweep_interval_secs`) so the
+    /// env-driven `new()` constructor stays untouched.
+    pub fn with_outbound_delivery(
+        mut self,
+        job: Arc<OutboundDeliveryJob>,
+        interval_secs: u64,
+    ) -> Self {
+        self.outbound_delivery = Some(job);
+        self.outbound_delivery_interval_secs = interval_secs;
         self
     }
 }
@@ -217,6 +242,9 @@ where
         let iap_reconciliation_interval =
             Duration::from_secs(self.config.iap_reconciliation_interval_secs);
         let payment_attempt_expiry = self.config.payment_attempt_expiry.clone();
+        let outbound_delivery = self.config.outbound_delivery.clone();
+        let outbound_delivery_interval =
+            Duration::from_secs(self.config.outbound_delivery_interval_secs);
 
         let handle = tokio::spawn(async move {
             Self::worker_loop(
@@ -234,6 +262,8 @@ where
                 iap_reconciliation,
                 iap_reconciliation_interval,
                 payment_attempt_expiry,
+                outbound_delivery,
+                outbound_delivery_interval,
             )
             .await
         });
@@ -257,6 +287,8 @@ where
         iap_reconciliation: Option<Arc<IapReconciliationJob>>,
         iap_reconciliation_interval: Duration,
         payment_attempt_expiry: Option<Arc<PaymentAttemptExpiryJob>>,
+        outbound_delivery: Option<Arc<OutboundDeliveryJob>>,
+        outbound_delivery_interval: Duration,
     ) {
         info!("Starting worker service");
 
@@ -296,6 +328,14 @@ where
         // Duration::MAX so the arm never fires.
         let mut iap_reconciliation_timer = tokio::time::interval(if iap_reconciliation.is_some() {
             iap_reconciliation_interval
+        } else {
+            Duration::MAX
+        });
+        // Outbound-webhook delivery sweep runs on its own interval (default
+        // 10s — bounds the first-delivery latency contract); parked at
+        // Duration::MAX when no job is attached.
+        let mut outbound_delivery_timer = tokio::time::interval(if outbound_delivery.is_some() {
+            outbound_delivery_interval
         } else {
             Duration::MAX
         });
@@ -426,6 +466,26 @@ where
                             }
                             Err(e) => {
                                 tracing::error!(error = %e, "IAP reconciliation failed");
+                            }
+                        }
+                    }
+                }
+
+                _ = outbound_delivery_timer.tick(), if outbound_delivery.is_some() => {
+                    if let Some(ref job) = outbound_delivery {
+                        match job.run().await {
+                            Ok(stats) => {
+                                info!(
+                                    claimed = stats.claimed,
+                                    delivered = stats.delivered,
+                                    failed = stats.failed,
+                                    dropped = stats.dropped,
+                                    paused = stats.paused,
+                                    "Outbound webhook delivery sweep completed"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "Outbound webhook delivery sweep failed");
                             }
                         }
                     }

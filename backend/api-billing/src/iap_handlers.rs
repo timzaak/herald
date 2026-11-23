@@ -49,13 +49,15 @@ use herald_core::domain::payment_attempt::{PaymentAttemptStatus, PurchasableTarg
 use herald_core::domain::purchase::services::CreateIapAttemptInput;
 use herald_core::domain::realm_config::RealmConfigRepository;
 use herald_core::domain::user::UserRepository;
+use herald_core::domain::webhook_outbound::OutboundEventPublisher;
 use herald_infra_iap::google::service_account::GoogleServiceAccountAuth;
 use herald_infra_iap::{AppleEnvironment, AppleVerifier, GoogleDeveloperClient, IapError};
 use validator::Validate;
 
 use crate::shared_fulfillment::fulfill_provider_event;
 use crate::webhook_subscription_helpers::{
-    ResolvedEntitlement, SyncSubscriptionInput, resolve_entitlement_mapping, sync_subscription,
+    ResolvedEntitlement, SyncSubscriptionInput, refunded_event, resolve_entitlement_mapping,
+    sync_subscription,
 };
 use herald_core::domain::billing::subscription_history_service::SubscriptionHistoryService;
 
@@ -3301,6 +3303,13 @@ async fn reprocess_google_one_time_revoke(
         &attempt.id.to_string(),
     )
     .await?;
+
+    // Voided/refund established: one-time purchases have no subscription
+    // row, so the event carries a null subscriptionId.
+    state
+        .webhook_outbound
+        .emit(vec![refunded_event(realm_id, attempt.user_id, None)])
+        .await;
 
     Ok(())
 }

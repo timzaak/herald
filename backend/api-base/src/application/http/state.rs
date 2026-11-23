@@ -41,7 +41,17 @@ use herald_core::infrastructure::user::{
     repositories::PostgresUserRepository,
 };
 use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
+use herald_core::infrastructure::webhook_outbound::{
+    PostgresOutboundEventRepository, PostgresWebhookSubscriptionRepository,
+};
 use sea_orm::DatabaseConnection;
+
+/// Concrete outbound-webhook service instantiation for AppState: handler
+/// emission points + the `/api/webhooks` management face.
+pub type AppWebhookOutboundService = herald_core::domain::webhook_outbound::WebhookOutboundService<
+    PostgresWebhookSubscriptionRepository,
+    PostgresOutboundEventRepository,
+>;
 
 /// Type alias for the PurchaseService to reduce complexity in AppState
 type PurchaseServiceImpl = PurchaseService<
@@ -205,9 +215,6 @@ pub struct AppState {
     /// Server startup time for uptime calculation
     pub startup_time: Instant,
 
-    // ============================================================================
-    // Admin User Services
-    // ============================================================================
     /// Admin user service
     pub admin_user_service: Arc<
         AdminUserServiceImpl<
@@ -238,9 +245,6 @@ pub struct AppState {
         >,
     >,
 
-    // ============================================================================
-    // Payment Services
-    // ============================================================================
     /// Payment attempt service
     pub payment_attempt_service: Arc<PaymentAttemptService<PostgresPaymentAttemptRepository>>,
 
@@ -360,4 +364,10 @@ pub struct AppState {
     /// Organization lifecycle/member management service (ext orgs face).
     /// Direct AppState field — same pattern as `legal_service`.
     pub org_service: std::sync::Arc<AppOrganizationService>,
+
+    /// Outbound webhook event fan-out + subscription management service.
+    /// Direct AppState field — same pattern as `org_service`. Also injected
+    /// (as `Arc<dyn OutboundEventPublisher>`) into the deep billing services
+    /// that cannot reach handler-layer state.
+    pub webhook_outbound: std::sync::Arc<AppWebhookOutboundService>,
 }

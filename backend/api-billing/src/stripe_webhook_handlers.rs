@@ -15,8 +15,8 @@ use crate::webhook_common::{
     revoke_payment_roles_for_source as revoke_payment_roles_for_attempt,
 };
 use crate::webhook_subscription_helpers::{
-    ResolvedEntitlement, SyncSubscriptionInput, mapping_rule_value, resolve_entitlement_mapping,
-    save_subscription_history_in_txn, sync_subscription_in_txn,
+    ResolvedEntitlement, SyncSubscriptionInput, mapping_rule_value, refunded_event,
+    resolve_entitlement_mapping, save_subscription_history_in_txn, sync_subscription_in_txn,
 };
 use herald_api_base::application::http::state::AppState;
 use herald_core::domain::billing::credit_note::{
@@ -41,6 +41,7 @@ use herald_core::domain::points::ports::TopupRefundRevokeRequest;
 use herald_core::domain::points::subscription_service::CancelMode;
 use herald_core::domain::purchase::metadata_keys;
 use herald_core::domain::realm_config::RealmConfigRepository;
+use herald_core::domain::webhook_outbound::OutboundEventPublisher;
 
 struct StripeCheckoutCompletedPayload {
     event_id: String,
@@ -949,6 +950,14 @@ async fn sync_stripe_subscription_with_history_in_txn(
         .await
         .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
 
+    // Post-commit: lifecycle events only after the sync is durable.
+    crate::webhook_subscription_helpers::emit_subscription_lifecycle(
+        app_state,
+        &subscription,
+        previous_subscription.as_ref(),
+    )
+    .await;
+
     Ok((subscription, previous_subscription))
 }
 
@@ -1016,6 +1025,14 @@ async fn sync_stripe_subscription_with_detected_history_in_txn(
         .await
         .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
 
+    // Post-commit: lifecycle events only after the sync is durable.
+    crate::webhook_subscription_helpers::emit_subscription_lifecycle(
+        app_state,
+        &subscription,
+        previous_subscription.as_ref(),
+    )
+    .await;
+
     Ok((subscription, previous_subscription))
 }
 
@@ -1041,6 +1058,16 @@ async fn sync_subscription_input_with_history_in_txn(
     txn.commit()
         .await
         .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+
+    // Post-commit: lifecycle events only after the sync is durable.
+    if let Some((subscription, previous_subscription)) = synced.as_ref() {
+        crate::webhook_subscription_helpers::emit_subscription_lifecycle(
+            app_state,
+            subscription,
+            previous_subscription.as_ref(),
+        )
+        .await;
+    }
 
     Ok(synced)
 }
@@ -1070,6 +1097,16 @@ async fn sync_subscription_input_with_detected_history_in_txn(
     txn.commit()
         .await
         .map_err(|e| CoreError::DatabaseError(e.to_string()))?;
+
+    // Post-commit: lifecycle events only after the sync is durable.
+    if let Some((subscription, previous_subscription)) = synced.as_ref() {
+        crate::webhook_subscription_helpers::emit_subscription_lifecycle(
+            app_state,
+            subscription,
+            previous_subscription.as_ref(),
+        )
+        .await;
+    }
 
     Ok(synced)
 }
@@ -1666,11 +1703,11 @@ async fn handle_checkout_session_async_failed(
         // active quota entitlement by `source_id = subscription_id`, so the
         // cancel must pass the subscription that was eagerly granted.
         //
-        // PRD §4.1: a missed role/quota revoke is a P0 fault. Previously a nil
-        // subscription_id was passed into handle_subscription_cancel, which
-        // silently matched zero rows (idempotent no-op) and masked the miss.
-        // Now we keep the id as Option and skip the revoke call when None,
-        // logging a warning so the compensation/retry sweep can reconcile.
+        // A missed role/quota revoke is a P0 fault: a nil subscription_id
+        // passed into handle_subscription_cancel would silently match zero
+        // rows (idempotent no-op) and mask the miss, so the id stays an
+        // Option and the revoke call is skipped (with a warning) when None,
+        // leaving reconciliation to the compensation/retry sweep.
         let subscription_id: Option<Uuid> = if let Some(ext_sub_id) = stripe_subscription_id {
             app_state
                 .billing_repository
@@ -2719,6 +2756,12 @@ async fn handle_charge_refunded(
                 &attempt.id.to_string(),
             )
             .await?;
+            // A fully refunded topup has no subscription row — the event
+            // carries a null subscriptionId.
+            app_state
+                .webhook_outbound
+                .emit(vec![refunded_event(realm_id, payload.user_id, None)])
+                .await;
         }
 
         info!(
@@ -2780,6 +2823,15 @@ async fn handle_charge_refunded(
             .billing_repository
             .save_history_event(history_event)
             .await?;
+
+        app_state
+            .webhook_outbound
+            .emit(vec![refunded_event(
+                realm_id,
+                payload.user_id,
+                Some(&subscription),
+            )])
+            .await;
     }
 
     Ok(create_placeholder_transaction(

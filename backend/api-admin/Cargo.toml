@@ -20,3 +20,4 @@ sqlx = { workspace = true }
 sea-orm = { workspace = true }
 chrono = { workspace = true }
 redis = { workspace = true }
+url = { workspace = true }

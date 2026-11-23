@@ -17,6 +17,7 @@ use herald_api::observability;
 use herald_core::domain::billing::compensation::WebhookEventProcessor;
 use herald_core::domain::points::{ExpirationService, GrantScheduler};
 use herald_worker::IapReconciliationJob;
+use herald_worker::OutboundDeliveryJob;
 use herald_worker::PaymentAttemptExpiryJob;
 use herald_worker::PaymentEventRetryJob;
 use herald_worker::PointsQuotaExpirationJob;
@@ -179,6 +180,49 @@ async fn main() -> Result<()> {
         google_interval_secs,
     ));
 
+    // Outbound-webhook delivery sweep: the only delivery path for
+    // subscription event push. Tuning comes from [webhook_delivery] in
+    // ApiConfig (the worker's env-var interval family is in migration to
+    // AppConfig — new parameters go to TOML).
+    let webhook_delivery_cfg = config.webhook_delivery;
+    // Fail fast on nonsensical tuning instead of stalling or panicking the
+    // worker at runtime: a zero sweep interval panics tokio's interval, zero
+    // concurrency deadlocks the delivery loop, non-positive limits fail
+    // every sweep, and a non-positive backoff base disables retry backoff.
+    let wd_invalid = [
+        (
+            "sweep_interval_secs",
+            webhook_delivery_cfg.sweep_interval_secs as i64,
+        ),
+        ("realms_per_tick", webhook_delivery_cfg.realms_per_tick),
+        ("batch_per_realm", webhook_delivery_cfg.batch_per_realm),
+        (
+            "http_concurrency",
+            webhook_delivery_cfg.http_concurrency as i64,
+        ),
+        (
+            "http_timeout_secs",
+            webhook_delivery_cfg.http_timeout_secs as i64,
+        ),
+        ("backoff_base_secs", webhook_delivery_cfg.backoff_base_secs),
+        ("backoff_max_secs", webhook_delivery_cfg.backoff_max_secs),
+        (
+            "pause_threshold",
+            webhook_delivery_cfg.pause_threshold as i64,
+        ),
+    ]
+    .into_iter()
+    .find(|&(_, value)| value < 1);
+    if let Some((name, value)) = wd_invalid {
+        anyhow::bail!(
+            "[webhook_delivery].{name} = {value}: all webhook delivery tuning values must be >= 1"
+        );
+    }
+    let outbound_delivery_job = Arc::new(OutboundDeliveryJob::new(
+        state.pool.clone(),
+        webhook_delivery_cfg,
+    ));
+
     // Start API server
     info!("Starting API server on {}", config.server.bind_address);
     let api_config = config.clone();
@@ -193,7 +237,11 @@ async fn main() -> Result<()> {
         .with_quota_expiration(quota_expiration_job)
         .with_payment_attempt_expiry(payment_attempt_expiry_job)
         .with_payment_event_retry(payment_event_retry_job)
-        .with_iap_reconciliation(iap_reconciliation_job);
+        .with_iap_reconciliation(iap_reconciliation_job)
+        .with_outbound_delivery(
+            outbound_delivery_job,
+            webhook_delivery_cfg.sweep_interval_secs,
+        );
     let worker_handle = herald_worker::start(worker_config)?;
 
     // Wait for either service to complete or shutdown signal

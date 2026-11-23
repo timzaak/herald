@@ -15,6 +15,9 @@ use herald_api_base::application::http::state::AppState;
 use herald_core::domain::security_constants::{REGISTER_EMAIL_RATE_LIMIT, REGISTER_IP_RATE_LIMIT};
 use herald_core::domain::user::ports::{UserRepository, UserService};
 use herald_core::domain::user::value_objects::RegisterRequest as DomainRegisterRequest;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+};
 use herald_core::third::email::{EmailService, EmailTemplateKind};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -350,6 +353,18 @@ pub async fn register(
         },
         verification_required,
     };
+
+    // user.created covers every creation source equally — self-service
+    // registration included (post-commit, best-effort).
+    state
+        .webhook_outbound
+        .emit(vec![OutboundEventInput::user_event(
+            realm_id.clone(),
+            OutboundEventType::UserCreated,
+            chrono::Utc::now(),
+            user.id,
+        )])
+        .await;
 
     Ok(ApiResult::ok(response))
 }

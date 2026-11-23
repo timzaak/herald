@@ -2,6 +2,10 @@ use herald_core::domain::common::entities::app_errors::CoreError;
 use herald_core::domain::payment_attempt::{PaymentAttempt, PaymentAttemptRepository};
 use herald_core::domain::points::entities::{PointsTransaction, TransactionType};
 use herald_core::domain::purchase::metadata_keys;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    RoleEventData, RoleEventSource,
+};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -148,5 +152,29 @@ pub async fn revoke_payment_roles_for_source(
         outcome = ?outcome,
         "Payment-granted roles revoked on refund/revocation"
     );
+    // Per-role events straight from the delete's RETURNING — the ground
+    // truth of what was removed (no snapshot/delete race window); NotFound
+    // is the idempotent already-revoked no-op.
+    if let herald_core::domain::user::RevokeRoleOutcome::Revoked(revoked_role_ids) = outcome
+        && !revoked_role_ids.is_empty()
+    {
+        let now = chrono::Utc::now();
+        let events = revoked_role_ids
+            .into_iter()
+            .map(|role_id| OutboundEventInput {
+                realm_id: realm_id.to_string(),
+                event_type: OutboundEventType::RoleRevoked,
+                occurred_at: now,
+                data: OutboundEventData::Role(RoleEventData {
+                    user_id,
+                    role_id,
+                    role_name: None,
+                    source: RoleEventSource::Payment,
+                    expires_at: None,
+                }),
+            })
+            .collect::<Vec<_>>();
+        app_state.webhook_outbound.emit(events).await;
+    }
     Ok(())
 }

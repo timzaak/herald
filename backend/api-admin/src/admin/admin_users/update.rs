@@ -17,6 +17,9 @@ use herald_core::domain::user::UserStatus;
 use herald_core::domain::user::{
     AdminUserService, admin_dtos::UpdateUserAdminRequest, admin_errors::UserAdminError,
 };
+use herald_core::domain::webhook_outbound::{
+    OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+};
 use uuid::Uuid;
 
 /// Update user account
@@ -68,9 +71,28 @@ pub async fn update_user(
         return Err(ApiError::bad_request("status must be normal or forbidden"));
     }
 
+    let disabling = payload.status == Some(UserStatus::Forbidden);
     let request = UpdateUserAdminRequest {
         nickname: payload.nickname,
         status: payload.status.map(i16::from).map(i32::from),
+    };
+
+    // Snapshot the pre-update status only when the request may flip a
+    // disable — the outbound user.disabled event fires on the transition,
+    // not on re-asserting an existing Forbidden state.
+    let previous_status: Option<i16> = if disabling {
+        sqlx::query_scalar("SELECT status FROM account WHERE id = $1 AND realm_id = $2")
+            .bind(target_user_id)
+            .bind(&realm_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to load user status for disable event: {e}");
+                ApiError::internal("Failed to update user")
+            })?
+            .flatten()
+    } else {
+        None
     };
 
     // Get admin_user_service
@@ -177,6 +199,23 @@ pub async fn update_user(
         realm_id = %realm_id,
         "User updated successfully"
     );
+
+    // Emit only on the actual Normal → Forbidden transition (post-commit,
+    // best-effort — an event never blocks or rolls back the update).
+    if disabling
+        && UserStatus::from(admin_user.status) == UserStatus::Forbidden
+        && previous_status != Some(i16::from(UserStatus::Forbidden))
+    {
+        state
+            .webhook_outbound
+            .emit(vec![OutboundEventInput::user_event(
+                realm_id.clone(),
+                OutboundEventType::UserDisabled,
+                chrono::Utc::now(),
+                admin_user.id,
+            )])
+            .await;
+    }
 
     Ok(ApiResult::ok(response))
 }

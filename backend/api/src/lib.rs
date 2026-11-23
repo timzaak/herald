@@ -1,12 +1,3 @@
-// =============================================================================
-// Herald API Library - Public Interface
-// =============================================================================
-//
-// Exports the API server functionality for use by the app crate
-// and test support for integration testing
-//
-// =============================================================================
-
 use anyhow::Result;
 use clap::Parser;
 use std::env;
@@ -52,6 +43,7 @@ use herald_core::domain::user::services::SelfDeleteService;
 use herald_core::domain::user::services::admin::{
     AdminUserServiceImpl, RoleAssignmentServiceImpl, UserPermissionServiceImpl,
 };
+use herald_core::domain::webhook_outbound::WebhookOutboundService;
 use herald_core::infrastructure::PostgresCustomDomainMappingRepository;
 use herald_core::infrastructure::audit::PostgresAuditEventRepository;
 use herald_core::infrastructure::authentication::{
@@ -81,6 +73,9 @@ use herald_core::infrastructure::user::{
 };
 use herald_core::infrastructure::user_totp::PostgresUserTotpRepository;
 use herald_core::infrastructure::webhook::WebhookEventRepository;
+use herald_core::infrastructure::webhook_outbound::{
+    PostgresOutboundEventRepository, PostgresWebhookSubscriptionRepository,
+};
 
 /// Herald API Server
 #[derive(Parser, Debug)]
@@ -90,10 +85,6 @@ struct Args {
     #[arg(long)]
     export_openapi: Option<PathBuf>,
 }
-
-// =============================================================================
-// Export main function for app crate
-// =============================================================================
 
 /// Run the Herald API server with default configuration
 ///
@@ -367,6 +358,21 @@ pub async fn build_app_state_with_migrations(
     // time.
     let user_role_repository = Arc::new(PostgresUserRoleRepository::new(pg_pool.clone()));
 
+    // Outbound-webhook fan-out service. Built before the deep billing
+    // services that receive it as a publisher (they cannot reach
+    // handler-layer AppState).
+    let webhook_outbound_service = Arc::new(WebhookOutboundService::new(
+        Arc::new(PostgresWebhookSubscriptionRepository::new(Arc::new(
+            pg_pool.clone(),
+        ))),
+        Arc::new(PostgresOutboundEventRepository::new(Arc::new(
+            pg_pool.clone(),
+        ))),
+    ));
+    let webhook_publisher: Arc<dyn herald_core::domain::webhook_outbound::OutboundEventPublisher> =
+        webhook_outbound_service.clone();
+    info!("Webhook outbound service initialized");
+
     // Create subscription service
     let subscription_service = Arc::new(points::SubscriptionService::new(
         points_service.clone(),
@@ -374,6 +380,7 @@ pub async fn build_app_state_with_migrations(
         user_role_repository.clone(),
         permission_checker.clone(),
         None,
+        webhook_publisher.clone(),
     ));
     info!("Subscription service initialized");
 
@@ -426,6 +433,7 @@ pub async fn build_app_state_with_migrations(
         payment_attempt_repository.clone(),
         user_role_repository.clone(),
         permission_checker.clone(),
+        webhook_publisher.clone(),
     ));
     info!("Fulfillment service initialized");
 
@@ -571,6 +579,7 @@ pub async fn build_app_state_with_migrations(
         ),
         oidc_signing_key_store,
         org_service,
+        webhook_outbound: webhook_outbound_service,
     });
 
     // Initialize Redis Functions using the final state's redis_manager

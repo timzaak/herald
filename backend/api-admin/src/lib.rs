@@ -8,6 +8,7 @@ pub mod client_apps;
 pub mod dashboard;
 pub mod permission;
 pub mod role_definitions;
+pub mod webhooks;
 
 // Re-export router functions for use by the main api crate
 pub use admin::admin_router_with_middleware;
@@ -70,6 +71,13 @@ pub use admin::admin_router_with_middleware;
         crate::api_keys::rotate::rotate_api_key,
         crate::api_keys::roles::get_api_key_roles,
         crate::api_keys::roles::update_api_key_roles,
+        crate::webhooks::list_webhook_subscriptions,
+        crate::webhooks::create_webhook_subscription,
+        crate::webhooks::get_webhook_subscription,
+        crate::webhooks::update_webhook_subscription,
+        crate::webhooks::delete_webhook_subscription,
+        crate::webhooks::rotate_webhook_secret,
+        crate::webhooks::set_webhook_subscription_status,
     ),
     components(schemas(
         crate::role_definitions::types::RoleCreateRequest,
@@ -117,6 +125,12 @@ pub use admin::admin_router_with_middleware;
         herald_api_base::application::http::common::pagination::PaginationMeta,
         herald_api_base::application::http::server::api_entities::PageResponse<crate::client_apps::types::ClientAppItem>,
         herald_api_base::application::http::server::api_entities::PageResponse<crate::api_keys::types::ApiKeyListItem>,
+        crate::webhooks::CreateWebhookSubscriptionRequest,
+        crate::webhooks::UpdateWebhookSubscriptionRequest,
+        crate::webhooks::SetWebhookSubscriptionStatusRequest,
+        crate::webhooks::WebhookSubscriptionItem,
+        crate::webhooks::WebhookSubscriptionItemWithSecret,
+        herald_api_base::application::http::server::api_entities::PageResponse<crate::webhooks::WebhookSubscriptionItem>,
     ))
 )]
 pub struct ApiDoc;

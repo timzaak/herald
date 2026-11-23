@@ -807,27 +807,27 @@ impl UserRoleRepository for PostgresUserRoleRepository {
         user_id: Uuid,
         source_id: &str,
     ) -> UserAdminResult<RevokeRoleOutcome> {
-        let result = sqlx::query(
+        let deleted: Vec<Uuid> = sqlx::query_scalar(
             r#"
             DELETE FROM user_roles
             WHERE source = 'payment'
               AND source_id = $1
               AND user_id = $2
               AND realm_id = $3
+            RETURNING role_id
             "#,
         )
         .bind(source_id)
         .bind(user_id)
         .bind(realm_id)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| {
             tracing::error!("Failed to revoke payment roles: {}", e);
             UserAdminError::DatabaseError(format!("Failed to revoke payment roles: {}", e))
         })?;
 
-        let n = result.rows_affected();
-        if n == 0 {
+        if deleted.is_empty() {
             tracing::info!(
                 user_id = %user_id,
                 source_id = %source_id,
@@ -838,10 +838,10 @@ impl UserRoleRepository for PostgresUserRoleRepository {
             tracing::info!(
                 user_id = %user_id,
                 source_id = %source_id,
-                revoked = n,
+                revoked = deleted.len(),
                 "Payment roles revoked"
             );
-            Ok(RevokeRoleOutcome::Revoked(n))
+            Ok(RevokeRoleOutcome::Revoked(deleted))
         }
     }
 

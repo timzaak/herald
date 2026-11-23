@@ -13,8 +13,8 @@ use crate::webhook_common::{
     parse_optional_uuid_field, parse_uuid_field, revoke_payment_roles_for_source,
 };
 use crate::webhook_subscription_helpers::{
-    ResolvedEntitlement, SyncSubscriptionInput, mapping_rule_value, resolve_entitlement_mapping,
-    save_subscription_history, sync_subscription,
+    ResolvedEntitlement, SyncSubscriptionInput, mapping_rule_value, refunded_event,
+    resolve_entitlement_mapping, save_subscription_history, sync_subscription,
 };
 use crate::webhooks::verify_webhook_signature;
 use herald_api_base::application::http::state::AppState;
@@ -31,6 +31,7 @@ use herald_core::domain::points::subscription_service::CancelMode;
 use herald_core::domain::purchase::metadata_keys;
 use herald_core::domain::purchase::{CompletePaymentAttemptInput, PaymentCompletionSource};
 use herald_core::domain::realm_config::RealmConfigRepository;
+use herald_core::domain::webhook_outbound::OutboundEventPublisher;
 
 struct CreemCheckoutCompletedPayload {
     event_id: String,
@@ -1869,6 +1870,12 @@ async fn handle_refund_created(
                 &attempt.id.to_string(),
             )
             .await?;
+            // A fully refunded topup has no subscription row — the event
+            // carries a null subscriptionId.
+            app_state
+                .webhook_outbound
+                .emit(vec![refunded_event(realm_id, payload.user_id, None)])
+                .await;
         }
 
         info!(
@@ -1942,6 +1949,15 @@ async fn handle_refund_created(
             .billing_repository
             .save_history_event(history_event)
             .await?;
+
+        app_state
+            .webhook_outbound
+            .emit(vec![refunded_event(
+                realm_id,
+                payload.user_id,
+                Some(&subscription),
+            )])
+            .await;
 
         info!(
             realm_id = %realm_id,

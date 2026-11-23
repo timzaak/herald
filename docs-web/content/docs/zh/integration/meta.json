@@ -1,5 +1,11 @@
 {
   "title": "应用集成",
   "defaultOpen": true,
-  "pages": ["third-party-backend", "custom-user-ui", "mcp", "oidc"]
+  "pages": [
+    "third-party-backend",
+    "custom-user-ui",
+    "mcp",
+    "oidc",
+    "webhooks"
+  ]
 }

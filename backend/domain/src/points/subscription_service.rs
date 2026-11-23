@@ -16,6 +16,10 @@ use crate::points::{
     service::PointsService,
 };
 use crate::user::admin_ports::{GrantRoleOutcome, RevokeRoleOutcome, UserRoleRepository};
+use crate::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    RoleEventData, RoleEventSource, SubscriptionEventData,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelMode {
@@ -35,6 +39,7 @@ where
     user_role_repository: Arc<U>,
     permission_service: Arc<C>,
     _grant_scheduler: Option<Arc<crate::points::services::GrantScheduler<R, P>>>,
+    publisher: Arc<dyn OutboundEventPublisher>,
 }
 
 impl<R, P, U, C> SubscriptionService<R, P, U, C>
@@ -50,6 +55,7 @@ where
         user_role_repository: Arc<U>,
         permission_service: Arc<C>,
         grant_scheduler: Option<Arc<crate::points::services::GrantScheduler<R, P>>>,
+        publisher: Arc<dyn OutboundEventPublisher>,
     ) -> Self {
         Self {
             _points_service: points_service,
@@ -57,6 +63,7 @@ where
             user_role_repository,
             permission_service,
             _grant_scheduler: grant_scheduler,
+            publisher,
         }
     }
 
@@ -68,14 +75,45 @@ where
         source_id: &str,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<(), CoreError> {
+        let mut granted_events = Vec::new();
         for role_id in role_ids {
             match self
                 .user_role_repository
                 .grant_role_by_payment(realm_id, user_id, *role_id, None, source_id, expires_at)
-                .await?
+                .await
             {
-                GrantRoleOutcome::Granted | GrantRoleOutcome::AlreadyExists => {}
+                // Granted-only emission keeps payment-event replays
+                // (AlreadyExists) from fanning out duplicate role.granted.
+                Ok(GrantRoleOutcome::Granted) => {
+                    granted_events.push(OutboundEventInput {
+                        realm_id: realm_id.to_string(),
+                        event_type: OutboundEventType::RoleGranted,
+                        occurred_at: Utc::now(),
+                        data: OutboundEventData::Role(RoleEventData {
+                            user_id,
+                            role_id: *role_id,
+                            role_name: None,
+                            source: RoleEventSource::Payment,
+                            expires_at,
+                        }),
+                    });
+                }
+                Ok(GrantRoleOutcome::AlreadyExists) => {}
+                Err(error) => {
+                    // Each grant commits independently; emit the events for
+                    // the grants that landed before propagating, or a replay
+                    // (AlreadyExists skip) would strand them forever.
+                    if !granted_events.is_empty() {
+                        self.publisher
+                            .emit(std::mem::take(&mut granted_events))
+                            .await;
+                    }
+                    return Err(error.into());
+                }
             }
+        }
+        if !granted_events.is_empty() {
+            self.publisher.emit(granted_events).await;
         }
         if !role_ids.is_empty()
             && let Err(error) = self
@@ -162,6 +200,18 @@ where
         _provider_event_id: String,
     ) -> Result<Vec<DistributionGrantResult>, CoreError> {
         if !mapping.enabled {
+            // A disabled mapping skips points and roles, but the renewal
+            // payment itself is still the documented subscription.renewed
+            // trigger.
+            self.emit_subscription_renewed(
+                realm_id,
+                user_id,
+                subscription_id,
+                &mapping.entitlement_key,
+                period_start,
+                period_end,
+            )
+            .await;
             return Ok(Vec::new());
         }
         let source_id = subscription_id.to_string();
@@ -197,7 +247,48 @@ where
             Some(period_end),
         )
         .await?;
+
+        // Renewal is a subscription lifecycle fact independent of the role
+        // grant outcome — emitted even when the mapping grants no roles.
+        if is_renewal {
+            self.emit_subscription_renewed(
+                realm_id,
+                user_id,
+                subscription_id,
+                &mapping.entitlement_key,
+                period_start,
+                period_end,
+            )
+            .await;
+        }
         Ok(results)
+    }
+
+    /// Post-commit best-effort `subscription.renewed` for a successful
+    /// renewal payment.
+    async fn emit_subscription_renewed(
+        &self,
+        realm_id: &str,
+        user_id: Uuid,
+        subscription_id: Uuid,
+        entitlement_key: &str,
+        period_start: DateTime<Utc>,
+        period_end: DateTime<Utc>,
+    ) {
+        self.publisher
+            .emit(vec![OutboundEventInput {
+                realm_id: realm_id.to_string(),
+                event_type: OutboundEventType::SubscriptionRenewed,
+                occurred_at: Utc::now(),
+                data: OutboundEventData::Subscription(SubscriptionEventData {
+                    user_id,
+                    subscription_id: Some(subscription_id),
+                    entitlement_key: Some(entitlement_key.to_string()),
+                    current_period_start: Some(period_start),
+                    current_period_end: Some(period_end),
+                }),
+            }])
+            .await;
     }
 
     /// Revoke all currently remaining fixed/quota results for the subscription
@@ -292,7 +383,28 @@ where
             .revoke_roles_by_payment_source(realm_id, user_id, &source_id)
             .await?
         {
-            RevokeRoleOutcome::Revoked(_) => {
+            // The delete's own RETURNING is the ground truth of what was
+            // removed — no snapshot/delete race window can strand a grant
+            // without its role.revoked.
+            RevokeRoleOutcome::Revoked(revoked_role_ids) => {
+                let revoked_events = revoked_role_ids
+                    .into_iter()
+                    .map(|role_id| OutboundEventInput {
+                        realm_id: realm_id.to_string(),
+                        event_type: OutboundEventType::RoleRevoked,
+                        occurred_at: Utc::now(),
+                        data: OutboundEventData::Role(RoleEventData {
+                            user_id,
+                            role_id,
+                            role_name: None,
+                            source: RoleEventSource::Payment,
+                            expires_at: None,
+                        }),
+                    })
+                    .collect::<Vec<_>>();
+                if !revoked_events.is_empty() {
+                    self.publisher.emit(revoked_events).await;
+                }
                 if let Err(error) = self
                     .permission_service
                     .invalidate_user_role_cache(realm_id, &user_id.to_string())

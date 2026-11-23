@@ -13,6 +13,10 @@ use herald_core::domain::user::AdminUserService;
 use herald_core::domain::user::UserStatus;
 use herald_core::domain::user::admin_dtos::CreateUserWithRolesRequest;
 use herald_core::domain::user::admin_errors::UserAdminError;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventData, OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+    RoleEventData, RoleEventSource,
+};
 
 /// Create a new user account
 ///
@@ -169,6 +173,31 @@ pub async fn create_user(
         realm_id = %realm_id,
         "User created successfully"
     );
+
+    // Post-commit best-effort outbound events: user existence covers every
+    // creation source equally; initial manual grants are role events too.
+    let now = chrono::Utc::now();
+    let mut outbound_events = vec![OutboundEventInput::user_event(
+        realm_id.clone(),
+        OutboundEventType::UserCreated,
+        now,
+        admin_user.id,
+    )];
+    for role_id in &payload.role_ids {
+        outbound_events.push(OutboundEventInput {
+            realm_id: realm_id.clone(),
+            event_type: OutboundEventType::RoleGranted,
+            occurred_at: now,
+            data: OutboundEventData::Role(RoleEventData {
+                user_id: admin_user.id,
+                role_id: *role_id,
+                role_name: None,
+                source: RoleEventSource::Manual,
+                expires_at: None,
+            }),
+        });
+    }
+    state.webhook_outbound.emit(outbound_events).await;
 
     // 6. Return result
     Ok(ApiResult::created(response))

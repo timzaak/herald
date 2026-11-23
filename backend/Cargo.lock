@@ -2132,6 +2132,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tracing",
+ "url",
  "utoipa",
  "uuid",
  "validator",
@@ -2360,6 +2361,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "hex",
+ "hmac",
  "idna",
  "mockall",
  "oauth2",
@@ -2590,6 +2592,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 

@@ -132,6 +132,8 @@ where
             // permissions list and the realm-admin policy list below in sync.
             ("orgs.view", "View organizations"),
             ("orgs.manage", "Manage organizations (grant to app keys)"),
+            ("webhooks.view", "View webhook subscriptions"),
+            ("webhooks.manage", "Manage webhook subscriptions"),
         ];
         if is_admin_realm {
             realm_admin_permissions.insert(0, ("realm.view", "View realm information"));
@@ -218,6 +220,8 @@ where
             // in sync with the builtin permissions above.
             ("orgs", "view"),
             ("orgs", "manage"),
+            ("webhooks", "view"),
+            ("webhooks", "manage"),
         ];
         if is_admin_realm {
             realm_admin_policies.insert(0, ("realm", "view"));

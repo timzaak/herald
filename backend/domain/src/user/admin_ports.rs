@@ -39,10 +39,12 @@ pub enum GrantRoleOutcome {
 ///
 /// Used by `UserRoleRepository::revoke_roles_by_payment_source`. Only deletes
 /// rows with `source='payment'`; manual grants are never touched.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RevokeRoleOutcome {
-    /// `n` payment-granted role rows were deleted.
-    Revoked(u64),
+    /// The payment-granted role rows that were deleted (RETURNING ground
+    /// truth - callers emit role.revoked from these, so no pre-read
+    /// snapshot/delete race window can strand a grant without its event).
+    Revoked(Vec<Uuid>),
     /// No matching payment-granted rows existed for this `source_id`.
     NotFound,
 }

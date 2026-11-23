@@ -21,6 +21,9 @@ use herald_core::domain::user::AdminUserService;
 use herald_core::domain::user::admin_dtos::CreateUserWithRolesRequest;
 use herald_core::domain::user::admin_errors::UserAdminError;
 use herald_core::domain::user::ports::UserService;
+use herald_core::domain::webhook_outbound::{
+    OutboundEventInput, OutboundEventPublisher, OutboundEventType,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -163,6 +166,17 @@ pub async fn create_user(
     {
         Ok(admin_user) => {
             tracing::info!(user_id = %admin_user.id, "User created successfully via ext API");
+            // user.created covers every creation source equally —
+            // admin, ext API, and self-service registration.
+            state
+                .webhook_outbound
+                .emit(vec![OutboundEventInput::user_event(
+                    realm_id.clone(),
+                    OutboundEventType::UserCreated,
+                    chrono::Utc::now(),
+                    admin_user.id,
+                )])
+                .await;
             (
                 StatusCode::CREATED,
                 Json(admin_user_to_response(admin_user)),

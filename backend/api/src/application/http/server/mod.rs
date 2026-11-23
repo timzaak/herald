@@ -253,6 +253,7 @@ use crate::application::http::{
     admin, api_keys, audit, auth, billing, client_apps, dashboard, legal, oauth, permission,
     points, public_config, realm, realm_config, user, users,
 };
+use herald_api_admin::webhooks;
 
 /// Health check response schema
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -871,6 +872,15 @@ pub fn create_api_routes(state: Arc<AppState>) -> Router<AppState> {
         .nest(
             "/api/api-keys",
             api_keys::router()
+                .layer(axum::middleware::from_fn(require_admin_console_token))
+                .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
+        )
+        // Webhook subscription management (tag = "webhooks") — realm is
+        // session-derived (admin console token pins it); per-handler
+        // permission checks use webhooks.view / webhooks.manage.
+        .nest(
+            "/api/webhooks",
+            webhooks::router()
                 .layer(axum::middleware::from_fn(require_admin_console_token))
                 .layer(from_fn_with_state((*state).clone(), inject_token_identity)),
         )
