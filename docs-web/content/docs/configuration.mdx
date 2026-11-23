@@ -190,6 +190,35 @@ cname_target = "custom.herald.com"
 
 If you are not using custom domains, set `ask_key` to any non-empty placeholder string to satisfy the boot guard; the authorization endpoint will still reject unregistered hosts.
 
+### [webhook_delivery]
+
+Runtime tuning knobs for the outbound webhook delivery worker (`OutboundDeliveryJob`). The entire section is optional (`#[serde(default)]`); omitting it runs on the code defaults below. See the [Webhooks guide](/docs/integration/webhooks) for the delivery contract.
+
+| Parameter | Type | Code Default | Docker Config Value | Required | Description |
+|---|---|---|---|---|---|
+| `sweep_interval_secs` | u64 | `10` | unset | No | How often the worker sweeps `outbound_delivery` for due pending rows (seconds). Bounds first-delivery latency (`p99 ≈ sweep_interval_secs + http_timeout_secs`) |
+| `realms_per_tick` | i64 | `25` | unset | No | Maximum number of realms claimed per sweep tick |
+| `batch_per_realm` | i64 | `4` | unset | No | Maximum number of pending deliveries claimed per realm per tick (caps retry-storm fan-out) |
+| `http_concurrency` | usize | `16` | unset | No | Maximum number of concurrent outbound HTTP POST requests across the worker |
+| `http_timeout_secs` | u64 | `10` | unset | No | Per-request HTTP timeout (seconds) when POSTing to a subscriber URL |
+| `backoff_base_secs` | i64 | `60` | unset | No | Initial retry delay (seconds); retry interval grows as `min(backoff_base_secs * 2^(attempt - 1), backoff_max_secs)` |
+| `backoff_max_secs` | i64 | `28800` | unset | No | Maximum retry interval cap (seconds; `28800` = 8 hours) |
+| `pause_threshold` | i32 | `16` | unset | No | Consecutive failed attempts before Herald automatically pauses the subscription and drops its remaining pending deliveries |
+
+```toml
+[webhook_delivery]
+sweep_interval_secs = 10
+realms_per_tick = 25
+batch_per_realm = 4
+http_concurrency = 16
+http_timeout_secs = 10
+backoff_base_secs = 60
+backoff_max_secs = 28800
+pause_threshold = 16
+```
+
+`production.toml` omits this section, so Docker deployments use the code defaults above. Override only if your deployment needs shorter sweep intervals or tighter concurrency limits.
+
 ## RBAC Configuration
 
 RBAC policies are not stored in the main config file. They live in the `role_policies` database table. During initialization, `RealmInitializationService` creates default roles and permissions for each realm. Permission checks are handled by `RedisPermissionChecker`, which checks Redis cache first and falls back to PostgreSQL on cache miss.

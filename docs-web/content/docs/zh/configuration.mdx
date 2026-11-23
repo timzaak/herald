@@ -190,6 +190,35 @@ cname_target = "custom.herald.com"
 
 如果不用自定义域名功能，把 `ask_key` 设为任意非空占位字符串即可满足启动守卫；授权端点仍会拒绝未注册的域名。
 
+### [webhook_delivery]
+
+出站 Webhook 后台投递任务（`OutboundDeliveryJob`）的运行调优参数。整段可选（`#[serde(default)]`），省略时使用下面的代码默认值。出站事件契约与验签说明见 [Webhooks 集成指南](/docs/zh/integration/webhooks)。
+
+| 参数 | 类型 | 代码默认值 | Docker 配置值 | 必填 | 说明 |
+|---|---|---|---|---|---|
+| `sweep_interval_secs` | u64 | `10` | 未设置 | 否 | 扫描待投递记录的周期（秒），同时决定首投延迟上界（`p99 ≈ sweep_interval_secs + http_timeout_secs`） |
+| `realms_per_tick` | i64 | `25` | 未设置 | 否 | 单次扫描最多认领的 Realm 数量 |
+| `batch_per_realm` | i64 | `4` | 未设置 | 否 | 单个 Realm 每次扫描最多认领的待投递条数（防止重试风暴放大） |
+| `http_concurrency` | usize | `16` | 未设置 | 否 | Worker 级出站 HTTP POST 最大并发数 |
+| `http_timeout_secs` | u64 | `10` | 未设置 | 否 | 单次回调请求的 HTTP 超时时间（秒） |
+| `backoff_base_secs` | i64 | `60` | 未设置 | 否 | 首次失败重试基础退避时间（秒），按 `min(backoff_base_secs * 2^(attempt - 1), backoff_max_secs)` 增长 |
+| `backoff_max_secs` | i64 | `28800` | 未设置 | 否 | 重试间隔封顶值（秒，`28800` = 8 小时） |
+| `pause_threshold` | i32 | `16` | 未设置 | 否 | 触发订阅自动暂停并丢弃剩余待投递记录的连续失败次数阈值 |
+
+```toml
+[webhook_delivery]
+sweep_interval_secs = 10
+realms_per_tick = 25
+batch_per_realm = 4
+http_concurrency = 16
+http_timeout_secs = 10
+backoff_base_secs = 60
+backoff_max_secs = 28800
+pause_threshold = 16
+```
+
+`production.toml` 未设置这一段，Docker 部署直接使用上述代码默认值。仅在需要缩短扫描间隔或收紧外呼并发时覆盖。
+
 ## 用户协议与隐私政策配置
 
 每个 Realm 的用户协议和隐私政策不是写在配置文件里的，而是通过管理后台动态发布。系统初始化时会自动 seed 平台默认模板（中文草稿版，需法务审阅后替换）。
