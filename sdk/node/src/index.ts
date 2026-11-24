@@ -7,14 +7,11 @@
  * native fetch. For browser end-user authentication use `herald-auth-web`.
  */
 
-// Client.
 export { HeraldClient } from './client'
 
-// Errors.
 export { HeraldSdkError } from './errors'
 export type { HeraldSdkErrorCode } from './errors'
 
-// Wire types (1:1 with the Rust crate's public structs).
 export type {
   AdminUserSdkInput,
   AdminUserSdkOutput,

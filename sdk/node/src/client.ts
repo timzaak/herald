@@ -188,8 +188,6 @@ export class HeraldClient {
     return query
   }
 
-  // --- Permission check (with cache) ---
-
   /**
    * Check whether a user (identified by their browser access token) is allowed
    * an action. Results are cached per exact request for the client's TTL;
@@ -257,14 +255,10 @@ export class HeraldClient {
     this.tokenIndex.delete(token)
   }
 
-  // --- Billing ---
-
   /** Subscription detail for a client app. */
   getSubscription(realmId: string, clientAppId: string): Promise<SubscriptionDetail> {
     return this.requestJson('GET', `/api/ext/bill/${encodeURIComponent(realmId)}/client/${encodeURIComponent(clientAppId)}/subscription`)
   }
-
-  // --- Points ---
 
   /** User points balance. */
   getBalance(realmId: string, userId: string): Promise<PointsBalanceResponse> {
@@ -324,8 +318,6 @@ export class HeraldClient {
     )
   }
 
-  // --- Realms ---
-
   createRealm(request: CreateRealmSdkRequest): Promise<RealmInfo> {
     return this.requestJson('POST', '/api/ext/realms', { body: request })
   }
@@ -338,8 +330,6 @@ export class HeraldClient {
   getRealm(realmId: string): Promise<RealmInfo> {
     return this.requestJson('GET', `/api/ext/realms/${encodeURIComponent(realmId)}`)
   }
-
-  // --- Users ---
 
   createUser(realmId: string, request: CreateUserSdkRequest): Promise<UserInfo> {
     return this.requestJson('POST', `/api/ext/realms/${encodeURIComponent(realmId)}/users`, { body: request })
@@ -370,8 +360,6 @@ export class HeraldClient {
       `/api/ext/realms/${encodeURIComponent(realmId)}/users/${encodeURIComponent(userId)}`,
     )
   }
-
-  // --- Client apps ---
 
   createClientApp(realmId: string, request: CreateClientAppSdkRequest): Promise<ClientAppInfo> {
     return this.requestJson('POST', `/api/ext/realms/${encodeURIComponent(realmId)}/client-apps`, {

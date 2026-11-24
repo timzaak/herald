@@ -8,8 +8,6 @@
  * omits when absent are optional `?`).
  */
 
-// --- Permission check ---
-
 /**
  * Wire unions mirroring the backend domain enums (serde snake_case names as
  * emitted by the Herald API — see api.json).
@@ -47,8 +45,6 @@ export interface PermissionCheckResponse {
   userId?: string
 }
 
-// --- Billing / subscription ---
-
 export interface SubscriptionDetail {
   id: string
   clientAppId: string | null
@@ -65,8 +61,6 @@ export interface SubscriptionDetail {
   createdAt: string
   updatedAt: string
 }
-
-// --- Points ---
 
 export interface PointsBalanceResponse {
   userId: string
@@ -196,8 +190,6 @@ export interface WalletByBucket {
   spendableFromPool?: number
 }
 
-// --- Realms ---
-
 export interface AdminUserSdkInput {
   email: string
   password: string
@@ -235,8 +227,6 @@ export interface RealmItem {
   updatedAt: string
 }
 
-// --- Users ---
-
 /** Request body for creating a user. */
 export interface CreateUserSdkRequest {
   email: string
@@ -262,8 +252,6 @@ export interface UserPage {
   /** Total matching users across all pages. */
   total: number
 }
-
-// --- Client apps ---
 
 /** Request body for creating a client app. */
 export interface CreateClientAppSdkRequest {
