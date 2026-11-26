@@ -56,7 +56,7 @@ async function openApplyInvoiceForm(
   realmId: string,
   paymentAttemptId: string
 ): Promise<void> {
-  await page.goto(`/user/subscription-history`)
+  await page.goto(`/${realmId}/user/subscription-history`)
 
   const rowButton = page.getByTestId(`purchase-history-invoice-button-${paymentAttemptId}`)
   await expect(rowButton).toBeVisible({ timeout: 10000 })
@@ -121,18 +121,19 @@ function seedPurchaseAttempt(
   // click it to open the apply form. The frontend
   // (purchase-history-list.tsx) only renders the Invoice button when
   // `purchase.paymentProvider !== 'stripe'`, and the backend eligibility rule
-  // `determine_invoice_apply_route` (invoice_eligibility.rs) returns:
+  // `determine_invoice_apply_route` (invoice_eligibility.rs) returns, in order:
+  //   - 'disabled' for the Merchant-of-Record providers creem / apple / google
+  //     (Rule 2 — the platform issues the invoice of record),
   //   - 'external_provider' (disabled) for stripe under the default
   //     provider_first policy (Rule 4),
-  //   - 'disabled' for creem — Creem is Merchant of Record (Rule 2),
   //   - 'manual_fallback' (enabled) for any other non-MoR provider (Rule 6).
   // Both payment_attempts and provider_entitlement_mappings have a CHECK
-  // constraint restricting payment_provider to {stripe, creem, apple, google},
-  // so the only values that satisfy (render + enabled + constraint) are
-  // 'apple' and 'google'. We use 'apple' (arbitrary; both behave identically).
-  // Using 'stripe' (the previous value) hid the button entirely, which is why
-  // every apply-flow test failed at openApplyInvoiceForm.
-  const SEED_PAYMENT_PROVIDER = 'apple'
+  // constraint restricting payment_provider to {stripe, creem, apple, google,
+  // wechat}, so the only value that satisfies (render + enabled + constraint)
+  // is 'wechat'.
+  // History: 'stripe' hid the button entirely; 'apple' (an earlier choice)
+  // became a Merchant-of-Record provider, which left the button disabled.
+  const SEED_PAYMENT_PROVIDER = 'wechat'
 
   // Reuse an existing enabled one_time mapping if present; otherwise create one
   // with the CURRENT schema only. NOTE: provider_entitlement_mappings and
@@ -314,7 +315,7 @@ test.describe('[Regular User] Invoice User Application Demo Tests', () => {
       await test.step('When: user opens purchase history', async () => {
         await page.context().clearCookies()
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/subscription-history`)
+        await page.goto(`/${REALM_ID}/user/subscription-history`)
         await expect(page.getByTestId(`purchase-history-item-${paymentAttemptId}`)).toBeVisible({
           timeout: 10000,
         })
@@ -400,7 +401,7 @@ test.describe('[Regular User] Invoice User Application Demo Tests', () => {
       await test.step('Then: user invoice page still lists invoices (view-only entry)', async () => {
         // The My Invoices page itself still exists and lists invoices; only the
         // standalone page-level "Apply" button was removed.
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({
           timeout: 10000,
         })
@@ -858,7 +859,7 @@ test.describe('[Regular User] Invoice User Application Demo Tests', () => {
         await page.context().clearCookies()
         await loginPage.loginAsUser(user2.email, user2.password, REALM_ID)
 
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({
           timeout: 10000,
         })

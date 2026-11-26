@@ -24,13 +24,9 @@ export const SELECTORS = {
     newUsersCard: '[data-testid="dashboard-new-users-card"]',
     activeUsersCard: '[data-testid="dashboard-active-users-card"]',
     authTrendChart: '[data-testid="dashboard-auth-trend-chart"]',
-    quickNav: '[data-testid="dashboard-quick-nav"]',
-    quickNavUsers: '[data-testid="dashboard-users-card"]',
-    quickNavRoles: '[data-testid="dashboard-roles-card"]',
-    quickNavPermissions: '[data-testid="dashboard-permissions-card"]',
-    quickNavClientApps: '[data-testid="dashboard-client-apps-card"]',
-    quickNavRealms: '[data-testid="dashboard-realms-card"]',
-    quickNavSettings: '[data-testid="dashboard-settings-card"]',
+    recentUsersCard: '[data-testid="dashboard-recent-users-card"]',
+    recentAuditCard: '[data-testid="dashboard-recent-audit-card"]',
+    recentPointsCard: '[data-testid="dashboard-recent-points-card"]',
     errorState: '[data-testid="dashboard-error"]',
     retryButton: '[data-testid="dashboard-retry-button"]',
     chartSkeleton: '[data-testid="dashboard-chart-skeleton"]',
@@ -705,23 +701,24 @@ export const SELECTORS = {
   /**
    * Realm Onboarding Guidance - first-login console guidance
    *
-   * Welcome dialog, starter checklist and console-tour testids, plus the
-   * `herald-onboarding-popover` class hook used to re-skin the driver.js
-   * popover (the tour itself renders no testids, so the class is the stable
-   * observable). The completion markers live in localStorage under
+   * Welcome dialog, dashboard replay-tour button and console-tour testids,
+   * plus the `herald-onboarding-popover` class hook used to re-skin the
+   * driver.js popover (the tour itself renders no testids, so the class is the
+   * stable observable). The completion markers live in localStorage under
    * `herald.onboarding.{realmId}.{userId}` (frontend
    * components/onboarding/onboarding-storage.ts); tests read/clear them via
    * page.evaluate rather than selectors.
    *
    * Frontend testids live in:
    *   frontend/src/components/onboarding/
+   *   frontend/src/routes/$realmId/manage/index.tsx (replayTourButton)
    */
   onboarding: {
     welcomeDialog: '[data-testid="onboarding-welcome-dialog"]',
     welcomeDismissButton: '[data-testid="onboarding-welcome-dismiss-button"]',
     tourStartButton: '[data-testid="onboarding-tour-start-button"]',
-    tasksCard: '[data-testid="onboarding-tasks-card"]',
-    tourRestartButton: '[data-testid="onboarding-tour-restart-button"]',
+    // Dashboard header button that replays the console tour.
+    replayTourButton: '[data-testid="dashboard-replay-tour-button"]',
     // Class hook on the driver.js popover (console-tour.tsx popoverClass);
     // the built-in close button is .driver-popover-close-btn within it.
     tourPopover: '.herald-onboarding-popover',
@@ -743,6 +740,10 @@ export const SELECTORS = {
     nextButton: '[data-testid="purchase-next-button"]',
     stepPackages: '[data-testid="purchase-step-packages"]',
     stepPayment: '[data-testid="purchase-step-payment"]',
+    // Provider-bounce waiting panel ("do not pay twice" while the attempt is
+    // still Pending) — shown INSTEAD of stepProcessing on a bounce re-entry
+    // (frontend/src/routes/$realmId/user/purchase-points.tsx confirmingCheckout).
+    stepConfirming: '[data-testid="purchase-confirming"]',
     stepProcessing: '[data-testid="purchase-step-processing"]',
     stepComplete: '[data-testid="purchase-step-complete"]',
   },

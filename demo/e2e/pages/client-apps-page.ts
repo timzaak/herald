@@ -17,7 +17,7 @@ import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
 import { MCP_CLIENT_ID } from '../helpers/oauth-helpers'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Client App data interface
@@ -179,7 +179,7 @@ export class ClientAppsPage extends BasePage {
    */
   async goto(realmId: string = 'admin'): Promise<void> {
     this.currentRealmId = realmId
-    const url = `/manage/client-apps`
+    const url = `/${realmId}/manage/client-apps`
     await this.page.goto(url)
     await this.waitForReady()
   }

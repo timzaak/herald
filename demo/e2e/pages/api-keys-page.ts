@@ -8,7 +8,7 @@
 import { Page, Locator, expect } from "@playwright/test";
 import { SELECTORS } from "../selectors";
 import { BasePage } from "./base-page";
-import type { UnifiedLogger } from "../helpers/unified-logger";
+import type { UnifiedLogger } from "playwright-unified-logger";
 
 /**
  * API Keys Page Object
@@ -156,7 +156,7 @@ export class ApiKeysPage extends BasePage {
    */
   async goto(realmId: string = "admin"): Promise<void> {
     this.currentRealmId = realmId;
-    const url = `/manage/api-keys`;
+    const url = `/${realmId}/manage/api-keys`;
     await this.page.goto(url);
     await this.waitForReady();
   }
@@ -396,10 +396,14 @@ export class ApiKeysPage extends BasePage {
   async submitForm(): Promise<void> {
     await expect(this.submitButton).toBeEnabled();
     // Use waitForResponse to ensure the API call completes before caller asserts next page
+    // Create POSTs to /api/api-keys and edit PUTs to /api/api-keys/{id}. The
+    // list GET shares the collection path, so match on the write methods.
     const [response] = await Promise.all([
       this.page.waitForResponse(
         (resp) =>
-          resp.url().includes("/api/api-keys/") &&
+          new URL(resp.url()).pathname.startsWith("/api/api-keys") &&
+          (resp.request().method() === "POST" ||
+            resp.request().method() === "PUT") &&
           resp.status() >= 200 &&
           resp.status() < 300,
         { timeout: 10000 },

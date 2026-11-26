@@ -80,15 +80,17 @@ test.describe('[Realm Admin] Realm Isolation Access Demo Tests', () => {
         await page.goto(`/${ADMIN_REALM}/manage/users`)
       })
 
-      await test.step('Then: 系统重定向回用户已认证的 realm', async () => {
+      await test.step('Then: 系统拒绝访问并跳转到目标 Realm 的登录页', async () => {
         // Wait for redirect to complete
         await page.waitForLoadState('networkidle')
 
+        // A session minted for another realm is no session for that realm's
+        // console (frontend/src/routes/__root.tsx): the admin realm bounces
+        // the realm-001 admin to its own login page with a return URL.
         const currentUrl = page.url()
-        // User should be redirected back to their authenticated realm (realm-001)
-        expect(currentUrl).toContain(`/${SEEDED_REALM}/manage/users`)
-        // User should NOT be on the admin realm
-        expect(currentUrl).not.toContain(`/${ADMIN_REALM}/`)
+        expect(currentUrl).toContain(`/${ADMIN_REALM}/auth/login?redirect=`)
+        // The admin realm's console page itself is never reached
+        expect(currentUrl).not.toContain(`/${ADMIN_REALM}/manage/`)
       })
     })
 
@@ -102,18 +104,18 @@ test.describe('[Realm Admin] Realm Isolation Access Demo Tests', () => {
         await page.goto(`/${ADMIN_REALM}/manage/users`)
       })
 
-      await test.step('Then: 系统拒绝访问并重定向回用户自己的 realm', async () => {
+      await test.step('Then: 系统拒绝访问，只展示登录页而不展示目标 Realm 的数据', async () => {
         // Wait for redirect to complete
         await page.waitForLoadState('networkidle')
 
         const currentUrl = page.url()
-        // Verify user is redirected back to their authenticated realm
-        expect(currentUrl).toContain(`/${SEEDED_REALM}/`)
-        // Verify user is NOT on the attempted realm
-        expect(currentUrl).not.toContain(`/${ADMIN_REALM}/`)
+        // The admin realm's login page is shown instead of its console
+        expect(currentUrl).toContain(`/${ADMIN_REALM}/auth/login`)
+        expect(currentUrl).not.toContain(`/${ADMIN_REALM}/manage/`)
 
-        // Verify the users table for their own realm is visible
-        await expect(page.locator('table[data-testid="users-table"]')).toBeVisible()
+        await expect(page.getByTestId('login-submit-button')).toBeVisible()
+        // No realm's user list is rendered for the cross-realm visitor
+        await expect(page.locator('table[data-testid="users-table"]')).toHaveCount(0)
       })
     })
   })

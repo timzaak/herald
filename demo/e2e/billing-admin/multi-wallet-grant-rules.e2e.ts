@@ -62,7 +62,7 @@ test.describe('[Regular User] 多账户购买分发 (US-MWGR-003)', () => {
 
     await test.step('Given: 购买页展示两条目标账户规则', async () => {
       await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-      await page.goto(`/user/purchase-points`)
+      await page.goto(`/${REALM_ID}/user/purchase-points`)
       await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
 
       const card = page.locator(
@@ -84,7 +84,7 @@ test.describe('[Regular User] 多账户购买分发 (US-MWGR-003)', () => {
         paymentProvider: 'stripe',
       })
       expect(checkoutResponse.ok()).toBe(true)
-      await page.goto(`/user/purchase-points`)
+      await page.goto(`/${REALM_ID}/user/purchase-points`)
       attemptId = await extractPaymentAttemptId(page)
 
       const fulfillment = await fulfillPayment(request, REALM_ID, attemptId)
@@ -103,7 +103,7 @@ test.describe('[Regular User] 多账户购买分发 (US-MWGR-003)', () => {
       const grants = firstFulfillment.pointGrants ?? []
       firstResultIds = grants.map((grant) => grant.resultId).sort()
 
-      await page.goto(`/user/points`)
+      await page.goto(`/${REALM_ID}/user/points`)
       await expect(page.locator(SELECTORS.pointsUser.page)).toBeVisible()
 
       for (const grant of grants) {

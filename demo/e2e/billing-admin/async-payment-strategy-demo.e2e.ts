@@ -13,7 +13,7 @@
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { DEMO_ADMIN } from '../helpers/auth'
 
 test.describe('[Billing Admin] Async Payment Strategy (US-AP-001)', () => {

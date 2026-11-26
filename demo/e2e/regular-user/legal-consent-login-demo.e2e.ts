@@ -18,6 +18,7 @@
 
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
+import { waitForRealmSessionPersisted } from '../helpers/realm-session'
 import { AdminLegalHelper } from '../helpers/legal-consent'
 import { LoginPage } from '../pages/login-page'
 import { SELECTORS } from '../selectors'
@@ -194,11 +195,11 @@ test.describe('[Regular User] Login Re-consent Demo Tests', () => {
             .click(),
         ])
 
-        // Post-login lands on a session-scoped route with NO realm prefix after
-        // the route refactor (commit 03eeb456): regular users go to /user/profile,
-        // admins to /manage. Match either directly.
+        // Post-login the main domain lands on a realm-prefixed route: regular
+        // users go to /{realmId}/user/profile, admins to /{realmId}/manage.
+        // Match either directly.
         await page.waitForURL(
-          /^http:\/\/localhost:3000\/(user\/profile|manage\/)/,
+          new RegExp(`^http://localhost:3000/${realmId}/(user/profile|manage/)`),
           { timeout: 15000 }
         )
 
@@ -207,39 +208,11 @@ test.describe('[Regular User] Login Re-consent Demo Tests', () => {
       })
 
       await test.step('Assert a session was established', async () => {
-        // Post auth-rewrite: the access token is in-memory (never persisted)
-        // and there is no X-Auth cookie. A durable session is proven by two
-        // persisted artifacts in localStorage: `auth-storage` (Zustand
-        // persist) flagging isAuthenticated, plus the refresh token stored
-        // by the Herald SDK as a raw string under its own key
-        // 'herald.refreshToken' (frontend/src/lib/herald-client.ts
-        // HERALD_REFRESH_TOKEN_STORAGE_KEY, passed to the SDK as storageKey).
-        // The Zustand persist no longer contains a refreshToken — its
-        // partialize deliberately excludes the token family
-        // (frontend/src/stores/auth-store.ts). The token lands asynchronously
-        // after the post-login PKCE exchange, so poll briefly until both
-        // artifacts appear. The URL having moved off /auth/login (asserted
-        // above) confirms the in-memory access token was issued and the SPA
-        // routed to an authenticated route.
-        let hasPersistedSession = false
-        for (let i = 0; i < 20 && !hasPersistedSession; i++) {
-          hasPersistedSession = await page.evaluate(() => {
-            const raw = localStorage.getItem('auth-storage')
-            if (!raw) return false
-            try {
-              const parsed = JSON.parse(raw)
-              const state = parsed?.state ?? parsed
-              return (
-                state?.isAuthenticated === true &&
-                Boolean(localStorage.getItem('herald.refreshToken'))
-              )
-            } catch {
-              return false
-            }
-          })
-          if (!hasPersistedSession) await page.waitForTimeout(250)
-        }
-        expect(hasPersistedSession).toBe(true)
+        // The URL having moved off /auth/login (asserted above) confirms the
+        // in-memory access token was issued and the SPA routed to an
+        // authenticated route; the persisted refresh-token slot is the durable
+        // proof (see helpers/realm-session.ts).
+        await waitForRealmSessionPersisted(page, realmId)
       })
     })
 

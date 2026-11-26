@@ -8,7 +8,7 @@ import { Page, expect, request, type APIRequestContext, type Response } from '@p
 import { SELECTORS } from '../selectors'
 import { LoginPage } from '../pages/login-page'
 import { dismissOnboardingWelcomeDialogIfPresent } from './onboarding-dismiss'
-import type { UnifiedLogger } from './unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
@@ -474,16 +474,19 @@ async function verifyPostLoginNavigation(
   //
   // Post route-refactor (commit 03eeb456), the expectedRoute for login flows is
   // 'dashboard', but realm-scoped `/${realmId}/dashboard` no longer exists.
-  // Admin/regular login now lands on the top-level session-scoped routes
-  // /manage or /user/profile (NO realm prefix). Match those directly so this
-  // resolves immediately instead of always falling through to the 10s-timeout
-  // recovery branch below. The legacy realm-scoped /${realmId}/${expectedRoute}
-  // glob is kept as a secondary pattern for backward-compat.
+  // Admin/regular login now lands on `/${realmId}/manage` or `/${realmId}/user`
+  // (the realm is carried in the URL on the main domain). Match those directly
+  // so this resolves immediately instead of always falling through to the
+  // 10s-timeout recovery branch below. The legacy prefix-less session-scoped
+  // paths (custom domains) and the realm-scoped /${realmId}/${expectedRoute}
+  // glob are kept as secondary patterns for backward-compat.
   try {
     await page.waitForURL(
       (url) => {
         const path = url.pathname
-        return path.startsWith('/manage')
+        return path.startsWith(`/${realmId}/manage`)
+          || path.startsWith(`/${realmId}/user`)
+          || path.startsWith('/manage')
           || path.startsWith('/user/profile')
           || path.startsWith('/user')
           || path === `/${realmId}`

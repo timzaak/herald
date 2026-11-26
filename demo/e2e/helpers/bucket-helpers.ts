@@ -152,7 +152,7 @@ export async function createBucketViaUI(
 ): Promise<string> {
   const cb = SELECTORS.creditBucket
 
-  await page.goto(`/manage/billing/credit-buckets`)
+  await page.goto(`/${realmId}/manage/billing/credit-buckets`)
   await expect(page.locator(cb.directoryPage)).toBeVisible()
 
   await page.locator(cb.newButton).click()

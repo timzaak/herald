@@ -34,7 +34,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Page, expect, type APIRequestContext } from '@playwright/test'
-import type { UnifiedLogger } from './unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { clearSessionData, createBearerApiContext, REALM_ADMINS } from './auth'
 import { LoginPage } from '../pages/login-page'
 

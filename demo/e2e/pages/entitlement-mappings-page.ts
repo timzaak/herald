@@ -1,7 +1,7 @@
-import { Page, Locator, expect } from '@playwright/test'
+import { Page, Locator, expect, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Page Object for the master-detail Entitlement Mappings page.
@@ -117,7 +117,7 @@ export class EntitlementMappingsPage extends BasePage {
    * navigate by route.
    */
   async goto(realmId: string = 'admin'): Promise<void> {
-    await super.goto(`/manage/billing/entitlement-mappings`)
+    await super.goto(`/${realmId}/manage/billing/entitlement-mappings`)
     await this.waitForReady()
   }
 
@@ -543,6 +543,33 @@ export class EntitlementMappingsPage extends BasePage {
   async saveChanges(): Promise<void> {
     await expect(this.saveMappingButton).toBeVisible()
     await this.saveMappingButton.click()
+  }
+
+  /**
+   * Wait for the batch PUT response fired by a concurrent or completed
+   * saveChanges() click.
+   */
+  waitForBatchPutResponse(timeoutMs = 15000): Promise<Response> {
+    return this.page.waitForResponse(
+      (resp) =>
+        resp.url().includes('/api/bill/entitlement-mappings/batch') &&
+        resp.request().method() === 'PUT',
+      { timeout: timeoutMs },
+    )
+  }
+
+  /**
+   * Click Save Changes and wait for the batch PUT to land, returning its
+   * Response. saveChanges() deliberately returns right after the click;
+   * callers that reload or re-read persisted state must wait for the PUT
+   * first, or the reload can abort the in-flight save.
+   */
+  async saveChangesAwaitBatchPut(timeoutMs = 15000): Promise<Response> {
+    const [response] = await Promise.all([
+      this.waitForBatchPutResponse(timeoutMs),
+      this.saveChanges(),
+    ])
+    return response
   }
 
   // ==================== Protected-price 409 dialog ====================

@@ -9,7 +9,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Permission data interface

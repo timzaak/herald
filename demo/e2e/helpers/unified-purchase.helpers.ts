@@ -287,7 +287,7 @@ export async function initiatePurchaseFlow(
   if (provider === TEST_DATA.PAYMENT_PROVIDERS.STRIPE) {
     return initiateHostedCheckoutPurchaseFlow(page, provider, realmId, opts)
   }
-  return initiateInAppProcessingPurchaseFlow(page, provider, opts)
+  return initiateInAppProcessingPurchaseFlow(page, provider, realmId, opts)
 }
 
 /**
@@ -304,10 +304,11 @@ export async function initiatePurchaseFlow(
 async function initiateInAppProcessingPurchaseFlow(
   page: Page,
   provider: PaymentProvider,
+  realmId: string,
   opts?: { period?: PurchasePeriod; priceId?: string }
 ): Promise<string> {
   await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-  await page.goto(`/user/purchase-points`)
+  await page.goto(`/${realmId}/user/purchase-points`)
   await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
 
   // Precondition: realm must have at least one purchasable price card in the

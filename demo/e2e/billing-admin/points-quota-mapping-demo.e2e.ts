@@ -56,7 +56,10 @@ test.describe('[Billing Admin] Mapping 多账户分发规则 (US-MWGR-001)', () 
       await page.locator(SELECTORS.pointRule.amountInput(PRIMARY_RULE_ID)).fill('121')
       await page.locator(SELECTORS.pointRule.amountInput(PROMO_RULE_ID)).fill('81')
       await expect(page.locator(SELECTORS.pointRule.trigger('topup'))).toHaveCount(2)
-      await mappingsPage.saveChanges()
+      // Wait for the batch PUT: the reload in the next step must not abort
+      // the in-flight save.
+      const saveResponse = await mappingsPage.saveChangesAwaitBatchPut()
+      expect(saveResponse.ok()).toBe(true)
       await expect(page.locator(SELECTORS.multiPriceMapping.mappingDetailPanel)).toBeVisible()
     })
 

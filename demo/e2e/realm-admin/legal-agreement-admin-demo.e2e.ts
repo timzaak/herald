@@ -21,6 +21,7 @@
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { loginAsAdminWithConsent } from '../helpers/legal-consent/consent-aware-login'
+import { AdminLegalHelper } from '../helpers/legal-consent/admin-legal-helper'
 import { LoginPage } from '../pages/login-page'
 import { SELECTORS } from '../selectors'
 import type { Page } from '@playwright/test'
@@ -93,24 +94,15 @@ test.describe('[Realm Admin] Legal Agreement Management Demo Tests', () => {
 
   /**
    * Determine whether the currently rendered source badge for an agreement is
-   * default or custom.
+   * default or custom. Delegates to the shared helper, which owns the
+   * card-header scoping (the EFFECTIVE version's badge lives in the header;
+   * the history rows carry their own per-version badges).
    */
   async function getAgreementSource(
     page: Page,
     agreementType: 'terms_of_service' | 'privacy_policy'
   ): Promise<'default' | 'custom'> {
-    const card = page.locator(SELECTORS.legalConsent.legalAgreementCard(agreementType))
-    const customBadge = card.locator(SELECTORS.legalConsent.sourceBadge('custom')).first()
-    const defaultBadge = card.locator(SELECTORS.legalConsent.sourceBadge('default')).first()
-
-    if (await customBadge.isVisible({ timeout: 2000 }).catch(() => false)) {
-      return 'custom'
-    }
-    if (await defaultBadge.isVisible({ timeout: 2000 }).catch(() => false)) {
-      return 'default'
-    }
-
-    throw new Error(`Could not determine source badge for ${agreementType}`)
+    return await new AdminLegalHelper(page).getSource(agreementType)
   }
 
   /**
@@ -162,7 +154,7 @@ test.describe('[Realm Admin] Legal Agreement Management Demo Tests', () => {
   }) => {
     await test.step('Login as realm admin and open Settings > Legal', async () => {
       await loginAsAdminWithConsent(page, realmId)
-      await page.goto(`/manage/settings`, { waitUntil: 'domcontentloaded' })
+      await page.goto(`/${realmId}/manage/settings`, { waitUntil: 'domcontentloaded' })
       await page.locator(SELECTORS.legalConsent.legalTab).click()
       await expect(page.locator(SELECTORS.legalConsent.legalAgreementsTab)).toBeVisible({
         timeout: 10000,
@@ -252,15 +244,17 @@ test.describe('[Realm Admin] Legal Agreement Management Demo Tests', () => {
         await adminLegalHelper.expectSourceBadge('terms_of_service', 'custom')
         const afterSource = await getAgreementSource(page, 'terms_of_service')
 
-        const afterVersionIds = await getHistoryVersionIds(
-          page,
-          'terms_of_service'
-        )
-
-        // version_ids that exist after publish but not before = newly created.
-        const newVersionIds = [...afterVersionIds].filter(
-          id => !beforeVersionIds.has(id)
-        )
+        // The source badge may already read "custom" from an earlier publish,
+        // so it says nothing about the post-mutation refetch. Wait for the new
+        // immutable version to show up in the (refetched) history table.
+        let newVersionIds: string[] = []
+        await expect
+          .poll(async () => {
+            const afterVersionIds = await getHistoryVersionIds(page, 'terms_of_service')
+            newVersionIds = [...afterVersionIds].filter(id => !beforeVersionIds.has(id))
+            return newVersionIds.length
+          }, { timeout: 15000 })
+          .toBeGreaterThan(0)
 
         return { afterSource, newVersionIds }
       }
@@ -356,24 +350,29 @@ test.describe('[Realm Admin] Legal Agreement Management Demo Tests', () => {
       await clearUserSession(page)
     })
 
-    const { beforeVersion, afterVersion } = await test.step(
+    const { beforeSource, afterSource } = await test.step(
       'Revert ToS to the default template snapshot',
       async () => {
         await adminLegalHelper.gotoLegalTab(realmId)
-        const beforeVersion = await adminLegalHelper.getCurrentVersion('terms_of_service')
+        const beforeSource = await getAgreementSource(page, 'terms_of_service')
         await adminLegalHelper.revertToDefault('terms_of_service')
-        const afterVersion = await adminLegalHelper.getCurrentVersion('terms_of_service')
+        const afterSource = await getAgreementSource(page, 'terms_of_service')
 
         const historyTable = page.locator(
           SELECTORS.legalConsent.legalHistoryTable('terms_of_service')
         )
         await expect(historyTable).toBeVisible()
 
-        return { beforeVersion, afterVersion }
+        return { beforeSource, afterSource }
       }
     )
 
-    expect(afterVersion).toBeGreaterThan(beforeVersion)
+    // version_no is per source scope (default and custom rows each number from
+    // 1), so reverting custom v3 to the default snapshot lands on a lower
+    // number and "after > before" is not the invariant. The business outcome
+    // is the effective source flipping custom → default.
+    expect(beforeSource).toBe('custom')
+    expect(afterSource).toBe('default')
 
     await test.step('Clear session and navigate to login as the test user', async () => {
       // WHY: do NOT call loginPage.login() here — it auto-accepts the login-time

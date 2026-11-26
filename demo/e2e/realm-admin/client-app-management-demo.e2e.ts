@@ -170,9 +170,12 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
     })
 
     await test.step('Then: Verify deletion', async () => {
-      const clientAppsPage = new ClientAppsPage(page, demoLogger)
-      const exists = await clientAppsPage.clientAppExists(updatedName)
-      expect(exists).toBeFalsy()
+      // The list refetch triggered by the delete can land after the success
+      // toast, so a single isVisible() sample may still see the row. Wait for
+      // the row to leave the DOM instead.
+      await expect(page.getByText(updatedName, { exact: true })).toHaveCount(0, {
+        timeout: 10000,
+      })
       console.log(`Client App "${updatedName}" deleted successfully`)
     })
   })
@@ -732,6 +735,13 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
     const mcpAppId = await clientAppsPage.getMcpAppId()
     expect(mcpAppId).toBeTruthy()
 
+    // The row switch flips the CURRENT state, so an MCP client left disabled by
+    // an earlier interrupted run would be re-enabled by the step below instead
+    // of disabled. Make the precondition explicit: start from an enabled client.
+    if ((await clientAppsPage.getSwitchState(mcpAppId)) === 'unchecked') {
+      await clientAppsPage.toggleRowEnabled(mcpAppId, true)
+    }
+
     try {
       await test.step('When: Admin disables the MCP client from the list', async () => {
         await clientAppsPage.toggleRowEnabled(mcpAppId, false)
@@ -782,11 +792,15 @@ test.describe('[Realm Admin] Client App Management Demo Tests', () => {
 
     await test.step('Then: Re-enabling makes a fresh authorization possible again', async () => {
       const result = await mcpAuthorize(realmId, { resource })
-      // 302 to the login page: the authorization request itself is accepted
-      // again (old grants staying dead is backend contract, mcp_scenarios).
+      // 302 to the consent page: the authorize request is accepted again (old
+      // grants staying dead is backend contract, mcp_scenarios). The backend
+      // now always lands authorize on /{realmId}/auth/consent; this probe is
+      // anonymous (no session), so the SPA consent route forwards to login by
+      // itself (frontend/src/routes/__root.tsx consent-gate exemption).
       expect(result.status).toBe(302)
-      expect(result.redirectLocation).toContain(`/${realmId}/auth/login`)
-      console.log('Authorize accepted again after re-enable (302 to login)')
+      expect(result.redirectLocation).toContain(`/${realmId}/auth/consent`)
+      expect(result.redirectLocation).toContain('oauthClientId=herald-mcp')
+      console.log('Authorize accepted again after re-enable (302 to consent page)')
     })
   })
 

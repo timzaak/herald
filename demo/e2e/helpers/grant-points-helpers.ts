@@ -86,7 +86,7 @@ export async function openGrantDialog(
   realmId: string,
 ): Promise<void> {
   const gp = SELECTORS.grantPoints
-  const walletsUrl = `/manage/points/wallets`
+  const walletsUrl = `/${realmId}/manage/points/wallets`
 
   await page.goto(walletsUrl)
   await expect(page.locator('[data-testid="points-wallets-page"]')).toBeVisible()

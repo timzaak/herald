@@ -277,7 +277,7 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-008)', () => {
 
       // Intercept the grant API call to replace userId with a non-existent UUID
       await page.route(
-        `**/api/points/${DEMO_ADMIN.realmId}/grant`,
+        `**/api/points/grant`,
         async (route) => {
           const originalRequest = route.request()
           const postData = originalRequest.postData()
@@ -359,7 +359,7 @@ test.describe('[Points Admin] Grant Points Demo Tests (US-PO-008)', () => {
 
       // Intercept the grant API call to replace userId with a valid UUID from another realm
       await page.route(
-        `**/api/points/${DEMO_ADMIN.realmId}/grant`,
+        `**/api/points/grant`,
         async (route) => {
           const originalRequest = route.request()
           const postData = originalRequest.postData()

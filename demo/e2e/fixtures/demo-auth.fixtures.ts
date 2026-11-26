@@ -11,7 +11,7 @@
  */
 
 import { test as base, type Page } from '@playwright/test'
-import { UnifiedLogger } from '../helpers/unified-logger'
+import { UnifiedLogger } from 'playwright-unified-logger'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { loginAsAdmin } from '../helpers/auth'
 import { LoginPage } from '../pages/login-page'

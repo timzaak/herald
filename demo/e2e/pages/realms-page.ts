@@ -9,7 +9,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Realm data interface for editing
@@ -110,7 +110,7 @@ export class RealmsPage extends BasePage {
    */
   async goto(realmId: string = 'admin'): Promise<void> {
     // Direct navigation to realms page - more reliable than clicking sidebar
-    const url = `/manage/realms`
+    const url = `/${realmId}/manage/realms`
     const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
     console.log(`[RealmsPage.goto] Navigating to ${BASE_URL}${url}`)
     await this.page.goto(`${BASE_URL}${url}`, { waitUntil: 'domcontentloaded' })

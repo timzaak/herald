@@ -50,7 +50,7 @@ test.describe('[Regular User] US-PU-006: One-Time Mapping Purchase Flow', () => 
     demoLogger,
   }) => {
     await test.step('Navigate to purchase page', async () => {
-      await page.goto(`/user/purchase-points`)
+      await page.goto(`/${REALM_ID}/user/purchase-points`)
       await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
     })
 

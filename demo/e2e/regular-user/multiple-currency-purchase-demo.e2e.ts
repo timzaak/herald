@@ -237,8 +237,13 @@ test.describe('[Regular User] 多货币显式选择购买 (US-MC-003/004)', () =
 
       // The auto-redirect to the real Stripe checkout page is the persistent
       // post-initiation state (not a toast): wait for the navigation and take
-      // the checkout URL from the address bar.
-      await page.waitForURL(/checkout\.stripe\.com/, { timeout: 15000 })
+      // the checkout URL from the address bar. domcontentloaded is the right
+      // gate — the external page's `load` can hang past the timeout on a slow
+      // route to checkout.stripe.com, and only the URL is consumed here.
+      await page.waitForURL(/checkout\.stripe\.com/, {
+        timeout: 15000,
+        waitUntil: 'domcontentloaded',
+      })
       checkoutUrl = page.url()
 
       // The no-cross-currency invariant is asserted on the NEXT step against

@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { BasePage } from '../../pages/base-page'
 import { SELECTORS } from '../../selectors'
 import { loginAsAdminWithConsent } from './consent-aware-login'
-import type { UnifiedLogger } from '../unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 export type AgreementType = 'terms_of_service' | 'privacy_policy'
 export type SourceType = 'default' | 'custom'
@@ -22,7 +22,7 @@ export class AdminLegalHelper extends BasePage {
    */
   async gotoLegalTab(realmId: string): Promise<void> {
     await loginAsAdminWithConsent(this.page, realmId)
-    await this.page.goto(`${BASE_URL}/manage/settings`, {
+    await this.page.goto(`${BASE_URL}/${realmId}/manage/settings`, {
       waitUntil: 'domcontentloaded',
     })
 
@@ -178,12 +178,10 @@ export class AdminLegalHelper extends BasePage {
   }
 
   /**
-   * Revert the agreement to the platform default template snapshot and wait for
-   * the version number to increase.
+   * Revert the agreement to the platform default template snapshot and wait
+   * for the effective source to flip back to default.
    */
   async revertToDefault(agreementType: AgreementType): Promise<void> {
-    const beforeVersion = await this.getCurrentVersion(agreementType)
-
     const card = this.agreementCard(agreementType)
     const revertButton = card.locator(SELECTORS.legalConsent.legalRevertButton(agreementType))
     await this.smartClick(revertButton)
@@ -193,19 +191,46 @@ export class AdminLegalHelper extends BasePage {
     )
     await this.smartClick(confirmButton)
 
-    await expect(async () => {
-      const afterVersion = await this.getCurrentVersion(agreementType)
-      expect(afterVersion).toBeGreaterThan(beforeVersion)
-    }).toPass({ timeout: 15000 })
+    // version_no is scoped per source (the platform default row and the
+    // realm's custom rows each number from 1), so a revert from custom v3 to
+    // the default snapshot lands on a LOWER number — the version number is not
+    // a progress signal across the default/custom boundary. The durable
+    // business signal is the effective source flipping back to default, which
+    // only renders once the post-mutation refetch lands.
+    await this.expectSourceBadge(agreementType, 'default')
+  }
+
+  /**
+   * Locator for the effective version's source badge: scoped to the card
+   * header, where it lives. The history rows in the card body carry their own
+   * per-version source badges and would otherwise satisfy a card-wide lookup
+   * before the post-mutation refetch lands.
+   */
+  private effectiveSourceBadge(agreementType: AgreementType, source: SourceType): Locator {
+    return this.agreementCard(agreementType)
+      .locator('[data-slot="card-header"]')
+      .locator(SELECTORS.legalConsent.sourceBadge(source))
+  }
+
+  /**
+   * Read the currently effective source (default | custom) from the card
+   * header. Throws when neither badge renders.
+   */
+  async getSource(agreementType: AgreementType): Promise<SourceType> {
+    for (const source of ['custom', 'default'] as const) {
+      const visible = await this.effectiveSourceBadge(agreementType, source)
+        .isVisible({ timeout: 2000 })
+        .catch(() => false)
+      if (visible) return source
+    }
+    throw new Error(`Could not determine source badge for ${agreementType}`)
   }
 
   /**
    * Assert that the source badge for the agreement matches the expected source.
    */
   async expectSourceBadge(agreementType: AgreementType, source: SourceType): Promise<void> {
-    const card = this.agreementCard(agreementType)
-    const badge = card.locator(SELECTORS.legalConsent.sourceBadge(source)).first()
-    await expect(badge).toBeVisible()
+    await expect(this.effectiveSourceBadge(agreementType, source)).toBeVisible()
   }
 
   private agreementCard(agreementType: AgreementType): Locator {

@@ -140,7 +140,7 @@ export async function createAdminBearerContext(
 /**
  * Resolve a user's id by email via the admin user list API.
  *
- * GET /api/users/{realmId}?search={email} → PageResponse<{ id, email, ... }>
+ * GET /api/users?email={email} → PageResponse<{ id, email, ... }>
  *
  * @returns The matching user id, or '' when the user does not exist.
  */
@@ -149,7 +149,7 @@ async function findUserIdByEmail(
   realmId: string,
   email: string
 ): Promise<string> {
-  const url = `${backendBaseUrl()}/api/users/${realmId}?search=${encodeURIComponent(email)}`
+  const url = `${backendBaseUrl()}/api/users?email=${encodeURIComponent(email)}`
   const response = await apiContext.get(url)
   if (!response.ok()) {
     const body = await response.text().catch(() => '<unreadable>')
@@ -202,7 +202,7 @@ async function deleteExistingUser(
 /**
  * Resolve any valid role id in the realm for the create-user payload.
  *
- * The backend create-user API (`POST /api/users/{realmId}`) requires a
+ * The backend create-user API (`POST /api/users`) requires a
  * non-empty `roleIds` array (validator: `length(min = 1)`, see
  * backend/api-admin/.../admin_users). These tests validate session revoke, not
  * role permissions, so ANY role in the realm satisfies the constraint.
@@ -264,7 +264,7 @@ async function ensureTargetUser(
 ): Promise<string> {
   await deleteExistingUser(apiContext, realmId, email)
   const roleId = await resolveAnyRoleId(apiContext, realmId)
-  const url = `${backendBaseUrl()}/api/users/${realmId}`
+  const url = `${backendBaseUrl()}/api/users`
   const response = await apiContext.post(url, {
     data: {
       email,
@@ -306,11 +306,11 @@ async function resolveFirstPartyClientId(
   apiContext: APIRequestContext,
   realmId: string
 ): Promise<string> {
-  // Backend mounts the client-apps admin router at `/api/client/{realmId}`
+  // Backend mounts the client-apps admin router at `/api/client`
   // (see backend/api/src/application/http/server/mod.rs:668-673); the list
   // endpoint is the nested index. Do NOT add a trailing slash — the backend
-  // does not match `/api/client/{realmId}/` and the SPA fallback returns HTML.
-  const url = `${backendBaseUrl()}/api/client/${realmId}`
+  // does not match `/api/client/` and the SPA fallback returns HTML.
+  const url = `${backendBaseUrl()}/api/client`
   const response = await apiContext.get(url)
   if (!response.ok()) {
     const body = await response.text().catch(() => '<unreadable>')
@@ -486,6 +486,7 @@ async function loginTargetUserSession(
         `no agreement summaries were returned. Body: ${JSON.stringify(body)}`
       )
     }
+    const restrictedToken: string | undefined = body?.restrictedSession?.accessToken
     const consentLoginRes = await context.request.post(
       `${backendBaseUrl()}/api/auth/${realmId}/login`,
       {
@@ -502,6 +503,26 @@ async function loginTargetUserSession(
       )
     }
     body = await consentLoginRes.json()
+
+    // The gated login also minted a restricted session (login.rs
+    // mint_consent_restricted_session: ProfileRead/DeleteAccount/Logout only)
+    // that the re-login above does not replace. Log it out so this helper
+    // still creates exactly ONE family: otherwise the user carries a third
+    // session that holds none of the captured tokens, and "revoke row 0"
+    // (US-RA-020 S2) can revoke that one instead of a session under test.
+    if (restrictedToken) {
+      const logoutRes = await context.request.post(
+        `${backendBaseUrl()}/api/auth/logout`,
+        { headers: { Authorization: `Bearer ${restrictedToken}` } }
+      )
+      if (!logoutRes.ok()) {
+        await context.close().catch(() => {})
+        throw new Error(
+          `loginTargetUserSession: could not log out the consent-restricted ` +
+            `session for ${email} (HTTP ${logoutRes.status()})`
+        )
+      }
+    }
   }
 
   const accessToken: string | undefined = body?.accessToken

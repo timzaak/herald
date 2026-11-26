@@ -35,7 +35,7 @@
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
 import type { APIRequestContext } from '@playwright/test'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { createBearerApiContext, DEMO_ADMIN } from '../helpers/auth'
 import {
   MULTI_PRICE_PAYMENT_PROVIDER,
@@ -225,19 +225,9 @@ test.describe('[Billing Admin] 多价格 Entitlement 映射同步与配置 (US-E
 
     await test.step('When: 保存批次', async () => {
       await expect(mappingsPage.saveMappingButton).toBeVisible()
-      const saveResponse = await Promise.all([
-        page.waitForResponse(
-          (resp) =>
-            resp.url().includes('/api/bill/') &&
-            resp.url().includes('/entitlement-mappings/batch') &&
-            resp.request().method() === 'PUT',
-          { timeout: 15000 },
-        ),
-        mappingsPage.saveChanges(),
-      ])
-      const resp = saveResponse[0]
-      await demoLogger.testCode.log(`Batch PUT responded ${resp.status()}`)
-      expect([200, 201]).toContain(resp.status())
+      const saveResponse = await mappingsPage.saveChangesAwaitBatchPut()
+      await demoLogger.testCode.log(`Batch PUT responded ${saveResponse.status()}`)
+      expect([200, 201]).toContain(saveResponse.status())
     })
 
     await test.step('Then: reload 后规则金额与只读共享 key 均持久', async () => {
@@ -388,20 +378,11 @@ test.describe('[Billing Admin] 多价格 Entitlement 映射同步与配置 (US-E
       await expect(mappingsPage.getPriceEnabledToggle(protectedPriceKey as string)).toBeChecked()
       await mappingsPage.togglePriceEnabled(protectedPriceKey as string)
 
-      const saveResp = await Promise.all([
-        page.waitForResponse(
-          (resp) =>
-            resp.url().includes('/api/bill/') &&
-            resp.url().includes('/entitlement-mappings/batch') &&
-            resp.request().method() === 'PUT',
-          { timeout: 15000 },
-        ),
-        mappingsPage.saveChanges(),
-      ])
-      const status = saveResp[0].status()
+      const saveResp = await mappingsPage.saveChangesAwaitBatchPut()
+      const status = saveResp.status()
 
       if (status === 409) {
-        const body = await saveResp[0].json()
+        const body = await saveResp.json()
         expect(body.code, '409 body must identify mapping_in_use').toBe('mapping_in_use')
         expect(body.activeSubscriptions, '409 must report active subscriptions').toBeGreaterThan(0)
         await test.step('Then: 409 对话框仅提供 Cancel', async () => {
@@ -431,7 +412,7 @@ test.describe('[Billing Admin] 多价格 Entitlement 映射同步与配置 (US-E
         await expect(mappingsPage.getPriceEnabledToggle(protectedPriceKey as string)).not.toBeChecked()
         await demoLogger.testCode.log(`Unprotected disable persisted with status ${status}`)
       } else {
-        const body = await saveResp[0].text().catch(() => '<unreadable body>')
+        const body = await saveResp.text().catch(() => '<unreadable body>')
         throw new Error(`Unexpected disable response ${status}: ${body}`)
       }
     })
@@ -501,7 +482,7 @@ async function fetchMappingsList(
   demoLogger: UnifiedLogger,
 ): Promise<MappingRecord[]> {
   const resp = await apiContext.get(
-    `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings`,
+    `${BASE_URL}/api/bill/entitlement-mappings`,
   )
   if (!resp.ok()) {
     const body = await resp.text().catch(() => '<unreadable body>')
@@ -599,7 +580,7 @@ async function setMappingEnabled(
   update: { externalProductId: string; mappingId: string; enabled: boolean },
 ): Promise<void> {
   const response = await apiContext.put(
-    `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/batch`,
+    `${BASE_URL}/api/bill/entitlement-mappings/batch`,
     {
       data: {
         paymentProvider: MULTI_PRICE_PAYMENT_PROVIDER,

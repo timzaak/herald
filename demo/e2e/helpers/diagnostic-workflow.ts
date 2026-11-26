@@ -21,8 +21,8 @@
 
 import { readFileSync, existsSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { ApiRequestLog } from './network-logger'
-import { ConsoleLogEntry } from './console-logger'
+import { ApiRequestLog } from 'playwright-unified-logger'
+import { ConsoleLogEntry } from 'playwright-unified-logger'
 import { validateSelector, ValidationResult } from './selector-validator'
 import { classifyFailure, ClassificationResult } from './classifier'
 import { enhanceError, EnhancedErrorContext, addNetworkContext } from './error-enhancer'

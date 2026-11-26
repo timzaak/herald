@@ -315,7 +315,7 @@ test.beforeAll(async ({ browser }) => {
     let demoUserId = ''
     try {
       const usersResponse = await adminApi.get(
-        `${backendUrl}/api/users/${TEST_REALM}?search=${encodeURIComponent(POINTS_USER_EMAIL)}`,
+        `${backendUrl}/api/users?email=${encodeURIComponent(POINTS_USER_EMAIL)}`,
       )
       if (usersResponse.ok()) {
         const usersBody = await usersResponse.json()
@@ -348,7 +348,7 @@ test.beforeAll(async ({ browser }) => {
     let uncoveredApiKey: ApiKeyWithPermission
     try {
       const clientAppResponse = await clientAdminApi.get(
-        `${backendUrl}/api/client/${TEST_REALM}`,
+        `${backendUrl}/api/client`,
       )
       if (clientAppResponse.ok()) {
         const clientAppBody = await clientAppResponse.json()

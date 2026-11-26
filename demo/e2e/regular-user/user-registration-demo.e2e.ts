@@ -338,7 +338,9 @@ test.describe('[Regular User] Account Registration Demo Tests', () => {
 
       await test.step('Step 4: Verify error message displayed', async () => {
         const confirmPasswordInput = page.getByTestId('register-confirm-password-input')
-        const errorMessage = confirmPasswordInput.locator('..').getByRole('alert').filter({ hasText: 'Passwords do not match' })
+        // The input sits inside PasswordInput's own wrapper (input + visibility
+        // toggle); the error message is a sibling of that wrapper.
+        const errorMessage = confirmPasswordInput.locator('../..').getByRole('alert').filter({ hasText: 'Passwords do not match' })
         await expect(errorMessage).toBeVisible()
         await expect(errorMessage).toContainText('Passwords do not match')
       })

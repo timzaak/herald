@@ -42,7 +42,7 @@ test.describe('[Billing Admin] Realm 多账户注册规则 (US-MWGR-002)', () =>
     void demoLogger
 
     await test.step('Given: 打开 Realm 注册规则配置页', async () => {
-      await page.goto(`/manage/points/registration-rules`)
+      await page.goto(`/${REALM_ID}/manage/points/registration-rules`)
       await expect(page.locator(SELECTORS.pointRule.row(PRIMARY_RULE_ID))).toBeVisible()
       await expect(page.locator(SELECTORS.pointRule.row(PROMO_RULE_ID))).toBeVisible()
     })

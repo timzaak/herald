@@ -20,6 +20,7 @@ import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { SELECTORS } from '../selectors'
 import { DEMO_ADMIN, logout } from '../helpers/auth'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
+import { waitForRealmSessionCleared } from '../helpers/realm-session'
 
 /**
  * Admin Realm Authentication - Complete User Flow
@@ -107,20 +108,10 @@ test.describe('Admin Realm Authentication', () => {
       })
 
       await test.step('Verify session is cleared', async () => {
-        // Auth-rewrite: the bearer access token lives in localStorage
-        // (auth-storage) rather than an X-Auth cookie. After logout the store
-        // resets to an unauthenticated state (the key may remain, but
-        // isAuthenticated flips to false and user is nulled).
-        const isAuthenticated = await page.evaluate(() => {
-          try {
-            const raw = localStorage.getItem('auth-storage')
-            if (!raw) return null
-            return JSON.parse(raw)?.state?.isAuthenticated ?? null
-          } catch {
-            return null
-          }
-        })
-        expect(isAuthenticated).toBe(false)
+        // Auth-rewrite: the access token is in-memory only and the
+        // `auth-storage` snapshot is no longer written. After logout the
+        // per-realm refresh-token slot must be empty (helpers/realm-session.ts).
+        await waitForRealmSessionCleared(page, DEMO_ADMIN.realmId)
       })
     })
 

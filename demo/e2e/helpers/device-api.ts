@@ -90,7 +90,7 @@ export async function seedDeviceCodeClientApp(
 ): Promise<SeedDeviceCodeClientAppResult> {
   const clientId = `device-test-${Date.now()}`
 
-  const response = await request.post(`${BASE_URL}/api/client/${realmId}`, {
+  const response = await request.post(`${BASE_URL}/api/client`, {
     data: {
       clientId,
       name: appName,

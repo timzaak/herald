@@ -4,7 +4,7 @@
  * Covers the user-story acceptance paths for the realm-onboarding-guidance
  * feature: the storefront self-service signup CTA on the admin-realm login
  * page (US-OG-001) and the first-login console guidance — welcome dialog,
- * completion marker and checklist tour replay (US-OG-002/003).
+ * completion marker and tour replay (US-OG-002/003).
  *
  * Scenario groups (one browser session per test, fresh localStorage per
  * context):
@@ -17,8 +17,8 @@
  *   - US-OG-002 scenarios 1/2/3: a visitor completes self-service signup →
  *     lands in the NEW realm's console (session-scoped /manage) → the welcome
  *     dialog appears → dismissing writes the localStorage completion marker
- *     → a refresh does not re-show it → the starter checklist replays the
- *     console tour (driver.js popover).
+ *     → a refresh does not re-show it → the dashboard's replay button
+ *     restarts the console tour (driver.js popover).
  *   - US-OG-003 scenarios 1/2: an EXISTING admin-realm admin with no
  *     completion marker gets the same-shape guidance on first console entry;
  *     after dismissing, it never auto-reappears.
@@ -52,7 +52,7 @@
 import { test, expect, cleanupTestData } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { loginAsAdmin, logout, DEMO_ADMIN } from '../helpers/auth'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { SettingsPage } from '../pages/settings-page'
 import { SELECTORS } from '../selectors'
 import type { Page } from '@playwright/test'
@@ -262,7 +262,10 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       // block is absent from the DOM (fail-closed), and the login form keeps
       // working.
       const response = await statusResponse
-      expect(await response.json()).toEqual({ enabled: false })
+      // toMatchObject, not toEqual: the status body also carries unrelated
+      // public flags (e.g. emailVerificationRequired); the toggle is the
+      // business state under test.
+      expect(await response.json()).toMatchObject({ enabled: false })
       await expect(page.locator(SELECTORS.loginSignupCta.block)).toHaveCount(0)
       await expect(page.locator(SELECTORS.login.container)).toBeVisible({ timeout: 15000 })
       demoLogger.testCode.log('Toggle off: CTA absent, login form intact')
@@ -298,9 +301,11 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       await page.locator(SELECTORS.platformSignup.passwordInput).fill('OnboardingDemo123!')
       await page.locator(SELECTORS.platformSignup.submitButton).click()
 
-      // The success redirect is session-scoped /manage with no realm prefix
-      // (the new realm is carried by the auth store session).
-      await page.waitForURL((url) => url.pathname === '/manage', { timeout: 30000 })
+      // The success redirect carries the NEW realm in the URL: the realm id is
+      // the slug submitted above (the backend echoes it as the realm id).
+      await page.waitForURL((url) => url.pathname === `/${realmSlug}/manage`, {
+        timeout: 30000,
+      })
     })
 
     await test.step('Welcome dialog appears in the new realm console', async () => {
@@ -321,16 +326,16 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       await expectOnboardingCompletionMarkerWritten(page)
     })
 
-    await test.step('Refresh does not re-show; the checklist persists', async () => {
+    await test.step('Refresh does not re-show; the replay entry persists', async () => {
       await expectWelcomeDialogNotReshownAfterReload(page, SELECTORS.sidebar.menuUsers)
 
-      // Scenario 3 precondition: the starter checklist is a persistent
-      // resident of the dashboard, independent of the marker.
-      await expect(page.locator(SELECTORS.onboarding.tasksCard)).toBeVisible()
+      // Scenario 3 precondition: the dashboard's replay-tour button is a
+      // persistent resident, independent of the marker.
+      await expect(page.locator(SELECTORS.onboarding.replayTourButton)).toBeVisible()
     })
 
-    await test.step('Replay the console tour from the checklist', async () => {
-      await page.locator(SELECTORS.onboarding.tourRestartButton).click()
+    await test.step('Replay the console tour from the dashboard', async () => {
+      await page.locator(SELECTORS.onboarding.replayTourButton).click()
 
       // The tour is the re-skinned driver.js popover: the class hook is the
       // stable observable (the lazy tour chunk may take a moment to load).
@@ -346,11 +351,11 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       await expect(page.locator(SELECTORS.onboarding.tourExpandedSubmenuTransactions)).toBeAttached()
 
       // Mid-way exit (close button) tears the popover down without breaking
-      // the console — the checklist stays available for another replay.
+      // the console — the replay entry stays available for another replay.
       await popover.locator('.driver-popover-close-btn').click()
       await expect(popover).toBeHidden()
-      await expect(page.locator(SELECTORS.onboarding.tasksCard)).toBeVisible()
-      demoLogger.testCode.log('Tour replayed from checklist and exited via close button')
+      await expect(page.locator(SELECTORS.onboarding.replayTourButton)).toBeVisible()
+      demoLogger.testCode.log('Tour replayed from dashboard and exited via close button')
     })
   })
 
@@ -367,7 +372,9 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       // admin-realm DEMO_ADMIN user. dismissOnboarding: false keeps the
       // guidance open — this scenario asserts it.
       await loginAsAdmin(page, { realmId: ADMIN_REALM, dismissOnboarding: false })
-      await page.waitForURL((url) => url.pathname.startsWith('/manage'), { timeout: 30000 })
+      await page.waitForURL((url) => url.pathname.startsWith(`/${ADMIN_REALM}/manage`), {
+        timeout: 30000,
+      })
     })
 
     await test.step('Same-shape welcome dialog appears', async () => {
@@ -430,7 +437,9 @@ test.describe('[Super Admin] Realm Onboarding Guidance Demo', () => {
       // dismissOnboarding: false — the marker-clearing scenario below needs
       // the guidance to appear and be dismissed by the test itself.
       await loginAsAdmin(page, { realmId: ADMIN_REALM, dismissOnboarding: false })
-      await page.waitForURL((url) => url.pathname.startsWith('/manage'), { timeout: 30000 })
+      await page.waitForURL((url) => url.pathname.startsWith(`/${ADMIN_REALM}/manage`), {
+        timeout: 30000,
+      })
       await expect(page.locator(SELECTORS.onboarding.welcomeDialog)).toBeVisible({
         timeout: 20000,
       })

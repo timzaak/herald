@@ -14,7 +14,7 @@
  */
 
 import { Page, Locator } from '@playwright/test'
-import { ApiRequestLog } from './network-logger'
+import { ApiRequestLog } from 'playwright-unified-logger'
 
 /**
  * Element snapshot with detailed information

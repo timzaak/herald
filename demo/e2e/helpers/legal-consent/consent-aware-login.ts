@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test'
 import { loginAsAdmin } from '../auth'
+import { dismissOnboardingWelcomeDialogIfPresent } from '../onboarding-dismiss'
 import { SELECTORS } from '../../selectors'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
@@ -68,9 +69,18 @@ export async function loginAsAdminWithConsent(
     } catch {
       // Fallback: force-navigate to the realm-prefixed dashboard if the SPA
       // redirect did not land on /manage in time.
-      await page.goto(`${BASE_URL}/manage`, { waitUntil: 'domcontentloaded' })
+      await page.goto(`${BASE_URL}/${realmId}/manage`, { waitUntil: 'domcontentloaded' })
     }
   }
+
+  // The first-login welcome dialog is modal: while it is open its overlay
+  // intercepts every click on the console (sidebar entries, tabs, filters).
+  // loginAsAdmin() skips its own dismissal here — with waitNavigation:false the
+  // URL is not on /manage yet when it checks — so dismiss it once the console
+  // URL has settled. Without this, a context whose completion marker was
+  // cleared (e.g. localStorage.clear() between two logins) hands back a
+  // blocked console and the caller's next click waits out the test timeout.
+  await dismissOnboardingWelcomeDialogIfPresent(page)
 
   // Stabilize the admin console session before handing control back: the
   // caller's next action is typically a sidebar click to a realm admin page
@@ -92,7 +102,7 @@ export async function loginAsAdminWithConsent(
       console.warn(
         `[ConsentAwareLogin] Admin client switch failed (HTTP ${switchClientResponse.status()}); reloading /manage to resync`
       )
-      await page.goto(`${BASE_URL}/manage`, { waitUntil: 'domcontentloaded' })
+      await page.goto(`${BASE_URL}/${realmId}/manage`, { waitUntil: 'domcontentloaded' })
       await page.waitForLoadState('domcontentloaded')
     }
   } else {

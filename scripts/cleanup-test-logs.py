@@ -50,7 +50,11 @@ def main() -> int:
         print(f"  Run directory not found: {run_dir}")
 
     unified = REPO_ROOT / "demo" / "test-results" / "unified-logs"
-    for pattern in (f"{args.test_name}-*.log", f"{args.test_name}-*-network.json"):
+    for pattern in (
+        f"{args.test_name}-*.log",
+        f"{args.test_name}-*-network.json",
+        f"{args.test_name}-*-route.json",
+    ):
         if not unified.exists():
             break
         for log in unified.glob(pattern):

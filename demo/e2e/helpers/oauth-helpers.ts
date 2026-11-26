@@ -182,6 +182,8 @@ export async function oauthTokenExchange(
     redirect_uri: string
     client_id: string
     code_verifier: string
+    /** RFC 8707 resource indicator; MCP clients must repeat the code's resource (backend/api-oauth/src/token.rs). */
+    resource?: string
   },
 ): Promise<OAuthTokenResponse | OAuthTokenErrorResponse> {
   const response = await fetch(`${baseUrl}/api/oauth/${encodeURIComponent(realmId)}/token`, {
@@ -213,7 +215,7 @@ export async function seedOAuthClientApp(
   const redirectUris = options?.redirectUris ?? ['https://example.com/oauth/callback']
   const clientId = `oauth-test-${Date.now()}`
 
-  const response = await request.post(`${baseUrl}/api/client/${encodeURIComponent(realmId)}`, {
+  const response = await request.post(`${baseUrl}/api/client`, {
     data: {
       clientId,
       name: appName,

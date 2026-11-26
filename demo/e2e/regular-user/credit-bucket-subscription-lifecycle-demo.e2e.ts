@@ -223,7 +223,10 @@ test.describe('[Herald System / User] 订阅生命周期按 Bucket 池发放与�
         email: POINTS_USER_EMAIL,
         password: POINTS_USER_PASSWORD,
         realmId: TEST_REALM,
-        waitNavigation: false,
+        // waitNavigation must stay enabled (the default): the login page now
+        // finishes the first-party PKCE code exchange AFTER the login POST,
+        // and navigating away mid-exchange aborts it — the refresh token is
+        // never persisted and /user/points bounces back to the login page.
       })
       await page.goto(`/${TEST_REALM}/user/points`)
       await page.waitForLoadState('networkidle')

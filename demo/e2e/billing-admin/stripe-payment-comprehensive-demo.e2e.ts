@@ -23,7 +23,7 @@
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { createBearerApiContext, DEMO_ADMIN } from '../helpers/auth'
 import { EntitlementMappingsPage } from '../pages/entitlement-mappings-page'
 import { SELECTORS } from '../selectors'
@@ -173,7 +173,7 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
 
       await test.step('Given: 已 sync provider products', async () => {
         const syncResp = await page.request.post(
-          `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/sync`,
+          `${BASE_URL}/api/bill/entitlement-mappings/sync`,
           { data: { paymentProvider: 'stripe' } },
         )
         // Sync may fail with test credentials — that's OK
@@ -263,7 +263,7 @@ test.describe('[Billing Admin] Stripe Payment Comprehensive Demo', () => {
         const unknownMappingId = randomUUID()
         try {
           const checkoutResp = await apiContext.post(
-            `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/purchase/payment-attempts`,
+            `${BASE_URL}/api/bill/purchase/payment-attempts`,
             {
               data: {
                 targetType: 'entitlement_mapping',

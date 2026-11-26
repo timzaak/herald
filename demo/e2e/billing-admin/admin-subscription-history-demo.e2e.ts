@@ -17,6 +17,7 @@ import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { DEMO_ADMIN } from '../helpers/auth'
 import {
   navigateToSubscriptionHistory,
+  navigateViaRouter,
   setEventTypeFilter,
   setUserIdFilter,
   setDateRangeFilter,
@@ -189,7 +190,7 @@ test.describe('[Billing Admin] Subscription History Demo Tests', () => {
 
         // Sync provider products and configure an entitlement mapping via API
         const syncResp = await page.request.post(
-          `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/sync`,
+          `${BASE_URL}/api/bill/entitlement-mappings/sync`,
           { data: { paymentProvider: 'creem' } },
         )
         // Sync may fail without real credentials — that's OK
@@ -199,14 +200,14 @@ test.describe('[Billing Admin] Subscription History Demo Tests', () => {
 
           // Find a mapping and set our entitlement key
           const mappingsResp = await page.request.get(
-            `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings`,
+            `${BASE_URL}/api/bill/entitlement-mappings`,
           )
           if (mappingsResp.ok()) {
             const body = await mappingsResp.json()
             const items = body.items ?? body
             if (Array.isArray(items) && items.length > 0) {
               await page.request.patch(
-                `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/${items[0].id}`,
+                `${BASE_URL}/api/bill/entitlement-mappings/${items[0].id}`,
                 { data: { entitlementKey, enabled: true } },
               )
             }
@@ -288,11 +289,13 @@ test.describe('[Billing Admin] Subscription History Demo Tests', () => {
         // navigateToSubscriptionHistory): a full page.goto reload re-runs the
         // root loader's auth restore, which is flaky in the demo env and can
         // bounce back to /auth/login. SPA navigation preserves the in-memory
-        // admin access token.
-        await page.evaluate((target) => {
-          const w = window as unknown as { router?: { navigate: (o: { to: string }) => void } }
-          w.router?.navigate({ to: target })
-        }, `/${DEMO_ADMIN.realmId}/manage/billing`)
+        // admin access token. `window.router` only exists in dev builds, so
+        // fall back to a full navigation otherwise (e.g. production build).
+        const targetPath = `/${DEMO_ADMIN.realmId}/manage/billing`
+        const navigatedViaSpa = await navigateViaRouter(page, targetPath)
+        if (!navigatedViaSpa) {
+          await page.goto(targetPath)
+        }
       })
 
       await test.step('Then: 验证导航到计费页面', async () => {

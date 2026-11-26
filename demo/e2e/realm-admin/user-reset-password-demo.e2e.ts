@@ -66,7 +66,7 @@ function backendBaseUrl(): string {
 /**
  * Resolve a user's id by email via the admin user list API.
  *
- * GET /api/users/{realmId}?search={email} → PageResponse<{ id, email, ... }>
+ * GET /api/users?email={email} → PageResponse<{ id, email, ... }>
  *
  * @returns The matching user id, or '' when the user does not exist.
  */
@@ -74,7 +74,7 @@ async function findUserIdByEmail(
   apiContext: APIRequestContext,
   email: string
 ): Promise<string> {
-  const url = `${backendBaseUrl()}/api/users/${TEST_REALM}?search=${encodeURIComponent(email)}`
+  const url = `${backendBaseUrl()}/api/users?email=${encodeURIComponent(email)}`
   const response = await apiContext.get(url)
   if (!response.ok()) {
     // Non-200 here is unexpected; surface it rather than silently returning ''.
@@ -98,7 +98,7 @@ async function findUserIdByEmail(
  * from a clean state.
  *
  * Uses the admin user delete API:
- *   DELETE /api/users/{realmId}/{userId}
+ *   DELETE /api/users/{userId}
  *
  * Failures are non-fatal (logged) — the create step will surface any
  * remaining conflict loudly via submitUserForm's response check.
@@ -112,7 +112,7 @@ async function deleteExistingUser(
     if (!userId) {
       return
     }
-    const url = `${backendBaseUrl()}/api/users/${TEST_REALM}/${userId}`
+    const url = `${backendBaseUrl()}/api/users/${userId}`
     const response = await apiContext.delete(url)
     if (response.status() >= 400 && response.status() !== 404) {
       const body = await response.text().catch(() => '<unreadable>')

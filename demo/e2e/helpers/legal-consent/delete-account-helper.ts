@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 import { BasePage } from '../../pages/base-page'
 import { SELECTORS } from '../../selectors'
-import type { UnifiedLogger } from '../unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
@@ -18,7 +18,7 @@ export class DeleteAccountHelper extends BasePage {
    * Navigate to the user Security page.
    */
   async gotoSecurityPage(realmId: string): Promise<void> {
-    await this.page.goto(`${BASE_URL}/user/security`, {
+    await this.page.goto(`${BASE_URL}/${realmId}/user/security`, {
       waitUntil: 'domcontentloaded',
     })
     await expect(this.page.locator(SELECTORS.security.pageTitle)).toBeVisible({ timeout: 10000 })

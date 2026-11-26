@@ -27,6 +27,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "playwright-unified-logger": "^0.1.0",
     "uuid": "^13.0.0"
   }
 }

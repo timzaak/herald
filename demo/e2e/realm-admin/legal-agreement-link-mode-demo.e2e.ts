@@ -6,6 +6,23 @@ const realmId = 'realm-001'
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
 
 test.describe('[Realm Admin] Legal agreement external-link mode', () => {
+  // The published link outlives this test. Restore the default Terms so later
+  // specs that open the public agreement page are not handed a
+  // `target="_blank"` link instead of inline content.
+  test.afterEach(async ({ page }) => {
+    const helper = new AdminLegalHelper(page)
+    await helper.gotoLegalTab(realmId)
+
+    const terms = page.locator(SELECTORS.legalConsent.legalAgreementCard('terms_of_service'))
+    const linkPublished = await terms
+      .locator(SELECTORS.legalConsent.legalModeBadge('link'))
+      .isVisible()
+      .catch(() => false)
+    if (linkPublished) {
+      await helper.revertToDefault('terms_of_service')
+    }
+  })
+
   test('publishes an external Terms link while Privacy remains independently configured', async ({ page }) => {
     const helper = new AdminLegalHelper(page)
     await helper.gotoLegalTab(realmId)

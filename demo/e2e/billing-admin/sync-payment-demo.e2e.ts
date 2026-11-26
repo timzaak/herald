@@ -15,7 +15,7 @@
 
 import { test, cleanupTestData, expect } from '../fixtures/demo-page.fixtures'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { createBearerApiContext, DEMO_ADMIN } from '../helpers/auth'
 import { SELECTORS } from '../selectors'
 import { secrets, hasStripePayment, hasCreemPayment } from '../secrets/env'
@@ -211,7 +211,7 @@ test.describe('[Billing Admin] 支付产品同步增强 (US-BL-SYNC-001/002/003/
       const before = await findMappingByPrice(apiContext, stripeMetadataPriceId)
       expect(before?.billingPeriod).toBe('month')
       const resp = await apiContext.put(
-        `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/batch`,
+        `${BASE_URL}/api/bill/entitlement-mappings/batch`,
         {
           data: {
             paymentProvider: 'stripe',
@@ -301,7 +301,7 @@ async function syncProvider(
   provider: 'stripe' | 'creem',
 ): Promise<void> {
   const resp = await request.post(
-    `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings/sync`,
+    `${BASE_URL}/api/bill/entitlement-mappings/sync`,
     { data: { paymentProvider: provider } },
   )
   if (!resp.ok()) {
@@ -314,7 +314,7 @@ async function fetchMappings(
   provider: 'stripe' | 'creem',
 ): Promise<MappingListItem[]> {
   const resp = await request.get(
-    `${BASE_URL}/api/bill/${DEMO_ADMIN.realmId}/entitlement-mappings?paymentProvider=${provider}`,
+    `${BASE_URL}/api/bill/entitlement-mappings?paymentProvider=${provider}`,
   )
   if (!resp.ok()) {
     throw new Error(`list ${provider} mappings failed: ${resp.status()} ${await resp.text()}`)

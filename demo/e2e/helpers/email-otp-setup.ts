@@ -42,7 +42,7 @@
  */
 
 import { Page, expect, type APIRequestContext } from '@playwright/test'
-import type { UnifiedLogger } from './unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { clearSessionData, createAdminApiContext } from './auth'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'

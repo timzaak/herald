@@ -16,6 +16,7 @@ import { SELECTORS } from '../selectors'
 import type { CreateRealmData } from '../pages/realms-page'
 import { DEMO_ADMIN } from '../helpers/auth'
 import { verifyTestEnvironment } from '../helpers/environment-setup'
+import { waitForRealmSessionPersisted } from '../helpers/realm-session'
 
 /**
  * Realm Management - Complete User Flow
@@ -667,17 +668,12 @@ test.describe('Realm Management - US-AR-001 to US-AR-005', () => {
       // Verify login succeeded. Route refactor: the admin console moved to the
       // top-level /manage (no realm prefix), so we assert the dashboard URL and
       // that the session is scoped to the test realm rather than matching the
-      // realm id in the URL.
+      // realm id in the URL. The `auth-storage` snapshot is no longer written;
+      // the persisted session artifact is the per-realm refresh-token slot
+      // (`herald.refreshToken:{realmId}`, frontend/src/lib/herald-client.ts),
+      // which lands asynchronously after the post-login exchange.
       await expect(page).toHaveURL(/\/manage(\/|$)/)
-      const sessionRealm = await page.evaluate(() => {
-        try {
-          const raw = localStorage.getItem('auth-storage')
-          return raw ? JSON.parse(raw)?.state?.realmId ?? null : null
-        } catch {
-          return null
-        }
-      }).catch(() => null)
-      expect(sessionRealm).toBe(testRealmId)
+      await waitForRealmSessionPersisted(page, testRealmId)
       demoLogger.testCode.log('Successfully logged in as Realm Admin')
 
       // Try to access Admin Realm realms page (should be denied)
@@ -706,12 +702,23 @@ test.describe('Realm Management - US-AR-001 to US-AR-005', () => {
         expect(currentUrl).not.toContain('/admin/manage/realms')
       }
 
-      // Logout from test realm. The logout target realm is derived from the
-      // current URL: while on /admin/manage/realms the admin context wins, so
-      // the realm admin lands on /admin/auth/login (still an auth/login page).
-      await page.click(SELECTORS.header.userAvatar)
-      await page.click(SELECTORS.header.logoutButton)
-      await expect(page).toHaveURL(/\/auth\/login/)
+      // Logout from test realm. Sessions are isolated per realm
+      // (`herald.refreshToken:{realmId}`), so opening /admin/manage/realms as
+      // the test realm's admin can end the session outright and land on
+      // /admin/auth/login — a login page has no console header to log out
+      // from, and waiting for the avatar there only burns the test timeout.
+      const alreadySignedOut = await page
+        .waitForURL(/\/auth\/login/, { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!alreadySignedOut) {
+        // The logout target realm is derived from the current URL: while on
+        // /admin/manage/realms the admin context wins, so the realm admin
+        // lands on /admin/auth/login (still an auth/login page).
+        await page.click(SELECTORS.header.userAvatar)
+        await page.click(SELECTORS.header.logoutButton)
+        await expect(page).toHaveURL(/\/auth\/login/)
+      }
 
       // Login back to Admin Realm for cleanup
       demoLogger.testCode.log('Logging back to Admin Realm')
@@ -811,17 +818,12 @@ test.describe('Realm Management - US-AR-001 to US-AR-005', () => {
 
       // Route refactor: the admin console moved to the top-level /manage (no
       // realm prefix). Assert the dashboard URL and that the session is scoped
-      // to the new realm rather than matching the realm id in the URL.
+      // to the new realm rather than matching the realm id in the URL. The
+      // persisted session artifact is the per-realm refresh-token slot
+      // (`herald.refreshToken:{realmId}`, frontend/src/lib/herald-client.ts),
+      // which lands asynchronously after the post-login exchange.
       await expect(page).toHaveURL(/\/manage(\/|$)/)
-      const sessionRealm = await page.evaluate(() => {
-        try {
-          const raw = localStorage.getItem('auth-storage')
-          return raw ? JSON.parse(raw)?.state?.realmId ?? null : null
-        } catch {
-          return null
-        }
-      }).catch(() => null)
-      expect(sessionRealm).toBe(realmId)
+      await waitForRealmSessionPersisted(page, realmId)
 
       // Verify realm name is displayed in the sidebar header
       await expect(page.locator('h1:has-text("Herald") + p')).toContainText('Access Test Realm')
@@ -832,7 +834,7 @@ test.describe('Realm Management - US-AR-001 to US-AR-005', () => {
       demoLogger.testCode.log('Verifying new realm RBAC configuration')
 
       // Navigate to roles page to verify default roles
-      await page.goto(`/manage/roles`)
+      await page.goto(`/${realmId}/manage/roles`)
 
       // Verify roles page is accessible
       await expect(page.locator(SELECTORS.roles.container)).toBeVisible()

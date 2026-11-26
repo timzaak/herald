@@ -64,7 +64,7 @@ export const EVENT_DISPLAY_TYPES = {
  *   bare testid value and would otherwise build a broken locator).
  */
 export async function navigateToSubscriptionHistory(page: Page, realmId: string): Promise<void> {
-  const targetPath = `/manage/subscription-history`
+  const targetPath = `/${realmId}/manage/subscription-history`
   const pageLocator = page.locator(SELECTORS.subscriptionHistory.page)
 
   // 1) Ensure the post-login SPA navigation has finished. The login POM returns
@@ -120,13 +120,17 @@ async function waitForAuthenticatedLanding(page: Page, realmId: string): Promise
       // If we time out, proceed anyway — the assertions below will fail loudly.
     })
   // Then ensure we've landed on an authenticated route. The admin lands on
-  // /manage; a regular user lands on /user/.... Accept the legacy realm root
-  // /{realmId} too for backward-compat.
+  // /{realmId}/manage; a regular user lands on /{realmId}/user/.... Accept the
+  // legacy realm root /{realmId} too for backward-compat.
   await page
     .waitForURL(
       (url) => {
         const p = url.pathname
-        return p.startsWith('/manage') || p.startsWith('/user') || p === `/${realmId}`
+        return p.startsWith(`/${realmId}/manage`)
+          || p.startsWith(`/${realmId}/user`)
+          || p.startsWith('/manage')
+          || p.startsWith('/user')
+          || p === `/${realmId}`
       },
       { timeout: 15000 }
     )
@@ -144,7 +148,7 @@ async function waitForAuthenticatedLanding(page: Page, realmId: string): Promise
  * destination route's loader does not need to re-authenticate — sidestepping
  * the flaky reload-time auth restore.
  */
-async function navigateViaRouter(page: Page, path: string): Promise<boolean> {
+export async function navigateViaRouter(page: Page, path: string): Promise<boolean> {
   try {
     const ok = await page.evaluate(async (target) => {
       const w = window as unknown as { router?: { navigate: (opts: { to: string }) => Promise<unknown> | unknown } }

@@ -6,7 +6,7 @@
  */
 
 import { Page, expect } from '@playwright/test'
-import type { UnifiedLogger } from './unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 import { loginAsAdmin, loginWithCredentials } from './auth'
 import { generateTOTPCodeFromSecret } from './totp-helper'
 
@@ -96,11 +96,11 @@ export async function ensureAdminNoTOTP(
   if (currentUrl.includes('/login')) {
     // 登录失败或卡住，尝试直接导航
     console.log('[TOTP Helper] Still on login page, navigating directly to security')
-    await page.goto(`${BASE_URL}/user/security`)
+    await page.goto(`${BASE_URL}/${realmId}/user/security`)
     await page.waitForLoadState('domcontentloaded')
   } else {
     // 已登录，导航到 Security 页面
-    await page.goto(`${BASE_URL}/user/security`)
+    await page.goto(`${BASE_URL}/${realmId}/user/security`)
     await page.waitForLoadState('domcontentloaded')
   }
 
@@ -235,7 +235,7 @@ async function ensureUserExists(
       }
 
       // 导航到 Security 页面
-      await page.goto(`${BASE_URL}/user/security`)
+      await page.goto(`${BASE_URL}/${realmId}/user/security`)
       await page.waitForLoadState('domcontentloaded')
 
       // 尝试禁用 TOTP
@@ -338,7 +338,7 @@ export async function setupUserWithTOTP(
   }
 
   // 步骤 3: 导航到 Security 页面
-  await page.goto(`${BASE_URL}/user/security`)
+  await page.goto(`${BASE_URL}/${realmId}/user/security`)
   await page.waitForLoadState('domcontentloaded')
 
   // 步骤 3: 检查是否已启用 TOTP
@@ -468,7 +468,7 @@ export async function extractBackupCodes(page: Page): Promise<string[]> {
  */
 export async function getTotpStatus(page: Page, realmId: string): Promise<TOTPStatus> {
   // 导航到 Security 页面
-  await page.goto(`${BASE_URL}/user/security`)
+  await page.goto(`${BASE_URL}/${realmId}/user/security`)
   await page.waitForLoadState('domcontentloaded')
 
   // 检查 TOTP 状态卡片

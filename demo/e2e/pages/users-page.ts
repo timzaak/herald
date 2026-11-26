@@ -9,7 +9,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * User data interface
@@ -186,7 +186,7 @@ export class UsersPage extends BasePage {
   /**
    * Submit the user form (click submit button).
    *
-   * Captures the POST /api/users/{realmId} response and fails loudly on 4xx
+   * Captures the POST /api/users response and fails loudly on 4xx
    * (e.g. "Email already exists") instead of letting a swallowed backend
    * error pass as success. The dialog-hidden / table-visible signals alone
    * are insufficient: on a 400 the frontend keeps the dialog open, but if
@@ -218,12 +218,12 @@ export class UsersPage extends BasePage {
     console.log('[UsersPage] Submit button is visible')
 
     // Capture the create-user API response that fires on submit. We match
-    // POST to /api/users/{realmId} so this does not fire for edit (PUT) flows;
-    // for edit flows the promise simply times out and is treated as no-op.
+    // POST to /api/users so this does not fire for edit (PUT /api/users/{id})
+    // flows; for edit flows the promise simply times out and is treated as no-op.
     const createResponsePromise = this.page
       .waitForResponse(
         (response) =>
-          /\/api\/users\/[^/]+(?:\?|$)/.test(response.url()) &&
+          /\/api\/users(?:\?|$)/.test(response.url()) &&
           response.request().method() === 'POST',
         { timeout: 8000 }
       )
@@ -383,7 +383,7 @@ export class UsersPage extends BasePage {
    *
    * Separate from `submitUserForm` (create flow): the edit dialog's submit
    * button testid is `user-edit-submit-button` (edit-user-dialog.tsx:162) and
-   * the backend call is a PUT to `/api/users/{realmId}/{userId}` — the create
+   * the backend call is a PUT to `/api/users/{userId}` — the create
    * helper matches a POST (and checks the generic dialog testid), so it can
    * neither find the button nor observe the response here.
    *
@@ -407,7 +407,7 @@ export class UsersPage extends BasePage {
     const putResponsePromise = this.page
       .waitForResponse(
         (response) =>
-          /\/api\/users\/[^/]+\/[^/]+$/.test(response.url()) &&
+          /\/api\/users\/[^/]+$/.test(response.url()) &&
           response.request().method() === 'PUT',
         { timeout: 10_000 }
       )
@@ -419,7 +419,7 @@ export class UsersPage extends BasePage {
     if (!putResponse) {
       const dialogStillOpen = await this.isVisible(this.editDialog)
       throw new Error(
-        `Edit user form: no PUT /api/users/{realmId}/{userId} response was ` +
+        `Edit user form: no PUT /api/users/{userId} response was ` +
           `observed within 10s of clicking submit (dialog still open: ` +
           `${dialogStillOpen} — client-side validation likely rejected the form).`
       )

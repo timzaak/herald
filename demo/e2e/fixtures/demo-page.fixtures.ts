@@ -15,7 +15,7 @@
  */
 
 import { test as base, type Page } from '@playwright/test'
-import { UnifiedLogger } from '../helpers/unified-logger'
+import { UnifiedLogger } from 'playwright-unified-logger'
 import { verifyTestEnvironment, cleanupDemoTestData } from '../helpers/environment-setup'
 import {
   AdminLegalHelper,
@@ -82,6 +82,15 @@ export const test = base.extend<{
    * This ensures clean state between tests and prevents authentication issues.
    */
   page: async ({ page }, use) => {
+    // frontend/index.html loads its fonts from Google Fonts — the app's only
+    // external resource. Answer that stylesheet locally so no font file is ever
+    // requested: a stalled font request keeps the page from reaching
+    // `networkidle`, which the suite waits for after settings tab switches and
+    // saves. The page falls back to system fonts.
+    await page.context().route(/^https:\/\/fonts\.googleapis\.com\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/css', body: '' })
+    )
+
     // Clear storage before using the page
     await clearBrowserStorage(page)
     await use(page)

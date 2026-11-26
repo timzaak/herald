@@ -37,7 +37,7 @@
  * billing type.
  */
 
-import { expect } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { createBearerApiContext } from '../helpers/auth'
@@ -107,6 +107,34 @@ async function readEnabledFixedPointRuleAmount(
 ): Promise<string> {
   if ((await mappingsPage.getEnabledPointRuleCount(priceKey)) === 0) return ''
   return await mappingsPage.getFixedPointRuleAmount(priceKey)
+}
+
+/**
+ * Save with up to two retries on a rejected batch PUT (three attempts total).
+ *
+ * The demo runner's startup seed phase (`scripts/lib/demo_seed.py::
+ * _ensure_points_user`) rewrites realm-001 role assignments while tests are
+ * already executing, and a batch save landing in that cache-invalidation
+ * window is rejected by the backend (observed as fx8h-3/fx8i-3/fx8k2 403s;
+ * the identical save passes once the window passes — fx8n/fx8m). The form
+ * keeps its edits after a rejected save, so re-clicking Save persists them.
+ */
+async function saveChangesWithRetry(
+  mappingsPage: EntitlementMappingsPage,
+  page: Page,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    // Tolerate a missed batch PUT (wait timeout → null) but let a failed
+    // click from saveChanges() propagate.
+    const putPromise = mappingsPage.waitForBatchPutResponse(10000).catch(() => null)
+    await mappingsPage.saveChanges()
+    const response = await putPromise
+    if (!response || response.ok() || attempt >= 3) return
+    console.log(
+      `[support-paywall] batch save rejected (HTTP ${response.status()}), retrying past the seed window...`,
+    )
+    await page.waitForTimeout(15000)
+  }
 }
 
 // ============================================================================
@@ -188,7 +216,7 @@ test.describe('[Billing Admin] Support Paywall — role grant config (US-PW-001)
     await mappingsPage.selectGrantedRoles(priceKey, [roleId as string])
 
     await test.step('保存后页面持久化 role 授予配置', async () => {
-      await mappingsPage.saveChanges()
+      await saveChangesWithRetry(mappingsPage, page)
       // Reload and re-read — assert on PERSISTED state, not the in-memory form.
       await page.reload()
       await mappingsPage.waitForReady()
@@ -246,7 +274,7 @@ test.describe('[Billing Admin] Support Paywall — role grant config (US-PW-001)
     // orthogonality invariant directly (场景3: clear one, keep the other).
     await mappingsPage.configureFixedPointRule(priceKey, 500)
     await mappingsPage.selectGrantedRoles(priceKey, [roleId as string])
-    await mappingsPage.saveChanges()
+    await saveChangesWithRetry(mappingsPage, page)
 
     await page.reload()
     await mappingsPage.waitForReady()
@@ -257,7 +285,7 @@ test.describe('[Billing Admin] Support Paywall — role grant config (US-PW-001)
     await mappingsPage.clearGrantedRoles(priceKey)
 
     await test.step('清空 role 授予后积分策略保留', async () => {
-      await mappingsPage.saveChanges()
+      await saveChangesWithRetry(mappingsPage, page)
       await page.reload()
       await mappingsPage.waitForReady()
       await mappingsPage.waitForDataLoaded()
@@ -286,7 +314,7 @@ test.describe('[Billing Admin] Support Paywall — role grant config (US-PW-001)
       // that a "no points, only role" config is persistable.
       await mappingsPage.clearPointRules(priceKey)
       await mappingsPage.selectGrantedRoles(priceKey, [roleId as string])
-      await mappingsPage.saveChanges()
+      await saveChangesWithRetry(mappingsPage, page)
 
       await page.reload()
       await mappingsPage.waitForReady()

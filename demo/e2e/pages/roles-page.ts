@@ -9,7 +9,7 @@
 import { Page, Locator, expect, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Role data interface
@@ -460,9 +460,9 @@ export class RolesPage extends BasePage {
     const roleId = buttonTestId?.replace(/^role-permissions-button-/, '')
     if (!roleId) throw new Error(`Could not resolve role id for "${name}"`)
 
-    const allPermissionsPath = `/api/permission/${this.realmId}/define`
+    const allPermissionsPath = `/api/permission/define`
     const rolePermissionsPath =
-      `/api/roles/${this.realmId}/define/${roleId}/permissions`
+      `/api/roles/define/${roleId}/permissions`
     const matchesGet = (response: Response, path: string) =>
       response.request().method() === 'GET' && new URL(response.url()).pathname === path
     let allPermissionsRequested = false
@@ -675,7 +675,7 @@ export class RolesPage extends BasePage {
    *
    * Negative-path counterpart of savePermissions(): when the backend rejects
    * the grant (e.g. the 8c7b3aa8 guard on
-   * POST /api/roles/{realmId}/define/{roleId}/permissions returns 403 because
+   * POST /api/roles/define/{roleId}/permissions returns 403 because
    * the caller does not hold the permission being granted), the frontend only
    * toasts the error and keeps the dialog open, so waiting for the dialog to
    * hide would time out. Callers assert on the returned response and on the
@@ -688,7 +688,7 @@ export class RolesPage extends BasePage {
     const assignResponse = this.page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
-        /\/api\/roles\/[^/]+\/define\/[^/]+\/permissions\/?$/.test(
+        /\/api\/roles\/define\/[^/]+\/permissions\/?$/.test(
           new URL(response.url()).pathname,
         ),
       { timeout: 10000 },

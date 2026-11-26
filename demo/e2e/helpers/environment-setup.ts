@@ -332,7 +332,7 @@ export async function verifyRequiredRoles(
   }
 
   for (const [realmId, realmRoles] of rolesByRealm.entries()) {
-    await page.goto(`${BASE_URL}/manage/permissions`)
+    await page.goto(`${BASE_URL}/${realmId}/manage/permissions`)
     await page.waitForLoadState('networkidle')
 
     await expect(page.locator('h1').filter({ hasText: /Role Definitions/i })).toBeVisible({

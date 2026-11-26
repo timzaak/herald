@@ -50,6 +50,12 @@ import { SELECTORS } from '../selectors'
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const DEMO_REALM = 'admin'  // Use admin realm for testing
 
+// Reaching the QR-code step spans reauthentication (~1.3s) plus POST
+// /api/user/totp, which takes 11-13.5s on the demo backend (it hashes 10
+// backup codes with the password KDF one after another). A 15s budget left
+// only a few hundred milliseconds of headroom.
+const QR_STEP_TIMEOUT = 30_000
+
 /**
  * Helper function to activate the "totp" tab on the /user/security page.
  *
@@ -213,7 +219,7 @@ async function setupTOTPForUser(
   console.log('[Setup] ✓ TOTP 已在 Realm 中启用')
 
   // Navigate to security page
-  await page.goto(`/user/security`)
+  await page.goto(`/${realmId}/user/security`)
   await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
 
   // Disable TOTP if already enabled (ensure clean state)
@@ -239,7 +245,7 @@ async function setupTOTPForUser(
   await generateButton.click()
 
   // Wait for QR code step to be visible
-  await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+  await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
   console.log('[Setup] ✓ Step 1 完成，进入 QR 码步骤')
 
   // Step 2: QR Code Display
@@ -407,7 +413,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log('[Scenario 1] ✓ 已点击 Generate QR Code 按钮')
 
         // Wait for QR code step to appear
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         console.log('[Scenario 1] ✓ 进入 QR 码步骤')
 
         // Page Step 2: QR Code Display
@@ -501,7 +507,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
 
         // Extract secret
         totpSecret = await extractSecretFromQRCode(page)
@@ -555,7 +561,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // 先导航到 Dashboard，确保有 AdminSidebar
         await page.goto(`/${DEMO_REALM}/manage`)
-        await expect(page.getByTestId('dashboard-users-card')).toBeVisible({ timeout: 10000 })
+        await expect(page.getByTestId('dashboard-stats-row')).toBeVisible({ timeout: 10000 })
 
         // 现在可以调用 settingsPage.goto()，因为它会点击 AdminSidebar 的 Settings 菜单
         await settingsPage.goto()
@@ -610,7 +616,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
 
         // Extract secret from QR code displayed in the UI (UI-Only principle)
         const secret = await extractSecretFromQRCode(page)
@@ -1121,7 +1127,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         totpSecret = await extractSecretFromQRCode(page)
         console.log(`[Scenario 1] ✓ 已提取密钥: ${totpSecret}`)
 
@@ -1181,7 +1187,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(generateButton).toBeEnabled({ timeout: 5000 })
         await generateButton.click()
 
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         totpSecret = await extractSecretFromQRCode(page)
 
         await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
@@ -1276,7 +1282,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           await expect(generateButton).toBeEnabled({ timeout: 5000 })
           await generateButton.click()
 
-          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
           totpSecret = await extractSecretFromQRCode(page)
 
           await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
@@ -1327,15 +1333,22 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
           const confirmButton = passwordDialog.getByRole('button', { name: /confirm|regenerate/i })
           await expect(confirmButton).toBeVisible({ timeout: 5000 })
+
+          // The dialog shows the new QR code only: capture the regenerate
+          // response to learn the new secret.
+          const regenerateResponse = page.waitForResponse(
+            (response) =>
+              response.request().method() === 'POST' &&
+              response.url().includes('/api/user/totp/regenerate')
+          )
           await confirmButton.click()
 
           // The dialog stays open and switches to the verify phase (new QR +
           // verification code input); it only closes after the new secret is
-          // verified. 15s matches the suite's QR-step convention: the backend
-          // regenerate endpoint is consistently slow (same work as the setup
-          // QR generation — POST /api/user/totp measured at ~9.3s in the
-          // network log), so 5s races the phase switch.
-          await expect(passwordDialog.getByTestId('totp-regenerate-form-verify')).toBeVisible({ timeout: 15000 })
+          // verified. The regenerate call does the same slow work as the
+          // setup QR generation (see QR_STEP_TIMEOUT), so 5s races the phase
+          // switch.
+          await expect(passwordDialog.getByTestId('totp-regenerate-form-verify')).toBeVisible({ timeout: QR_STEP_TIMEOUT })
           console.log('[Scenario 1] ✓ TOTP 密钥重新生成请求已发送')
 
           // Verify TOTP needs to be re-verified
@@ -1347,26 +1360,37 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
             console.log('[Scenario 1] ✓ 系统要求重新验证 TOTP')
           }
 
-          // Test that old secret no longer works
-          // Regeneration sets TOTP back to "disabled until the new secret is
-          // verified" (backend regenerate_secret → enabled=false), so the old
-          // secret no longer gates login: the user signs in with password
-          // only and no TOTP verification page is shown.
+          // Complete the regeneration by verifying a code from the new secret
+          const newSecret: string = (await (await regenerateResponse).json()).secret
+          await passwordDialog.getByTestId('totp-regenerate-verify-code-input').fill(generateTOTPCodeFromSecret(newSecret))
+          await passwordDialog.getByTestId('totp-regenerate-verify-button').click()
+          await expect(passwordDialog).toBeHidden({ timeout: 5000 })
+          console.log('[Scenario 1] ✓ 新密钥验证通过，重新生成完成')
+
+          // The old secret no longer works: a fresh login is still gated by
+          // TOTP, rejects a code from the old secret and accepts one from the
+          // new secret.
+          const loginWithPassword = async () => {
+            await page.goto(`/${DEMO_REALM}/auth/login`)
+            await page.getByTestId('email-input').fill(currentUserEmail)
+            await page.getByTestId('password-input').fill(currentPassword)
+            await page.getByRole('button', { name: /login|sign in/i }).click()
+            await expect(page.getByTestId('totp-verification-code-input')).toBeVisible({ timeout: 5000 })
+          }
+
           await clearSessionData(page)
-          await page.goto(`/${DEMO_REALM}/auth/login`)
-          await page.getByTestId('email-input').fill(currentUserEmail)
-          await page.getByTestId('password-input').fill(currentPassword)
-          await page.getByRole('button', { name: /login|sign in/i }).click()
+          await loginWithPassword()
+          await page.getByTestId('totp-verification-code-input').fill(generateTOTPCodeFromSecret(oldSecret))
+          await expect(page.getByTestId('totp-verification-error')).toBeVisible({ timeout: 5000 })
+          console.log('[Scenario 1] ✓ 旧密钥已失效（登录验证码被拒绝）')
 
-          // Password-only login completes and lands on the admin home
+          // A failed verification consumes the login temp token: sign in
+          // again before presenting a code from the new secret.
+          await loginWithPassword()
+          await page.getByTestId('totp-verification-code-input').fill(generateTOTPCodeFromSecret(newSecret))
           await page.waitForURL(/\/manage/, { timeout: 5000 })
-          await expect(page.getByTestId('totp-verification-code-input')).toHaveCount(0)
-          console.log('[Scenario 1] ✓ 旧密钥已失效（登录不再出现 TOTP 验证）')
-
-          // Use new secret to complete login
-          // Need to get new secret from UI or database
-          // For demo, we'll just verify the scenario completed
-          console.log('[Scenario 1] ✓ 重新生成密钥场景测试完成')
+          totpSecret = newSecret
+          console.log('[Scenario 1] ✓ 新密钥可完成登录，重新生成密钥场景测试完成')
         } else {
           console.log('[Scenario 1] ⚠ 未找到重新生成密钥按钮，功能可能未实现')
         }
@@ -1374,9 +1398,8 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       // 场景 2: 使用错误密码重新生成密钥（失败场景）
       await test.step('场景 2: 使用错误密码重新生成密钥（失败场景）', async () => {
-        // 场景 1 的登录验证结束后页面不在 Security 页，且重新生成已将 TOTP
-        // 置为"待重新验证"（enabled=false）——需回到 Security 页、必要时重新
-        // 启用 TOTP，Regenerate 按钮才会出现
+        // 场景 1 的新密钥登录结束后页面不在 Security 页——需回到 Security 页；
+        // Regenerate 按钮只在 TOTP 已启用时出现（未启用时下方会先重新启用）
         await page.goto(`/${DEMO_REALM}/user/security`)
         await expect(page.getByText("Security Settings").or(page.locator(SELECTORS.security.pageTitle))).toBeVisible()
         await switchToSecurityTotpTab(page)
@@ -1402,7 +1425,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           await expect(generateButton).toBeEnabled({ timeout: 5000 })
           await generateButton.click()
 
-          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
           totpSecret = await extractSecretFromQRCode(page)
 
           await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
@@ -1494,17 +1517,24 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
         // Tab through fields and verify focus order
         await test.step('Tab 键导航验证 - Step 1', async () => {
-          // Press Tab to move to Generate button
+          // Tab lands on the password visibility toggle, which sits between
+          // the input and the Generate button in the tab order
+          await page.keyboard.press('Tab')
+
+          const toggleFocused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+          expect(toggleFocused).toBe('totp-setup-password-input-visibility-toggle')
+          console.log('[Scenario] ✓ Tab 1: Focus moved to password visibility toggle')
+
           await page.keyboard.press('Tab')
 
           // Verify focus moved to Generate button
           const focusedElement = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
           expect(focusedElement).toBe('totp-setup-generate-button')
-          console.log('[Scenario] ✓ Tab 1: Focus moved to Generate button')
+          console.log('[Scenario] ✓ Tab 2: Focus moved to Generate button')
 
           // Press Tab again (should stay on button or move to close button)
           await page.keyboard.press('Tab')
-          console.log('[Scenario] ✓ Tab 2: Focus moved further')
+          console.log('[Scenario] ✓ Tab 3: Focus moved further')
         })
       })
 
@@ -1568,7 +1598,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
 
       await test.step('Then: 验证触发生成 QR 码', async () => {
         // Verify QR code step appeared
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         console.log('[Scenario] ✓ Enter key triggered QR code generation')
 
         // Navigate back to security page for cleanup
@@ -1634,7 +1664,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(passwordInput).toBeVisible({ timeout: 5000 })
         await passwordInput.fill(currentPassword)
         await page.locator(SELECTORS.security.totpSetupGenerateButton).click()
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
 
         // Complete Step 2
         await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()
@@ -1703,7 +1733,12 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
       })
 
       await test.step('Then: 验证焦点反向移动到密码输入框', async () => {
-        // Verify focus moved back to password input
+        // Shift+Tab lands on the password visibility toggle first: it sits
+        // between the Generate button and the password input
+        const toggleFocused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
+        expect(toggleFocused).toBe('totp-setup-password-input-visibility-toggle')
+
+        await page.keyboard.press('Shift+Tab')
         const focusedElement = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))
         expect(focusedElement).toBe('totp-setup-password-input')
         console.log('[Scenario] ✓ Focus moved back to password input')
@@ -1812,7 +1847,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await generateButton.click()
 
         // Wait for Step 2 to appear
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         console.log('[Scenario] ✓ 从 Step 1 进入 Step 2')
       })
 
@@ -1924,7 +1959,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         console.log('[Scenario] ✓ Button click feedback animation verified')
 
         // Wait for QR code step to appear
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
 
         // Navigate back to security page for cleanup
         await page.locator(SELECTORS.security.totpSetupBackToSecurity).click()
@@ -1958,7 +1993,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
         await expect(generateButton).toBeVisible()
         await generateButton.click()
 
-        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+        await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
         console.log('[Scenario] ✓ 进入 QR Code 步骤')
       })
 
@@ -2063,7 +2098,7 @@ test.describe('[Regular User] TOTP 综合演示测试', () => {
           await expect(generateButton).toBeEnabled({ timeout: 5000 })
           await generateButton.click()
 
-          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: 15000 })
+          await expect(page.locator(SELECTORS.security.totpSetupStepQRCode)).toBeVisible({ timeout: QR_STEP_TIMEOUT })
           totpSecret = await extractSecretFromQRCode(page)
 
           await page.locator(SELECTORS.security.totpSavedBackupCodesCheckbox).check()

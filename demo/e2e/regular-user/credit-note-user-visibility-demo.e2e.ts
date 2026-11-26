@@ -89,7 +89,7 @@ test.describe('[Regular User] Credit Note User Visibility Demo Tests', () => {
         email: DEMO_USERS.user1.email,
         password: DEMO_USERS.user1.password,
       })
-      await page.goto(`/user/invoices`)
+      await page.goto(`/${REALM_ID}/user/invoices`)
       await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       await expect(page.getByTestId('invoice-user-table')).toBeVisible({ timeout: 10000 })
     })
@@ -150,7 +150,7 @@ test.describe('[Regular User] Credit Note User Visibility Demo Tests', () => {
         email: DEMO_USERS.user1.email,
         password: DEMO_USERS.user1.password,
       })
-      await page.goto(`/user/invoices`)
+      await page.goto(`/${REALM_ID}/user/invoices`)
       await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       await expect(page.getByTestId('invoice-user-table')).toBeVisible({ timeout: 10000 })
     })

@@ -9,7 +9,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 export class DashboardPage extends BasePage {
   // Page-level locators
@@ -19,7 +19,9 @@ export class DashboardPage extends BasePage {
   readonly newUsersCard: Locator
   readonly activeUsersCard: Locator
   readonly authTrendChart: Locator
-  readonly quickNav: Locator
+  readonly recentUsersCard: Locator
+  readonly recentAuditCard: Locator
+  readonly recentPointsCard: Locator
   readonly errorState: Locator
   readonly retryButton: Locator
   readonly chartSkeleton: Locator
@@ -32,7 +34,9 @@ export class DashboardPage extends BasePage {
     this.newUsersCard = page.locator(SELECTORS.dashboard.newUsersCard)
     this.activeUsersCard = page.locator(SELECTORS.dashboard.activeUsersCard)
     this.authTrendChart = page.locator(SELECTORS.dashboard.authTrendChart)
-    this.quickNav = page.locator(SELECTORS.dashboard.quickNav)
+    this.recentUsersCard = page.locator(SELECTORS.dashboard.recentUsersCard)
+    this.recentAuditCard = page.locator(SELECTORS.dashboard.recentAuditCard)
+    this.recentPointsCard = page.locator(SELECTORS.dashboard.recentPointsCard)
     this.errorState = page.locator(SELECTORS.dashboard.errorState)
     this.retryButton = page.locator(SELECTORS.dashboard.retryButton)
     this.chartSkeleton = page.locator(SELECTORS.dashboard.chartSkeleton)
@@ -80,26 +84,13 @@ export class DashboardPage extends BasePage {
     return text.includes('No data')
   }
 
-  getQuickNavLinks(): Locator {
-    return this.quickNav.locator('a, [role="link"], [data-testid^="dashboard-"]')
-  }
-
-  async clickQuickNav(name: string): Promise<void> {
-    const testIdMap: Record<string, string> = {
-      users: SELECTORS.dashboard.quickNavUsers,
-      roles: SELECTORS.dashboard.quickNavRoles,
-      permissions: SELECTORS.dashboard.quickNavPermissions,
-      'client-apps': SELECTORS.dashboard.quickNavClientApps,
-      'client apps': SELECTORS.dashboard.quickNavClientApps,
-      realms: SELECTORS.dashboard.quickNavRealms,
-      settings: SELECTORS.dashboard.quickNavSettings,
-    }
-    const selector = testIdMap[name.toLowerCase()]
-    if (!selector) {
-      throw new Error(`Unknown quick nav name: "${name}". Available: ${Object.keys(testIdMap).join(', ')}`)
-    }
-    const card = this.page.locator(selector)
-    await this.smartClick(card)
+  /**
+   * Follow the "view all" link of a recent-activity card into its management
+   * page (the 6-card QuickNav this page used to render was replaced by these
+   * cards; each one is hidden when the admin lacks its permission).
+   */
+  async clickRecentCardViewAll(card: Locator): Promise<void> {
+    await this.smartClick(card.getByRole('link'))
   }
 
   async clickTotalUsersCard(): Promise<void> {

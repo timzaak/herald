@@ -44,7 +44,7 @@ import {
   getWindowRow,
   getWindowRemaining,
   getWindowResetsIn,
-  getBucketTotal,
+  fetchWalletsByBucket,
   getSpendableFromPool,
 } from '../helpers/points-quota-helpers'
 import { registerUser } from '../helpers/points-helpers'
@@ -165,7 +165,7 @@ test.beforeAll(async ({ browser }) => {
     const adminApi = await createBearerApiContext(loginPage.getAccessToken())
     try {
       const usersResponse = await adminApi.get(
-        `${backendUrl}/api/users/${TEST_REALM}?search=${encodeURIComponent(USER_EMAIL)}`,
+        `${backendUrl}/api/users?email=${encodeURIComponent(USER_EMAIL)}`,
       )
       let userId = ''
       if (usersResponse.ok()) {
@@ -182,7 +182,7 @@ test.beforeAll(async ({ browser }) => {
 
       // 5. Resolve the points-demo-app client app UUID.
       const clientAppResponse = await adminApi.get(
-        `${backendUrl}/api/client/${TEST_REALM}`,
+        `${backendUrl}/api/client`,
       )
       let clientAppId = ''
       if (clientAppResponse.ok()) {
@@ -433,25 +433,31 @@ test.describe('[Regular User] 积分配额仪表盘 (US-PU-010)', () => {
     //
     // The wallets endpoint uses Herald's Bearer-token auth model (the frontend
     // injects `Authorization: Bearer {accessToken}` from an in-memory store), so
-    // `page.context().request` (cookie-only) 401s and returns 0. Build a Bearer
-    // context from the logged-in user's access token and pass it to both reads.
+    // `page.context().request` (cookie-only) 401s. Build a Bearer context from
+    // the logged-in user's access token and read ONE wallets response — both
+    // sides of the equation must come from the same response, and a failed
+    // read must fail loudly instead of silently coercing to 0 (which once made
+    // this assert compare 500 against 0, fx6-2).
     const userApi = await createBearerApiContext(loginPage.getAccessToken())
     try {
+      const items = await fetchWalletsByBucket(page, TEST_REALM, userApi)
+      expect(items, 'wallets API must respond ok — a failed read invalidates this invariant').toBeTruthy()
+      const walletItem = items!.find((i) => i.bucketId === bucketId)
+      expect(
+        walletItem,
+        `wallets API must return a row for bucket ${bucketId}`,
+      ).toBeTruthy()
+
       const smallestRemaining = await getWindowRemaining(
         page,
         bucketId,
         SMALLEST_WINDOW_KEY,
       )
-      const spendableNow = await getBucketTotal(page, TEST_REALM, bucketId, userApi)
       // The pool (topup/registration/granted) balance accumulates across demo
-      // runs — the ext grant API has no idempotency key — so read the live value
-      // from the wallets API instead of hard-coding TOPUP_GRANT_AMOUNT.
-      const poolBalance = await getSpendableFromPool(
-        page,
-        TEST_REALM,
-        bucketId,
-        userApi,
-      )
+      // runs — the ext grant API has no idempotency key — so read the live
+      // value from the wallets API instead of hard-coding TOPUP_GRANT_AMOUNT.
+      const poolBalance = walletItem!.spendableFromPool ?? 0
+      const spendableNow = walletItem!.bucketTotal ?? 0
       const expected = smallestRemaining + poolBalance
 
       expect(spendableNow).toBe(expected)
@@ -535,7 +541,7 @@ test('US-PU-010 加载态: 初始加载时显示骨架占位', async ({
   await loginPage.loginAsUser(USER_EMAIL, USER_PASSWORD, TEST_REALM)
 
   // Delay the wallets endpoint so the skeleton stays visible long enough to assert.
-  await page.route('**/api/points/**/wallets', async (route) => {
+  await page.route('**/api/user/wallets', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1500))
     await route.continue()
   })

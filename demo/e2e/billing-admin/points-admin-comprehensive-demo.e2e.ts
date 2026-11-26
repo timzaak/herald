@@ -44,7 +44,7 @@ async function readRegistrationRules(
   apiContext: APIRequestContext,
 ): Promise<RegistrationRule[]> {
   const response = await apiContext.get(
-    `${BASE_URL}/api/points/${RULES_REALM_ID}/registration-rules`,
+    `${BASE_URL}/api/points/registration-rules`,
   )
   if (!response.ok()) {
     const body = await response.text().catch(() => '<unreadable body>')
@@ -62,7 +62,7 @@ async function writeRegistrationRules(
   rules: RegistrationRule[],
 ): Promise<RegistrationRule[]> {
   const response = await apiContext.put(
-    `${BASE_URL}/api/points/${RULES_REALM_ID}/registration-rules`,
+    `${BASE_URL}/api/points/registration-rules`,
     { data: { rules } },
   )
   if (!response.ok()) {
@@ -213,7 +213,7 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
               : rule,
           )
           await writeRegistrationRules(apiContext, setupRules)
-          await page.goto('/manage/points/registration-rules')
+          await page.goto(`/${RULES_REALM_ID}/manage/points/registration-rules`)
           await expect(page.locator(SELECTORS.pointRule.registrationRulesSave)).toBeVisible()
           await expect(page.locator(SELECTORS.pointRule.list)).toHaveCount(2)
         })
@@ -240,7 +240,7 @@ test.describe('[Points Admin] Comprehensive Demo Tests', () => {
             (response) =>
               response.request().method() === 'PUT' &&
               new URL(response.url()).pathname ===
-                `/api/points/${RULES_REALM_ID}/registration-rules`,
+                `/api/points/registration-rules`,
           )
           await page.locator(SELECTORS.pointRule.registrationRulesSave).click()
           const response = await saveResponse

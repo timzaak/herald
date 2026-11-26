@@ -165,7 +165,9 @@ test.describe('[Realm Admin] API Key Navigation and Edge Cases Demo Tests', () =
 
       await test.step('Clear name and fill modified name', async () => {
         await apiKeyPage.nameInput.clear()
-        await apiKeyPage.fillCreateForm({ name: modifiedName })
+        // The edit form has no client-app selector (immutable after creation),
+        // so this is the edit-form filler, not fillCreateForm.
+        await apiKeyPage.fillEditForm({ name: modifiedName })
         console.log(`Cleared name and filled: "${modifiedName}"`)
       })
     })
@@ -357,7 +359,13 @@ test.describe('[Realm Admin] API Key Navigation and Edge Cases Demo Tests', () =
 
     await test.step('Then: Verify table loads without error', async () => {
       const apiKeyPage = new ApiKeysPage(page, demoLogger)
-      await expect(apiKeyPage.table).toBeVisible({ timeout: 10000 })
+      // Loading, error, empty and the populated table all carry the same
+      // testid (shared DataTable), so first wait for the list query to settle:
+      // the empty message or at least one data row must be rendered. An error
+      // state matches neither and fails here, as intended.
+      const emptyMessage = apiKeyPage.table.filter({ hasText: 'No API keys found' })
+      const firstRow = apiKeyPage.table.locator('tbody tr').first()
+      await expect(emptyMessage.or(firstRow)).toBeVisible({ timeout: 10000 })
       console.log('Table is visible (no error state)')
 
       // Check if table has rows or shows empty state

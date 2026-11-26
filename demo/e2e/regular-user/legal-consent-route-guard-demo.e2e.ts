@@ -25,7 +25,7 @@ import { AdminLegalHelper, LegalConsentHelper } from '../helpers/legal-consent'
 import { LoginPage } from '../pages/login-page'
 import { SELECTORS } from '../selectors'
 import type { Page, Browser } from '@playwright/test'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 test.describe('[Regular User] Route Guard Re-consent Demo Tests', () => {
   const realmId = 'realm-001'
@@ -138,7 +138,7 @@ test.describe('[Regular User] Route Guard Re-consent Demo Tests', () => {
       })
 
       await test.step('Navigate to a core route and expect the re-consent dialog', async () => {
-        await page.goto(`/user/profile`, { waitUntil: 'domcontentloaded' })
+        await page.goto(`/${realmId}/user/profile`, { waitUntil: 'domcontentloaded' })
         await legalConsentHelper.expectReconsentDialogVisible()
       })
 
@@ -169,7 +169,7 @@ test.describe('[Regular User] Route Guard Re-consent Demo Tests', () => {
       })
 
       await test.step('Navigate to a core route and expect the re-consent dialog', async () => {
-        await page.goto(`/user/profile`, { waitUntil: 'domcontentloaded' })
+        await page.goto(`/${realmId}/user/profile`, { waitUntil: 'domcontentloaded' })
         await legalConsentHelper.expectReconsentDialogVisible()
       })
 

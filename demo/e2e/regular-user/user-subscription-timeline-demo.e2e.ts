@@ -60,9 +60,9 @@ const TEST_REALM = 'realm-001'
 const TEST_USER_EMAIL = 'user@realm-001.com' // Created by Demo Seed
 const TEST_USER_PASSWORD = 'password'
 
-// Route path is unchanged from the old subscription-history page; the page
-// itself is session-scoped (realm resolved from the session, not the URL).
-const PURCHASE_RECORDS_PATH = '/user/subscription-history'
+// Route path is unchanged from the old subscription-history page; on the main
+// domain the page is addressed under the test realm's URL prefix.
+const PURCHASE_RECORDS_PATH = `/${TEST_REALM}/user/subscription-history`
 
 const PURCHASE_HISTORY_ENDPOINT =
   '/api/user/bill/purchase/history?page=1&page_size=20'

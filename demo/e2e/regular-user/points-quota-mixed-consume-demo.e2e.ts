@@ -245,7 +245,7 @@ test.beforeAll(async ({ browser }) => {
     const adminApi = await createBearerApiContext(loginPage.getAccessToken())
     try {
       const usersResponse = await adminApi.get(
-        `${backendBaseUrl()}/api/users/${TEST_REALM}?search=${encodeURIComponent(userEmail)}`,
+        `${backendBaseUrl()}/api/users?email=${encodeURIComponent(userEmail)}`,
       )
       let userId = ''
       if (usersResponse.ok()) {
@@ -259,7 +259,7 @@ test.beforeAll(async ({ browser }) => {
       }
 
       const clientAppResponse = await adminApi.get(
-        `${backendBaseUrl()}/api/client/${TEST_REALM}`,
+        `${backendBaseUrl()}/api/client`,
       )
       let clientAppId = ''
       if (clientAppResponse.ok()) {

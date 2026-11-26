@@ -311,7 +311,7 @@ test.beforeAll(async ({ browser }) => {
     const adminApi = await createAdminBearerContext(page, TEST_REALM)
     try {
     const usersResponse = await adminApi.get(
-      `${backendUrl}/api/users/${TEST_REALM}?search=${encodeURIComponent(POINTS_USER_EMAIL)}`,
+      `${backendUrl}/api/users?email=${encodeURIComponent(POINTS_USER_EMAIL)}`,
     )
     let demoUserId = ''
     if (usersResponse.ok()) {
@@ -330,7 +330,7 @@ test.beforeAll(async ({ browser }) => {
     // 4. Resolve the `points-demo-app` client app UUID (covered by
     //    primary-pool; consume takes the UUID, not the client_id string).
     const clientAppResponse = await adminApi.get(
-      `${backendUrl}/api/client/${TEST_REALM}`,
+      `${backendUrl}/api/client`,
     )
     let coveredClientAppId = ''
     if (clientAppResponse.ok()) {

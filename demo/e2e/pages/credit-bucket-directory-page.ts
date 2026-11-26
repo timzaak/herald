@@ -1,7 +1,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Page Object for the Credit Bucket directory (admin Master-Detail).
@@ -62,7 +62,7 @@ export class CreditBucketDirectoryPage extends BasePage {
    * to be visible before returning.
    */
   async gotoDirectory(realmId: string = 'admin'): Promise<void> {
-    await super.goto(`/manage/billing/credit-buckets`)
+    await super.goto(`/${realmId}/manage/billing/credit-buckets`)
     await this.waitForDirectoryReady()
   }
 
@@ -72,7 +72,7 @@ export class CreditBucketDirectoryPage extends BasePage {
    * Route: `/{realmId}/manage/billing/credit-buckets/overview`.
    */
   async gotoOverview(realmId: string = 'admin'): Promise<void> {
-    await super.goto(`/manage/billing/credit-buckets/overview`)
+    await super.goto(`/${realmId}/manage/billing/credit-buckets/overview`)
     await expect(this.overviewPage).toBeVisible({ timeout: 10000 })
   }
 

@@ -248,7 +248,7 @@ test.describe('[Device Code] Error Scenarios & Admin Config Toggle', () => {
     })
 
     await test.step('Then: Get created Client App client_id', async () => {
-      const response = await apiContext.get(`${process.env.BASE_URL || 'http://localhost:3000'}/api/client/${realmId}`)
+      const response = await apiContext.get(`${process.env.BASE_URL || 'http://localhost:3000'}/api/client`)
       expect(response.ok()).toBe(true)
       const appsPayload = await response.json()
       const apps = Array.isArray(appsPayload) ? appsPayload : appsPayload.items
@@ -344,7 +344,7 @@ test.describe('[Device Code] Error Scenarios & Admin Config Toggle', () => {
     })
 
     await test.step('Then: Get default Client App client_id', async () => {
-      const response = await apiContext.get(`${process.env.BASE_URL || 'http://localhost:3000'}/api/client/${realmId}`)
+      const response = await apiContext.get(`${process.env.BASE_URL || 'http://localhost:3000'}/api/client`)
       expect(response.ok()).toBe(true)
       const appsPayload = await response.json()
       const apps = Array.isArray(appsPayload) ? appsPayload : appsPayload.items

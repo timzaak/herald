@@ -13,7 +13,7 @@
  * ```
  */
 
-import { ApiRequestLog } from './network-logger'
+import { ApiRequestLog } from 'playwright-unified-logger'
 
 /**
  * Classification result with detailed diagnostics

@@ -11,11 +11,11 @@
  * - Legacy permissions absent: realm.create, realm.admin
  * - Built-in permissions are protected (badge present, delete disabled)
  * - Sidebar menus visible under full admin permissions (positive path only)
- * - QuickNav items visible under full admin permissions (positive path only)
+ * - Dashboard recent-activity cards visible under full admin permissions (positive path only)
  * - Dashboard stats render under dashboard.view
  *
  * 范围声明：本 demo 以全权限 admin 登录，只做「有权限→可见」的正向断言；
- * 「无权限→菜单/QuickNav 隐藏」的过滤负向断言不在本文件覆盖范围，
+ * 「无权限→菜单/Dashboard 卡片 隐藏」的过滤负向断言不在本文件覆盖范围，
  * 且当前 demo 体系内无其他文件承接该负向路径（US-RA-012 过滤断言为已知缺口）。
  *
  * @note Uses single browser session pattern (one test with multiple steps)
@@ -187,46 +187,28 @@ test.describe('Permission Model Refactoring', () => {
     })
 
     // ==========================================================================
-    // Step 3: Verify QuickNav shows expected items for admin user (US-RA-012)
+    // Step 3: Verify the dashboard's permission-gated cards for admin user (US-RA-012)
     // ==========================================================================
-    await test.step('Step 3: Verify QuickNav shows expected items for admin user', async () => {
+    // The 6-card QuickNav was replaced by the recent-activity tables; each card
+    // is rendered only when the admin holds its permission.
+    await test.step('Step 3: Verify dashboard navigation cards for admin user', async () => {
       // Navigate to dashboard via sidebar
       const dashboardPage = new DashboardPage(page, demoLogger)
       await dashboardPage.goto()
 
-      await test.step('QuickNav container visible on dashboard', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNav)).toBeVisible()
-        demoLogger.testCode.log('QuickNav container visible')
+      await test.step('Recent users card visible (admin realm user has users.view)', async () => {
+        await expect(page.locator(SELECTORS.dashboard.recentUsersCard)).toBeVisible()
+        demoLogger.testCode.log('Recent users card visible')
       })
 
-      await test.step('Users quick nav card visible', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavUsers)).toBeVisible()
-        demoLogger.testCode.log('Users card visible')
+      await test.step('Recent audit events card visible (admin realm user has audit.view)', async () => {
+        await expect(page.locator(SELECTORS.dashboard.recentAuditCard)).toBeVisible()
+        demoLogger.testCode.log('Recent audit events card visible')
       })
 
-      await test.step('Roles quick nav card visible', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavRoles)).toBeVisible()
-        demoLogger.testCode.log('Roles card visible')
-      })
-
-      await test.step('Permissions quick nav card visible', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavPermissions)).toBeVisible()
-        demoLogger.testCode.log('Permissions card visible')
-      })
-
-      await test.step('Client Apps quick nav card visible', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavClientApps)).toBeVisible()
-        demoLogger.testCode.log('Client Apps card visible')
-      })
-
-      await test.step('Realms quick nav card visible (admin realm user has realm.view)', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavRealms)).toBeVisible()
-        demoLogger.testCode.log('Realms card visible')
-      })
-
-      await test.step('Settings quick nav card visible', async () => {
-        await expect(page.locator(SELECTORS.dashboard.quickNavSettings)).toBeVisible()
-        demoLogger.testCode.log('Settings card visible')
+      await test.step('Recent points card visible (admin realm user has points.manage)', async () => {
+        await expect(page.locator(SELECTORS.dashboard.recentPointsCard)).toBeVisible()
+        demoLogger.testCode.log('Recent points card visible')
       })
     })
 

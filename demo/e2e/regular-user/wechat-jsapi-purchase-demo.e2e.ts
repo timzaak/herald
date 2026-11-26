@@ -114,7 +114,7 @@ test.describe('[Regular User] wechat-support — in-WeChat JSAPI purchase', () =
   }) => {
     await test.step('Given the purchase page opened with wechatOpenid', async () => {
       await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-      await page.goto(`/user/purchase-points?wechatOpenid=${DEMO_OPENID}`)
+      await page.goto(`/${REALM_ID}/user/purchase-points?wechatOpenid=${DEMO_OPENID}`)
       await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
     })
 
@@ -191,7 +191,7 @@ test.describe('[Regular User] wechat-support — in-WeChat JSAPI purchase', () =
 
     await test.step('Given the purchase page opened WITHOUT wechatOpenid', async () => {
       await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-      await page.goto('/user/purchase-points')
+      await page.goto(`/${REALM_ID}/user/purchase-points`)
       await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
     })
 

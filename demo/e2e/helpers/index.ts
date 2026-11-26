@@ -74,16 +74,6 @@ export type {
   RecommendationType,
 } from './selector-validator'
 
-// Existing modules
-export { UnifiedLogger } from './unified-logger'
-export type { TestLogs as UnifiedTestLogs } from './unified-logger'
-
-export { NetworkLogger } from './network-logger'
-export type { ApiRequestLog } from './network-logger'
-
-export { ConsoleLogger } from './console-logger'
-export type { ConsoleLogEntry } from './console-logger'
-
 export { validateBackendHealth, formatValidationErrors, quickHealthCheck } from './api-validator'
 export type {
   BackendHealthResponse,

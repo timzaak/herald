@@ -532,7 +532,7 @@ test.describe('[Realm Admin] Credit Bucket 目录管理 (US-CB-001/002/003)', ()
       // The admin wallets page groups rows by (userId, bucketId). The seeded
       // `primary-pool` always has holders with non-zero balance. Resolve both
       // ids from the rendered row testid rather than hardcoding UUIDs.
-      await page.goto(`/manage/points/wallets`)
+      await page.goto(`/${REALM_ID}/manage/points/wallets`)
       await expect(page.locator(SELECTORS.pointsAdmin.accountsPage)).toBeVisible({
         timeout: 10000,
       })
@@ -577,7 +577,7 @@ test.describe('[Realm Admin] Credit Bucket 目录管理 (US-CB-001/002/003)', ()
 
     await test.step('When: 禁用该 bucket（editor-enabled 关闭并保存）', async () => {
       // Navigate back to the directory and disable the bucket via the editor.
-      await page.goto(`/manage/billing/credit-buckets`)
+      await page.goto(`/${REALM_ID}/manage/billing/credit-buckets`)
       await expect(page.locator(SELECTORS.creditBucket.directoryPage)).toBeVisible()
       await editBucketViaUI(page, bucketId, { enabled: false })
       demoLogger.testCode.log(`[Test] ✓ bucket ${bucketId} 已禁用`)
@@ -596,7 +596,7 @@ test.describe('[Realm Admin] Credit Bucket 目录管理 (US-CB-001/002/003)', ()
       // must be identical. The `Disabled` Badge is intentionally NOT part of
       // this comparison (it is the expected new UI state, not a balance
       // change).
-      await page.goto(`/manage/points/wallets`)
+      await page.goto(`/${REALM_ID}/manage/points/wallets`)
       await expect(page.locator(SELECTORS.pointsAdmin.accountsPage)).toBeVisible()
       const row = page.locator(SELECTORS.pointsAdmin.walletRowByBucket(userId, bucketId))
       await expect(row).toBeVisible({ timeout: 10000 })
@@ -615,7 +615,7 @@ test.describe('[Realm Admin] Credit Bucket 目录管理 (US-CB-001/002/003)', ()
     })
 
     await test.step('Cleanup: 恢复 bucket 启用状态（避免污染其他 demo）', async () => {
-      await page.goto(`/manage/billing/credit-buckets`)
+      await page.goto(`/${REALM_ID}/manage/billing/credit-buckets`)
       await editBucketViaUI(page, bucketId, { enabled: true })
       demoLogger.testCode.log('[Test] ✓ 已恢复 bucket 启用状态')
     })
@@ -640,7 +640,7 @@ test.describe('[Realm Admin] Credit Bucket 目录管理 (US-CB-001/002/003)', ()
     })
 
     await test.step('When: 选取一个有活跃持有者/订阅的 seed bucket 并请求删除', async () => {
-      await page.goto(`/manage/billing/credit-buckets`)
+      await page.goto(`/${REALM_ID}/manage/billing/credit-buckets`)
       await expect(page.locator(SELECTORS.creditBucket.directoryPage)).toBeVisible()
 
       // The seeded `primary-pool` carries registration + wallet holders + the

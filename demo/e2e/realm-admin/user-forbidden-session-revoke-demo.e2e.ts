@@ -374,7 +374,7 @@ async function selectUserStatus(
  * (user-sessions-management-demo.e2e.ts) — duplicated locally because DE-D01
  * keeps it module-local. Non-fatal on 404 / missing user.
  *
- * The `/api/users/{realmId}` search + delete endpoints are gated on
+ * The `/api/users` search + delete endpoints are gated on
  * `Authorization: Bearer`, which `page.request.*` cannot supply (token is SPA
  * in-memory only — see the sibling sessions demo's `backendBaseUrl` note). A
  * one-shot admin Bearer context is built from `browser` and disposed after the
@@ -397,7 +397,7 @@ async function deleteExistingUser(
   try {
     try {
       // Resolve the user id by email via the admin user list API.
-      const searchUrl = `${backendBaseUrl()}/api/users/${ADMIN_REALM}?search=${encodeURIComponent(
+      const searchUrl = `${backendBaseUrl()}/api/users?email=${encodeURIComponent(
         email
       )}`
       const searchRes = await adminApi.get(searchUrl)
@@ -419,7 +419,7 @@ async function deleteExistingUser(
         return
       }
 
-      const deleteUrl = `${backendBaseUrl()}/api/users/${ADMIN_REALM}/${match.id}`
+      const deleteUrl = `${backendBaseUrl()}/api/users/${match.id}`
       const delRes = await adminApi.delete(deleteUrl)
       if (delRes.status() >= 400 && delRes.status() !== 404) {
         const body = await delRes.text().catch(() => '<unreadable>')

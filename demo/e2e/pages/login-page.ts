@@ -10,7 +10,8 @@ import { Page, Locator, expect, type Response } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
 import { dismissOnboardingWelcomeDialogIfPresent } from '../helpers/onboarding-dismiss'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import { waitForRealmSessionPersisted } from '../helpers/realm-session'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Login credentials interface
@@ -185,18 +186,6 @@ export class LoginPage extends BasePage {
       await this.page.waitForURL(/\/auth\/login/, { timeout: 10000 }).catch(() => {})
     }
     await expect(this.container).toBeVisible()
-  }
-
-  /**
-   * Wait for the realm-isolated refresh token to be persisted — the proof
-   * that the frontend completed login + the PKCE token exchange. Refresh
-   * tokens are keyed `herald.refreshToken:{realm}`; `auth-storage` only
-   * holds transient PKCE state.
-   */
-  private async waitForRealmSessionPersisted(realmId: string): Promise<void> {
-    await expect.poll(() => this.page.evaluate(
-      realm => Boolean(localStorage.getItem(`herald.refreshToken:${realm}`)), realmId
-    )).toBe(true)
   }
 
   /**
@@ -379,7 +368,7 @@ export class LoginPage extends BasePage {
     this.accessToken = accessToken
     console.log(`[LoginPage] Login successful, userId: ${userId}`)
 
-    await this.waitForRealmSessionPersisted(realmId)
+    await waitForRealmSessionPersisted(this.page, realmId)
 
     await expect(this.page).toHaveURL(/\/manage(?:\/|\?|$)/)
 
@@ -517,7 +506,7 @@ export class LoginPage extends BasePage {
 
     this.accessToken = accessToken
 
-    await this.waitForRealmSessionPersisted(realmId)
+    await waitForRealmSessionPersisted(this.page, realmId)
   }
 
   /**

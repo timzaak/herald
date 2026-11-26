@@ -43,14 +43,14 @@ def clean_evaluation_files(*, what_if: bool) -> tuple[int, int]:
 
 
 def clean_unified_logs(*, what_if: bool) -> tuple[int, int]:
-    """Clean demo/test-results/unified-logs/*.log and *-network.json files."""
+    """Clean demo/test-results/unified-logs/*.log, *-network.json and *-route.json files."""
     dir_path = REPO_ROOT / "demo" / "test-results" / "unified-logs"
     if not dir_path.exists():
         return 0, 0
 
     count = 0
     recovered = 0
-    for pattern in ("*.log", "*-network.json"):
+    for pattern in ("*.log", "*-network.json", "*-route.json"):
         for file in dir_path.glob(pattern):
             size = file.stat().st_size
             if not what_if:

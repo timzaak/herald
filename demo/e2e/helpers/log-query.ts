@@ -16,8 +16,8 @@
  * ```
  */
 
-import { ApiRequestLog } from './network-logger'
-import { ConsoleLogEntry } from './console-logger'
+import { ApiRequestLog } from 'playwright-unified-logger'
+import { ConsoleLogEntry } from 'playwright-unified-logger'
 
 /**
  * Aggregated log entry with timestamp correlation

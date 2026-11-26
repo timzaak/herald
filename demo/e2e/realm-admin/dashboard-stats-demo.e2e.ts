@@ -6,7 +6,7 @@
  * Test Coverage:
  * - US-RA-010: Dashboard 用户活跃概览 (stats cards: total, new, active users)
  * - US-RA-011: Dashboard 认证趋势图 (auth trend chart visibility)
- * - US-RA-012: Dashboard 快捷导航跳转 (quick nav links navigation)
+ * - US-RA-012: Dashboard 快捷导航跳转 (recent-activity card links navigation)
  *
  * Test Data Strategy:
  * - Uses Demo Seed admin realm with admin@cas.com
@@ -61,21 +61,22 @@ test.describe('[Dashboard] Stats & Navigation Demo Tests', () => {
     })
   })
 
+  // The 6-card QuickNav this story was written against was replaced by the
+  // recent-activity tables (frontend commit 69b33a82): each card carries a
+  // "view all" link into its management page.
   test('US-RA-012 Dashboard 快捷导航跳转', async ({ dashboardPage, page }) => {
     await test.step('Given: Dashboard is loaded', async () => {
       await dashboardPage.waitForLoad()
     })
 
-    await test.step('Then: Quick nav section visible with all 6 nav cards', async () => {
-      await expect(dashboardPage.quickNav).toBeVisible()
-
-      const navLinks = dashboardPage.getQuickNavLinks()
-      const navCount = await navLinks.count()
-      expect(navCount).toBeGreaterThanOrEqual(6)
+    await test.step('Then: Recent activity cards are shown', async () => {
+      await expect(dashboardPage.recentUsersCard).toBeVisible()
+      await expect(dashboardPage.recentAuditCard).toBeVisible()
+      await expect(dashboardPage.recentPointsCard).toBeVisible()
     })
 
-    await test.step('When: Click Users quick nav card', async () => {
-      await dashboardPage.clickQuickNav('users')
+    await test.step('When: Click "view all" on the recent users card', async () => {
+      await dashboardPage.clickRecentCardViewAll(dashboardPage.recentUsersCard)
     })
 
     await test.step('Then: URL navigates to users page', async () => {

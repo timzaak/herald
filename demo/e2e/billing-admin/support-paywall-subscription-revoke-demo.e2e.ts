@@ -100,7 +100,7 @@ import { verifyTestEnvironment } from '../helpers/environment-setup'
 import { LoginPage } from '../pages/login-page'
 import { EntitlementMappingsPage } from '../pages/entitlement-mappings-page'
 import { RolesPage } from '../pages/roles-page'
-import { UnifiedLogger } from '../helpers/unified-logger'
+import { UnifiedLogger } from 'playwright-unified-logger'
 import { makeExtApiRequest } from '../helpers/ext-api-helper'
 import {
   createTestApiKeyWithPermission,
@@ -277,6 +277,11 @@ test.beforeAll(async ({ browser }) => {
       userId,
     }
   } finally {
+    // playwright-unified-logger holds a process-global console interception
+    // lock that only finalize() releases, and Playwright reuses the worker
+    // across test files: leaving this logger un-finalized would make every
+    // later logger in this worker throw on testCode.*() calls.
+    await adminLogger.finalize()
     await apiContext?.dispose()
     await adminContext.close()
   }
@@ -345,7 +350,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
           // The test role was present among manual roles — replace with the
           // filtered list (test role removed).
           const resp = await admin.request.put(
-            `${backendBaseUrl()}/api/users/${TEST_REALM}/${userId}/roles`,
+            `${backendBaseUrl()}/api/users/${userId}/roles`,
             {
               headers: { 'Content-Type': 'application/json' },
               data: { roleIds: filtered },
@@ -578,7 +583,7 @@ test.describe('[Billing Admin] Support Paywall — subscription role revoke (US-
         const filtered = currentRoles.filter((id) => id !== roleId)
         if (filtered.length !== currentRoles.length) {
           const resp = await admin.request.put(
-            `${backendBaseUrl()}/api/users/${TEST_REALM}/${userId}/roles`,
+            `${backendBaseUrl()}/api/users/${userId}/roles`,
             {
               headers: { 'Content-Type': 'application/json' },
               data: { roleIds: filtered },
@@ -793,7 +798,7 @@ async function purchaseFirstMappingInline(
   mapping: Pick<SetupContext, 'mappingId' | 'priceKey' | 'billingType'>,
 ): Promise<string> {
   await page.evaluate(() => localStorage.removeItem('cas-purchase-flow'))
-  await page.goto(`/user/purchase-points`)
+  await page.goto(`/${realmId}/user/purchase-points`)
   await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
 
   const gridSelector = mapping.billingType === 'one_time'
@@ -838,7 +843,7 @@ async function purchaseFirstMappingInline(
     )
   }
 
-  await page.goto(`/user/purchase-points`)
+  await page.goto(`/${realmId}/user/purchase-points`)
   await expect(page.locator(SELECTORS.purchasePoints.page)).toBeVisible()
   return extractAttemptId(page)
 }
@@ -958,7 +963,7 @@ async function resolveUserIdByEmail(
   email: string,
 ): Promise<string | null> {
   const resp = await request.get(
-    `${backendBaseUrl()}/api/users/${realmId}?email=${encodeURIComponent(email)}`,
+    `${backendBaseUrl()}/api/users?email=${encodeURIComponent(email)}`,
   )
   if (!resp.ok()) {
     throw new Error(

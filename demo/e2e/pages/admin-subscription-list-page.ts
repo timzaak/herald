@@ -1,7 +1,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Page Object for the Admin Subscription List page.
@@ -46,7 +46,7 @@ export class AdminSubscriptionListPage extends BasePage {
    * Navigate to the admin subscription list page for a given realm.
    */
   async goto(realmId: string = 'admin'): Promise<void> {
-    await super.goto(`/manage/billing/subscriptions`)
+    await super.goto(`/${realmId}/manage/billing/subscriptions`)
     await this.waitForReady()
   }
 

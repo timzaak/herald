@@ -121,7 +121,7 @@ test.describe('[SDK Ext API] Grant Points Demo Tests (US-TP-017)', () => {
         'http://localhost:8080'
 
       const usersResponse = await apiContext.get(
-        `${backendUrl}/api/users/admin?search=${encodeURIComponent(DEMO_ADMIN.email)}`,
+        `${backendUrl}/api/users?email=${encodeURIComponent(DEMO_ADMIN.email)}`,
       )
       if (usersResponse.ok()) {
         const usersBody = await usersResponse.json()

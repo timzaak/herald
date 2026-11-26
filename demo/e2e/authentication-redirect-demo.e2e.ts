@@ -83,8 +83,8 @@ test.describe('Authentication Redirect Flow', () => {
   // Scenario 2: Unauthenticated user accessing protected route
   test('Scenario 2: Unauthenticated user accessing protected route redirects to login', async ({ page }) => {
     await test.step('Access protected route (manage page)', async () => {
-      // The admin console now lives at the top-level /manage (no realm prefix).
-      await page.goto(`${BASE_URL}/manage`)
+      // The admin console lives at /{realmId}/manage on the main domain.
+      await page.goto(`${BASE_URL}/${REALM_ID}/manage`)
     })
 
     // Should redirect to login page
@@ -351,8 +351,8 @@ test.describe('Authentication Redirect Flow', () => {
     })
 
     await test.step('Try to access admin dashboard directly', async () => {
-      // The admin console now lives at the top-level /manage (no realm prefix).
-      await page.goto(`${BASE_URL}/manage`)
+      // The admin console lives at /{realmId}/manage on the main domain.
+      await page.goto(`${BASE_URL}/${REALM_ID}/manage`)
     })
 
     // Session does not survive the reload → redirected to login (with redirect back to /manage)
@@ -416,9 +416,9 @@ test.describe('Authentication Redirect Flow', () => {
     })
 
     await test.step('Verify cannot access protected route without login', async () => {
-      // The admin console now lives at the top-level /manage (no realm prefix).
+      // The admin console lives at /{realmId}/manage on the main domain.
       // Unauthenticated users are redirected to the realm-scoped auth/login.
-      await page.goto(`${BASE_URL}/manage`)
+      await page.goto(`${BASE_URL}/${REALM_ID}/manage`)
       await expect(page).toHaveURL(new RegExp(`\\/${REALM_ID}\\/auth\\/login`), { timeout: 10000 })
     })
   })

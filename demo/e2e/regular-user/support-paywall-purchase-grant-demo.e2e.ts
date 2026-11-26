@@ -91,7 +91,7 @@ import { createBearerApiContext } from '../helpers/auth'
 import { LoginPage } from '../pages/login-page'
 import { EntitlementMappingsPage } from '../pages/entitlement-mappings-page'
 import { RolesPage } from '../pages/roles-page'
-import { UnifiedLogger } from '../helpers/unified-logger'
+import { UnifiedLogger } from 'playwright-unified-logger'
 import { makeExtApiRequest } from '../helpers/ext-api-helper'
 import {
   createTestApiKeyWithPermission,
@@ -317,6 +317,11 @@ test.beforeAll(async ({ browser }) => {
       await adminApi.dispose().catch(() => {})
     }
   } finally {
+    // playwright-unified-logger holds a process-global console interception
+    // lock that only finalize() releases, and Playwright reuses the worker
+    // across test files: leaving this logger un-finalized would make every
+    // later logger in this worker throw on testCode.*() calls.
+    await adminLogger.finalize()
     await adminContext.close()
   }
 })
@@ -671,7 +676,7 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
       let respBody: unknown = {}
       try {
         const resp = await userApi.post(
-          `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
+          `${purchaseBaseUrl()}/api/bill/purchase/payment-attempts`,
           {
             headers: { 'Content-Type': 'application/json' },
             data: {
@@ -736,7 +741,7 @@ test.describe('[Regular User] Support Paywall — purchase grants role + already
         test.skip(true, 'no points-only mapping without role grant available in realm-001')
       } else {
         const resp = await userApi.post(
-          `${purchaseBaseUrl()}/api/bill/${TEST_REALM}/purchase/payment-attempts`,
+          `${purchaseBaseUrl()}/api/bill/purchase/payment-attempts`,
           {
             headers: { 'Content-Type': 'application/json' },
             data: {
@@ -854,7 +859,7 @@ async function resolveUserIdByEmail(
   email: string,
 ): Promise<string | null> {
   const resp = await apiContext.get(
-    `${purchaseBaseUrl()}/api/users/${realmId}?email=${encodeURIComponent(email)}`,
+    `${purchaseBaseUrl()}/api/users?email=${encodeURIComponent(email)}`,
   )
   if (!resp.ok()) {
     throw new Error(

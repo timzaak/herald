@@ -133,10 +133,10 @@ test.describe('[Regular User] Legal Consent Self-delete Account Demo Tests', () 
     expect(userId).toBeDefined()
     expect(userId).not.toBe('')
 
-    // Post-login lands on a session-scoped route with NO realm prefix after the
-    // route refactor (commit 03eeb456): regular users go to /user/profile.
+    // Post-login the main domain lands on a realm-prefixed route: regular users
+    // go to /{realmId}/user/profile.
     await page.waitForURL(
-      /^http:\/\/localhost:3000\/(user\/profile|manage\/)/,
+      new RegExp(`^http://localhost:3000/${realmId}/(user/profile|manage/)`),
       { timeout: 15000 }
     )
 
@@ -242,7 +242,7 @@ test.describe('[Regular User] Legal Consent Self-delete Account Demo Tests', () 
 
       await test.step('Log in as Realm Admin and open the audit log', async () => {
         await loginAsAdminWithConsent(page, realmId)
-        await page.goto(`${BASE_URL}/manage/audit`, { waitUntil: 'domcontentloaded' })
+        await page.goto(`${BASE_URL}/${realmId}/manage/audit`, { waitUntil: 'domcontentloaded' })
       })
 
       const auditPage = new AuditPage(page)

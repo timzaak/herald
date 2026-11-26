@@ -184,7 +184,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: user is logged in and on the user invoices page', async () => {
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -223,7 +223,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: admin is logged in and on invoice admin page', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', REALM_ID)
-        await page.goto(`/manage/billing/invoices`)
+        await page.goto(`/${REALM_ID}/manage/billing/invoices`)
         await expect(page.getByTestId('invoice-admin-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -278,7 +278,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: user is logged in and on the purchase history page', async () => {
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/subscription-history`)
+        await page.goto(`/${REALM_ID}/user/subscription-history`)
         await expect(page.getByTestId('purchase-records-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -298,8 +298,9 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
           `purchase-history-invoice-button-${creemAttempt.id}-reason`
         )
         await expect(reasonSpan).toBeVisible({ timeout: 10000 })
-        // Backend reason text from `determine_invoice_apply_route` (Creem rule).
-        await expect(reasonSpan).toContainText('Creem')
+        // Backend reason text from `determine_invoice_apply_route` (Creem rule):
+        // the backend interpolates the raw provider code, hence lowercase "creem".
+        await expect(reasonSpan).toContainText('creem transactions')
         await expect(reasonSpan).toContainText('Merchant of Record')
       })
 
@@ -342,7 +343,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: user is logged in and on the user invoices page', async () => {
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -384,7 +385,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: user is logged in and on the user invoices page', async () => {
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -422,7 +423,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: user is logged in and on the user invoices page', async () => {
         await loginPage.loginAsUser(user.email, user.password, REALM_ID)
-        await page.goto(`/user/invoices`)
+        await page.goto(`/${REALM_ID}/user/invoices`)
         await expect(page.getByTestId('invoice-user-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -459,7 +460,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: admin is logged in and on invoice admin page', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', REALM_ID)
-        await page.goto(`/manage/billing/invoices`)
+        await page.goto(`/${REALM_ID}/manage/billing/invoices`)
         await expect(page.getByTestId('invoice-admin-page')).toBeVisible({ timeout: 10000 })
       })
 
@@ -502,7 +503,7 @@ test.describe('[Regular User] Invoice Fallback User Demo Tests', () => {
 
       await test.step('Given: admin is logged in and on invoice admin page', async () => {
         await loginPage.loginAsAdmin(DEMO_ADMIN.email, 'password', REALM_ID)
-        await page.goto(`/manage/billing/invoices`)
+        await page.goto(`/${REALM_ID}/manage/billing/invoices`)
         await expect(page.getByTestId('invoice-admin-page')).toBeVisible({ timeout: 10000 })
       })
 

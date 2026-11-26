@@ -79,22 +79,19 @@ const SIGNUP_URL = `${BASE_URL}/${ADMIN_REALM}/auth/signup`
  * admin-web-console credential-switch race (documented in demo-page.fixtures.ts
  * dashboardPage fixture): a stale cached error on the settings query prevents
  * the `settings-page` container from rendering within the 10s timeout. The
- * robust fix — used by RealmsPage.goto() (direct URL) and the dashboardPage
- * fixture (reload after login) — is to navigate directly to the session-scoped
- * /manage/settings URL, clear the in-memory React Query cache, and reload so
- * the SPA remounts with the correct admin-web-console bearer and a fresh cache.
+ * fix — same as RealmsPage.goto() (direct URL) — is to navigate directly to
+ * the realm-prefixed /{realmId}/manage/settings URL: a full-page goto remounts
+ * the SPA with a fresh cache.
+ *
+ * The cache must NOT be cleared through `__REACT_QUERY_CLIENT__.clear()`
+ * before a reload: doing so drops the session (the refresh token is removed
+ * from storage) and the reload lands on the login page.
  */
 async function navigateToSettings(settingsPage: SettingsPage): Promise<void> {
   const page = settingsPage.page
-  await page.goto(`${BASE_URL}/manage/settings`, { waitUntil: 'domcontentloaded' })
-  // Clear the in-memory React Query cache (exposed on window in main.tsx) so a
-  // stale cached 403 from a credential-switch race cannot prevent the settings
-  // content from rendering after the reload.
-  await page.evaluate(() => {
-    const w = window as typeof window & { __REACT_QUERY_CLIENT__?: { clear: () => void } }
-    w.__REACT_QUERY_CLIENT__?.clear()
-  }).catch(() => {})
-  await page.reload({ waitUntil: 'networkidle', timeout: 15000 })
+  await page.goto(`${BASE_URL}/${ADMIN_REALM}/manage/settings`, {
+    waitUntil: 'domcontentloaded',
+  })
   await settingsPage.waitForReady()
 }
 
@@ -184,8 +181,8 @@ test.describe('[Super Admin] Platform Self-Service Realm Signup Demo', () => {
     // Act: a fresh, unauthenticated visitor opens the public signup page and
     // submits the form. An explicit per-run realm slug makes the provisioned
     // realm deterministic and identifiable in the realms list. (The success
-    // redirect URL is session-scoped /manage with no realm prefix, so the realm
-    // id is not read back from the URL — the explicit slug is the only handle.)
+    // redirect URL is /{realmId}/manage with the realm id equal to the slug, so
+    // the explicit slug is the only handle needed.)
     // -------------------------------------------------------------------------
     const stamp = testStartTime
     const realmSlug = `signup-demo-${stamp}`
@@ -220,14 +217,15 @@ test.describe('[Super Admin] Platform Self-Service Realm Signup Demo', () => {
     // visitor is landed in that realm's management console as realm-admin. The
     // success token is issued for the NEW realm (DEC-012) and the frontend's
     // completeSignup → redirectPathForPermissions yields DEFAULT_ADMIN_REDIRECT
-    // = '/manage' (a session-scoped path: the new realm is carried by the auth
-    // store session, NOT by the URL — see realm-routing.ts realmPath()).
+    // = '/manage', which the signup page navigates to through realmPath(): on
+    // the main domain the URL is /{realmId}/manage (see realm-routing.ts).
     // -------------------------------------------------------------------------
     await test.step('Provisioned realm: landed in the management console', async () => {
-      // Session-scoped /manage has NO realm prefix — assert the prefix-less
-      // path, not /{realmId}/manage. The new realm id is NOT in the URL.
-      await page.waitForURL((url) => url.pathname === '/manage', { timeout: 30000 })
-      demoLogger.testCode.log(`Landed at session-scoped /manage: ${page.url()}`)
+      // The success URL carries the NEW realm id, which is the submitted slug.
+      await page.waitForURL((url) => url.pathname === `/${realmSlug}/manage`, {
+        timeout: 30000,
+      })
+      demoLogger.testCode.log(`Landed in the new realm console: ${page.url()}`)
     })
 
     await test.step('New realm-admin: sidebar management entries are visible', async () => {

@@ -9,7 +9,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * TOTP Configuration Data
@@ -417,34 +417,28 @@ export class SettingsPage extends BasePage {
   }
 
   /**
-   * Navigate directly to the session-scoped settings URL and wait for it ready.
+   * Navigate directly to the realm-prefixed settings URL and wait for it ready.
    *
    * goto() navigates via a sidebar-menu click; after an in-console scenario the
    * in-memory React Query cache can hold a stale error from the
    * admin-web-console credential-switch race (documented in
    * demo-page.fixtures.ts dashboardPage fixture): a stale cached error on the
    * settings query prevents the `settings-page` container from rendering
-   * within the 10s timeout. Navigating directly to /manage/settings, clearing
-   * the in-memory cache (exposed on window in main.tsx) and reloading remounts
-   * the SPA with the correct admin-web-console bearer and a fresh cache —
-   * same fix as RealmsPage.goto() (direct URL) and the dashboardPage fixture
-   * (reload after login).
+   * within the 10s timeout. Navigating directly to /{realmId}/manage/settings
+   * remounts the SPA with a fresh cache — same fix as RealmsPage.goto()
+   * (direct URL).
+   *
+   * The in-memory cache must NOT be cleared through
+   * `__REACT_QUERY_CLIENT__.clear()` before a reload: doing so drops the
+   * session (the refresh token is removed from storage) and the reload lands
+   * on the login page instead of the settings page.
    */
   async gotoDirect(): Promise<void> {
     const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
-    await this.page.goto(`${BASE_URL}/manage/settings`, { waitUntil: 'domcontentloaded' })
-    // Clear the in-memory React Query cache while the old SPA instance is
-    // still loaded, so the reload below remounts with a fresh cache.
-    await this.page
-      .evaluate(() => {
-        const w = window as typeof window & { __REACT_QUERY_CLIENT__?: { clear: () => void } }
-        w.__REACT_QUERY_CLIENT__?.clear()
-      })
-      .catch(() => {})
     // `domcontentloaded` (not `networkidle`): the console SPA keeps persistent
     // connections busy and networkidle can flake-timeout past the goto
     // timeout; waitForReady() is the actual readiness gate.
-    await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 })
+    await this.page.goto(`${BASE_URL}/${this.realmId}/manage/settings`, { waitUntil: 'domcontentloaded' })
     await this.waitForReady()
   }
 

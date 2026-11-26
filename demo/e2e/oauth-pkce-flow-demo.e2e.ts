@@ -14,6 +14,7 @@
  */
 
 import { test, expect, cleanupTestData } from './fixtures/demo-page.fixtures'
+import { waitForRealmSessionPersisted } from './helpers/realm-session'
 import {
   BASE_URL,
   MCP_CLIENT_ID,
@@ -185,23 +186,10 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
     })
 
     await test.step('And: Bearer token is persisted in localStorage', async () => {
-      // The refresh token is persisted by the Herald SDK as a raw string under
-      // its own key 'herald.refreshToken'
-      // (frontend/src/lib/herald-client.ts HERALD_REFRESH_TOKEN_STORAGE_KEY,
-      // passed to the SDK as storageKey). The Zustand 'auth-storage' persist
-      // no longer contains a refreshToken — its partialize deliberately
-      // excludes the token family (frontend/src/stores/auth-store.ts: "The
-      // token family itself ... lives in the Herald SDK client"). The token
-      // lands asynchronously after the post-login PKCE exchange, so poll
-      // briefly until it appears in localStorage.
-      let refreshToken = ''
-      for (let i = 0; i < 20 && !refreshToken; i++) {
-        refreshToken = await page.evaluate(
-          () => window.localStorage.getItem('herald.refreshToken') ?? ''
-        )
-        if (!refreshToken) await page.waitForTimeout(250)
-      }
-      expect(refreshToken).toBeTruthy()
+      // The MCP client switch rotates the token family but keeps the same
+      // per-realm slot — the persisted proof of the completed PKCE exchange.
+      // WHY the slot exists and what it proves: helpers/realm-session.ts.
+      await waitForRealmSessionPersisted(page, realmId)
     })
   })
 
@@ -311,6 +299,10 @@ test.describe('[OAuth PKCE] Happy Path Demo Tests', () => {
         redirect_uri: redirectUri,
         client_id: MCP_CLIENT_ID,
         code_verifier: pkce.code_verifier,
+        // The MCP code's resource binding is mandatory and must be repeated
+        // here (backend/api-oauth/src/token.rs: the exchange without the
+        // code's resource is rejected).
+        resource,
       })
 
       // The public MCP client authenticates with PKCE alone (no secret) and

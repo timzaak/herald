@@ -54,7 +54,7 @@ export async function navigateToInvoiceAdminPage(
   page: Page,
   realmId: string,
 ): Promise<void> {
-  await page.goto(`/manage/billing/invoices`)
+  await page.goto(`/${realmId}/manage/billing/invoices`)
   await expect(page.getByTestId('invoice-admin-page')).toBeVisible({ timeout: 10000 })
 }
 

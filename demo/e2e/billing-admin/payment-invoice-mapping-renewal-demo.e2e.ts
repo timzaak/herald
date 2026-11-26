@@ -797,7 +797,7 @@ test.describe('[Billing][Payment-Invoice-Mapping] Simulated renewal — US-PM-00
  */
 async function setupRealmAndEstablishCreemSubscription(
   loginPage: import('../pages/login-page').LoginPage,
-  demoLogger: import('../helpers/unified-logger').UnifiedLogger,
+  demoLogger: import('playwright-unified-logger').UnifiedLogger,
 ): Promise<{
   adminUserId: string
   creemProductId: string
@@ -835,7 +835,7 @@ async function setupRealmAndEstablishCreemSubscription(
 async function syncCreemCatalog(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<void> {
-  const resp = await request.post(`${BASE_URL}/api/bill/${REALM_ID}/entitlement-mappings/sync`, {
+  const resp = await request.post(`${BASE_URL}/api/bill/entitlement-mappings/sync`, {
     data: { paymentProvider: 'creem' },
   })
   if (!resp.ok()) {
@@ -855,7 +855,7 @@ async function syncCreemCatalog(
  */
 async function setupRealmAndEstablishStripeSubscription(
   loginPage: import('../pages/login-page').LoginPage,
-  demoLogger: import('../helpers/unified-logger').UnifiedLogger,
+  demoLogger: import('playwright-unified-logger').UnifiedLogger,
 ): Promise<{
   adminUserId: string
   clientAppId: string
@@ -1064,12 +1064,12 @@ async function seedStripeWebhookConfig(
  * parse_checkout_completed_payload (stripe_webhook_handlers.rs:456-459). The
  * seeded `points-demo-app` client app gets a fresh uuidv7 DB id on every seed
  * run, so we resolve it via the admin client-apps list rather than hardcoding.
- * Route: GET /api/client/{realmId} (client_apps/list.rs:17).
+ * Route: GET /api/client (client_apps/list.rs:18).
  */
 async function discoverClientAppId(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<string> {
-  const resp = await request.get(`${BASE_URL}/api/client/${REALM_ID}?page=0&pageSize=100`)
+  const resp = await request.get(`${BASE_URL}/api/client?page=0&pageSize=100`)
   if (!resp.ok()) {
     throw new Error(`Failed to list client apps in realm ${REALM_ID}: ${resp.status()}`)
   }
@@ -1101,7 +1101,7 @@ async function discoverClientAppId(
   // client_app_id to attach to the subscription; it does not have to be the
   // seeded points-demo-app. Mirrors stripe-payment-comprehensive-demo.e2e.ts.
   const clientId = `renewal-demo-app-${RUN_TAG}`
-  const createResp = await request.post(`${BASE_URL}/api/client/${REALM_ID}`, {
+  const createResp = await request.post(`${BASE_URL}/api/client`, {
     data: {
       clientId,
       name: 'Renewal Demo App',
@@ -1134,7 +1134,7 @@ async function discoverCreemProductId(
   request: import('@playwright/test').APIRequestContext,
 ): Promise<string> {
   const resp = await request.get(
-    `${BASE_URL}/api/bill/${REALM_ID}/entitlement-mappings?paymentProvider=creem`,
+    `${BASE_URL}/api/bill/entitlement-mappings?paymentProvider=creem`,
   )
   if (!resp.ok()) {
     throw new Error(

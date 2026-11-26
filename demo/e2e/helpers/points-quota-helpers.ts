@@ -123,7 +123,7 @@ export async function createEntitlementMappingWithQuotaWindows(
   windows: QuotaWindowFixture[],
 ): Promise<void> {
   await loginAsAdmin(page, { realmId, waitNavigation: true })
-  await page.goto(`/manage/billing/entitlement-mappings`)
+  await page.goto(`/${realmId}/manage/billing/entitlement-mappings`)
   await expect(page.locator(SELECTORS.multiPriceMapping.page)).toBeVisible()
 
   const productRow = page.locator(
@@ -309,11 +309,17 @@ function walletsApiBaseUrl(): string {
  * Callers that need real values MUST pass a Bearer-authenticated `apiContext`
  * (e.g. built via `createBearerApiContext(loginPage.getAccessToken())`).
  */
-async function fetchWalletsByBucket(
+export interface WalletsByBucketItem {
+  bucketId?: string
+  bucketTotal?: number | null
+  spendableFromPool?: number | null
+}
+
+export async function fetchWalletsByBucket(
   page: Page,
   realmId: string,
   apiContext?: APIRequestContext,
-): Promise<{ bucketId?: string }[] | null> {
+): Promise<WalletsByBucketItem[] | null> {
   const requestContext = apiContext ?? page.context().request
   // Bearer context → user-scoped endpoint (points.view). Cookie fallback →
   // legacy admin endpoint path (kept for backward compat; 401s → null → 0).
@@ -323,7 +329,7 @@ async function fetchWalletsByBucket(
   const resp = await requestContext.get(url)
   if (!resp.ok()) return null
   const body = await resp.json()
-  return (body?.items ?? []) as { bucketId?: string }[]
+  return (body?.items ?? []) as WalletsByBucketItem[]
 }
 
 /**
@@ -350,39 +356,6 @@ export async function getSpendableFromPool(
     spendableFromPool?: number | null
   }[]).find((i) => i.bucketId === bucketId)
   return match?.spendableFromPool ?? 0
-}
-
-/**
- * Read the backend-computed effective consumable total for a bucket directly
- * from the wallets API `bucketTotal` field.
- *
- * The backend derives this as `min(window remaining) + pool balance`
- * (see `backend/api-points/src/wallets.rs` — `spendable_from_quota` is the min
- * window remaining, and `bucket_total = spendable_from_quota + pool_sum`), so
- * it is the authoritative "spendable now" total.
- *
- * The dashboard refactor (`PointsUsageDashboard.tsx`) no longer renders an
- * explicit "spendable now" headline with a stable testid — it folds
- * `card.bucketTotal` into internal alert logic only. The total-formula test
- * therefore verifies the invariant server-side via the same wallets response
- * the dashboard derives from, using this helper for the per-bucket total.
- *
- * Pass `apiContext` (a Bearer-authenticated request context built from the
- * logged-in user's access token) for correct values — see `fetchWalletsByBucket`.
- */
-export async function getBucketTotal(
-  page: Page,
-  realmId: string,
-  bucketId: string,
-  apiContext?: APIRequestContext,
-): Promise<number> {
-  const items = await fetchWalletsByBucket(page, realmId, apiContext)
-  if (!items) return 0
-  const match = (items as {
-    bucketId?: string
-    bucketTotal?: number | null
-  }[]).find((i) => i.bucketId === bucketId)
-  return match?.bucketTotal ?? 0
 }
 
 function parseAmount(text: string | undefined | null): number {

@@ -1,7 +1,7 @@
 import { Page, Locator, expect } from '@playwright/test'
 import { SELECTORS } from '../selectors'
 import { BasePage } from './base-page'
-import type { UnifiedLogger } from '../helpers/unified-logger'
+import type { UnifiedLogger } from 'playwright-unified-logger'
 
 /**
  * Page Object for the Payment Providers management page (billing admin).
@@ -78,7 +78,7 @@ export class PaymentProvidersPage extends BasePage {
    * page shell to mount.
    */
   async goto(realmId: string = 'admin'): Promise<void> {
-    await super.goto(`/manage/billing/payment-providers`)
+    await super.goto(`/${realmId}/manage/billing/payment-providers`)
     await expect(this.container).toBeVisible()
   }
 
