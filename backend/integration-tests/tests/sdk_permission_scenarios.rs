@@ -1,19 +1,11 @@
-// =============================================================================
 // SDK Permission Scenarios
-// =============================================================================
 //
 // Test SDK permission checking against real API
-// =============================================================================
 
 use herald_sdk::{Client, PermissionCheckRequest, Rule};
 use herald_test_support::SchemaTestContext;
 use test_context::test_context;
 
-/// Test scenario: SDK permission check - allowed
-///
-/// ============================================================================
-/// Permission Check Scenarios
-/// ============================================================================
 /// Test scenario: SDK permission check - allowed
 ///
 /// Verifies that the SDK correctly handles a successful permission check
@@ -72,6 +64,7 @@ async fn test_scenario_sdk_permission_allowed(ctx: &mut SchemaTestContext) {
         response.user_id.is_some(),
         "Response should include user_id"
     );
+    assert_eq!(response.error, None, "An allowed check carries no error");
 
     // 8. Cleanup
     handle.abort();
@@ -137,7 +130,70 @@ async fn test_scenario_sdk_permission_denied(ctx: &mut SchemaTestContext) {
         !response.allowed,
         "User should not have article:read permission"
     );
+    // A rule denial is an authenticated user: Herald sends neither `userId`
+    // nor `error`. Integrators tell this (403) from an unusable token (401) by
+    // exactly these two fields.
+    assert_eq!(
+        response.user_id, None,
+        "A rule denial must not identify the user"
+    );
+    assert_eq!(response.error, None, "A rule denial carries no error");
 
     // 8. Cleanup
+    handle.abort();
+}
+
+/// Test scenario: SDK permission check - unknown token
+///
+/// Verifies that an access token Herald never issued reaches the caller as a
+/// structured refusal that names the reason, not as an SDK error
+#[test_context(SchemaTestContext)]
+#[tokio::test]
+async fn test_scenario_sdk_permission_unknown_token(ctx: &mut SchemaTestContext) {
+    let unknown_token = "unknown_access_token_12345";
+
+    let (api_key, _api_key_entity) = herald_test_support::helpers::create_test_api_key(
+        ctx,
+        "Test API Key for Unknown Token",
+        true,
+        None,
+    )
+    .await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{}", addr);
+
+    let router = ctx.create_unified_test_router();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    let client = Client::new(base_url, api_key, None);
+
+    let request = PermissionCheckRequest {
+        access_token: unknown_token.to_string(),
+        rules: vec![Rule {
+            resource: "article".to_string(),
+            action: "read".to_string(),
+        }],
+    };
+
+    let result = client.check_permission(request).await;
+
+    // Herald answers 200 and names the reason in `error`. This value is what
+    // an integrator maps to 401, where a rule denial (no `error`) maps to 403.
+    let response = result.expect("An unknown token is a structured answer, not an SDK error");
+    assert!(!response.allowed, "An unknown token must not be allowed");
+    assert_eq!(
+        response.user_id, None,
+        "An unknown token must not identify a user"
+    );
+    assert_eq!(
+        response.error.as_deref(),
+        Some("token_not_found"),
+        "An unknown token must be reported as token_not_found"
+    );
+
     handle.abort();
 }

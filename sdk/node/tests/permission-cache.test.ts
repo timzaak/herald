@@ -8,9 +8,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { HttpResponse, http } from 'msw'
 import { HeraldClient } from '../src'
 import { server } from './mocks/server'
-import { API_KEY, BASE_URL, permissionHandler } from './helpers'
+import { API_KEY, BASE_URL, permissionCheckUrl, permissionHandler } from './helpers'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -121,5 +122,38 @@ describe('checkPermission cache', () => {
     await client.checkPermission({ accessToken: 'tok', rules: [] })
 
     expect(requests).toHaveLength(2)
+  })
+})
+
+// WHY: the backend answers every refusal with HTTP 200 and `allowed: false`,
+// and never sends `userId` on a denial. `error` is the only field separating
+// "token is dead" (401) from "authenticated but not permitted" (403) and
+// "Herald could not answer" (503); a server that keys on `userId` treats
+// every denial as an expired session.
+describe('checkPermission denial reason', () => {
+  const rule = { accessToken: 'tok', rules: [{ resource: 'doc', action: 'read' }] }
+
+  it.each([
+    'token_not_found',
+    'invalid_token',
+    'forbidden',
+    'cross_realm_access_forbidden',
+    'internal_error',
+  ])('surfaces the refusal reason `%s` sent with allowed=false', async (error) => {
+    server.use(
+      http.post(permissionCheckUrl, () => HttpResponse.json({ allowed: false, error })),
+    )
+
+    const result = await new HeraldClient(BASE_URL, API_KEY).checkPermission(rule)
+
+    expect(result).toEqual({ allowed: false, error })
+  })
+
+  it('leaves `error` and `userId` undefined on a plain rule denial', async () => {
+    server.use(http.post(permissionCheckUrl, () => HttpResponse.json({ allowed: false })))
+
+    const result = await new HeraldClient(BASE_URL, API_KEY).checkPermission(rule)
+
+    expect(result).toEqual({ allowed: false })
   })
 })

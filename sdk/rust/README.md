@@ -33,6 +33,8 @@ async fn main() {
     }).await.unwrap();
 
     println!("allowed: {}", resp.allowed);
+    // On a denial, `resp.error` separates an unusable token (`token_not_found`,
+    // `invalid_token`) from a denied rule (no `error`).
 
     // Get subscription
     let sub = client.get_subscription("realm-id", "client-app-id").await.unwrap();
@@ -46,11 +48,12 @@ async fn main() {
     let tx = client.get_transaction("realm-id", "transaction-id").await.unwrap();
     println!("type: {}, balanceAfter: {}", tx.transaction_type, tx.balance_after);
 
-    // Consume points
+    // Consume points. `client_app_id` is the client app's UUID `id` (as
+    // returned by `create_client_app` / `list_client_apps`), not its `client_id`.
     let result = client.consume_points(
         "realm-id",
         "user-id",
-        "client-app-id",
+        "client-app-uuid",
         100,
         Some("Purchase item X".to_string()),
         Some("idempotency-key-123".to_string()),

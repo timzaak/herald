@@ -43,6 +43,14 @@ export interface PermissionCheckRequest {
 export interface PermissionCheckResponse {
   allowed: boolean
   userId?: string
+  /** Why Herald refused to answer the check. Absent on an allow and on a
+   * plain rule denial: `allowed: false` without `error` means the user is
+   * authenticated but not permitted.
+   *
+   * Values: `token_not_found` / `invalid_token` (treat as 401),
+   * `cross_realm_access_forbidden` / `forbidden` (this key may not check the
+   * token, treat as 403), `internal_error` (Herald could not answer). */
+  error?: string
 }
 
 export interface SubscriptionDetail {

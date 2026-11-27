@@ -23,8 +23,8 @@ use herald_api_base::application::http::server::api_entities::{ApiError, ErrorRe
 use herald_api_base::application::http::state::AppState;
 
 /// Create a denied permission check response
-fn denied_response(error: Option<String>) -> Json<PermissionCheckResponse> {
-    Json(PermissionCheckResponse {
+fn denied_response(error: Option<String>) -> Json<ExtPermissionCheckResponse> {
+    Json(ExtPermissionCheckResponse {
         allowed: false,
         user_id: None,
         error,
@@ -39,10 +39,15 @@ pub struct RulesRequiredBody {
     pub message: &'static str,
 }
 
-/// Permission check request
+/// Permission check request: the user's browser access token and the rules to
+/// check.
+///
+/// Named `ExtPermissionCheckRequest` because the admin API registers a
+/// same-named schema in the merged OpenAPI spec; under the shared name this
+/// endpoint documented the admin request body instead of this one.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct PermissionCheckRequest {
+pub struct ExtPermissionCheckRequest {
     /// User's browser access token.
     pub access_token: String,
 
@@ -63,10 +68,15 @@ pub struct PermissionRule {
     pub action: String,
 }
 
-/// Permission check response
+/// Permission check response. Always HTTP 200: read `allowed`, then `error` to
+/// tell an unusable token from a denied rule.
+///
+/// Named `ExtPermissionCheckResponse` for the same reason as
+/// [`ExtPermissionCheckRequest`]; under the shared name this endpoint's
+/// response was documented without `error`.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct PermissionCheckResponse {
+pub struct ExtPermissionCheckResponse {
     /// Whether all permissions are granted
     pub allowed: bool,
 
@@ -101,9 +111,9 @@ pub struct PermissionCheckResponse {
     post,
     path = "/api/ext/permission/check",
     tag = "ext",
-    request_body = PermissionCheckRequest,
+    request_body = ExtPermissionCheckRequest,
     responses(
-        (status = 200, description = "Permission check completed", body = PermissionCheckResponse),
+        (status = 200, description = "Permission check completed", body = ExtPermissionCheckResponse),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Unauthorized - Invalid or missing API Key", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
@@ -113,8 +123,8 @@ pub struct PermissionCheckResponse {
 pub async fn check_permission(
     State(state): State<AppState>,
     Extension(identity): Extension<Identity>,
-    Json(req): Json<PermissionCheckRequest>,
-) -> Result<Json<PermissionCheckResponse>, ApiError> {
+    Json(req): Json<ExtPermissionCheckRequest>,
+) -> Result<Json<ExtPermissionCheckResponse>, ApiError> {
     // A missing or empty rules array is a request-contract error, not a
     // vacuous "all allowed": SDK callers that fail to populate rules must get
     // a 400 `rules_required`, never allowed=true with the caller's user id.
@@ -302,7 +312,7 @@ pub async fn check_permission(
         "Permission check completed"
     );
 
-    Ok(Json(PermissionCheckResponse {
+    Ok(Json(ExtPermissionCheckResponse {
         allowed: all_allowed,
         user_id: all_allowed.then(|| user_id.to_string()),
         error: None,

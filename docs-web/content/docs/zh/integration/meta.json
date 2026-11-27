@@ -3,6 +3,7 @@
   "defaultOpen": true,
   "pages": [
     "third-party-backend",
+    "python",
     "custom-user-ui",
     "mcp",
     "oidc",

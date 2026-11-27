@@ -48,6 +48,8 @@ const resp = await client.checkPermission({
   rules: [{ resource: 'document', action: 'read' }],
 })
 console.log('allowed:', resp.allowed)
+// On a denial, `resp.error` separates an unusable token (`token_not_found`,
+// `invalid_token`) from a denied rule (no `error`).
 
 // Force-refresh a user's cached checks after you know they changed
 client.invalidateCache('user-browser-token')
@@ -64,11 +66,13 @@ console.log('balance:', balance.balance)
 const tx = await client.getTransaction('realm-id', 'transaction-id')
 console.log('type:', tx.transactionType, 'balanceAfter:', tx.balanceAfter)
 
-// Consume points (idempotent via idempotencyKey)
+// Consume points (idempotent via idempotencyKey). The third argument is the
+// client app's UUID `id` (as returned by createClientApp / listClientApps),
+// not its `clientId`.
 const result = await client.consumePoints(
   'realm-id',
   'user-id',
-  'client-app-id',
+  'client-app-uuid',
   100,
   'Purchase item X',
   'idempotency-key-123',

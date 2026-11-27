@@ -268,7 +268,9 @@ export class HeraldClient {
   }
 
   /** Consume points from a user's account. `idempotencyKey` prevents double
-   * charges when the same logical consume is retried. */
+   * charges when the same logical consume is retried. `clientAppId` is the
+   * client app's UUID `id` (the `id` of `ClientAppInfo` / `ClientAppItem`),
+   * not its `clientId`. */
   consumePoints(
     realmId: string,
     userId: string,

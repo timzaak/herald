@@ -53,6 +53,15 @@ pub struct PermissionCheckResponse {
     pub allowed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
+    /// Why Herald refused to answer the check. Absent on an allow and on a
+    /// plain rule denial: `allowed == false` without `error` means the user
+    /// is authenticated but not permitted.
+    ///
+    /// Values: `token_not_found` / `invalid_token` (treat as 401),
+    /// `cross_realm_access_forbidden` / `forbidden` (this key may not check
+    /// the token, treat as 403), `internal_error` (Herald could not answer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -836,7 +845,8 @@ impl Client {
     ///
     /// * `realm_id` - The realm ID
     /// * `user_id` - The user ID
-    /// * `client_app_id` - The client app ID consuming points
+    /// * `client_app_id` - The client app consuming points, by its UUID `id`
+    ///   (the `id` of `ClientAppInfo` / `ClientAppItem`), not its `client_id`
     /// * `amount` - The amount of points to consume
     /// * `description` - Optional description of the consumption
     /// * `idempotency_key` - Optional idempotency key to prevent duplicate charges
@@ -1357,6 +1367,7 @@ mod tests {
         let resp = PermissionCheckResponse {
             allowed: true,
             user_id: Some(user_id.clone()),
+            error: None,
         };
 
         Mock::given(method("POST"))
@@ -1377,6 +1388,79 @@ mod tests {
         let result = client.check_permission(req).await.unwrap();
         assert!(result.allowed);
         assert_eq!(result.user_id, Some(user_id));
+        assert_eq!(result.error, None);
+
+        server.verify().await;
+    }
+
+    // WHY: the backend answers every refusal with HTTP 200 and `allowed:
+    // false`, and never sends `user_id` on a denial. `error` is the only
+    // field separating "token is dead" (401) from "authenticated but not
+    // permitted" (403) and "Herald could not answer" (503); a server that
+    // keys on `user_id` treats every denial as an expired session.
+    #[tokio::test]
+    async fn test_check_permission_surfaces_denial_reason() {
+        let server = MockServer::start().await;
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None);
+
+        Mock::given(method("POST"))
+            .and(path("/api/ext/permission/check"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "allowed": false,
+                "error": "token_not_found"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = client
+            .check_permission(PermissionCheckRequest {
+                access_token: "expired_token".to_string(),
+                rules: vec![Rule {
+                    resource: "article".to_string(),
+                    action: "read".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+
+        assert!(!result.allowed);
+        assert_eq!(result.user_id, None);
+        assert_eq!(result.error.as_deref(), Some("token_not_found"));
+
+        server.verify().await;
+    }
+
+    // WHY: a rule denial is `{ "allowed": false }` — no `error`, no `userId`.
+    // Both must deserialize to `None`, so a caller can tell it from a refusal.
+    #[tokio::test]
+    async fn test_check_permission_rule_denial_has_no_error() {
+        let server = MockServer::start().await;
+        let client = Client::new(server.uri(), "test-api-key".to_string(), None);
+
+        Mock::given(method("POST"))
+            .and(path("/api/ext/permission/check"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "allowed": false
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = client
+            .check_permission(PermissionCheckRequest {
+                access_token: "user_token".to_string(),
+                rules: vec![Rule {
+                    resource: "article".to_string(),
+                    action: "write".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+
+        assert!(!result.allowed);
+        assert_eq!(result.user_id, None);
+        assert_eq!(result.error, None);
 
         server.verify().await;
     }
@@ -1394,6 +1478,7 @@ mod tests {
         let resp = PermissionCheckResponse {
             allowed: true,
             user_id: Some(user_id.clone()),
+            error: None,
         };
 
         Mock::given(method("POST"))
@@ -1443,6 +1528,7 @@ mod tests {
         let resp = PermissionCheckResponse {
             allowed: true,
             user_id: Some(user_id.clone()),
+            error: None,
         };
 
         Mock::given(method("POST"))

@@ -312,7 +312,7 @@ fn pkce_challenge(code_verifier: &str) -> String {
 
 #### Token 刷新端点
 
-前端的 access token 过期时，它调你后端的刷新端点；后端用 `grant_type=refresh_token` 把 refresh token 转发给 Herald 的 token 端点。Herald 校验后签发新的 access token 和轮换后的 refresh token，并做复用检测：如果再次提交已经轮换过的 refresh token，Herald 会吊销整个 refresh token 家族。
+前端的 access token 过期时，它调你后端的刷新端点；后端把 refresh token 转发给 Herald 的浏览器刷新端点 `POST /api/auth/browser-token/refresh`。Herald 校验后签发新的 access token 和轮换后的 refresh token，并做复用检测：如果再次提交已经轮换过的 refresh token，Herald 会吊销整个 refresh token 家族。请求里只带 refresh token：不需要 API Key，也不需要 `client_id`。
 
 ```rust
 // POST /api/auth/refresh  body: { refresh_token: string }
@@ -320,17 +320,20 @@ pub async fn refresh_token(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>, ApiError> {
-    let herald = state.config.herald.as_ref()?;
-    let url = format!("{}/api/oauth/{}/token", herald.base_url.trim_end_matches('/'), herald.realm_id);
-    let token: TokenSet = reqwest::Client::new()
+    let herald = state.config.herald.as_ref()
+        .ok_or(ApiError::service_unavailable("herald is not configured"))?;
+    let url = format!("{}/api/auth/browser-token/refresh", herald.base_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
         .post(url)
-        .json(&serde_json::json!({
-            "grant_type": "refresh_token",
-            "refresh_token": body.refresh_token,
-            "client_id": herald.client_id,
-        }))
-        .send().await?
-        .json().await?;
+        .json(&serde_json::json!({ "refreshToken": body.refresh_token }))
+        .send().await?;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(ApiError::unauthorized());
+    }
+    if !response.status().is_success() {
+        return Err(ApiError::service_unavailable("auth service unavailable"));
+    }
+    let token: HeraldRefreshResponse = response.json().await?;
     Ok(Json(TokenResponse {
         access_token: token.access_token,
         refresh_token: token.refresh_token,
@@ -338,17 +341,29 @@ pub async fn refresh_token(
         expires_in: token.expires_in,
     }))
 }
+
+// Herald 返回 camelCase。TokenResponse 是你自己的后端给前端的接口。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HeraldRefreshResponse {
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    token_type: String,
+}
 ```
 
-刷新失败（refresh token 无效/过期/复用）时返回 401；前端清掉本地存的 token 并跳转登录。
+刷新失败（refresh token 无效/过期/复用）时 Herald 返回 401，处理器原样返回 401；前端清掉本地存的 token 并跳转登录。Herald 的其他错误应答一律映射为 503，Herald 故障时不会把用户登出。
+
+不要为此向 OAuth token 端点发送 `grant_type=refresh_token`。这个 grant 只服务 Herald 内置的 MCP client，其他 client 一律得到 400 `unsupported_grant_type`。
 
 ### 认证中间件
 
 中间件做三件事：从 `Authorization: Bearer` 头里提取 token、把请求路径映射成权限规则、调 Herald 校验。
 
 ```rust
-use axum::extract::State;
-use axum::http::{Method, Request, header};
+use axum::extract::{Request, State};
+use axum::http::{Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use herald_sdk::{Client, Error, PermissionCheckRequest, Rule};
@@ -357,7 +372,6 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct HeraldAuthState {
     pub herald_sdk: Arc<Client>,
-    pub client_id: Arc<str>,
 }
 
 pub async fn herald_auth_middleware(
@@ -378,9 +392,8 @@ pub async fn herald_auth_middleware(
     // 3. 调 Herald 校验
     let response = auth_state.herald_sdk
         .check_permission(PermissionCheckRequest {
-            token,
-            rules: Some(vec![rule]),
-            client_id: auth_state.client_id.to_string(),
+            access_token: token,
+            rules: vec![rule],
         })
         .await;
 
@@ -393,12 +406,22 @@ pub async fn herald_auth_middleware(
             request.extensions_mut().insert(CurrentUser { user_id });
             next.run(request).await
         }
-        // token 无效/缺失：allowed=false, user_id=None
-        Ok(permission) if permission.user_id.is_none() => {
-            ApiError::unauthorized().into_response()
-        }
-        // 用户已认证但没有权限：allowed=false, user_id=Some(...)
-        Ok(_) => ApiError::forbidden().into_response(),
+        // 被拒绝。Herald 返回 200、allowed=false，原因写在 `error` 里。
+        // 拒绝时不会带 user_id。
+        Ok(permission) => match permission.error.as_deref() {
+            // token 不存在或不可用
+            Some("token_not_found") | Some("invalid_token") => {
+                ApiError::unauthorized().into_response()
+            }
+            // 已认证，但没有这条权限
+            None => ApiError::forbidden().into_response(),
+            // 你的 API Key 无权检查这个 token 所属的 realm 或 Client App
+            Some("forbidden") | Some("cross_realm_access_forbidden") => {
+                ApiError::forbidden().into_response()
+            }
+            // Herald 无法给出结论：按不可用处理
+            Some(_) => ApiError::service_unavailable("auth service unavailable").into_response(),
+        },
         // Herald 返回错误：区分 401/403/其他
         Err(error) => classify_auth_error(&error).into_response(),
     }
@@ -420,13 +443,14 @@ fn extract_auth_token(request: &Request) -> Option<String> {
 }
 ```
 
-三种拒绝场景的处理逻辑不同：
+四种拒绝场景的处理逻辑不同：
 
 | 情况 | Herald 返回 | 你的后端返回 | 前端行为 |
 |------|------------|------------|---------|
-| Bearer token 缺失或无效 | `allowed=false, user_id=None` | 401 | 尝试刷新；刷新失败则跳转登录 |
-| 用户已认证但没权限 | `allowed=false, user_id=Some(...)` | 403 | 显示无权限提示 |
-| Herald 服务不可用 | 网络错误或 500 | 503 | 提示服务暂时不可用 |
+| Bearer token 缺失、过期或不可用 | `allowed=false, error=token_not_found` 或 `invalid_token` | 401 | 尝试刷新；刷新失败则跳转登录 |
+| 用户已认证但没权限 | `allowed=false`，没有 `error` | 403 | 显示无权限提示 |
+| 你的 API Key 无权检查这个 token | `allowed=false, error=forbidden` 或 `cross_realm_access_forbidden` | 403 | 显示无权限提示。检查 API Key 绑定的 realm 和 Client App |
+| Herald 服务不可用 | `allowed=false, error=internal_error`、网络错误或 500 | 503 | 提示服务暂时不可用 |
 
 503 而不是放行——认证服务挂掉时继续处理请求等于绕过了认证。
 
@@ -504,12 +528,9 @@ pub fn create_router(
 
     // 条件挂载：只在 Herald 配置存在时加认证中间件
     let admin_routes = match (config.herald.as_ref(), herald_client) {
-        (Some(herald_config), Some(herald_sdk)) => {
+        (Some(_), Some(herald_sdk)) => {
             admin_routes.layer(axum::middleware::from_fn_with_state(
-                HeraldAuthState {
-                    herald_sdk,
-                    client_id: herald_config.client_id.clone().into(),
-                },
+                HeraldAuthState { herald_sdk },
                 herald_auth_middleware,
             ))
         }
@@ -854,8 +875,10 @@ let app = herald_client.create_client_app("my-realm", CreateClientAppSdkRequest 
 }).await?;
 
 let apps = herald_client.list_client_apps("my-realm").await?;
-let app = herald_client.get_client_app("my-realm", "my-mobile-app").await?;
+let app = herald_client.get_client_app("my-realm", &app.id).await?;
 ```
+
+`get_client_app` 取的是 Client App 的 `id`（UUID），不是 `client_id`。这两个字段 `create_client_app` 和 `list_client_apps` 都会返回。
 
 建议给后端使用绑定该 Client App 的 API Key；只有需要跨 Client App 管理时才用 `admin-api-client` Key（新 realm 的该内置客户端默认停用，先启用再发 Key）。
 
@@ -872,13 +895,15 @@ println!("余额: {} {}", balance.balance, balance.unit);
 let result = herald_client.consume_points(
     "my-realm",
     &user_id,
-    "my-client-app",
+    &client_app_id,
     100,
     Some("AI API 调用".to_string()),
     Some("unique-request-id".to_string()),
 ).await?;
-println!("扣费后余额: {}", result.balance_after);
+println!("扣费后余额: {}", result.transactions[0].balance_after);
 ```
+
+`client_app_id` 是 Client App 的 `id`（UUID），不是 `client_id`。传别的值 Herald 返回 400 `invalid_client_app_id_format`。
 
 `idempotency_key` 建议每次请求都传。网络超时重试时，相同的 key 不会重复扣费。如果 SDK 使用普通 Client App API Key，`client_app_id` 必须是该 Key 绑定的 Client App。
 
@@ -892,7 +917,7 @@ println!("扣费后余额: {}", result.balance_after);
 
 ```rust
 let sub = herald_client.get_subscription("my-realm", "my-client-app").await?;
-if sub.status == "active" {
+if sub.status == herald_sdk::SubscriptionStatus::Active {
     // 用户有付费订阅
 }
 ```
@@ -928,7 +953,6 @@ const client = new HeraldClient(
 ```ts
 const resp = await client.checkPermission({
   accessToken: browserToken, // 前端转发过来的 Bearer token
-  clientId: 'admin-web-console',
   rules: [{ resource: 'product', action: 'read' }],
 })
 if (resp.allowed) {
@@ -936,7 +960,9 @@ if (resp.allowed) {
 }
 ```
 
-缓存行为与 Rust crate 一致：按完整请求（token + clientId + rules，规则顺序参与区分）缓存结果，TTL 内命中缓存；一个 token 超过 5 分钟没被检查过，下次检查前先清掉它的缓存条目。你在 Herald 里改了用户权限、希望下次检查落到服务端时，主动清掉该 token 的缓存：
+请求里不用指定 Client App：Herald 从 API Key 的绑定关系取。`allowed` 为 `false` 时看 `error`，区分 token 不可用（401）和规则被拒（403），写法同 [认证中间件](#认证中间件)。
+
+缓存行为与 Rust crate 一致：按完整请求（token + rules，规则顺序参与区分）缓存结果，TTL 内命中缓存；一个 token 超过 5 分钟没被检查过，下次检查前先清掉它的缓存条目。你在 Herald 里改了用户权限、希望下次检查落到服务端时，主动清掉该 token 的缓存：
 
 ```ts
 client.invalidateCache(browserToken)
@@ -953,7 +979,7 @@ const sub = await client.getSubscription('my-realm', 'my-client-app')
 // 积分（第 5 节）
 const balance = await client.getBalance('my-realm', userId)
 const result = await client.consumePoints(
-  'my-realm', userId, 'my-client-app',
+  'my-realm', userId, clientAppId, // Client App 的 UUID `id`（第 5 节）
   100, 'AI API 调用', 'unique-request-id',
 )
 console.log(result.transactions[0].balanceAfter)
@@ -970,7 +996,7 @@ const realm = await client.createRealm({
 const apps = await client.listClientApps('my-realm')
 ```
 
-扣减结果里每个受影响的 Credit Bucket 对应一条 transaction（单池时长度为 1）。第 5 节的幂等规则原样适用：consume 每次都传幂等 key，扣哪个账户由 `clientAppId` 决定。
+扣减结果里每个受影响的 Credit Bucket 对应一条 transaction（单池时长度为 1）。第 5 节的幂等规则原样适用：consume 每次都传幂等 key，扣哪个账户由 `clientAppId` 决定，它必须是 Client App 的 UUID `id`。
 
 ### 错误处理
 
@@ -989,6 +1015,8 @@ try {
 ```
 
 `code` 取值：`unauthorized`、`forbidden`、`not-found`、`internal-server-error`、`api-error`、`network`、`parse`。收到过响应时，HTTP `status` 和原始 `body` 会挂在错误上。
+
+Python 没有 SDK。[Python 集成（无官方 SDK）](/docs/integration/python) 提供了这一节背后的 HTTP 契约和一个参考客户端，可以直接交给 AI 编程助手。
 
 ## 8. 浏览器 SDK (herald-auth-web)
 

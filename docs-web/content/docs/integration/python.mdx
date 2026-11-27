@@ -1,0 +1,1286 @@
+---
+title: Python Integration Without an SDK
+description: "Herald ships no Python SDK. This page gives an AI coding assistant what it needs to call the HTTP API from Python: the contract behind the Rust and Node SDKs, a tested reference client, and the checks to run before reporting done."
+---
+
+## Hand this page to your AI assistant
+
+Herald has no Python SDK and maintains none. A Python service calls the same HTTP API that the Rust crate and the Node package `herald-sdk` wrap. Everything an AI coding assistant needs to write that code is on this page. From the next section on, the page is addressed to the assistant.
+
+1. Give the assistant this page as Markdown. Append `.md` to its address: `https://www.fornetcode.com/en/docs/integration/python.md`. If it cannot fetch URLs, paste the Markdown into the conversation.
+2. Say what to build: your web framework, sync or async, and which of these you need: permission checks, points, subscription lookups, organizations, a webhook receiver, or login endpoints for a browser frontend.
+3. Provide configuration as names and identifiers, not secrets: the base URL, the realm id, the client app's `id` and `clientId`, and the environment variable that holds the API key. Keep the key itself out of the conversation.
+4. When the assistant reports done, ask for the output of the tests listed under [Before you finish](#before-you-finish).
+
+A prompt that covers the four steps:
+
+```text
+Read https://www.fornetcode.com/en/docs/integration/python.md in full. Follow
+"Instructions for AI coding assistants" and build the Herald integration in
+this repository.
+
+Framework: FastAPI, async
+Capabilities: permission checks on the /api routes; points consume
+Herald base URL: https://auth.example.com
+API key: read it from the environment variable HERALD_API_KEY. I will not paste it here.
+Realm id: my-realm
+Client app id: 0193d0c1-0000-7000-8000-000000000101    Client app clientId: my-web-app
+Python: 3.12
+
+Stop and ask me if the task needs something the page does not cover.
+```
+
+## 1. Instructions for AI coding assistants
+
+You are implementing the Herald integration in the user's Python project. This section states what to read, what to ask for, and what to verify. Section 2 is the contract and section 3 is a complete client that implements it.
+
+### Read before writing code
+
+- Section 2 is the source of truth for every endpoint it lists. Do not rely on memory of Herald, and do not carry over conventions from other authentication products.
+- Start from the [reference client](#3-reference-client). Copy it into the project, or port it to the HTTP client the project already uses. Either way, keep the behavior this page describes.
+- If the project's OpenAPI document, a generated client, or existing code disagrees with this page on an endpoint listed here, stop and report the difference to the user. Do not pick one silently.
+- Create the client once per process and reuse it. A client built per request has no permission cache.
+
+### Ask the user for anything that is missing
+
+| Input | Used for |
+|-------|----------|
+| Herald base URL | `base_url` of the client |
+| Name of the environment variable that holds the realm API key | The `X-API-Key` header |
+| Realm id | The `{realmId}` path segment |
+| Client app `id` (a UUID) and `clientId` | `clientAppId` in points consume and the client app lookup; `client_id` in the login flow |
+| Credit Bucket `id` (a UUID), only when the integration grants points | `bucketId` in points grant |
+| Name of the environment variable that holds the webhook signing secret, only for a webhook receiver | Signature verification |
+| Web framework, and sync or async | How the client is created and called |
+| Which capabilities are needed | Permission checks, points, subscription, organizations, webhook receiver, login endpoints |
+| Whether the backend signs in browser users through Herald | Whether [Login from a backend](#login-from-a-backend) applies |
+
+### Rules
+
+1. The API key stays on the server. Read it from the environment at startup. Never hardcode it, log it, return it in a response, or send it to a host other than the base URL.
+2. Send the API key only in the `X-API-Key` header of `/api/ext/*` requests. The three calls in [Login from a backend](#login-from-a-backend) carry no API key.
+3. When the service protects its own routes with permission checks, answer as the table in [Permission check](#permission-check) shows. A valid token with a denied rule gets 403. An expired or invalid token gets 401.
+4. When Herald cannot answer, answer 503. That covers a network failure, a 5xx status, and an answer with `error` set to `internal_error`. A request never passes because its check failed.
+5. `clientAppId` is the client app's UUID `id` in points consume and in the client app lookup. Only the subscription lookup also accepts the `clientId`. Take the value from the `id` field of the client app.
+6. Encode every path value as one segment. Keep JSON keys exactly as written: camelCase for `/api/ext/*`, snake_case for the OAuth token exchange.
+7. Accept response fields that this page does not show. The examples list the fields an integration reads, and responses carry more.
+8. Set a timeout on every call.
+9. In points consume, generate the idempotency key before the first attempt and reuse it for every retry of that deduction. Never reuse a key for a different `userId`, `clientAppId`, `amount`, or `description`.
+10. In a webhook receiver, verify the raw request bytes before parsing them, compare signatures in constant time, and reject timestamps outside the 300-second window.
+11. Refresh tokens through `/api/auth/browser-token/refresh`. The `refresh_token` grant type on `/api/oauth/{realmId}/token` is reserved for Herald's built-in MCP client and answers 400 for every other client. After a refresh, store both returned tokens.
+
+### Stop and ask the user when
+
+- The task needs an endpoint this page does not list. Look it up in the [OpenAPI reference](/docs/openapi) first. Do not invent a path, a parameter, or a response field.
+- A source in the project contradicts this page.
+- The user asks for something that would expose the API key or a user's refresh token to the browser.
+
+### Before you finish
+
+Write these tests, run them, and report the command with its result. Report anything you could not test.
+
+| Test | Asserts |
+|------|---------|
+| Request shape, for every client method used | Method, path, query, and JSON body against a local stub server |
+| Permission decision, when the integration checks permissions | `allowed` with `userId` passes. `allowed` of `false` without `error` is 403. With `error` it is 401 for `token_not_found` and `invalid_token`, 403 for the other values except `internal_error`, and 503 for `internal_error`. A `network` error and a 500 are 503. |
+| Permission cache, when the integration checks permissions | A second identical check sends no request. `invalidate_cache` sends one. |
+| Error mapping | 401, 403, 404, 500, and 409 raise `HeraldSdkError` with the `code` given under [Errors](#errors). A refused connection raises `network`. |
+| Points consume retry, when the integration consumes points | After a simulated lost answer, the retry sends the same `idempotencyKey`. |
+| Webhook signature, when the integration receives webhooks | Both vectors under [Webhook deliveries](#webhook-deliveries) verify. A changed byte, a re-serialized body, and a timestamp 301 seconds old are rejected. |
+
+## 2. HTTP contract
+
+The contract covers the 23 operations of `/api/ext` that the Rust and Node SDKs wrap, the webhook signature scheme, and the three calls a backend makes for a browser user. It was read from the backend handlers in the Herald repository (`backend/api-ext`, `backend/api-auth`, `backend/api-oauth`).
+
+Five more `/api/ext` operations exist. The SDKs do not wrap them and this page does not give their request and response fields, so read them in the [OpenAPI reference](/docs/openapi) before calling:
+
+| Operation | Returns |
+|-----------|---------|
+| `GET /api/ext/points/{realmId}/transactions/by-external-ref/{externalRefId}` | The points transaction that carries the given `externalRefId` |
+| `GET /api/ext/subscription/{clientAppId}` | Whether a client app has a subscription: `hasSubscription` and, if so, `status` |
+| `GET /api/ext/{realmId}/one-time-mappings` | The enabled one-time purchase mappings |
+| `GET /api/ext/{realmId}/entitlements/{entitlementKey}/currencies` | The currencies an entitlement is priced in |
+| `GET /api/ext/{realmId}/entitlements/{entitlementKey}/default-price` | The one price of an entitlement for a `currency`, with optional `billingType` and `billingPeriod` filters |
+
+### Requests
+
+- The base URL is the Herald origin. Every path below is appended to it.
+- Every `/api/ext/*` request carries the realm API key in `X-API-Key`. A missing, unknown, disabled, or expired key, or a key whose client app is disabled, answers 401.
+- Request and response bodies are JSON with camelCase keys. An optional field arrives as `null` or is absent. Treat both as missing.
+- Each path value is one URL-encoded segment. Query values use form encoding.
+- Dates and times are RFC 3339 strings. A realm id is a short name. User, client app, organization, transaction, and bucket ids are UUIDs.
+- The API key belongs to one realm. A `{realmId}` other than the key's realm answers 403 `cross_realm_access_forbidden`.
+- A key bound to one client app reaches only that app's data: its client app record, its subscription, its points, and tokens issued to it. A key bound to the built-in `admin-api-client` acts across the realm. Organizations are the exception and need a key bound to an ordinary client app.
+- API keys are principals in Herald's RBAC. Each operation below names the permission the key must hold. Without it the answer is 403 `permission_denied`.
+- Lists are paged. `page` starts at 1. `pageSize` defaults to 20 and is capped at 100. A page answers:
+
+```json
+{ "items": [], "page": 1, "pageSize": 20, "total": 42 }
+```
+
+### Errors
+
+Every non-2xx answer and every transport failure raises one error type. `code` names the category and keeps its meaning. `status` and `body` are set when Herald answered.
+
+| Condition | `code` | Read it as |
+|-----------|--------|------------|
+| 401 | `unauthorized` | The API key is missing or rejected. A configuration error. |
+| 403 | `forbidden` | Wrong realm, the key lacks the permission, or the target is outside the key's client app. |
+| 404 | `not-found` | The named object does not exist in the realm. |
+| 500 | `internal-server-error` | Herald failed. Retry with backoff. |
+| Any other non-2xx: 400, 408, 409, 422, 429 | `api-error` | Herald rejected the request. The reason is the `code` in the body. |
+| 2xx whose body is not JSON | `parse` | Another server or a proxy page answered. Check the base URL. |
+| No answer: refused connection, timeout, reset | `network` | The outcome is unknown. |
+
+The body of an error carries Herald's own reason in `code`. Most errors use one shape, where `error` repeats `message`:
+
+```json
+{
+  "status": 403,
+  "code": "cross_realm_access_forbidden",
+  "message": "cross_realm_access_forbidden",
+  "error": "cross_realm_access_forbidden",
+  "details": null,
+  "requestId": "0193d0c0-0000-7000-8000-00000000aaaa"
+}
+```
+
+A few operations answer with their own fields, here `have` and `need`:
+
+```json
+{
+  "code": "insufficient_points",
+  "message": "Insufficient points balance for the covered credit pools",
+  "have": 3,
+  "need": 100,
+  "status": 409,
+  "requestId": "0193d0c0-0000-7000-8000-00000000bbbb"
+}
+```
+
+Read the reason as the `code` field of the body. Treat a body without the field, or one that is not JSON, as an unknown reason. These are the reasons an integration branches on:
+
+| Body `code` | Status | Operation | Meaning |
+|-------------|--------|-----------|---------|
+| `missing_api_key`, `invalid_api_key`, `api_key_disabled`, `api_key_expired`, `client_app_disabled` | 401 | All `/api/ext/*` | The API key was rejected. |
+| `cross_realm_access_forbidden` | 403 | All `/api/ext/*` | `{realmId}` is not the key's realm. |
+| `permission_denied` | 403 | All `/api/ext/*` | The key lacks the permission the operation requires. |
+| `forbidden` | 403 | Several | The target is outside the key's client app. |
+| `rules_required` | 400 | Permission checks | `rules` is missing or empty. |
+| `invalid_user_id_format`, `missing_user_id` | 400 | Points | `userId` is not a UUID, or is absent. |
+| `invalid_client_app_id_format` | 400 | Points consume, client app lookup | `clientAppId` is not a UUID. |
+| `invalid_amount` | 400 | Points consume, points grant | `amount` is not between 1 and 1,000,000. |
+| `validation_error` | 400 | Several | A field failed validation. Examples: an idempotency key longer than 255 bytes, an empty grant `reason`, a `validityDays` below 1, an invalid email, a password outside 8 to 100 characters. |
+| `grant_bucket_required` | 400 | Points grant | `bucketId` is missing or is not a UUID. |
+| `wallet_frozen_or_closed` | 400 | Points consume | The account cannot be debited. |
+| `rate_limit_exceeded` | 429 | Points consume, points grant | More than 100 consume and grant calls per minute in the realm, or more than 20 per minute for one user. |
+| `realm_not_found`, `user_not_found`, `wallet_not_found`, `transaction_not_found`, `client_app_not_found`, `subscription_not_found` | 404 | | The named object does not exist in the realm. |
+| `email_already_exists` | 409 | User create | A user with that email exists in the realm. |
+| `idempotency_conflict` | 409 | Points consume | The idempotency key was already used for a different request. |
+| `insufficient_points` | 409 | Points consume | The balance is too low. `have` and `need` are in the body. |
+| `no_covered_pool` | 409 | Points consume | The client app has no credit bucket to debit. |
+| `concurrent_modification` | 409 | Points consume | A concurrent write conflicted. The same request can be sent again. |
+| `internal_error` | 500 | All | Herald failed. Retry with backoff. |
+
+### Endpoints
+
+The last column names the subsection that gives the request and response fields.
+
+| Operation | Method and path | Key needs | Input | Success |
+|-----------|-----------------|-----------|-------|---------|
+| Permission check | `POST /api/ext/permission/check` | A valid key | Body | 200, [Permission check](#permission-check) |
+| Subscription | `GET /api/ext/bill/{realmId}/client/{clientAppId}/subscription` | `billing:view` | None | 200, [Subscription](#subscription) |
+| Points balance | `GET /api/ext/points/{realmId}/balance` | `points:view` | Query `userId` | 200, [Points](#points) |
+| Points consume | `POST /api/ext/points/{realmId}/consume` | `points:manage` | Body | 200, [Points](#points) |
+| Points grant | `POST /api/ext/points/{realmId}/grant` | `points:manage` | Body | 200, [Points](#points) |
+| Points transaction | `GET /api/ext/points/{realmId}/transactions/{transactionId}` | `points:view` | None | 200, [Points](#points) |
+| Create realm | `POST /api/ext/realms` | `realm:manage` in the `admin` realm | Body | 201, [Realms, users, client apps](#realms-users-client-apps) |
+| List realms | `GET /api/ext/realms` | `realm:view` | None | 200 with `realms` |
+| Get realm | `GET /api/ext/realms/{realmId}` | `realm:view` | None | 200 |
+| Create user | `POST /api/ext/realms/{realmId}/users` | `users:create` | Body | 201 |
+| List users | `GET /api/ext/realms/{realmId}/users` | `users:view` | Query `page`, `pageSize` | 200 page of users |
+| Get user | `GET /api/ext/realms/{realmId}/users/{userId}` | `users:view` | None | 200 |
+| Create client app | `POST /api/ext/realms/{realmId}/client-apps` | `clients:manage` | Body | 201 |
+| List client apps | `GET /api/ext/realms/{realmId}/client-apps` | `clients:view` | None | 200 with `clientApps` |
+| Get client app | `GET /api/ext/realms/{realmId}/client-apps/{clientAppId}` | `clients:view` | None | 200 |
+| Create organization | `POST /api/ext/realms/{realmId}/orgs` | `orgs:manage` | Body | 201, or 200 on an idempotent replay |
+| Delete organization | `DELETE /api/ext/realms/{realmId}/orgs/{orgId}` | `orgs:manage` | None | 204 |
+| Upsert member | `POST /api/ext/realms/{realmId}/orgs/{orgId}/members` | `orgs:manage` | Body | 200, [Organizations](#organizations) |
+| Remove member | `DELETE /api/ext/realms/{realmId}/orgs/{orgId}/members/{userId}` | `orgs:manage` | Query `actorUserId` | 204 |
+| List members | `GET /api/ext/realms/{realmId}/orgs/{orgId}/members` | `orgs:view` | Query `page`, `pageSize` | 200 page of members |
+| Get member | `GET /api/ext/realms/{realmId}/orgs/{orgId}/members/{userId}` | `orgs:view` | None | 200 |
+| Check organization permission | `POST /api/ext/realms/{realmId}/orgs/{orgId}/permission-check` | `orgs:view` | Body | 200 |
+| List a user's organizations | `GET /api/ext/realms/{realmId}/orgs` | `orgs:view` | Query `userId`, `page`, `pageSize` | 200 page of organizations |
+
+### Permission check
+
+The service calls this with the Bearer token its frontend sent. Herald answers whether that token's user holds every rule.
+
+```json
+{
+  "accessToken": "the token from the Authorization: Bearer header of the frontend",
+  "rules": [{ "resource": "document", "action": "read" }]
+}
+```
+
+`rules` needs at least one entry. Every rule must be granted for `allowed` to be `true`. A grant of `manage` covers `view` and `create` on the same resource. No other action implies another one.
+
+The answer always has status 200 and one of three shapes:
+
+| Body | Meaning |
+|------|---------|
+| `{ "allowed": true, "userId": "0193d0bf-0000-7000-8000-000000000042" }` | The token is valid and every rule is granted. `userId` is the Herald user id. |
+| `{ "allowed": false }` | The token is valid and the user is authenticated, but at least one rule is denied. |
+| `{ "allowed": false, "error": "token_not_found" }` | The token was rejected. `userId` is absent. |
+
+Tell the shapes apart by the presence of `error`. `userId` is present only when `allowed` is `true`, so it cannot stand for "the user is signed in".
+
+For a service that protects its own routes, answer the caller like this:
+
+| Answer | Status to answer | Why |
+|--------|------------------|-----|
+| `allowed` is `true` | Allow the request | |
+| `allowed` is `false`, no `error` | 403 | The user is signed in and lacks the permission. |
+| `error` is `token_not_found` | 401 | The access token is unknown or expired. The frontend refreshes or signs in again. |
+| `error` is `invalid_token` | 401 | The user is disabled or deleted, or the client app that issued the token is disabled or gone. |
+| `error` is `internal_error` | 503 | Herald could not complete the check. |
+| `error` is `cross_realm_access_forbidden` or `forbidden` | 403, and log it | The API key does not match the token's realm, or the token belongs to another client app than the key's. This is a fault in the integration's configuration, and signing in again does not fix it. |
+| The call raised | 503 | Herald did not answer. |
+
+### Permission cache
+
+The Rust and Node SDKs cache permission answers on the client side. Keep that behavior:
+
+- An answer is cached per exact pair of access token and rules. The order of the rules is part of the key.
+- An entry lives for the cache TTL, 300 seconds by default.
+- A token whose last answer is more than 300 seconds old loses all its entries before its next check, whatever the TTL. Access tokens are short lived, and such an answer describes a token that has been replaced.
+- `invalidate_cache(token)` drops the entries of one token. Call it where the service holds the token and learns that the user's permissions changed.
+- Denials are cached like allows. The cache keys on the request, so a denied user cannot force a Herald call per request either.
+
+A permission change made in Herald therefore reaches the service when the entries expire, at most `cache_ttl_seconds` later.
+
+### Points
+
+Amounts are integers. `userId`, `clientAppId` in consume, `bucketId`, and `transactionId` are UUIDs.
+
+Balance of a user, for the buckets the key's client app covers. A key bound to `admin-api-client` gets the realm-wide total.
+
+```http
+GET /api/ext/points/my-realm/balance?userId=0193d0bf-0000-7000-8000-000000000042
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "balance": 1200,
+  "topupBalance": 1000,
+  "subscriptionBalance": 0,
+  "grantedBalance": 200,
+  "registrationBalance": 0,
+  "freePeriodicBalance": 0,
+  "totalPaidGranted": 1000,
+  "totalRecharged": 1000,
+  "totalConsumed": 300,
+  "unit": "points",
+  "currency": "points",
+  "updatedAt": "2026-11-27T09:00:00.123456+00:00",
+  "expiresAt": "2026-12-31T00:00:00.000000+00:00"
+}
+```
+
+`balance` is the spendable total. `totalRecharged` repeats `totalPaidGranted` and is kept for older callers. `expiresAt` is the earliest expiry among the balances, or `null` when none expires.
+
+Consume deducts points. Herald picks the credit buckets that cover the client app, so one call can debit several buckets.
+
+```http
+POST /api/ext/points/my-realm/consume
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "clientAppId": "0193d0c1-0000-7000-8000-000000000101",
+  "amount": 100,
+  "description": "One report export",
+  "idempotencyKey": "report-export:0193d0ee-0000-7000-8000-000000000777"
+}
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "amount": 100,
+  "correlationId": "0193d0ee-0000-7000-8000-000000000777",
+  "transactions": [
+    {
+      "transactionId": "0193d0ee-0000-7000-8000-000000000778",
+      "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+      "walletId": "0193d0c3-0000-7000-8000-000000000301",
+      "userId": "0193d0bf-0000-7000-8000-000000000042",
+      "amount": 100,
+      "balanceAfter": 900
+    }
+  ],
+  "allocations": [
+    {
+      "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+      "walletId": "0193d0c3-0000-7000-8000-000000000301",
+      "ledgerId": "0193d0ee-0000-7000-8000-000000000779",
+      "creditType": "topup_credit",
+      "allocatedAmount": 100
+    }
+  ]
+}
+```
+
+`transactions` has one entry per debited bucket, with `amount` as the positive number of points taken from that bucket and `balanceAfter` as the balance of that bucket afterwards. `allocations` splits each deduction by credit type, one of `topup_credit`, `subscription_credit`, `registration_credit`, `free_periodic_credit`, `granted_credit`.
+
+The idempotency key makes a retry safe:
+
+- `idempotencyKey` is optional and at most 255 bytes. It is unique per API key.
+- The first call with a key stores its result for 24 hours. A call with the same key and the same `userId`, `clientAppId`, `amount`, and `description` answers the stored result with 200 and deducts nothing again.
+- The same key with any of those four values changed answers 409 `idempotency_conflict`.
+- Without the key, a retry after a `network` error or a 5xx deducts a second time. Herald aborts a consume call after 60 seconds with 408, which also leaves the outcome unknown. Always retry with the same key.
+
+Grant adds points to one Credit Bucket.
+
+```http
+POST /api/ext/points/my-realm/grant
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+  "amount": 500,
+  "reason": "Welcome bonus",
+  "validityDays": 30
+}
+```
+
+```json
+{
+  "transactionId": "0193d0ee-0000-7000-8000-000000000780",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+  "amount": 500,
+  "grantedBalance": 700,
+  "balance": 1700,
+  "expiresAt": "2026-12-27T00:00:00.000000+00:00"
+}
+```
+
+`reason` must not be empty. `validityDays` is optional and at least 1. Without it the points do not expire, and `expiresAt` is `null`. `grantedBalance` is the granted points available in the bucket after the grant, and `balance` the available total of the bucket. A key bound to an ordinary client app can grant only into buckets that its app covers.
+
+Consume and grant share a rate limit: 100 calls per minute per realm and 20 per minute per user. Beyond it the answer is 429 `rate_limit_exceeded`.
+
+One transaction by its id. `amount` is negative for a deduction and positive for a grant.
+
+```http
+GET /api/ext/points/my-realm/transactions/0193d0ee-0000-7000-8000-000000000778
+```
+
+```json
+{
+  "transactionId": "0193d0ee-0000-7000-8000-000000000778",
+  "walletId": "0193d0c3-0000-7000-8000-000000000301",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "transactionType": "consume",
+  "amount": -100,
+  "balanceAfter": 900,
+  "description": "One report export",
+  "clientAppId": "0193d0c1-0000-7000-8000-000000000101",
+  "subscriptionId": null,
+  "externalRefId": null,
+  "createdAt": "2026-11-27T09:00:00.123456+00:00"
+}
+```
+
+`transactionType` is one of `recharge`, `consume`, `subscription_grant`, `subscription_renewal`, `subscription_upgrade`, `subscription_downgrade`, `registration_grant`, `free_periodic_grant`, `refund_revoke`, `expire_revoke`, `cancel_revoke`, `expiration`, `refund`, `grant`. `clientAppId` is the UUID of the client app the transaction belongs to, or `null`. `subscriptionId` and `externalRefId` are `null` unless the transaction belongs to a subscription or was created with an external reference. A key bound to an ordinary client app cannot read a transaction without a client app.
+
+### Subscription
+
+The subscription of one client app. This is the only call where `clientAppId` in the path accepts the `clientId` or the UUID `id`.
+
+```http
+GET /api/ext/bill/my-realm/client/my-web-app/subscription
+```
+
+```json
+{
+  "id": "0193d0c4-0000-7000-8000-000000000401",
+  "clientAppId": "my-web-app",
+  "status": "active",
+  "entitlementKey": "pro",
+  "paymentProvider": "stripe",
+  "externalPriceId": "price_1AbCdEfGhIjKlMnOpQrStUvWxYz",
+  "billingType": "recurring",
+  "currency": "USD",
+  "currentPeriodStart": "2026-11-01T00:00:00.000000+00:00",
+  "currentPeriodEnd": "2026-12-01T00:00:00.000000+00:00",
+  "cancelAt": null,
+  "cancelAtPeriodEnd": false,
+  "createdAt": "2026-11-01T00:00:00.000000+00:00",
+  "updatedAt": "2026-11-20T08:30:00.000000+00:00"
+}
+```
+
+`clientAppId` repeats the value from the path. `externalPriceId` and `currency` are absent when Herald has no price for the subscription. `status` is one of `active`, `canceled`, `expired`, `incomplete`, `paused`, `trialing`, `past_due`, `scheduled_cancel`, `dispute`, `pending`. `billingType` is `recurring` or `non_renewing`. A client app without a subscription answers 404 `subscription_not_found`.
+
+### Realms, users, client apps
+
+These calls manage the realm over the external API. They are not needed by a service that only checks permissions and spends points.
+
+Create a realm. `name` is 3 to 50 characters and the password 8 to 100. The answer is 201 with the realm: `id`, `name`, `description`, `adminUser` (`id`, `email`, `role`), `createdAt`, `updatedAt`.
+
+```json
+{
+  "name": "my-realm",
+  "description": "My application",
+  "adminUser": { "email": "admin@example.com", "password": "an-8-to-100-character-password" }
+}
+```
+
+List realms answers `{ "realms": [...] }`. A key in the `admin` realm sees every realm, any other key sees only its own. Get realm answers the realm from above. A realm item in the list has `id`, `name`, `description`, `createdAt`, `updatedAt`.
+
+Create a user. The email must be valid and the password 8 to 100 characters. `nickname` is optional. The answer is 201 with `id`, `email`, `nickname`, `status`, `createdAt`. `status` is one of `wait_verified`, `normal`, `forbidden`, `deleted`.
+
+```json
+{ "email": "user@example.com", "password": "an-8-to-100-character-password", "nickname": "jane" }
+```
+
+List users answers a page of users. Out-of-range paging values are corrected by Herald instead of rejected: `page` below 1 becomes 1, and `pageSize` is kept between 1 and 100. Get user answers one user, or 404 `user_not_found`.
+
+Create a client app. `name` must not be empty. `redirectUris` lists the callback addresses, and `deviceCodeGrantEnabled` is optional: with it on, `redirectUris` may be empty.
+
+```json
+{
+  "name": "My Web App",
+  "description": "The web frontend",
+  "redirectUris": ["https://app.example.com/api/auth/oauth/callback"]
+}
+```
+
+The answer is 201 with the client app: `id`, `clientId`, `clientSecret`, `name`, `description`, `redirectUris`, `enabled`, `createdAt`. Its `id` is the UUID that `clientAppId` takes in points consume and in the client app lookup.
+
+List client apps answers `{ "clientApps": [...] }`. A key bound to an ordinary client app gets only its own app. A client app item has `id`, `clientId`, `name`, `enabled`, `createdAt`. Get client app answers one client app by its UUID `id`, or 404 `client_app_not_found`.
+
+### Organizations
+
+Organizations need an API key bound to an ordinary client app. A key bound to `admin-api-client` or to no app answers 403 `org_client_app_key_required` on every call. Every organization belongs to the key's client app, and `clientId` in an answer names that app.
+
+Reading needs `orgs:view` and writing needs `orgs:manage`.
+
+Create an organization. `externalId` is your own identifier for it, unique per client app.
+
+```json
+{ "externalId": "workspace-42", "name": "Acme Workspace", "ownerId": "0193d0bf-0000-7000-8000-000000000042" }
+```
+
+```json
+{
+  "id": "0193d0c5-0000-7000-8000-000000000501",
+  "externalId": "workspace-42",
+  "name": "Acme Workspace",
+  "ownerId": "0193d0bf-0000-7000-8000-000000000042",
+  "realmId": "my-realm",
+  "clientId": "my-web-app",
+  "createdAt": "2026-11-27T09:20:00.123456+00:00",
+  "created": true
+}
+```
+
+Creating again with the same `externalId` answers 200 with the same organization and `created` of `false`. The first organization of a client app also creates its three built-in tiers: `org-owner`, `org-admin`, `org-member`.
+
+Add a member, or change the tier of an existing one. `role` is a tier name. Granting `org-owner` moves the ownership to that member. With `actorUserId`, Herald also checks the change against that user's standing in the organization.
+
+```json
+{ "userId": "0193d0bf-0000-7000-8000-000000000042", "role": "org-admin", "actorUserId": "0193d0c6-0000-7000-8000-000000000601" }
+```
+
+```json
+{
+  "orgId": "0193d0c5-0000-7000-8000-000000000501",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "role": { "id": "0193d0c7-0000-7000-8000-000000000701", "name": "org-admin" },
+  "isOwner": false,
+  "createdAt": "2026-11-27T09:30:00.123456+00:00",
+  "updatedAt": "2026-11-27T09:30:00.123456+00:00"
+}
+```
+
+Remove a member answers 204. The optional query `actorUserId` has the same meaning as above. Removing the owner, or the last member who can manage the organization, answers 409 `org_owner_protected` or `org_last_admin_protected`.
+
+Check a user's permissions inside one organization. Every rule must hold. The user does not need to be signed in: the call names `userId`.
+
+```json
+{ "userId": "0193d0bf-0000-7000-8000-000000000042", "rules": [{ "resource": "project", "action": "delete" }] }
+```
+
+```json
+{ "member": true, "allowed": true, "role": { "id": "0193d0c7-0000-7000-8000-000000000701", "name": "org-admin" } }
+```
+
+A denial is also a 200. A member who lacks a rule answers `member` of `true` and `allowed` of `false`. A non-member answers `member` of `false` and `allowed` of `false`, without `role`. Empty `rules` answer 400 `rules_required`.
+
+The remaining calls:
+
+| Call | Answers |
+|------|---------|
+| List members, with `page` and `pageSize` | A page of members: `userId`, `email`, `nickname`, `role`, `isOwner`, `joinedAt`. Unlike the user list, a `pageSize` outside 1 to 100 is rejected with 400. |
+| Get member | `member` of `true` with `userId`, `role`, `isOwner`, `joinedAt`, or `member` of `false` with `userId` alone. A non-member is not a 404. |
+| List a user's organizations, with `userId`, `page`, and `pageSize` | A page of `orgId`, `externalId`, `name`, `role`, `isOwner`, `joinedAt` |
+| Delete the organization | 204, together with every membership |
+
+An unknown tier answers 400 `org_role_not_found`. An unknown organization or member answers 404 `org_not_found` or `org_member_not_found`.
+
+### Webhook deliveries
+
+Herald pushes changes to a URL the realm admin registers. Each delivery is signed with the subscription's signing secret, which starts with `whsec_`:
+
+```text
+signedPayload = "{X-Herald-Timestamp}.{raw request body}"
+X-Herald-Signature = "v1=" + hex(HMAC-SHA256(key = signing secret, message = signedPayload))
+```
+
+Verify a delivery in this order, before acting on it:
+
+1. Read `X-Herald-Timestamp` and `X-Herald-Signature`. A missing header rejects the delivery.
+2. The timestamp is Unix seconds. Reject it when it differs from the clock by more than 300 seconds.
+3. Compute the signature over the request body as received. A body that was parsed and serialized again does not match.
+4. Compare with a constant-time comparison.
+5. During a secret rotation, accept the delivery when any of the listed secrets matches.
+
+Then parse the body, skip an `id` already handled, act on the event, and answer 2xx. Any other status makes Herald retry. The body is an envelope:
+
+```json
+{
+  "id": "0193d0c0-0000-7000-8000-000000000001",
+  "type": "user.disabled",
+  "realmId": "my-realm",
+  "createdAt": "2026-11-20T12:00:00.100Z",
+  "occurredAt": "2026-11-20T11:59:58.000Z",
+  "data": { "userId": "0193d0bf-0000-7000-8000-000000000042" }
+}
+```
+
+`type` is one of `user.created`, `user.disabled`, `user.deleted`, `role.granted`, `role.revoked`, `subscription.activated`, `subscription.renewed`, `subscription.expired`, `subscription.refunded`. [Webhooks](/docs/integration/webhooks) lists the `data` fields of each, the retry behavior, and how to register the URL.
+
+Two vectors check an implementation. The Node SDK's test suite uses the same ones:
+
+| Secret | Timestamp | Body | `X-Herald-Signature` |
+|--------|-----------|------|----------------------|
+| `whsec_test_key` | `1763640000` | `{"type":"user.created"}` | `v1=03d317fbd891f5d25a1b48149824ef6a4cb981d249b5c029fd792720d418d0c0` |
+| `whsec_test_key` | `1763640000` | Empty | `v1=5175027c75fed714286b89d9b4cbf090d701a102b61128d91adf3886103099cf` |
+
+### Login from a backend
+
+These three calls belong to a backend that signs in browser users through Herald. They carry no API key. Their field names change case between calls.
+
+| Call | Method and path | Sends | Answers |
+|------|-----------------|--------|---------|
+| Exchange the authorization code | `POST /api/oauth/{realmId}/token` | JSON body with snake_case fields | 200 token set with snake_case keys |
+| Refresh the token set | `POST /api/auth/browser-token/refresh` | JSON body with `refreshToken` | 200 token set with camelCase keys. 401 when the refresh token is invalid. |
+| End the session | `POST /api/auth/logout` | `Authorization: Bearer` with the access token | 200 |
+
+The exchange completes the OAuth 2.1 Authorization Code with PKCE flow. [Integrating a Third-Party Backend with Herald](/docs/integration/third-party-backend#oauth-backend-handlers) shows how to build the authorize URL and keep `code_verifier` on the backend.
+
+```http
+POST /api/oauth/my-realm/token
+```
+
+```json
+{
+  "grant_type": "authorization_code",
+  "code": "the code parameter of the callback",
+  "redirect_uri": "https://app.example.com/api/auth/oauth/callback",
+  "client_id": "my-web-app",
+  "code_verifier": "the verifier generated for this login"
+}
+```
+
+```json
+{
+  "access_token": "…",
+  "refresh_token": "…",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_expires_in": 2592000
+}
+```
+
+`code_verifier` is 43 to 128 characters from letters, digits, `-`, `.`, `_`, `~`. An authorization code can be exchanged once. A failed exchange answers 400 with the standard error body and `code` of `bad_request`. Do not send a `resource` field. The two durations are in seconds and depend on the client app's configuration.
+
+Refresh rotates the token set. Store the new refresh token and discard the old one. A refresh token presented again after it was rotated revokes the whole family, and the user has to sign in again.
+
+```http
+POST /api/auth/browser-token/refresh
+```
+
+```json
+{ "refreshToken": "the stored refresh token" }
+```
+
+```json
+{
+  "accessToken": "…",
+  "refreshToken": "…",
+  "expiresIn": 3600,
+  "refreshExpiresIn": 2592000,
+  "tokenType": "Bearer"
+}
+```
+
+Logout revokes the refresh-token family of the access token in the `Authorization` header. It answers 200 with a `message`, or 401 when the access token is invalid.
+
+## 3. Reference client
+
+`herald_client.py` implements the whole contract above with the Python standard library and the same methods as the Rust and Node SDKs, in snake_case. It was tested on Python 3.12 and 3.13 against a stub server, and its signature check reproduces the two vectors under [Webhook deliveries](#webhook-deliveries).
+
+It differs from the SDKs in a few deliberate ways:
+
+- A call times out after 10 seconds by default. The Rust SDK sets no limit, and the Node SDK leaves it to the runtime.
+- A 3xx answer raises `api-error`. Following it would send the API key to another host.
+- `HTTP_PROXY` and `HTTPS_PROXY` are ignored, as in the Rust SDK.
+- The permission cache is safe to use from several threads, and drops the entries of tokens that are never checked again.
+- Methods return the decoded JSON as a dictionary, with the keys as Herald sent them.
+- `HeraldSdkError.body_json` and `HeraldSdkError.body_code` expose the reason from the error body.
+
+The file comes in two parts. Put both in one module.
+
+```python
+"""Client for the Herald HTTP API, standard library only.
+
+Reference implementation of the Rust crate and Node package `herald-sdk`.
+Herald publishes no Python package: copy this module into your project and
+adapt it.
+
+Calls to /api/ext/* carry the realm API key in the X-API-Key header and
+return the decoded JSON body with Herald's camelCase keys unchanged. A
+failed call raises HeraldSdkError.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import http.client
+import json
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+# Cached results of a token last checked longer ago than this are dropped
+# before its next check. Independent of the cache TTL.
+TOKEN_STALE_AFTER_SECONDS = 300
+
+# Replay window for webhook deliveries.
+WEBHOOK_TOLERANCE_SECONDS = 300
+
+
+class HeraldSdkError(Exception):
+    """A failed Herald call.
+
+    `code` is one of network, unauthorized, forbidden, not-found,
+    internal-server-error, api-error, parse. Branch on `code`, never on the
+    message text. `status` and `body` are set when Herald answered.
+    `body_json` is the error body decoded, and `body_code` Herald's own reason
+    from it, such as insufficient_points.
+    """
+
+    def __init__(self, code, status=None, body=None):
+        label = f"{code} ({status})" if status is not None else code
+        message = f"Herald SDK error: {label}"
+        if body:
+            message += f": {body}"
+        super().__init__(message)
+        self.code = code
+        self.status = status
+        self.body = body
+
+    @property
+    def body_json(self):
+        """The error body decoded as JSON, or None when it is not a JSON object."""
+        try:
+            decoded = json.loads(self.body)
+        except (TypeError, ValueError):
+            return None
+        return decoded if isinstance(decoded, dict) else None
+
+    @property
+    def body_code(self):
+        return (self.body_json or {}).get("code")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # A 3xx from the API means base_url is wrong. Following it would send the
+    # API key to another host, so the response is reported as an api-error.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _path_part(value):
+    """Encode one path segment, so `/` or `?` inside a value cannot alter the path."""
+    return urllib.parse.quote(str(value), safe="")
+
+
+def _ext(*parts):
+    """Build an /api/ext path from its segments."""
+    return "/api/ext/" + "/".join(_path_part(part) for part in parts)
+
+
+def _clean(body):
+    """Drop keys whose value is None, as JSON.stringify drops undefined keys."""
+    return {key: value for key, value in body.items() if value is not None}
+
+
+class HeraldClient:
+    def __init__(self, base_url, api_key, cache_ttl_seconds=300, timeout=10):
+        """`base_url` is the Herald origin. `api_key` is the realm API key.
+
+        `timeout` is seconds per HTTP request. The Rust and Node SDKs wait
+        without limit by default; here a hung Herald call would also hang the
+        request that triggered it, so this client sets a limit.
+        """
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
+        self._cache_ttl = cache_ttl_seconds
+        self._timeout = timeout
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),  # ignore HTTP(S)_PROXY, like the Rust SDK
+            _NoRedirect(),
+        )
+        self._lock = threading.Lock()
+        self._cache = {}      # cache key -> (response, monotonic expiry, access token)
+        self._index = {}      # access token -> its cache keys
+        self._last_seen = {}  # access token -> monotonic time of its last check
+        self._sweep_at = 0.0
+
+    # ---- HTTP layer
+
+    def _send(self, method, path, query=None, body=None, api_key=True, bearer=None):
+        url = self._base_url + path
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+        headers = {"X-API-Key": self._api_key} if api_key else {}
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            response = self._opener.open(request, timeout=self._timeout)
+        except urllib.error.HTTPError as error:
+            response = error  # a non-2xx answer: still carries status and body
+        except (OSError, http.client.HTTPException) as error:
+            raise HeraldSdkError("network") from error
+        try:
+            with response:
+                return response.getcode(), response.read().decode("utf-8", errors="replace")
+        except (OSError, http.client.HTTPException) as error:
+            raise HeraldSdkError("network") from error
+
+    @staticmethod
+    def _decode(status, text):
+        """Turn one answer into a decoded value or a HeraldSdkError."""
+        if status == 401:
+            raise HeraldSdkError("unauthorized", status, text)
+        if status == 403:
+            raise HeraldSdkError("forbidden", status, text)
+        if status == 404:
+            raise HeraldSdkError("not-found", status, text)
+        if status == 500:
+            raise HeraldSdkError("internal-server-error", status, text)
+        if 200 <= status < 300:
+            try:
+                return json.loads(text)
+            except ValueError as error:
+                raise HeraldSdkError("parse", status, f"invalid JSON body: {error}") from error
+        raise HeraldSdkError("api-error", status, text)
+
+    def _json(self, method, path, query=None, body=None, api_key=True, bearer=None):
+        return self._decode(*self._send(method, path, query, body, api_key, bearer))
+
+    def _void(self, path, query=None):
+        status, text = self._send("DELETE", path, query)
+        return None if status == 204 else self._decode(status, text)
+
+    @staticmethod
+    def _page_query(page=None, page_size=None):
+        query = {}
+        if page is not None:
+            query["page"] = str(page)
+        if page_size is not None:
+            query["pageSize"] = str(page_size)
+        return query
+
+    # ---- permissions
+
+    def check_permission(self, access_token, rules):
+        """Ask whether the token's user holds every rule in `rules`.
+
+        `rules` is a non-empty list of {"resource": ..., "action": ...}.
+        Results are cached per exact (access_token, rules) pair, denials
+        included. Read the answer by shape, not by `allowed` alone:
+
+            allowed + userId          every rule granted
+            allowed false, no error   token valid, a rule denied
+            allowed false + error     token rejected; see the error value
+        """
+        if self._token_is_stale(access_token):
+            self.invalidate_cache(access_token)
+
+        key = json.dumps([access_token, rules], separators=(",", ":"))
+        now = time.monotonic()
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is not None:
+                if now <= entry[1]:
+                    return entry[0]
+                self._forget(key)
+
+        response = self._json(
+            "POST",
+            "/api/ext/permission/check",
+            body={"accessToken": access_token, "rules": rules},
+        )
+
+        now = time.monotonic()
+        with self._lock:
+            self._last_seen[access_token] = now
+            self._index.setdefault(access_token, set()).add(key)
+            self._cache[key] = (response, now + self._cache_ttl, access_token)
+            if now >= self._sweep_at:
+                self._sweep(now)
+                self._sweep_at = now + self._cache_ttl
+        return response
+
+    def invalidate_cache(self, access_token):
+        """Drop every cached result of this token, for example after the
+        user's permissions changed."""
+        with self._lock:
+            for key in self._index.pop(access_token, ()):
+                self._cache.pop(key, None)
+            self._last_seen.pop(access_token, None)
+
+    def _token_is_stale(self, access_token):
+        last = self._last_seen.get(access_token)
+        return last is not None and time.monotonic() - last > TOKEN_STALE_AFTER_SECONDS
+
+    def _forget(self, key):
+        _, _, access_token = self._cache.pop(key)
+        keys = self._index.get(access_token)
+        if keys is not None:
+            keys.discard(key)
+            if not keys:
+                del self._index[access_token]
+                self._last_seen.pop(access_token, None)
+
+    def _sweep(self, now):
+        # Expired entries are otherwise removed only when the same key is asked
+        # for again, which never happens for tokens that expired. Without this
+        # sweep the three dictionaries grow for the life of the process.
+        for key, (_, expires_at, _) in list(self._cache.items()):
+            if now > expires_at:
+                self._forget(key)
+
+    # ---- subscription and points
+
+    def get_subscription(self, realm_id, client_app_id):
+        """Subscription state of a client app. `client_app_id` accepts the
+        client app's `clientId` or its `id`."""
+        return self._json("GET", _ext("bill", realm_id, "client", client_app_id, "subscription"))
+
+    def get_balance(self, realm_id, user_id):
+        return self._json("GET", _ext("points", realm_id, "balance"), query={"userId": user_id})
+
+    def consume_points(
+        self, realm_id, user_id, client_app_id, amount, description=None, idempotency_key=None
+    ):
+        """Deduct points. `client_app_id` is the client app's UUID `id`.
+
+        `idempotency_key` identifies one logical deduction: reuse it on a
+        retry of the same call, never for a different one."""
+        return self._json("POST", _ext("points", realm_id, "consume"), body=_clean({
+            "userId": user_id,
+            "clientAppId": client_app_id,
+            "amount": amount,
+            "description": description,
+            "idempotencyKey": idempotency_key,
+        }))
+
+    def grant_points(self, realm_id, user_id, bucket_id, amount, reason, validity_days=None):
+        """Add points to one Credit Bucket. `bucket_id` and a non-empty
+        `reason` are required; `validity_days` omitted means no expiry."""
+        return self._json("POST", _ext("points", realm_id, "grant"), body=_clean({
+            "userId": user_id,
+            "bucketId": bucket_id,
+            "amount": amount,
+            "reason": reason,
+            "validityDays": validity_days,
+        }))
+
+    def get_transaction(self, realm_id, transaction_id):
+        return self._json("GET", _ext("points", realm_id, "transactions", transaction_id))
+
+    # ---- realms, users, client apps
+
+    def create_realm(self, request):
+        return self._json("POST", _ext("realms"), body=request)
+
+    def list_realms(self):
+        return self._json("GET", _ext("realms"))["realms"]
+
+    def get_realm(self, realm_id):
+        return self._json("GET", _ext("realms", realm_id))
+
+    def create_user(self, realm_id, request):
+        return self._json("POST", _ext("realms", realm_id, "users"), body=request)
+
+    def list_users(self, realm_id):
+        """First page only (page 1, 20 items). Use list_users_page to page."""
+        return self.list_users_page(realm_id)["items"]
+
+    def list_users_page(self, realm_id, page=None, page_size=None):
+        """`page` starts at 1. `page_size` defaults to 20 and is capped at 100."""
+        return self._json(
+            "GET", _ext("realms", realm_id, "users"), query=self._page_query(page, page_size)
+        )
+
+    def get_user(self, realm_id, user_id):
+        return self._json("GET", _ext("realms", realm_id, "users", user_id))
+
+    def create_client_app(self, realm_id, request):
+        return self._json("POST", _ext("realms", realm_id, "client-apps"), body=request)
+
+    def list_client_apps(self, realm_id):
+        return self._json("GET", _ext("realms", realm_id, "client-apps"))["clientApps"]
+
+    def get_client_app(self, realm_id, client_app_id):
+        """`client_app_id` is the client app's UUID `id`."""
+        return self._json("GET", _ext("realms", realm_id, "client-apps", client_app_id))
+
+    # ---- organizations (the API key must be bound to an ordinary client app)
+
+    @staticmethod
+    def _org(realm_id, org_id, *parts):
+        return _ext("realms", realm_id, "orgs", org_id, *parts)
+
+    def create_org(self, realm_id, request):
+        """Idempotent on (client app, externalId): a replay answers 200 with
+        `created: false`."""
+        return self._json("POST", _ext("realms", realm_id, "orgs"), body=request)
+
+    def delete_org(self, realm_id, org_id):
+        """Deletes the organization together with its memberships."""
+        return self._void(self._org(realm_id, org_id))
+
+    def upsert_org_member(self, realm_id, org_id, request):
+        """Adds a member or changes the tier of an existing one."""
+        return self._json("POST", self._org(realm_id, org_id, "members"), body=request)
+
+    def remove_org_member(self, realm_id, org_id, user_id, actor_user_id=None):
+        """`actor_user_id` applies the change as that user, with that user's
+        authority in the organization instead of the application's."""
+        query = {"actorUserId": actor_user_id} if actor_user_id is not None else {}
+        return self._void(self._org(realm_id, org_id, "members", user_id), query)
+
+    def list_org_members(self, realm_id, org_id):
+        """First page only (page 1, 20 items). Use list_org_members_page to page."""
+        return self.list_org_members_page(realm_id, org_id)["items"]
+
+    def list_org_members_page(self, realm_id, org_id, page=None, page_size=None):
+        return self._json(
+            "GET", self._org(realm_id, org_id, "members"), query=self._page_query(page, page_size)
+        )
+
+    def get_org_member(self, realm_id, org_id, user_id):
+        """A non-member answers `member: false` instead of 404."""
+        return self._json("GET", self._org(realm_id, org_id, "members", user_id))
+
+    def check_org_permission(self, realm_id, org_id, request):
+        """`request` is {"userId": ..., "rules": [...]}; every rule must hold."""
+        return self._json("POST", self._org(realm_id, org_id, "permission-check"), body=request)
+
+    def list_user_orgs(self, realm_id, user_id):
+        """First page only (page 1, 20 items). Use list_user_orgs_page to page."""
+        return self.list_user_orgs_page(realm_id, user_id)["items"]
+
+    def list_user_orgs_page(self, realm_id, user_id, page=None, page_size=None):
+        query = {"userId": user_id, **self._page_query(page, page_size)}
+        return self._json("GET", _ext("realms", realm_id, "orgs"), query=query)
+
+    # ---- login calls your backend makes for the browser (no API key)
+
+    def exchange_code(self, realm_id, *, code, redirect_uri, client_id, code_verifier):
+        """Trade an OAuth authorization code for a token set. Runs on your
+        backend, so `code_verifier` never reaches the browser."""
+        return self._json(
+            "POST",
+            f"/api/oauth/{_path_part(realm_id)}/token",
+            api_key=False,
+            body={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_id,
+                "code_verifier": code_verifier,
+            },
+        )
+
+    def refresh_tokens(self, refresh_token):
+        """Rotate the token set. Store both returned tokens; the old refresh
+        token stops working."""
+        return self._json(
+            "POST",
+            "/api/auth/browser-token/refresh",
+            api_key=False,
+            body={"refreshToken": refresh_token},
+        )
+
+    def logout(self, access_token):
+        """End the user's session by revoking the whole refresh-token family."""
+        return self._json("POST", "/api/auth/logout", api_key=False, bearer=access_token)
+```
+
+```python
+class HeraldWebhookError(Exception):
+    """A webhook delivery to reject.
+
+    `code` is one of missing-headers, invalid-timestamp,
+    timestamp-out-of-tolerance, invalid-signature, invalid-payload.
+    """
+
+    def __init__(self, code, detail):
+        super().__init__(f"Herald webhook error ({code}): {detail}")
+        self.code = code
+
+
+def _delivery_header(headers, name):
+    """First value of a header, whatever the case of its name. `headers` is
+    the `request.headers` of Flask, Django, or Starlette, or a plain dict."""
+    if not headers:
+        return None
+    value = headers.get(name)
+    if value is None:
+        for key, item in headers.items():
+            if key.lower() == name.lower():
+                value = item
+                break
+    return value[0] if isinstance(value, (list, tuple)) else value
+
+
+def _verified_payload(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    timestamp = timestamp or _delivery_header(headers, "X-Herald-Timestamp")
+    signature = signature or _delivery_header(headers, "X-Herald-Signature")
+    if not timestamp or not signature:
+        raise HeraldWebhookError(
+            "missing-headers", "X-Herald-Timestamp and X-Herald-Signature are required"
+        )
+    if not re.fullmatch(r"-?\d+", timestamp):
+        raise HeraldWebhookError(
+            "invalid-timestamp", "X-Herald-Timestamp must be a Unix time in seconds"
+        )
+    now = time.time() if now_seconds is None else now_seconds
+    if tolerance_seconds is not None and abs(now - int(timestamp)) > tolerance_seconds:
+        raise HeraldWebhookError(
+            "timestamp-out-of-tolerance", f"timestamp drift exceeds {tolerance_seconds} seconds"
+        )
+    secrets = [secret] if isinstance(secret, str) else [item for item in secret if item]
+    if not secrets:
+        raise HeraldWebhookError("invalid-signature", "at least one non-empty secret is required")
+    if not isinstance(payload, (bytes, bytearray, memoryview)):
+        raise HeraldWebhookError(
+            "invalid-payload",
+            "payload must be the raw request body, never a parsed or re-serialized object",
+        )
+    payload = bytes(payload)
+    signed = timestamp.encode("utf-8") + b"." + payload
+    for candidate in secrets:
+        digest = hmac.new(candidate.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(f"v1={digest}".encode("utf-8"), signature.encode("utf-8")):
+            return payload
+    raise HeraldWebhookError("invalid-signature", "HMAC-SHA256 signature mismatch")
+
+
+def verify_webhook_signature(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    """True when a delivery is signed with `secret` and recent. False for every
+    rejection.
+
+    `payload` is the raw request body as bytes. `secret` is the signing secret
+    (`whsec_...`) or a list of them during a key rotation. Pass `headers`, or
+    name the two values with `timestamp` and `signature`. `tolerance_seconds`
+    is the replay window; None disables the check.
+    """
+    try:
+        _verified_payload(
+            payload, secret, headers, timestamp, signature, tolerance_seconds, now_seconds
+        )
+        return True
+    except HeraldWebhookError:
+        return False
+
+
+def verify_and_parse_webhook_event(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    """Same checks as verify_webhook_signature, then decode the body. Raises
+    HeraldWebhookError; act on the returned event only."""
+    raw = _verified_payload(
+        payload, secret, headers, timestamp, signature, tolerance_seconds, now_seconds
+    )
+    try:
+        event = json.loads(raw)
+    except ValueError as error:
+        raise HeraldWebhookError("invalid-payload", f"invalid JSON body: {error}") from error
+    required = ("id", "type", "realmId", "createdAt", "occurredAt")
+    if (
+        not isinstance(event, dict)
+        or not isinstance(event.get("data"), dict)
+        or any(not isinstance(event.get(field), str) or not event[field] for field in required)
+    ):
+        raise HeraldWebhookError(
+            "invalid-payload",
+            "webhook payload must be a JSON object with id, type, realmId, "
+            "createdAt, occurredAt, and data",
+        )
+    return event
+```
+
+Three uses of the client. The first holds the decision table of [Permission check](#permission-check).
+
+```python
+"""Three ways to use herald_client.py, one per kind of call."""
+import logging
+import os
+
+from herald_client import (
+    HeraldClient,
+    HeraldSdkError,
+    HeraldWebhookError,
+    verify_and_parse_webhook_event,
+)
+
+REALM_ID = "my-realm"
+CLIENT_APP_ID = "0193d0c1-0000-7000-8000-000000000101"
+RULES = [{"resource": "document", "action": "read"}]
+
+herald = HeraldClient(os.environ["HERALD_BASE_URL"], os.environ["HERALD_API_KEY"])
+# A list, so that a rotated secret can be added before the old one is removed.
+WEBHOOK_SECRETS = [os.environ["HERALD_WEBHOOK_SECRET"]]
+
+
+class NotAllowed(Exception):
+    """A request that must not proceed. `status` is what to answer the caller."""
+
+    def __init__(self, status):
+        super().__init__(f"not allowed: {status}")
+        self.status = status
+
+
+class InsufficientPoints(Exception):
+    def __init__(self, need):
+        super().__init__(f"the call needs {need} points")
+        self.need = need
+
+
+def current_user(access_token):
+    """The Herald user id of the caller, or NotAllowed with the status to answer."""
+    try:
+        result = herald.check_permission(access_token, RULES)
+    except HeraldSdkError:
+        raise NotAllowed(503) from None  # Herald did not answer: fail closed
+    if result["allowed"]:
+        return result["userId"]
+    error = result.get("error")
+    if error is None:
+        status = 403  # the token is valid and a rule is denied
+    elif error == "internal_error":
+        status = 503
+    elif error in ("token_not_found", "invalid_token"):
+        status = 401
+    else:
+        # cross_realm_access_forbidden or forbidden: the key does not match the
+        # token's realm or client app. Signing in again does not fix it.
+        logging.error("Herald rejected the token: %s", error)
+        status = 403
+    raise NotAllowed(status)
+
+
+def charge_report_export(user_id, report_id):
+    """Deduct 100 points for one report export and return the points deducted.
+
+    A retry with the same `report_id` deducts once, because it reuses the key.
+    """
+    try:
+        result = herald.consume_points(
+            REALM_ID,
+            user_id,
+            CLIENT_APP_ID,
+            100,
+            description="Report export",
+            idempotency_key=f"report-export:{report_id}",
+        )
+    except HeraldSdkError as error:
+        if error.code == "api-error" and error.body_code == "insufficient_points":
+            raise InsufficientPoints(error.body_json["need"]) from None
+        raise
+    return sum(transaction["amount"] for transaction in result["transactions"])
+
+
+def handle_herald_delivery(raw_body, headers, processed_event_ids):
+    """Answer one webhook delivery with `(status, reason)`.
+
+    `raw_body` is the request body before any parsing, `headers` holds the
+    request headers, and `processed_event_ids` is the store of event ids
+    already handled.
+    """
+    try:
+        event = verify_and_parse_webhook_event(
+            payload=raw_body, secret=WEBHOOK_SECRETS, headers=headers
+        )
+    except HeraldWebhookError as error:
+        return 400, error.code
+    if event["id"] in processed_event_ids:
+        return 200, "duplicate"  # Herald delivers again on retry; that is not an error
+    processed_event_ids.add(event["id"])
+    # Act on event["type"] and event["data"] here.
+    return 200, "ok"
+```
+
+The client is synchronous. In an async service, run each call in a thread pool, or move `_send` to the project's async HTTP client and leave the rest as it is. The cache is shared by every caller of the client either way.
+
+## 4. Not covered here
+
+| Need | Where to read |
+|------|---------------|
+| Login pages that call Herald from the browser, token refresh in the browser, passkeys | [Browser SDK (herald-auth-web)](/docs/integration/third-party-backend#8-browser-sdk-herald-auth-web) and [White-label / Custom User UI](/docs/customization/branding) |
+| The rest of the backend login flow: the authorize URL, the transient state cookie, returning tokens to the frontend | [Integrating a Third-Party Backend with Herald](/docs/integration/third-party-backend#oauth-backend-handlers) |
+| Webhook retries, the event catalog, registering a URL | [Webhooks](/docs/integration/webhooks) |
+| Every other operation of the API | [OpenAPI reference](/docs/openapi) |

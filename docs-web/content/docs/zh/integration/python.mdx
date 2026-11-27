@@ -1,0 +1,1285 @@
+---
+title: Python 集成（无官方 SDK）
+description: "Herald 不提供 Python SDK。这一页给 AI 编程助手提供用 Python 正确调用 Herald HTTP API 所需的内容：Rust 与 Node SDK 背后的契约、一个经过测试的参考客户端，以及报告完成之前要跑的检查。"
+---
+
+## 把这一页交给你的 AI 助手
+
+Herald 没有 Python SDK，也不维护。Python 服务直接调用 HTTP API，也就是 Rust crate 和 Node 包 `herald-sdk` 封装的那一套。AI 编程助手写对这段代码所需的内容都在这一页上。从下一节开始，这一页是写给助手的。
+
+1. 把这一页以 Markdown 形式交给助手：在页面地址后加 `.md`，即 `https://www.fornetcode.com/zh/docs/integration/python.md`。助手不能抓取 URL 时，把 Markdown 内容贴进对话。
+2. 说明要做什么：Web 框架、同步还是异步，以及需要哪些能力：权限检查、积分、订阅查询、组织、webhook 接收端，或给浏览器前端用的登录接口。
+3. 配置只给名字和标识符，不给密钥：base URL、realm id、client app 的 `id` 和 `clientId`，以及存放 API Key 的环境变量名。不要把 Key 本身贴进对话。
+4. 助手报告完成时，向它要[交付前](#交付前)列出的测试输出。
+
+覆盖这四步的提示词：
+
+```text
+完整阅读 https://www.fornetcode.com/zh/docs/integration/python.md，按照
+“给 AI 编程助手的执行说明”一节，在本仓库里实现 Herald 接入。
+
+框架：FastAPI，异步
+能力：/api 路由上的权限检查；积分扣减
+Herald base URL：https://auth.example.com
+API Key：从环境变量 HERALD_API_KEY 读取，我不会把它贴在这里。
+Realm id：my-realm
+Client app id：0193d0c1-0000-7000-8000-000000000101    Client app clientId：my-web-app
+Python：3.12
+
+任务需要这一页没有覆盖的内容时，先停下来问我。
+```
+
+## 1. 给 AI 编程助手的执行说明
+
+你在用户的 Python 项目里实现 Herald 接入。这一节说明先读什么、向用户要什么、验证什么。第 2 节是契约，第 3 节是实现这份契约的完整客户端。
+
+### 动手前先读
+
+- 对于这一页列出的每个接口，第 2 节就是事实来源。不要依赖你对 Herald 的记忆，也不要照搬其他认证产品的惯例。
+- 从[参考客户端](#3-参考客户端)开始：把它复制进项目，或者移植到项目已有的 HTTP 客户端上。两种做法都要保留这一页描述的行为。
+- 如果项目里的 OpenAPI 文档、生成的客户端或已有代码，在某个接口上与这一页不一致，停下来把差异报告给用户，不要自己悄悄选一个。
+- 客户端在每个进程里只创建一次并复用。每个请求新建一个客户端，就没有权限缓存可用。
+
+### 缺什么就向用户要
+
+| 输入 | 用途 |
+|------|------|
+| Herald base URL | 客户端的 `base_url` |
+| 存放 realm API Key 的环境变量名 | `X-API-Key` 请求头 |
+| Realm id | 路径里的 `{realmId}` |
+| Client app 的 `id`（UUID）和 `clientId` | 积分扣减和 client app 查询里的 `clientAppId`；登录流程里的 `client_id` |
+| Credit Bucket 的 `id`（UUID），仅在需要发放积分时 | 积分发放里的 `bucketId` |
+| 存放 webhook 签名密钥的环境变量名，仅在需要接收 webhook 时 | 验签 |
+| Web 框架，同步还是异步 | 决定客户端怎么创建、怎么调用 |
+| 需要哪些能力 | 权限检查、积分、订阅、组织、webhook 接收端、登录接口 |
+| 后端是否通过 Herald 给浏览器用户登录 | 决定[后端登录调用](#后端登录调用)是否适用 |
+
+### 规则
+
+1. API Key 只留在服务端。启动时从环境变量读取。不要写死，不要写进日志或响应，也不要发给 base URL 以外的任何主机。
+2. API Key 只放在 `/api/ext/*` 请求的 `X-API-Key` 请求头里。[后端登录调用](#后端登录调用)里的三个请求都不带 API Key。
+3. 服务用自己的路由做权限保护时，按[权限检查](#权限检查)里的表来应答。token 有效但有规则被拒是 403，token 已过期或无效是 401。
+4. Herald 答不上来时返回 503。网络失败、5xx 状态码，以及 `error` 为 `internal_error` 的应答都算。不能因为检查没跑成就放行请求。
+5. `clientAppId` 在积分扣减和 client app 查询里是 client app 的 UUID `id`。只有订阅查询同时接受 `clientId`。取值用 client app 的 `id` 字段。
+6. 路径里的每个值都编码成单独一段。JSON 键名保持原样：`/api/ext/*` 用 camelCase，OAuth 换 token 用 snake_case。
+7. 这一页没有列出的响应字段也要接受。示例列的是接入方会读的字段，实际响应带更多字段。
+8. 每次调用都设置超时。
+9. 积分扣减时，幂等 key 在第一次尝试之前生成，这次扣减的每次重试都复用它。不要把同一个 key 用在 `userId`、`clientAppId`、`amount` 或 `description` 不同的另一次请求上。
+10. webhook 接收端先对原始请求字节验签，再解析。签名用常量时间比较。与当前时间相差超过 300 秒的时间戳一律拒绝。
+11. 刷新 token 走 `/api/auth/browser-token/refresh`。`/api/oauth/{realmId}/token` 上的 `refresh_token` 授权只给 Herald 内置的 MCP client 使用，其他 client 调用会得到 400。刷新后把返回的两个 token 都存下来。
+
+### 遇到这些情况先问用户
+
+- 任务需要这一页没有列出的接口。先去 [OpenAPI 参考](/docs/openapi)查，不要编造路径、参数或响应字段。
+- 项目里的某个来源与这一页矛盾。
+- 用户要求做会把 API Key 或用户的 refresh token 暴露给浏览器的事。
+
+### 交付前
+
+写出下面的测试，运行它们，并报告运行命令和结果。没能测到的也要报告。
+
+| 测试 | 断言 |
+|------|------|
+| 请求形状，覆盖用到的每个客户端方法 | 对照本地桩服务器检查方法、路径、查询参数和 JSON 请求体 |
+| 权限判定，接入包含权限检查时 | `allowed` 为真且带 `userId` 时放行。`allowed` 为 `false` 且没有 `error` 是 403。带 `error` 时，`token_not_found` 和 `invalid_token` 是 401，`internal_error` 是 503，其余是 403。`network` 错误和 500 是 503。 |
+| 权限缓存，接入包含权限检查时 | 第二次相同的检查不发出请求。调用 `invalidate_cache` 之后会发出一次。 |
+| 错误映射 | 401、403、404、500 和 409 抛出 `HeraldSdkError`，`code` 与[错误](#错误)一节给出的对应。连接被拒绝时抛出 `network`。 |
+| 积分扣减重试，接入包含积分扣减时 | 模拟一次应答丢失之后，重试发送相同的 `idempotencyKey`。 |
+| Webhook 签名，接入包含 webhook 接收时 | [Webhook 投递](#webhook-投递)里的两个向量都能通过。改动一个字节、重新序列化请求体、时间戳相差 301 秒，都被拒绝。 |
+
+## 2. HTTP 契约
+
+这份契约覆盖 Rust 和 Node SDK 封装的 23 个 `/api/ext` 操作、webhook 签名方案，以及后端替浏览器用户发出的三个请求。内容读自 Herald 仓库里的后端处理器（`backend/api-ext`、`backend/api-auth`、`backend/api-oauth`）。
+
+`/api/ext` 还有另外 5 个操作。SDK 没有封装它们，这一页也不给出它们的请求和响应字段，调用前先在 [OpenAPI 参考](/docs/openapi)里查清楚：
+
+| 操作 | 返回 |
+|------|------|
+| `GET /api/ext/points/{realmId}/transactions/by-external-ref/{externalRefId}` | 带有指定 `externalRefId` 的那条积分流水 |
+| `GET /api/ext/subscription/{clientAppId}` | 某个 client app 是否有订阅：`hasSubscription`，以及有订阅时的 `status` |
+| `GET /api/ext/{realmId}/one-time-mappings` | 已启用的一次性购买映射 |
+| `GET /api/ext/{realmId}/entitlements/{entitlementKey}/currencies` | 某个权益定价所用的币种 |
+| `GET /api/ext/{realmId}/entitlements/{entitlementKey}/default-price` | 某个权益在指定 `currency` 下的唯一价格，可按 `billingType` 和 `billingPeriod` 过滤 |
+
+### 请求
+
+- base URL 是 Herald 的源站地址。下面的每个路径都接在它后面。
+- 每个 `/api/ext/*` 请求都在 `X-API-Key` 里带上 realm API Key。Key 缺失、未知、被禁用或已过期，或者 Key 绑定的 client app 被禁用，都会得到 401。
+- 请求和响应体都是 JSON，键名为 camelCase。可选字段要么是 `null`，要么不出现，两种情况都当作没有值。
+- 路径里的每个值编码成单独一段。查询参数用表单编码。
+- 日期和时间是 RFC 3339 字符串。realm id 是一个简短的名字。用户、client app、组织、流水、bucket 的 id 都是 UUID。
+- API Key 属于一个 realm。`{realmId}` 与 Key 的 realm 不同时返回 403 `cross_realm_access_forbidden`。
+- 绑定到某个 client app 的 Key 只能访问这个 app 的数据：它的 client app 记录、订阅、积分，以及签发给它的 token。绑定到内置 `admin-api-client` 的 Key 在整个 realm 内有效。组织是例外，它要求 Key 绑定到普通的 client app。
+- API Key 是 Herald RBAC 里的主体。下面每个操作都标出了 Key 必须具备的权限。缺少时返回 403 `permission_denied`。
+- 列表分页返回。`page` 从 1 开始。`pageSize` 默认 20，上限 100。一页的应答是：
+
+```json
+{ "items": [], "page": 1, "pageSize": 20, "total": 42 }
+```
+
+### 错误
+
+每个非 2xx 应答和每次传输失败都抛出同一种错误类型。`code` 标明类别，含义固定不变。Herald 有应答时，`status` 和 `body` 有值。
+
+| 情况 | `code` | 含义 |
+|------|--------|------|
+| 401 | `unauthorized` | API Key 缺失或被拒绝。这是配置错误。 |
+| 403 | `forbidden` | realm 不对、Key 缺少权限，或目标不在 Key 的 client app 范围内。 |
+| 404 | `not-found` | 指定的对象在 realm 内不存在。 |
+| 500 | `internal-server-error` | Herald 出错。退避后重试。 |
+| 其他非 2xx：400、408、409、422、429 | `api-error` | Herald 拒绝了请求。原因看响应体里的 `code`。 |
+| 2xx 但响应体不是 JSON | `parse` | 应答的是别的服务器或代理页面。检查 base URL。 |
+| 没有应答：连接被拒、超时、连接被重置 | `network` | 结果未知。 |
+
+错误体里的 `code` 是 Herald 自己给出的原因。多数错误是同一种结构，其中 `error` 与 `message` 相同：
+
+```json
+{
+  "status": 403,
+  "code": "cross_realm_access_forbidden",
+  "message": "cross_realm_access_forbidden",
+  "error": "cross_realm_access_forbidden",
+  "details": null,
+  "requestId": "0193d0c0-0000-7000-8000-00000000aaaa"
+}
+```
+
+少数操作会在应答里加上自己的字段，这里是 `have` 和 `need`：
+
+```json
+{
+  "code": "insufficient_points",
+  "message": "Insufficient points balance for the covered credit pools",
+  "have": 3,
+  "need": 100,
+  "status": 409,
+  "requestId": "0193d0c0-0000-7000-8000-00000000bbbb"
+}
+```
+
+原因读响应体的 `code` 字段。响应体里没有这个字段，或者响应体不是 JSON，都当作原因未知。接入方需要分支处理的原因如下：
+
+| 响应体 `code` | 状态码 | 操作 | 含义 |
+|---------------|--------|------|------|
+| `missing_api_key`、`invalid_api_key`、`api_key_disabled`、`api_key_expired`、`client_app_disabled` | 401 | 所有 `/api/ext/*` | API Key 被拒绝。 |
+| `cross_realm_access_forbidden` | 403 | 所有 `/api/ext/*` | `{realmId}` 不是 Key 所在的 realm。 |
+| `permission_denied` | 403 | 所有 `/api/ext/*` | Key 缺少该操作要求的权限。 |
+| `forbidden` | 403 | 多个操作 | 目标不在 Key 的 client app 范围内。 |
+| `rules_required` | 400 | 权限检查 | `rules` 缺失或为空。 |
+| `invalid_user_id_format`、`missing_user_id` | 400 | 积分 | `userId` 不是 UUID，或者没有传。 |
+| `invalid_client_app_id_format` | 400 | 积分扣减、client app 查询 | `clientAppId` 不是 UUID。 |
+| `invalid_amount` | 400 | 积分扣减、积分发放 | `amount` 不在 1 到 1,000,000 之间。 |
+| `validation_error` | 400 | 多个操作 | 某个字段校验失败。例如：幂等 key 超过 255 字节，发放的 `reason` 为空，`validityDays` 小于 1，邮箱格式不对，密码不在 8 到 100 个字符之间。 |
+| `grant_bucket_required` | 400 | 积分发放 | `bucketId` 缺失或不是 UUID。 |
+| `wallet_frozen_or_closed` | 400 | 积分扣减 | 账户不能扣减。 |
+| `rate_limit_exceeded` | 429 | 积分扣减、积分发放 | realm 内扣减加发放超过每分钟 100 次，或单个用户超过每分钟 20 次。 |
+| `realm_not_found`、`user_not_found`、`wallet_not_found`、`transaction_not_found`、`client_app_not_found`、`subscription_not_found` | 404 | | 指定的对象在 realm 内不存在。 |
+| `email_already_exists` | 409 | 创建用户 | realm 内已有同邮箱的用户。 |
+| `idempotency_conflict` | 409 | 积分扣减 | 幂等 key 已经用于另一个不同的请求。 |
+| `insufficient_points` | 409 | 积分扣减 | 余额不足。响应体里带 `have` 和 `need`。 |
+| `no_covered_pool` | 409 | 积分扣减 | 这个 client app 没有可扣减的 Credit Bucket。 |
+| `concurrent_modification` | 409 | 积分扣减 | 与并发的写入冲突。同一个请求可以再发一次。 |
+| `internal_error` | 500 | 所有 | Herald 出错。退避后重试。 |
+
+### 接口
+
+最后一列指向给出请求和响应字段的小节。
+
+| 操作 | 方法和路径 | Key 需要的权限 | 输入 | 成功时 |
+|------|------------|----------------|------|--------|
+| 权限检查 | `POST /api/ext/permission/check` | 有效的 Key | 请求体 | 200，见[权限检查](#权限检查) |
+| 订阅 | `GET /api/ext/bill/{realmId}/client/{clientAppId}/subscription` | `billing:view` | 无 | 200，见[订阅](#订阅) |
+| 积分余额 | `GET /api/ext/points/{realmId}/balance` | `points:view` | 查询参数 `userId` | 200，见[积分](#积分) |
+| 积分扣减 | `POST /api/ext/points/{realmId}/consume` | `points:manage` | 请求体 | 200，见[积分](#积分) |
+| 积分发放 | `POST /api/ext/points/{realmId}/grant` | `points:manage` | 请求体 | 200，见[积分](#积分) |
+| 积分流水 | `GET /api/ext/points/{realmId}/transactions/{transactionId}` | `points:view` | 无 | 200，见[积分](#积分) |
+| 创建 realm | `POST /api/ext/realms` | `admin` realm 内的 `realm:manage` | 请求体 | 201，见 [Realm 用户和 Client App](#realm-用户和-client-app) |
+| 列出 realm | `GET /api/ext/realms` | `realm:view` | 无 | 200，带 `realms` |
+| 查询 realm | `GET /api/ext/realms/{realmId}` | `realm:view` | 无 | 200 |
+| 创建用户 | `POST /api/ext/realms/{realmId}/users` | `users:create` | 请求体 | 201 |
+| 列出用户 | `GET /api/ext/realms/{realmId}/users` | `users:view` | 查询参数 `page`、`pageSize` | 200，一页用户 |
+| 查询用户 | `GET /api/ext/realms/{realmId}/users/{userId}` | `users:view` | 无 | 200 |
+| 创建 client app | `POST /api/ext/realms/{realmId}/client-apps` | `clients:manage` | 请求体 | 201 |
+| 列出 client app | `GET /api/ext/realms/{realmId}/client-apps` | `clients:view` | 无 | 200，带 `clientApps` |
+| 查询 client app | `GET /api/ext/realms/{realmId}/client-apps/{clientAppId}` | `clients:view` | 无 | 200 |
+| 创建组织 | `POST /api/ext/realms/{realmId}/orgs` | `orgs:manage` | 请求体 | 201；幂等重放时为 200 |
+| 删除组织 | `DELETE /api/ext/realms/{realmId}/orgs/{orgId}` | `orgs:manage` | 无 | 204 |
+| 新增或修改成员 | `POST /api/ext/realms/{realmId}/orgs/{orgId}/members` | `orgs:manage` | 请求体 | 200，见[组织](#组织) |
+| 移除成员 | `DELETE /api/ext/realms/{realmId}/orgs/{orgId}/members/{userId}` | `orgs:manage` | 查询参数 `actorUserId` | 204 |
+| 列出成员 | `GET /api/ext/realms/{realmId}/orgs/{orgId}/members` | `orgs:view` | 查询参数 `page`、`pageSize` | 200，一页成员 |
+| 查询成员 | `GET /api/ext/realms/{realmId}/orgs/{orgId}/members/{userId}` | `orgs:view` | 无 | 200 |
+| 检查组织内权限 | `POST /api/ext/realms/{realmId}/orgs/{orgId}/permission-check` | `orgs:view` | 请求体 | 200 |
+| 列出用户所在的组织 | `GET /api/ext/realms/{realmId}/orgs` | `orgs:view` | 查询参数 `userId`、`page`、`pageSize` | 200，一页组织 |
+
+### 权限检查
+
+服务拿着前端发来的 Bearer token 调用它，Herald 回答这个 token 的用户是否具备每一条规则。
+
+```json
+{
+  "accessToken": "前端请求的 Authorization: Bearer 请求头里的 token",
+  "rules": [{ "resource": "document", "action": "read" }]
+}
+```
+
+`rules` 至少要有一条。`allowed` 为 `true` 的条件是每条规则都通过。在同一个资源上，`manage` 的授权覆盖 `view` 和 `create`。除此之外，任何 action 都不隐含另一个 action。
+
+应答的状态码始终是 200，内容是下面三种形态之一：
+
+| 响应体 | 含义 |
+|--------|------|
+| `{ "allowed": true, "userId": "0193d0bf-0000-7000-8000-000000000042" }` | token 有效，且每条规则都通过。`userId` 是 Herald 的用户 id。 |
+| `{ "allowed": false }` | token 有效，用户已通过认证，但至少有一条规则被拒。 |
+| `{ "allowed": false, "error": "token_not_found" }` | token 被拒绝。没有 `userId`。 |
+
+靠 `error` 是否出现来区分这三种形态。`userId` 只在 `allowed` 为 `true` 时出现，所以不能拿它代表“用户已登录”。
+
+对于保护自己路由的服务，按下面的方式应答调用方：
+
+| 应答 | 返回的状态码 | 原因 |
+|------|--------------|------|
+| `allowed` 为 `true` | 放行请求 | |
+| `allowed` 为 `false`，没有 `error` | 403 | 用户已登录，但缺少权限。 |
+| `error` 为 `token_not_found` | 401 | access token 未知或已过期。前端会刷新 token 或重新登录。 |
+| `error` 为 `invalid_token` | 401 | 用户已被禁用或删除，或者签发这个 token 的 client app 已被禁用或不存在。 |
+| `error` 为 `internal_error` | 503 | Herald 没能完成这次检查。 |
+| `error` 为 `cross_realm_access_forbidden` 或 `forbidden` | 403，并记录日志 | API Key 与 token 的 realm 不一致，或者 token 属于 Key 所绑定的 client app 之外的其他 app。这是接入配置的问题，重新登录解决不了。 |
+| 调用抛出了异常 | 503 | Herald 没有应答。 |
+
+### 权限缓存
+
+Rust 和 Node SDK 会在客户端缓存权限检查的结果。保留这个行为：
+
+- 结果按 access token 与 rules 的精确组合缓存。rules 的顺序是缓存键的一部分。
+- 一条缓存存活一个 TTL，默认 300 秒。
+- 上一次结果距今超过 300 秒的 token，在下一次检查之前丢掉它的全部缓存，与 TTL 无关。access token 是短命的，这样的结果描述的是一个已经被替换掉的 token。
+- `invalidate_cache(token)` 丢掉一个 token 的全部缓存。在服务持有这个 token、又得知用户权限已变的地方调用它。
+- 拒绝的结果和通过的结果一样会被缓存。缓存键取自请求本身，所以被拒绝的用户也没法让每个请求都打到 Herald。
+
+因此在 Herald 里修改权限后，变更最迟在缓存过期时到达服务，也就是 `cache_ttl_seconds` 之后。
+
+### 积分
+
+数量都是整数。`userId`、扣减里的 `clientAppId`、`bucketId` 和 `transactionId` 都是 UUID。
+
+查询某个用户的余额，范围是 Key 所绑定的 client app 覆盖的 bucket。绑定到 `admin-api-client` 的 Key 得到整个 realm 的总数。
+
+```http
+GET /api/ext/points/my-realm/balance?userId=0193d0bf-0000-7000-8000-000000000042
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "balance": 1200,
+  "topupBalance": 1000,
+  "subscriptionBalance": 0,
+  "grantedBalance": 200,
+  "registrationBalance": 0,
+  "freePeriodicBalance": 0,
+  "totalPaidGranted": 1000,
+  "totalRecharged": 1000,
+  "totalConsumed": 300,
+  "unit": "points",
+  "currency": "points",
+  "updatedAt": "2026-11-27T09:00:00.123456+00:00",
+  "expiresAt": "2026-12-31T00:00:00.000000+00:00"
+}
+```
+
+`balance` 是当前可用的总数。`totalRecharged` 与 `totalPaidGranted` 取值相同，是为旧调用方保留的。`expiresAt` 是这些余额里最早的过期时间，没有会过期的余额时为 `null`。
+
+扣减会扣除积分。Herald 自己挑选覆盖这个 client app 的 Credit Bucket，所以一次调用可能扣减多个 bucket。
+
+```http
+POST /api/ext/points/my-realm/consume
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "clientAppId": "0193d0c1-0000-7000-8000-000000000101",
+  "amount": 100,
+  "description": "One report export",
+  "idempotencyKey": "report-export:0193d0ee-0000-7000-8000-000000000777"
+}
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "amount": 100,
+  "correlationId": "0193d0ee-0000-7000-8000-000000000777",
+  "transactions": [
+    {
+      "transactionId": "0193d0ee-0000-7000-8000-000000000778",
+      "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+      "walletId": "0193d0c3-0000-7000-8000-000000000301",
+      "userId": "0193d0bf-0000-7000-8000-000000000042",
+      "amount": 100,
+      "balanceAfter": 900
+    }
+  ],
+  "allocations": [
+    {
+      "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+      "walletId": "0193d0c3-0000-7000-8000-000000000301",
+      "ledgerId": "0193d0ee-0000-7000-8000-000000000779",
+      "creditType": "topup_credit",
+      "allocatedAmount": 100
+    }
+  ]
+}
+```
+
+`transactions` 每个被扣减的 bucket 对应一项，`amount` 是从这个 bucket 扣掉的正数点数，`balanceAfter` 是扣减后这个 bucket 的余额。`allocations` 按积分类型拆分每次扣减，`creditType` 是 `topup_credit`、`subscription_credit`、`registration_credit`、`free_periodic_credit`、`granted_credit` 之一。
+
+有了幂等 key，重试是安全的：
+
+- `idempotencyKey` 可选，最多 255 字节，在每个 API Key 内唯一。
+- 第一次带某个 key 的调用会把结果保存 24 小时。`userId`、`clientAppId`、`amount`、`description` 都相同的再次调用，会以 200 返回保存的结果，不会再扣一次。
+- 同一个 key 配上这四个值中任何一个不同的请求，返回 409 `idempotency_conflict`。
+- 不带 key 时，`network` 错误或 5xx 之后的重试会再扣一次。Herald 会在 60 秒后以 408 中止一次扣减调用，这同样让结果变得未知。重试时始终带上同一个 key。
+
+发放会往一个 Credit Bucket 里加积分。
+
+```http
+POST /api/ext/points/my-realm/grant
+```
+
+```json
+{
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+  "amount": 500,
+  "reason": "Welcome bonus",
+  "validityDays": 30
+}
+```
+
+```json
+{
+  "transactionId": "0193d0ee-0000-7000-8000-000000000780",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "bucketId": "0193d0c2-0000-7000-8000-000000000201",
+  "amount": 500,
+  "grantedBalance": 700,
+  "balance": 1700,
+  "expiresAt": "2026-12-27T00:00:00.000000+00:00"
+}
+```
+
+`reason` 不能为空。`validityDays` 可选，最小为 1。不传时积分不过期，`expiresAt` 为 `null`。`grantedBalance` 是发放后这个 bucket 里可用的“主动发放”积分余额，`balance` 是这个 bucket 可用的总余额。绑定到普通 client app 的 Key 只能往它所绑定的 app 覆盖的 bucket 里发放。
+
+扣减和发放共用一个限流：每个 realm 每分钟 100 次，每个用户每分钟 20 次。超过后返回 429 `rate_limit_exceeded`。
+
+按 id 查询一条流水。`amount` 在扣减时为负，在发放时为正。
+
+```http
+GET /api/ext/points/my-realm/transactions/0193d0ee-0000-7000-8000-000000000778
+```
+
+```json
+{
+  "transactionId": "0193d0ee-0000-7000-8000-000000000778",
+  "walletId": "0193d0c3-0000-7000-8000-000000000301",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "transactionType": "consume",
+  "amount": -100,
+  "balanceAfter": 900,
+  "description": "One report export",
+  "clientAppId": "0193d0c1-0000-7000-8000-000000000101",
+  "subscriptionId": null,
+  "externalRefId": null,
+  "createdAt": "2026-11-27T09:00:00.123456+00:00"
+}
+```
+
+`transactionType` 是 `recharge`、`consume`、`subscription_grant`、`subscription_renewal`、`subscription_upgrade`、`subscription_downgrade`、`registration_grant`、`free_periodic_grant`、`refund_revoke`、`expire_revoke`、`cancel_revoke`、`expiration`、`refund`、`grant` 之一。`clientAppId` 是这条流水所属的 client app 的 UUID，或者为 `null`。`subscriptionId` 和 `externalRefId` 在流水不属于某个订阅、也不是带外部引用创建的时候，为 `null`。绑定到普通 client app 的 Key 读不到不属于任何 client app 的流水。
+
+### 订阅
+
+某个 client app 的订阅。这是唯一一个路径里的 `clientAppId` 同时接受 `clientId` 和 UUID `id` 的调用。
+
+```http
+GET /api/ext/bill/my-realm/client/my-web-app/subscription
+```
+
+```json
+{
+  "id": "0193d0c4-0000-7000-8000-000000000401",
+  "clientAppId": "my-web-app",
+  "status": "active",
+  "entitlementKey": "pro",
+  "paymentProvider": "stripe",
+  "externalPriceId": "price_1AbCdEfGhIjKlMnOpQrStUvWxYz",
+  "billingType": "recurring",
+  "currency": "USD",
+  "currentPeriodStart": "2026-11-01T00:00:00.000000+00:00",
+  "currentPeriodEnd": "2026-12-01T00:00:00.000000+00:00",
+  "cancelAt": null,
+  "cancelAtPeriodEnd": false,
+  "createdAt": "2026-11-01T00:00:00.000000+00:00",
+  "updatedAt": "2026-11-20T08:30:00.000000+00:00"
+}
+```
+
+`clientAppId` 与路径里的值相同。Herald 没有这个订阅对应的价格时，`externalPriceId` 和 `currency` 不出现。`status` 是 `active`、`canceled`、`expired`、`incomplete`、`paused`、`trialing`、`past_due`、`scheduled_cancel`、`dispute`、`pending` 之一。`billingType` 是 `recurring` 或 `non_renewing`。没有订阅的 client app 返回 404 `subscription_not_found`。
+
+### Realm 用户和 Client App
+
+这些调用通过外部 API 管理 realm。只做权限检查和积分扣减的服务用不到它们。
+
+创建 realm。`name` 为 3 到 50 个字符，密码为 8 到 100 个字符。应答是 201 加上这个 realm：`id`、`name`、`description`、`adminUser`（`id`、`email`、`role`）、`createdAt`、`updatedAt`。
+
+```json
+{
+  "name": "my-realm",
+  "description": "My application",
+  "adminUser": { "email": "admin@example.com", "password": "an-8-to-100-character-password" }
+}
+```
+
+列出 realm 的应答是 `{ "realms": [...] }`。`admin` realm 里的 Key 能看到所有 realm，其他 Key 只能看到自己所在的 realm。查询 realm 返回上面那种结构。列表里的每一项有 `id`、`name`、`description`、`createdAt`、`updatedAt`。
+
+创建用户。邮箱格式要有效，密码为 8 到 100 个字符。`nickname` 可选。应答是 201 加上 `id`、`email`、`nickname`、`status`、`createdAt`。`status` 是 `wait_verified`、`normal`、`forbidden`、`deleted` 之一。
+
+```json
+{ "email": "user@example.com", "password": "an-8-to-100-character-password", "nickname": "jane" }
+```
+
+列出用户返回一页用户。超出范围的分页参数会被 Herald 修正而不是拒绝：`page` 小于 1 时按 1 处理，`pageSize` 被限制在 1 到 100 之间。查询用户返回一个用户，找不到时返回 404 `user_not_found`。
+
+创建 client app。`name` 不能为空。`redirectUris` 是回调地址列表。`deviceCodeGrantEnabled` 可选，打开后 `redirectUris` 可以为空。
+
+```json
+{
+  "name": "My Web App",
+  "description": "The web frontend",
+  "redirectUris": ["https://app.example.com/api/auth/oauth/callback"]
+}
+```
+
+应答是 201 加上这个 client app：`id`、`clientId`、`clientSecret`、`name`、`description`、`redirectUris`、`enabled`、`createdAt`。它的 `id` 就是积分扣减和 client app 查询里 `clientAppId` 要填的 UUID。
+
+列出 client app 的应答是 `{ "clientApps": [...] }`。绑定到普通 client app 的 Key 只能得到它自己绑定的那个 app。列表里的每一项有 `id`、`clientId`、`name`、`enabled`、`createdAt`。查询 client app 按 UUID `id` 返回一个 client app，找不到时返回 404 `client_app_not_found`。
+
+### 组织
+
+组织要求 API Key 绑定到普通的 client app。绑定到 `admin-api-client` 或者没有绑定任何 app 的 Key，每次调用都返回 403 `org_client_app_key_required`。每个组织都属于 Key 所绑定的 client app，应答里的 `clientId` 指的就是这个 app。
+
+读需要 `orgs:view`，写需要 `orgs:manage`。
+
+创建组织。`externalId` 是你自己给它的标识，在每个 client app 内唯一。
+
+```json
+{ "externalId": "workspace-42", "name": "Acme Workspace", "ownerId": "0193d0bf-0000-7000-8000-000000000042" }
+```
+
+```json
+{
+  "id": "0193d0c5-0000-7000-8000-000000000501",
+  "externalId": "workspace-42",
+  "name": "Acme Workspace",
+  "ownerId": "0193d0bf-0000-7000-8000-000000000042",
+  "realmId": "my-realm",
+  "clientId": "my-web-app",
+  "createdAt": "2026-11-27T09:20:00.123456+00:00",
+  "created": true
+}
+```
+
+用同一个 `externalId` 再次创建，会以 200 返回同一个组织，`created` 为 `false`。一个 client app 的第一个组织还会创建它的三个内置层级：`org-owner`、`org-admin`、`org-member`。
+
+新增成员，或者修改已有成员的层级。`role` 是层级名。授予 `org-owner` 会把所有权转给这个成员。带 `actorUserId` 时，Herald 还会按这个用户在组织内的身份来校验这次修改。
+
+```json
+{ "userId": "0193d0bf-0000-7000-8000-000000000042", "role": "org-admin", "actorUserId": "0193d0c6-0000-7000-8000-000000000601" }
+```
+
+```json
+{
+  "orgId": "0193d0c5-0000-7000-8000-000000000501",
+  "userId": "0193d0bf-0000-7000-8000-000000000042",
+  "role": { "id": "0193d0c7-0000-7000-8000-000000000701", "name": "org-admin" },
+  "isOwner": false,
+  "createdAt": "2026-11-27T09:30:00.123456+00:00",
+  "updatedAt": "2026-11-27T09:30:00.123456+00:00"
+}
+```
+
+移除成员返回 204。可选的查询参数 `actorUserId` 含义同上。移除所有者，或者移除最后一个能管理组织的成员，返回 409 `org_owner_protected` 或 `org_last_admin_protected`。
+
+检查某个用户在一个组织内的权限。每条规则都要通过。这个用户不需要处于登录状态：请求里直接给出 `userId`。
+
+```json
+{ "userId": "0193d0bf-0000-7000-8000-000000000042", "rules": [{ "resource": "project", "action": "delete" }] }
+```
+
+```json
+{ "member": true, "allowed": true, "role": { "id": "0193d0c7-0000-7000-8000-000000000701", "name": "org-admin" } }
+```
+
+被拒绝同样是 200。缺少某条规则的成员，应答里 `member` 为 `true`、`allowed` 为 `false`。不是成员的用户，`member` 和 `allowed` 都是 `false`，并且没有 `role`。`rules` 为空时返回 400 `rules_required`。
+
+其余调用：
+
+| 调用 | 应答 |
+|------|------|
+| 列出成员，带 `page` 和 `pageSize` | 一页成员：`userId`、`email`、`nickname`、`role`、`isOwner`、`joinedAt`。与用户列表不同，`pageSize` 不在 1 到 100 之间时返回 400。 |
+| 查询成员 | 是成员时 `member` 为 `true`，带 `userId`、`role`、`isOwner`、`joinedAt`；不是成员时 `member` 为 `false`，只带 `userId`。不是成员时不返回 404。 |
+| 列出某个用户所在的组织，带 `userId`、`page`、`pageSize` | 一页 `orgId`、`externalId`、`name`、`role`、`isOwner`、`joinedAt` |
+| 删除组织 | 204，连同它的全部成员关系 |
+
+层级名不存在时返回 400 `org_role_not_found`。组织或成员不存在时返回 404 `org_not_found` 或 `org_member_not_found`。
+
+### Webhook 投递
+
+Herald 把状态变更推送到 realm 管理员登记的 URL。每次投递都用这个订阅的签名密钥签名，密钥以 `whsec_` 开头：
+
+```text
+signedPayload = "{X-Herald-Timestamp}.{raw request body}"
+X-Herald-Signature = "v1=" + hex(HMAC-SHA256(key = signing secret, message = signedPayload))
+```
+
+在处理投递之前，按这个顺序验证：
+
+1. 读取 `X-Herald-Timestamp` 和 `X-Herald-Signature`。缺少任何一个请求头就拒绝这次投递。
+2. 时间戳是 Unix 秒。与当前时间相差超过 300 秒就拒绝。
+3. 用收到的原始请求体计算签名。解析后重新序列化的请求体算不出相同的签名。
+4. 用常量时间比较。
+5. 密钥轮换期间，列表里任何一个密钥匹配就接受这次投递。
+
+然后解析请求体，跳过 `id` 已经处理过的事件，处理这个事件，并返回 2xx。其他状态码都会让 Herald 重试。请求体是一个信封：
+
+```json
+{
+  "id": "0193d0c0-0000-7000-8000-000000000001",
+  "type": "user.disabled",
+  "realmId": "my-realm",
+  "createdAt": "2026-11-20T12:00:00.100Z",
+  "occurredAt": "2026-11-20T11:59:58.000Z",
+  "data": { "userId": "0193d0bf-0000-7000-8000-000000000042" }
+}
+```
+
+`type` 是 `user.created`、`user.disabled`、`user.deleted`、`role.granted`、`role.revoked`、`subscription.activated`、`subscription.renewed`、`subscription.expired`、`subscription.refunded` 之一。[Webhooks](/docs/integration/webhooks)列出了每种事件的 `data` 字段、重试行为，以及怎样登记 URL。
+
+下面两个向量用来检查实现。Node SDK 的测试套件用的是同样的两个：
+
+| 密钥 | 时间戳 | 请求体 | `X-Herald-Signature` |
+|------|--------|--------|----------------------|
+| `whsec_test_key` | `1763640000` | `{"type":"user.created"}` | `v1=03d317fbd891f5d25a1b48149824ef6a4cb981d249b5c029fd792720d418d0c0` |
+| `whsec_test_key` | `1763640000` | 空 | `v1=5175027c75fed714286b89d9b4cbf090d701a102b61128d91adf3886103099cf` |
+
+### 后端登录调用
+
+这三个请求属于通过 Herald 给浏览器用户登录的后端。它们都不带 API Key。请求里的字段名在不同调用之间大小写不同。
+
+| 调用 | 方法和路径 | 发送 | 应答 |
+|------|------------|------|------|
+| 用授权码换 token | `POST /api/oauth/{realmId}/token` | snake_case 字段的 JSON 请求体 | 200，snake_case 键的 token 组 |
+| 刷新 token 组 | `POST /api/auth/browser-token/refresh` | 带 `refreshToken` 的 JSON 请求体 | 200，camelCase 键的 token 组。refresh token 无效时为 401。 |
+| 结束会话 | `POST /api/auth/logout` | `Authorization: Bearer`，带 access token | 200 |
+
+换 token 这一步完成 OAuth 2.1 Authorization Code with PKCE 流程。[第三方后端服务对接 Herald](/docs/integration/third-party-backend#oauth-后端处理器)展示了怎样构造 authorize URL，以及怎样把 `code_verifier` 留在后端。
+
+```http
+POST /api/oauth/my-realm/token
+```
+
+```json
+{
+  "grant_type": "authorization_code",
+  "code": "the code parameter of the callback",
+  "redirect_uri": "https://app.example.com/api/auth/oauth/callback",
+  "client_id": "my-web-app",
+  "code_verifier": "the verifier generated for this login"
+}
+```
+
+```json
+{
+  "access_token": "…",
+  "refresh_token": "…",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_expires_in": 2592000
+}
+```
+
+`code_verifier` 为 43 到 128 个字符，取自字母、数字和 `-`、`.`、`_`、`~`。一个授权码只能换一次。换 token 失败时返回 400，响应体是标准错误体，`code` 为 `bad_request`。不要发送 `resource` 字段。两个时长的单位是秒，取决于 client app 的配置。
+
+刷新会让 token 组轮换。保存新的 refresh token，丢掉旧的。轮换之后再次出示旧的 refresh token，会导致整个 token 族被吊销，用户必须重新登录。
+
+```http
+POST /api/auth/browser-token/refresh
+```
+
+```json
+{ "refreshToken": "the stored refresh token" }
+```
+
+```json
+{
+  "accessToken": "…",
+  "refreshToken": "…",
+  "expiresIn": 3600,
+  "refreshExpiresIn": 2592000,
+  "tokenType": "Bearer"
+}
+```
+
+登出会吊销 `Authorization` 请求头里那个 access token 所属的 refresh token 族。它返回 200 和一个 `message`，access token 无效时返回 401。
+
+## 3. 参考客户端
+
+`herald_client.py` 只用 Python 标准库实现了上面的全部契约，方法与 Rust 和 Node SDK 一一对应，写成 snake_case。它在 Python 3.12 和 3.13 上对着桩服务器测试过，验签结果与 [Webhook 投递](#webhook-投递)里的两个向量一致。
+
+它与 SDK 有几处刻意的不同：
+
+- 调用默认在 10 秒后超时。Rust SDK 不设上限，Node SDK 交给运行时决定。
+- 3xx 应答抛出 `api-error`。跟随重定向会把 API Key 发给别的主机。
+- 忽略 `HTTP_PROXY` 和 `HTTPS_PROXY`，与 Rust SDK 一致。
+- 权限缓存可以在多个线程里同时使用，并且会丢掉再也不被检查的 token 的缓存。
+- 方法把解码后的 JSON 以字典返回，键名保持 Herald 发来的样子。
+- `HeraldSdkError.body_json` 和 `HeraldSdkError.body_code` 给出错误体里的原因。
+
+文件分成两部分。把两部分放进同一个模块。
+
+```python
+"""Client for the Herald HTTP API, standard library only.
+
+Reference implementation of the Rust crate and Node package `herald-sdk`.
+Herald publishes no Python package: copy this module into your project and
+adapt it.
+
+Calls to /api/ext/* carry the realm API key in the X-API-Key header and
+return the decoded JSON body with Herald's camelCase keys unchanged. A
+failed call raises HeraldSdkError.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import http.client
+import json
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+# Cached results of a token last checked longer ago than this are dropped
+# before its next check. Independent of the cache TTL.
+TOKEN_STALE_AFTER_SECONDS = 300
+
+# Replay window for webhook deliveries.
+WEBHOOK_TOLERANCE_SECONDS = 300
+
+
+class HeraldSdkError(Exception):
+    """A failed Herald call.
+
+    `code` is one of network, unauthorized, forbidden, not-found,
+    internal-server-error, api-error, parse. Branch on `code`, never on the
+    message text. `status` and `body` are set when Herald answered.
+    `body_json` is the error body decoded, and `body_code` Herald's own reason
+    from it, such as insufficient_points.
+    """
+
+    def __init__(self, code, status=None, body=None):
+        label = f"{code} ({status})" if status is not None else code
+        message = f"Herald SDK error: {label}"
+        if body:
+            message += f": {body}"
+        super().__init__(message)
+        self.code = code
+        self.status = status
+        self.body = body
+
+    @property
+    def body_json(self):
+        """The error body decoded as JSON, or None when it is not a JSON object."""
+        try:
+            decoded = json.loads(self.body)
+        except (TypeError, ValueError):
+            return None
+        return decoded if isinstance(decoded, dict) else None
+
+    @property
+    def body_code(self):
+        return (self.body_json or {}).get("code")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # A 3xx from the API means base_url is wrong. Following it would send the
+    # API key to another host, so the response is reported as an api-error.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _path_part(value):
+    """Encode one path segment, so `/` or `?` inside a value cannot alter the path."""
+    return urllib.parse.quote(str(value), safe="")
+
+
+def _ext(*parts):
+    """Build an /api/ext path from its segments."""
+    return "/api/ext/" + "/".join(_path_part(part) for part in parts)
+
+
+def _clean(body):
+    """Drop keys whose value is None, as JSON.stringify drops undefined keys."""
+    return {key: value for key, value in body.items() if value is not None}
+
+
+class HeraldClient:
+    def __init__(self, base_url, api_key, cache_ttl_seconds=300, timeout=10):
+        """`base_url` is the Herald origin. `api_key` is the realm API key.
+
+        `timeout` is seconds per HTTP request. The Rust and Node SDKs wait
+        without limit by default; here a hung Herald call would also hang the
+        request that triggered it, so this client sets a limit.
+        """
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
+        self._cache_ttl = cache_ttl_seconds
+        self._timeout = timeout
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),  # ignore HTTP(S)_PROXY, like the Rust SDK
+            _NoRedirect(),
+        )
+        self._lock = threading.Lock()
+        self._cache = {}      # cache key -> (response, monotonic expiry, access token)
+        self._index = {}      # access token -> its cache keys
+        self._last_seen = {}  # access token -> monotonic time of its last check
+        self._sweep_at = 0.0
+
+    # ---- HTTP layer
+
+    def _send(self, method, path, query=None, body=None, api_key=True, bearer=None):
+        url = self._base_url + path
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+        headers = {"X-API-Key": self._api_key} if api_key else {}
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            response = self._opener.open(request, timeout=self._timeout)
+        except urllib.error.HTTPError as error:
+            response = error  # a non-2xx answer: still carries status and body
+        except (OSError, http.client.HTTPException) as error:
+            raise HeraldSdkError("network") from error
+        try:
+            with response:
+                return response.getcode(), response.read().decode("utf-8", errors="replace")
+        except (OSError, http.client.HTTPException) as error:
+            raise HeraldSdkError("network") from error
+
+    @staticmethod
+    def _decode(status, text):
+        """Turn one answer into a decoded value or a HeraldSdkError."""
+        if status == 401:
+            raise HeraldSdkError("unauthorized", status, text)
+        if status == 403:
+            raise HeraldSdkError("forbidden", status, text)
+        if status == 404:
+            raise HeraldSdkError("not-found", status, text)
+        if status == 500:
+            raise HeraldSdkError("internal-server-error", status, text)
+        if 200 <= status < 300:
+            try:
+                return json.loads(text)
+            except ValueError as error:
+                raise HeraldSdkError("parse", status, f"invalid JSON body: {error}") from error
+        raise HeraldSdkError("api-error", status, text)
+
+    def _json(self, method, path, query=None, body=None, api_key=True, bearer=None):
+        return self._decode(*self._send(method, path, query, body, api_key, bearer))
+
+    def _void(self, path, query=None):
+        status, text = self._send("DELETE", path, query)
+        return None if status == 204 else self._decode(status, text)
+
+    @staticmethod
+    def _page_query(page=None, page_size=None):
+        query = {}
+        if page is not None:
+            query["page"] = str(page)
+        if page_size is not None:
+            query["pageSize"] = str(page_size)
+        return query
+
+    # ---- permissions
+
+    def check_permission(self, access_token, rules):
+        """Ask whether the token's user holds every rule in `rules`.
+
+        `rules` is a non-empty list of {"resource": ..., "action": ...}.
+        Results are cached per exact (access_token, rules) pair, denials
+        included. Read the answer by shape, not by `allowed` alone:
+
+            allowed + userId          every rule granted
+            allowed false, no error   token valid, a rule denied
+            allowed false + error     token rejected; see the error value
+        """
+        if self._token_is_stale(access_token):
+            self.invalidate_cache(access_token)
+
+        key = json.dumps([access_token, rules], separators=(",", ":"))
+        now = time.monotonic()
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is not None:
+                if now <= entry[1]:
+                    return entry[0]
+                self._forget(key)
+
+        response = self._json(
+            "POST",
+            "/api/ext/permission/check",
+            body={"accessToken": access_token, "rules": rules},
+        )
+
+        now = time.monotonic()
+        with self._lock:
+            self._last_seen[access_token] = now
+            self._index.setdefault(access_token, set()).add(key)
+            self._cache[key] = (response, now + self._cache_ttl, access_token)
+            if now >= self._sweep_at:
+                self._sweep(now)
+                self._sweep_at = now + self._cache_ttl
+        return response
+
+    def invalidate_cache(self, access_token):
+        """Drop every cached result of this token, for example after the
+        user's permissions changed."""
+        with self._lock:
+            for key in self._index.pop(access_token, ()):
+                self._cache.pop(key, None)
+            self._last_seen.pop(access_token, None)
+
+    def _token_is_stale(self, access_token):
+        last = self._last_seen.get(access_token)
+        return last is not None and time.monotonic() - last > TOKEN_STALE_AFTER_SECONDS
+
+    def _forget(self, key):
+        _, _, access_token = self._cache.pop(key)
+        keys = self._index.get(access_token)
+        if keys is not None:
+            keys.discard(key)
+            if not keys:
+                del self._index[access_token]
+                self._last_seen.pop(access_token, None)
+
+    def _sweep(self, now):
+        # Expired entries are otherwise removed only when the same key is asked
+        # for again, which never happens for tokens that expired. Without this
+        # sweep the three dictionaries grow for the life of the process.
+        for key, (_, expires_at, _) in list(self._cache.items()):
+            if now > expires_at:
+                self._forget(key)
+
+    # ---- subscription and points
+
+    def get_subscription(self, realm_id, client_app_id):
+        """Subscription state of a client app. `client_app_id` accepts the
+        client app's `clientId` or its `id`."""
+        return self._json("GET", _ext("bill", realm_id, "client", client_app_id, "subscription"))
+
+    def get_balance(self, realm_id, user_id):
+        return self._json("GET", _ext("points", realm_id, "balance"), query={"userId": user_id})
+
+    def consume_points(
+        self, realm_id, user_id, client_app_id, amount, description=None, idempotency_key=None
+    ):
+        """Deduct points. `client_app_id` is the client app's UUID `id`.
+
+        `idempotency_key` identifies one logical deduction: reuse it on a
+        retry of the same call, never for a different one."""
+        return self._json("POST", _ext("points", realm_id, "consume"), body=_clean({
+            "userId": user_id,
+            "clientAppId": client_app_id,
+            "amount": amount,
+            "description": description,
+            "idempotencyKey": idempotency_key,
+        }))
+
+    def grant_points(self, realm_id, user_id, bucket_id, amount, reason, validity_days=None):
+        """Add points to one Credit Bucket. `bucket_id` and a non-empty
+        `reason` are required; `validity_days` omitted means no expiry."""
+        return self._json("POST", _ext("points", realm_id, "grant"), body=_clean({
+            "userId": user_id,
+            "bucketId": bucket_id,
+            "amount": amount,
+            "reason": reason,
+            "validityDays": validity_days,
+        }))
+
+    def get_transaction(self, realm_id, transaction_id):
+        return self._json("GET", _ext("points", realm_id, "transactions", transaction_id))
+
+    # ---- realms, users, client apps
+
+    def create_realm(self, request):
+        return self._json("POST", _ext("realms"), body=request)
+
+    def list_realms(self):
+        return self._json("GET", _ext("realms"))["realms"]
+
+    def get_realm(self, realm_id):
+        return self._json("GET", _ext("realms", realm_id))
+
+    def create_user(self, realm_id, request):
+        return self._json("POST", _ext("realms", realm_id, "users"), body=request)
+
+    def list_users(self, realm_id):
+        """First page only (page 1, 20 items). Use list_users_page to page."""
+        return self.list_users_page(realm_id)["items"]
+
+    def list_users_page(self, realm_id, page=None, page_size=None):
+        """`page` starts at 1. `page_size` defaults to 20 and is capped at 100."""
+        return self._json(
+            "GET", _ext("realms", realm_id, "users"), query=self._page_query(page, page_size)
+        )
+
+    def get_user(self, realm_id, user_id):
+        return self._json("GET", _ext("realms", realm_id, "users", user_id))
+
+    def create_client_app(self, realm_id, request):
+        return self._json("POST", _ext("realms", realm_id, "client-apps"), body=request)
+
+    def list_client_apps(self, realm_id):
+        return self._json("GET", _ext("realms", realm_id, "client-apps"))["clientApps"]
+
+    def get_client_app(self, realm_id, client_app_id):
+        """`client_app_id` is the client app's UUID `id`."""
+        return self._json("GET", _ext("realms", realm_id, "client-apps", client_app_id))
+
+    # ---- organizations (the API key must be bound to an ordinary client app)
+
+    @staticmethod
+    def _org(realm_id, org_id, *parts):
+        return _ext("realms", realm_id, "orgs", org_id, *parts)
+
+    def create_org(self, realm_id, request):
+        """Idempotent on (client app, externalId): a replay answers 200 with
+        `created: false`."""
+        return self._json("POST", _ext("realms", realm_id, "orgs"), body=request)
+
+    def delete_org(self, realm_id, org_id):
+        """Deletes the organization together with its memberships."""
+        return self._void(self._org(realm_id, org_id))
+
+    def upsert_org_member(self, realm_id, org_id, request):
+        """Adds a member or changes the tier of an existing one."""
+        return self._json("POST", self._org(realm_id, org_id, "members"), body=request)
+
+    def remove_org_member(self, realm_id, org_id, user_id, actor_user_id=None):
+        """`actor_user_id` applies the change as that user, with that user's
+        authority in the organization instead of the application's."""
+        query = {"actorUserId": actor_user_id} if actor_user_id is not None else {}
+        return self._void(self._org(realm_id, org_id, "members", user_id), query)
+
+    def list_org_members(self, realm_id, org_id):
+        """First page only (page 1, 20 items). Use list_org_members_page to page."""
+        return self.list_org_members_page(realm_id, org_id)["items"]
+
+    def list_org_members_page(self, realm_id, org_id, page=None, page_size=None):
+        return self._json(
+            "GET", self._org(realm_id, org_id, "members"), query=self._page_query(page, page_size)
+        )
+
+    def get_org_member(self, realm_id, org_id, user_id):
+        """A non-member answers `member: false` instead of 404."""
+        return self._json("GET", self._org(realm_id, org_id, "members", user_id))
+
+    def check_org_permission(self, realm_id, org_id, request):
+        """`request` is {"userId": ..., "rules": [...]}; every rule must hold."""
+        return self._json("POST", self._org(realm_id, org_id, "permission-check"), body=request)
+
+    def list_user_orgs(self, realm_id, user_id):
+        """First page only (page 1, 20 items). Use list_user_orgs_page to page."""
+        return self.list_user_orgs_page(realm_id, user_id)["items"]
+
+    def list_user_orgs_page(self, realm_id, user_id, page=None, page_size=None):
+        query = {"userId": user_id, **self._page_query(page, page_size)}
+        return self._json("GET", _ext("realms", realm_id, "orgs"), query=query)
+
+    # ---- login calls your backend makes for the browser (no API key)
+
+    def exchange_code(self, realm_id, *, code, redirect_uri, client_id, code_verifier):
+        """Trade an OAuth authorization code for a token set. Runs on your
+        backend, so `code_verifier` never reaches the browser."""
+        return self._json(
+            "POST",
+            f"/api/oauth/{_path_part(realm_id)}/token",
+            api_key=False,
+            body={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_id,
+                "code_verifier": code_verifier,
+            },
+        )
+
+    def refresh_tokens(self, refresh_token):
+        """Rotate the token set. Store both returned tokens; the old refresh
+        token stops working."""
+        return self._json(
+            "POST",
+            "/api/auth/browser-token/refresh",
+            api_key=False,
+            body={"refreshToken": refresh_token},
+        )
+
+    def logout(self, access_token):
+        """End the user's session by revoking the whole refresh-token family."""
+        return self._json("POST", "/api/auth/logout", api_key=False, bearer=access_token)
+```
+
+```python
+class HeraldWebhookError(Exception):
+    """A webhook delivery to reject.
+
+    `code` is one of missing-headers, invalid-timestamp,
+    timestamp-out-of-tolerance, invalid-signature, invalid-payload.
+    """
+
+    def __init__(self, code, detail):
+        super().__init__(f"Herald webhook error ({code}): {detail}")
+        self.code = code
+
+
+def _delivery_header(headers, name):
+    """First value of a header, whatever the case of its name. `headers` is
+    the `request.headers` of Flask, Django, or Starlette, or a plain dict."""
+    if not headers:
+        return None
+    value = headers.get(name)
+    if value is None:
+        for key, item in headers.items():
+            if key.lower() == name.lower():
+                value = item
+                break
+    return value[0] if isinstance(value, (list, tuple)) else value
+
+
+def _verified_payload(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    timestamp = timestamp or _delivery_header(headers, "X-Herald-Timestamp")
+    signature = signature or _delivery_header(headers, "X-Herald-Signature")
+    if not timestamp or not signature:
+        raise HeraldWebhookError(
+            "missing-headers", "X-Herald-Timestamp and X-Herald-Signature are required"
+        )
+    if not re.fullmatch(r"-?\d+", timestamp):
+        raise HeraldWebhookError(
+            "invalid-timestamp", "X-Herald-Timestamp must be a Unix time in seconds"
+        )
+    now = time.time() if now_seconds is None else now_seconds
+    if tolerance_seconds is not None and abs(now - int(timestamp)) > tolerance_seconds:
+        raise HeraldWebhookError(
+            "timestamp-out-of-tolerance", f"timestamp drift exceeds {tolerance_seconds} seconds"
+        )
+    secrets = [secret] if isinstance(secret, str) else [item for item in secret if item]
+    if not secrets:
+        raise HeraldWebhookError("invalid-signature", "at least one non-empty secret is required")
+    if not isinstance(payload, (bytes, bytearray, memoryview)):
+        raise HeraldWebhookError(
+            "invalid-payload",
+            "payload must be the raw request body, never a parsed or re-serialized object",
+        )
+    payload = bytes(payload)
+    signed = timestamp.encode("utf-8") + b"." + payload
+    for candidate in secrets:
+        digest = hmac.new(candidate.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(f"v1={digest}".encode("utf-8"), signature.encode("utf-8")):
+            return payload
+    raise HeraldWebhookError("invalid-signature", "HMAC-SHA256 signature mismatch")
+
+
+def verify_webhook_signature(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    """True when a delivery is signed with `secret` and recent. False for every
+    rejection.
+
+    `payload` is the raw request body as bytes. `secret` is the signing secret
+    (`whsec_...`) or a list of them during a key rotation. Pass `headers`, or
+    name the two values with `timestamp` and `signature`. `tolerance_seconds`
+    is the replay window; None disables the check.
+    """
+    try:
+        _verified_payload(
+            payload, secret, headers, timestamp, signature, tolerance_seconds, now_seconds
+        )
+        return True
+    except HeraldWebhookError:
+        return False
+
+
+def verify_and_parse_webhook_event(
+    payload,
+    secret,
+    headers=None,
+    timestamp=None,
+    signature=None,
+    tolerance_seconds=WEBHOOK_TOLERANCE_SECONDS,
+    now_seconds=None,
+):
+    """Same checks as verify_webhook_signature, then decode the body. Raises
+    HeraldWebhookError; act on the returned event only."""
+    raw = _verified_payload(
+        payload, secret, headers, timestamp, signature, tolerance_seconds, now_seconds
+    )
+    try:
+        event = json.loads(raw)
+    except ValueError as error:
+        raise HeraldWebhookError("invalid-payload", f"invalid JSON body: {error}") from error
+    required = ("id", "type", "realmId", "createdAt", "occurredAt")
+    if (
+        not isinstance(event, dict)
+        or not isinstance(event.get("data"), dict)
+        or any(not isinstance(event.get(field), str) or not event[field] for field in required)
+    ):
+        raise HeraldWebhookError(
+            "invalid-payload",
+            "webhook payload must be a JSON object with id, type, realmId, "
+            "createdAt, occurredAt, and data",
+        )
+    return event
+```
+
+客户端的三种用法。第一种就是[权限检查](#权限检查)里的判定表。
+
+```python
+"""Three ways to use herald_client.py, one per kind of call."""
+import logging
+import os
+
+from herald_client import (
+    HeraldClient,
+    HeraldSdkError,
+    HeraldWebhookError,
+    verify_and_parse_webhook_event,
+)
+
+REALM_ID = "my-realm"
+CLIENT_APP_ID = "0193d0c1-0000-7000-8000-000000000101"
+RULES = [{"resource": "document", "action": "read"}]
+
+herald = HeraldClient(os.environ["HERALD_BASE_URL"], os.environ["HERALD_API_KEY"])
+# A list, so that a rotated secret can be added before the old one is removed.
+WEBHOOK_SECRETS = [os.environ["HERALD_WEBHOOK_SECRET"]]
+
+
+class NotAllowed(Exception):
+    """A request that must not proceed. `status` is what to answer the caller."""
+
+    def __init__(self, status):
+        super().__init__(f"not allowed: {status}")
+        self.status = status
+
+
+class InsufficientPoints(Exception):
+    def __init__(self, need):
+        super().__init__(f"the call needs {need} points")
+        self.need = need
+
+
+def current_user(access_token):
+    """The Herald user id of the caller, or NotAllowed with the status to answer."""
+    try:
+        result = herald.check_permission(access_token, RULES)
+    except HeraldSdkError:
+        raise NotAllowed(503) from None  # Herald did not answer: fail closed
+    if result["allowed"]:
+        return result["userId"]
+    error = result.get("error")
+    if error is None:
+        status = 403  # the token is valid and a rule is denied
+    elif error == "internal_error":
+        status = 503
+    elif error in ("token_not_found", "invalid_token"):
+        status = 401
+    else:
+        # cross_realm_access_forbidden or forbidden: the key does not match the
+        # token's realm or client app. Signing in again does not fix it.
+        logging.error("Herald rejected the token: %s", error)
+        status = 403
+    raise NotAllowed(status)
+
+
+def charge_report_export(user_id, report_id):
+    """Deduct 100 points for one report export and return the points deducted.
+
+    A retry with the same `report_id` deducts once, because it reuses the key.
+    """
+    try:
+        result = herald.consume_points(
+            REALM_ID,
+            user_id,
+            CLIENT_APP_ID,
+            100,
+            description="Report export",
+            idempotency_key=f"report-export:{report_id}",
+        )
+    except HeraldSdkError as error:
+        if error.code == "api-error" and error.body_code == "insufficient_points":
+            raise InsufficientPoints(error.body_json["need"]) from None
+        raise
+    return sum(transaction["amount"] for transaction in result["transactions"])
+
+
+def handle_herald_delivery(raw_body, headers, processed_event_ids):
+    """Answer one webhook delivery with `(status, reason)`.
+
+    `raw_body` is the request body before any parsing, `headers` holds the
+    request headers, and `processed_event_ids` is the store of event ids
+    already handled.
+    """
+    try:
+        event = verify_and_parse_webhook_event(
+            payload=raw_body, secret=WEBHOOK_SECRETS, headers=headers
+        )
+    except HeraldWebhookError as error:
+        return 400, error.code
+    if event["id"] in processed_event_ids:
+        return 200, "duplicate"  # Herald delivers again on retry; that is not an error
+    processed_event_ids.add(event["id"])
+    # Act on event["type"] and event["data"] here.
+    return 200, "ok"
+```
+
+这个客户端是同步的。在异步服务里，把每次调用放进线程池执行，或者把 `_send` 换成项目里的异步 HTTP 客户端，其余部分保持不变。无论哪种做法，缓存都由这个客户端的所有调用方共享。
+
+## 4. 这里没有覆盖的内容
+
+| 需求 | 去哪里看 |
+|------|----------|
+| 在浏览器里直接调用 Herald 的登录页面、浏览器里的 token 刷新、passkey | [浏览器 SDK (herald-auth-web)](/docs/integration/third-party-backend#8-浏览器-sdk-herald-auth-web) 和 [White-label（Realm 品牌化）](/docs/customization/branding) |
+| 后端登录流程的其余部分：authorize URL、临时的 state cookie、把 token 返回给前端 | [第三方后端服务对接 Herald](/docs/integration/third-party-backend#oauth-后端处理器) |
+| Webhook 的重试、事件目录、登记 URL | [Webhooks](/docs/integration/webhooks) |
+| API 的其他所有操作 | [OpenAPI 参考](/docs/openapi) |

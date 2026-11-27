@@ -310,7 +310,7 @@ fn pkce_challenge(code_verifier: &str) -> String {
 
 #### Token Refresh Endpoint
 
-When the frontend's access token expires, it calls your backend's refresh endpoint, which forwards the refresh token to Herald's token endpoint with `grant_type=refresh_token`. Herald validates it, issues a new access token and a rotated refresh token, and detects reuse: if a previously-rotated refresh token is presented again, Herald revokes the entire refresh-token family.
+When the frontend's access token expires, it calls your backend's refresh endpoint, which forwards the refresh token to Herald's browser refresh endpoint, `POST /api/auth/browser-token/refresh`. Herald validates it, issues a new access token and a rotated refresh token, and detects reuse: if a previously-rotated refresh token is presented again, Herald revokes the entire refresh-token family. The request carries only the refresh token: no API key and no `client_id`.
 
 ```rust
 // POST /api/auth/refresh  body: { refresh_token: string }
@@ -318,17 +318,20 @@ pub async fn refresh_token(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>, ApiError> {
-    let herald = state.config.herald.as_ref()?;
-    let url = format!("{}/api/oauth/{}/token", herald.base_url.trim_end_matches('/'), herald.realm_id);
-    let token: TokenSet = reqwest::Client::new()
+    let herald = state.config.herald.as_ref()
+        .ok_or(ApiError::service_unavailable("herald is not configured"))?;
+    let url = format!("{}/api/auth/browser-token/refresh", herald.base_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
         .post(url)
-        .json(&serde_json::json!({
-            "grant_type": "refresh_token",
-            "refresh_token": body.refresh_token,
-            "client_id": herald.client_id,
-        }))
-        .send().await?
-        .json().await?;
+        .json(&serde_json::json!({ "refreshToken": body.refresh_token }))
+        .send().await?;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(ApiError::unauthorized());
+    }
+    if !response.status().is_success() {
+        return Err(ApiError::service_unavailable("auth service unavailable"));
+    }
+    let token: HeraldRefreshResponse = response.json().await?;
     Ok(Json(TokenResponse {
         access_token: token.access_token,
         refresh_token: token.refresh_token,
@@ -336,17 +339,29 @@ pub async fn refresh_token(
         expires_in: token.expires_in,
     }))
 }
+
+// Herald answers camelCase. TokenResponse is your own API to your frontend.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HeraldRefreshResponse {
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    token_type: String,
+}
 ```
 
-On a failed refresh (invalid/expired/reused refresh token), return 401; the frontend clears its stored tokens and redirects to login.
+On a failed refresh (invalid/expired/reused refresh token), Herald answers 401 and the handler passes 401 through; the frontend clears its stored tokens and redirects to login. Any other error answer from Herald maps to 503, so a Herald outage does not log the user out.
+
+Do not send `grant_type=refresh_token` to the OAuth token endpoint for this. That grant serves Herald's built-in MCP client only; every other client gets 400 `unsupported_grant_type`.
 
 ### Auth Middleware
 
 The middleware extracts the token from the `Authorization: Bearer` header, maps the request path to a permission rule, and calls Herald to check.
 
 ```rust
-use axum::extract::State;
-use axum::http::{Method, Request, header};
+use axum::extract::{Request, State};
+use axum::http::{Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use herald_sdk::{Client, Error, PermissionCheckRequest, Rule};
@@ -355,7 +370,6 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct HeraldAuthState {
     pub herald_sdk: Arc<Client>,
-    pub client_id: Arc<str>,
 }
 
 pub async fn herald_auth_middleware(
@@ -376,9 +390,8 @@ pub async fn herald_auth_middleware(
     // 3. Check with Herald
     let response = auth_state.herald_sdk
         .check_permission(PermissionCheckRequest {
-            token,
-            rules: Some(vec![rule]),
-            client_id: auth_state.client_id.to_string(),
+            access_token: token,
+            rules: vec![rule],
         })
         .await;
 
@@ -391,12 +404,22 @@ pub async fn herald_auth_middleware(
             request.extensions_mut().insert(CurrentUser { user_id });
             next.run(request).await
         }
-        // Token invalid/missing: allowed=false, user_id=None
-        Ok(permission) if permission.user_id.is_none() => {
-            ApiError::unauthorized().into_response()
-        }
-        // Authenticated but lacks permission: allowed=false, user_id=Some(...)
-        Ok(_) => ApiError::forbidden().into_response(),
+        // Denied. Herald answers 200 with allowed=false and names the reason
+        // in `error`. It never sends user_id on a denial.
+        Ok(permission) => match permission.error.as_deref() {
+            // Token unknown or unusable
+            Some("token_not_found") | Some("invalid_token") => {
+                ApiError::unauthorized().into_response()
+            }
+            // Authenticated, but the rule is denied
+            None => ApiError::forbidden().into_response(),
+            // Your API key may not check this token's realm or client app
+            Some("forbidden") | Some("cross_realm_access_forbidden") => {
+                ApiError::forbidden().into_response()
+            }
+            // Herald could not answer: fail closed
+            Some(_) => ApiError::service_unavailable("auth service unavailable").into_response(),
+        },
         // Herald error: distinguish 401/403/other
         Err(error) => classify_auth_error(&error).into_response(),
     }
@@ -418,13 +441,14 @@ fn extract_auth_token(request: &Request) -> Option<String> {
 }
 ```
 
-The three rejection scenarios mean different things:
+The four rejection scenarios mean different things:
 
 | Condition | Herald returns | Your backend returns | Frontend behavior |
 |-----------|---------------|---------------------|-------------------|
-| Bearer token missing or invalid | `allowed=false, user_id=None` | 401 | Attempt refresh; on refresh failure, redirect to login |
-| Authenticated but no permission | `allowed=false, user_id=Some(...)` | 403 | Show permission denied |
-| Herald service unavailable | Network error or 500 | 503 | Show service unavailable |
+| Bearer token missing, expired, or unusable | `allowed=false, error=token_not_found` or `invalid_token` | 401 | Attempt refresh; on refresh failure, redirect to login |
+| Authenticated but no permission | `allowed=false`, no `error` | 403 | Show permission denied |
+| Your API key may not check this token | `allowed=false, error=forbidden` or `cross_realm_access_forbidden` | 403 | Show permission denied. Check the API key's realm and client app binding |
+| Herald service unavailable | `allowed=false, error=internal_error`, network error or 500 | 503 | Show service unavailable |
 
 503, not passthrough. If the auth service is down, processing requests means bypassing auth.
 
@@ -502,12 +526,9 @@ pub fn create_router(
 
     // Conditional mounting: only add auth middleware when Herald is configured
     let admin_routes = match (config.herald.as_ref(), herald_client) {
-        (Some(herald_config), Some(herald_sdk)) => {
+        (Some(_), Some(herald_sdk)) => {
             admin_routes.layer(axum::middleware::from_fn_with_state(
-                HeraldAuthState {
-                    herald_sdk,
-                    client_id: herald_config.client_id.clone().into(),
-                },
+                HeraldAuthState { herald_sdk },
                 herald_auth_middleware,
             ))
         }
@@ -852,8 +873,10 @@ let app = herald_client.create_client_app("my-realm", CreateClientAppSdkRequest 
 }).await?;
 
 let apps = herald_client.list_client_apps("my-realm").await?;
-let app = herald_client.get_client_app("my-realm", "my-mobile-app").await?;
+let app = herald_client.get_client_app("my-realm", &app.id).await?;
 ```
+
+`get_client_app` takes the client app's `id` (a UUID), not its `client_id`. Both fields come back from `create_client_app` and `list_client_apps`.
 
 Prefer an API key bound to the client app your backend serves. Use the `admin-api-client` key only for cross-client-app management (it ships disabled on new realms — enable it before issuing keys against it).
 
@@ -870,13 +893,15 @@ println!("Balance: {} {}", balance.balance, balance.unit);
 let result = herald_client.consume_points(
     "my-realm",
     &user_id,
-    "my-client-app",
+    &client_app_id,
     100,
     Some("AI API call".to_string()),
     Some("unique-request-id".to_string()),
 ).await?;
-println!("Balance after: {}", result.balance_after);
+println!("Balance after: {}", result.transactions[0].balance_after);
 ```
+
+`client_app_id` is the client app's `id` (a UUID), not its `client_id`. Herald answers 400 `invalid_client_app_id_format` for anything else.
 
 Always pass an `idempotency_key`. On network timeout retries, the same key prevents double-charging. When using an ordinary client app API key, `client_app_id` must be that key's bound client app.
 
@@ -890,7 +915,7 @@ Query a client app's subscription status:
 
 ```rust
 let sub = herald_client.get_subscription("my-realm", "my-client-app").await?;
-if sub.status == "active" {
+if sub.status == herald_sdk::SubscriptionStatus::Active {
     // user has a paid subscription
 }
 ```
@@ -926,7 +951,6 @@ Every call carries the API key in the `X-API-Key` header against Herald's extern
 ```ts
 const resp = await client.checkPermission({
   accessToken: browserToken, // the Bearer token your frontend forwarded
-  clientId: 'admin-web-console',
   rules: [{ resource: 'product', action: 'read' }],
 })
 if (resp.allowed) {
@@ -934,7 +958,9 @@ if (resp.allowed) {
 }
 ```
 
-Caching mirrors the Rust crate: results are cached per exact request (token + clientId + rules, rule order significant) for the TTL, and a token not checked for over 5 minutes has its entries invalidated before the next check. After you change a user's permissions in Herald and want the next check to hit the server, drop the cache for that token:
+The request names no client app: Herald takes it from the API key. On `allowed: false`, read `error` to tell an unusable token (401) from a denied rule (403), as the [auth middleware](#auth-middleware) does.
+
+Caching mirrors the Rust crate: results are cached per exact request (token + rules, rule order significant) for the TTL, and a token not checked for over 5 minutes has its entries invalidated before the next check. After you change a user's permissions in Herald and want the next check to hit the server, drop the cache for that token:
 
 ```ts
 client.invalidateCache(browserToken)
@@ -951,7 +977,7 @@ const sub = await client.getSubscription('my-realm', 'my-client-app')
 // Points (section 5)
 const balance = await client.getBalance('my-realm', userId)
 const result = await client.consumePoints(
-  'my-realm', userId, 'my-client-app',
+  'my-realm', userId, clientAppId, // the client app's UUID `id` (section 5)
   100, 'AI API call', 'unique-request-id',
 )
 console.log(result.transactions[0].balanceAfter)
@@ -968,7 +994,7 @@ const realm = await client.createRealm({
 const apps = await client.listClientApps('my-realm')
 ```
 
-The consume result carries one transaction per affected Credit Bucket (length 1 for a single pool). The idempotency rules from section 5 apply unchanged: always pass an idempotency key on consume, and remember the debit target is decided by `clientAppId`.
+The consume result carries one transaction per affected Credit Bucket (length 1 for a single pool). The idempotency rules from section 5 apply unchanged: always pass an idempotency key on consume, and remember the debit target is decided by `clientAppId`, which must be the client app's UUID `id`.
 
 ### Errors
 
@@ -987,6 +1013,8 @@ try {
 ```
 
 `code` is one of `unauthorized`, `forbidden`, `not-found`, `internal-server-error`, `api-error`, `network`, `parse`. The HTTP `status` and raw `body` are attached when a response was received.
+
+Python has no SDK. [Python Integration Without an SDK](/docs/integration/python) gives an AI coding assistant the HTTP contract behind this section and a reference client.
 
 ## 8. Browser SDK (herald-auth-web)
 

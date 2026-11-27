@@ -54,8 +54,8 @@ use herald_api_base::application::http::state::AppState;
         crate::organization::list_user_orgs,
     ),
     components(schemas(
-        crate::permission::PermissionCheckRequest,
-        crate::permission::PermissionCheckResponse,
+        crate::permission::ExtPermissionCheckRequest,
+        crate::permission::ExtPermissionCheckResponse,
         crate::subscription::SubscriptionResponse,
         crate::billing::SubscriptionDetail,
         crate::billing::OneTimeMappingExtResponse,
